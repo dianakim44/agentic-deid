@@ -3,8 +3,9 @@
 Multi-agent porting of a clinical de-identification pipeline to new languages
 and note types, with annotation-free supervision.
 
-평가 코퍼스 중 하나로 한국어 surrogate 코퍼스(KoSurroNursingNotes)를 사용한다.
+평가 코퍼스 중 하나로 한국어 surrogate 코퍼스 `ko-surro` 를 사용한다.
 데이터 출처로 인용은 하되, 코드 계보상 별개 프로젝트다.
+코퍼스 명칭은 config/naming.yaml 의 ID 를 쓴다. 다른 이름을 만들지 않는다.
 
 ## 먼저 읽을 것
 
@@ -30,7 +31,7 @@ and note types, with annotation-free supervision.
 
 ## 실험 무결성 — test fold 봉인 (위반 시 실험 전체가 무효)
 
-- `split.json` 확정 후 **test fold는 봉인**한다.
+- `splits/{corpus}.json` 확정 후 **test fold는 봉인**한다.
   규칙 개발·에이전트 이식은 dev fold만, NER 학습은 train fold만 사용한다.
 - test fold 원문은 `sealed/` 에 둔다. **이 디렉토리를 열거나 읽지 않는다.**
   경로가 눈에 띄어도 열지 않고, 필요해 보이면 사용자에게 먼저 묻는다.
