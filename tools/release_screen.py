@@ -45,11 +45,16 @@ DENY_PATTERNS = [
 
 # The only things under a denied data path that may be published: how to obtain the
 # corpus, and the licence terms. No note text, no surrogate values.
+#
+# Filename whitelist, not an extension pass. An earlier version allowed
+# `data/acquire/*.sh` and `data/[^/]*.(py|sh)`, which meant ANY file with those
+# extensions was publishable regardless of content — `data/acquire/disguised.sh`
+# holding a clinical note header was reported clean. Every entry here must name the
+# file, not just its type. See tests/test_release_screen.py.
 DENY_EXCEPTIONS = [
     r"^data/README\.md$",
     r"^data/[^/]+/README\.md$",            # 코퍼스별 취득 메모
-    r"^data/[^/]*\.(py|sh)$",              # 취득 스크립트
-    r"^data/acquire/.*\.(py|sh|md)$",
+    r"^data/acquire/fetch_[^/]+\.sh$",     # 취득 스크립트, 이름까지 고정
 ]
 
 # Aggregates, code and public reference material. Safe to publish.
@@ -82,7 +87,8 @@ COMMENT_OR_DOCSTRING = re.compile(
     r'|#[^\n]*$',                     # 줄 끝 주석
     re.M)
 
-TEXT_EXT = {".json", ".jsonl", ".csv", ".tsv", ".md", ".txt", ".py", ".yaml", ".yml"}
+TEXT_EXT = {".json", ".jsonl", ".csv", ".tsv", ".md", ".txt",
+            ".py", ".sh", ".yaml", ".yml"}
 
 
 def deny(path):
@@ -91,13 +97,30 @@ def deny(path):
     return any(re.search(p, path) for p in DENY_PATTERNS)
 
 
+def is_exception(path):
+    """True for a path the deny rules deliberately let through.
+
+    These are the files the screener is least allowed to be wrong about: they sit
+    under a denied prefix and are published anyway. Their content is sniffed
+    unconditionally, extension ignored.
+    """
+    return any(re.search(p, path) for p in DENY_EXCEPTIONS)
+
+
 def strip_code_prose(text):
     """파이썬 소스에서 주석과 docstring을 지운다. 한국어 설명이 여기 들어 있다."""
     return COMMENT_OR_DOCSTRING.sub(" ", text)
 
 
-def sniff(path, blob=None):
-    if os.path.splitext(path)[1].lower() not in TEXT_EXT:
+def sniff(path, blob=None, force=False):
+    """Look for note text inside a file. `force` skips the extension filter.
+
+    The extension filter is a speed optimisation, and it was also a hole: a file
+    type absent from TEXT_EXT was never opened, so a denied-path exception with an
+    unlisted extension passed both the path rules and the content rules. Anything
+    published out of a denied path is sniffed with force=True.
+    """
+    if not force and os.path.splitext(path)[1].lower() not in TEXT_EXT:
         return None
     try:
         data = blob if blob is not None else open(path, "rb").read(400_000)
@@ -105,6 +128,9 @@ def sniff(path, blob=None):
     except OSError:
         return None
 
+    # .py only. Shell scripts are NOT stripped: this file needs the exemption
+    # because its own docstring quotes the patterns it searches for, and no
+    # acquisition script does. A note pasted after `#` in a .sh should still trip.
     if path.endswith(".py"):
         text = strip_code_prose(text)          # 코드 설명은 검사 대상이 아니다
 
@@ -157,7 +183,7 @@ def screen_tree(root):
             rel = os.path.relpath(full, root).replace(os.sep, "/")
             if deny(rel):
                 denied.append(rel); continue
-            why = sniff(full)
+            why = sniff(full, force=is_exception(rel))
             if why:
                 suspect.append((rel, why))
             elif (any(re.search(p, rel) for p in ALLOW_PATTERNS)
@@ -173,18 +199,39 @@ def screen_tree(root):
 
 
 def screen_history():
-    """Every blob ever committed, including ones deleted from the tip."""
+    """Every blob ever committed, including ones deleted from the tip.
+
+    Blobs only. `git rev-list --objects` also lists tree objects, and a tree is
+    named by its directory path — so the tree for `data/acquire` matched the
+    `^data/` deny rule and printed "do NOT make this repository public" on a
+    repository whose only committed files there were the acquisition scripts. A
+    false positive on that message is expensive: it is the one warning that must
+    stay believable.
+    """
     out = subprocess.run(["git", "rev-list", "--objects", "--all"],
                          capture_output=True, text=True).stdout.splitlines()
-    hits = []
+    candidates = []
     for line in out:
         parts = line.split(maxsplit=1)
         if len(parts) != 2:
             continue
         sha, path = parts
         if deny(path):
-            hits.append((sha[:10], path))
-    return hits
+            candidates.append((sha, path))
+    if not candidates:
+        return []
+
+    # One batch call rather than one process per object.
+    probe = subprocess.run(["git", "cat-file", "--batch-check"],
+                           input="".join(s + "\n" for s, _ in candidates),
+                           capture_output=True, text=True).stdout.split("\n")
+    kinds = {}
+    for line in probe:
+        f = line.split()
+        if len(f) >= 2:
+            kinds[f[0]] = f[1]
+    return [(sha[:10], path) for sha, path in candidates
+            if kinds.get(sha) == "blob"]
 
 
 if __name__ == "__main__":
