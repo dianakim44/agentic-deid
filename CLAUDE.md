@@ -56,3 +56,8 @@ and note types, with annotation-free supervision.
 - 난수 시드는 config에 고정하고 결과 파일에 함께 기록한다.
 - 평가 지표: precision / recall / F1 에 더해 **누출률(leak rate)** 과
   **상보성 분해**(rule만 / AI만 / 둘 다 / 둘 다 놓침)를 항상 함께 낸다.
+  누출률과 상보성 분해가 headline 이고 F1 은 아니다. 병합이 union 이므로
+  결합 구성은 recall 에서 구성요소를 by construction 으로 이긴다.
+- **비용을 품질과 함께 보고한다.** arm 마다 LLM 호출 수 · 토큰 수 ·
+  wall time 을 metrics.json 에 같이 기록한다. 2배 비용으로 얻은 향상과
+  1.05배 비용으로 얻은 향상은 다른 결과다.
