@@ -1,0 +1,228 @@
+{
+  "_what_this_is": "Mechanical inventory of the corpus as it sits on disk. Facts and counts only, no interpretation. NOT the output of the Profiler agent — the .raw suffix marks this as human-reviewable source material that a person counted. Interpretation and open questions live in docs/notes/corpus-observations.md.",
+  "corpus": "de-grascco",
+  "generated": "2026-08-05",
+  "generated_by": "hand-written inventory script, port-human arm",
+  "source": {
+    "doi_annotations": "10.5281/zenodo.15747389",
+    "doi_text": "10.5281/zenodo.18874981",
+    "doi_concept_annotations": "10.5281/zenodo.11502328",
+    "doi_concept_text": "10.5281/zenodo.6539130",
+    "licence": "CC-BY-4.0",
+    "acquired_by": "data/acquire/fetch_grascco.sh"
+  },
+  "counting_method": "every number below was measured from the extracted files; where the corpus documentation also states a number, both are recorded and compared",
+  "file_composition": {
+    "directory_layout": {
+      "annotations/grascco_pii_2_json": 63,
+      "annotations/grascco_pii_2_xmi": 63,
+      "schema": 3,
+      "text": 63
+    },
+    "files_by_extension": {
+      ".json": 64,
+      ".pdf": 1,
+      ".txt": 63,
+      ".xmi": 63,
+      ".xml": 1
+    },
+    "total_files": 192,
+    "total_bytes": 11970257,
+    "total_mib": 11.4,
+    "note": "two Zenodo records combined by data/acquire/fetch_grascco.sh: annotations+schema from GraSCCo_PII_V2, text/ from the plain GraSCCo record"
+  },
+  "encoding": {
+    "text_files_probed": 63,
+    "valid_utf8": 63,
+    "files_with_bom": 5,
+    "files_containing_crlf": 0,
+    "files_with_lf": 63,
+    "json_encoding": "UTF-8 (JSON spec); document text is carried inside the CAS as the sofaString",
+    "conclusion": "UTF-8, LF, 5 of 63 .txt files carry a UTF-8 BOM",
+    "bom_offset_interaction": {
+      "finding": "the CAS sofaString retains the BOM as U+FEFF at index 0, so offsets count it",
+      "bom_files": [
+        "Baastrup.txt",
+        "Boeck.txt",
+        "Dupuytren.txt",
+        "Stölzl.txt",
+        "Waldenström.txt"
+      ],
+      "worse": "in Baastrup.txt and Dupuytren.txt the FIRST gold span starts at index 0, so the annotated surface itself begins with U+FEFF (e.g. '\\ufeffARCOS-KLINIK FLENSBURG...')",
+      "implication": "stripping the BOM shifts spans; not stripping it puts an invisible character inside a gold surface. Either way this must be an explicit decision, not a default."
+    }
+  },
+  "pairing": {
+    "scheme": "annotation file per document, text EMBEDDED in it (UIMA CAS sofaString) — not a separate-file pairing like brat",
+    "annotation_filename": "{DocName}.txtphi-pii_2.0.json  (and .xmi, same content)",
+    "plain_text_filename": "{DocName}.txt  — from the separate un-annotated GraSCCo record",
+    "json_vs_xmi": "two serialisations of the same UIMA CAS; JSON is easier to parse, XMI is the INCEpTION native form"
+  },
+  "annotation_format": {
+    "format": "UIMA CAS JSON (INCEpTION export), NOT BRAT and NOT i2b2 XML",
+    "phi_layer_type": "webanno.custom.PHI",
+    "label_feature": "kind (single flat string per span)",
+    "type_system_depth": "FLAT string, but the values are themselves compound: CATEGORY_SUBTYPE (e.g. NAME_PATIENT, LOCATION_STREET) — a two-level system encoded in one field",
+    "other_layers_present": "Token, Sentence, DocumentMetaData, TagsetDescription (dkpro/webanno types)",
+    "extra_features_on_phi_spans": {
+      "kind": 1436
+    },
+    "samples_verbatim": [
+      {
+        "doc": "Albers.txt",
+        "kind": "NAME_PATIENT",
+        "begin": 89,
+        "end": 101,
+        "sofa_slice": "Beate Albers"
+      },
+      {
+        "doc": "Albers.txt",
+        "kind": "DATE_BIRTH",
+        "begin": 105,
+        "end": 113,
+        "sofa_slice": "4.4.1997"
+      },
+      {
+        "doc": "Albers.txt",
+        "kind": "DATE",
+        "begin": 143,
+        "end": 151,
+        "sofa_slice": "7.5.2029"
+      }
+    ],
+    "samples_verbatim_note": "surfaces quoted above are from GraSCCo, an artificially generated corpus with purely fictional names and dates (CC-BY, openly published) — no real identifiers are reproduced"
+  },
+  "offsets": {
+    "unit": "character (UIMA CAS begin/end index the sofaString)",
+    "base": "0-based",
+    "end": "exclusive — sofaString[begin:end] yields the annotated surface",
+    "spans_within_bounds": 1436,
+    "spans_out_of_bounds": 0,
+    "out_of_bounds_examples": [],
+    "zero_or_negative_length_spans": 0,
+    "method": "every PHI span sliced out of its own document sofaString and inspected",
+    "critical_caveat": "offsets index the CAS sofaString, NOT necessarily the plain .txt from the other Zenodo record — see sofa_vs_plain_text below"
+  },
+  "sofa_vs_plain_text": {
+    "identical": 63,
+    "differ": 0,
+    "missing_txt": 0,
+    "examples": []
+  },
+  "overlap_structure": {
+    "nested_span_pairs": 0,
+    "crossing_span_pairs": 0,
+    "note": "counted on adjacent pairs after sorting by (begin,end); a nonzero count means the merge policy must handle containment"
+  },
+  "phi_types": {
+    "DATE": 632,
+    "NAME_PATIENT": 166,
+    "NAME_DOCTOR": 154,
+    "NAME_TITLE": 139,
+    "DATE_BIRTH": 61,
+    "ID": 59,
+    "LOCATION_CITY": 59,
+    "LOCATION_ZIP": 38,
+    "LOCATION_STREET": 36,
+    "LOCATION_HOSPITAL": 35,
+    "CONTACT_PHONE": 19,
+    "AGE": 19,
+    "CONTACT_FAX": 8,
+    "PROFESSION": 2,
+    "LOCATION_ORGANIZATION": 2,
+    "LOCATION_COUNTRY": 2,
+    "NAME_USERNAME": 2,
+    "NAME_RELATIVE": 1,
+    "NAME_EXT": 1,
+    "CONTACT_EMAIL": 1
+  },
+  "total_gold_spans": 1436,
+  "phi_types_coarse_by_prefix": {
+    "DATE": 693,
+    "NAME": 463,
+    "LOCATION": 172,
+    "ID": 59,
+    "CONTACT": 28,
+    "AGE": 19,
+    "PROFESSION": 2
+  },
+  "identifiers": {
+    "document_id_source": "DocumentMetaData.documentTitle == the original filename (e.g. 'Leitner.txt')",
+    "documentId_field_value": {
+      "CURATION_USER": 63
+    },
+    "documentId_note": "documentId is the INCEpTION curation user, NOT a document key — it is the same string for every file. The filename is the only usable document identifier.",
+    "documents": 63,
+    "unique_titles": 63,
+    "titles_sample": [
+      "Albers.txt",
+      "Amanda_Alzheimer.txt",
+      "Baastrup.txt",
+      "Beuerle.txt",
+      "Boeck.txt",
+      "Cajal.txt",
+      "Clausthal.txt",
+      "Colon_Fake_A.txt"
+    ],
+    "name_stems_with_multiple_documents": {
+      "Tupolev": 4
+    },
+    "patient_identifier_present": false,
+    "patient_id_evidence": "No patient field in the type system. Filenames are surnames/eponyms. Tupolev_1..4 and Colon_Fake_A..K share a stem, which is the only visible grouping above the document — whether those are the same fictional patient is a judgement call, not a fact in the data.",
+    "unique_unit": "document (no patient key available)"
+  },
+  "provided_splits": {
+    "has_own_split": false,
+    "evidence": "no train/dev/test directories or manifest in either Zenodo record; all 63 documents ship flat",
+    "documented_count": {
+      "value": 63,
+      "source": "Zenodo record file listing (GraSCCo v1.1) and the GMDS 2022 paper"
+    },
+    "measured_count": {
+      "text_files": 63,
+      "annotation_files": 63,
+      "xmi_files": 63
+    },
+    "agreement": "measured == documented (63)"
+  },
+  "length_distribution": {
+    "tokens_per_document_whitespace": {
+      "n": 63,
+      "min": 105,
+      "p25": 236,
+      "median": 404,
+      "p75": 689,
+      "max": 1584,
+      "mean": 497.8
+    },
+    "characters_per_document": {
+      "n": 63,
+      "min": 922,
+      "p25": 1993,
+      "median": 3041,
+      "p75": 5548,
+      "max": 12214,
+      "mean": 3947.4
+    },
+    "phi_spans_per_document": {
+      "n": 63,
+      "min": 6,
+      "p25": 15,
+      "median": 19,
+      "p75": 27,
+      "max": 63,
+      "mean": 22.8
+    },
+    "tokenizer_note": "whitespace split — mechanical, not a linguistic tokenizer",
+    "cas_token_layer_note": "the CAS also ships a dkpro Token layer; counts above are whitespace, not that layer",
+    "tokens_per_document_cas_layer": {
+      "n": 63,
+      "min": 131,
+      "p25": 309,
+      "median": 549,
+      "p75": 874,
+      "max": 2058,
+      "mean": 666.5
+    }
+  }
+}

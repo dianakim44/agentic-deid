@@ -3,6 +3,9 @@
 # 내려가지 않아서 아래 !예외가 동작하지 않는다.
 data/*
 !data/README.md
+!data/acquire/
+data/acquire/*
+!data/acquire/*.sh
 **/data/source/
 **/data/derived/
 

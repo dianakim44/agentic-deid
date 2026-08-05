@@ -1,0 +1,341 @@
+{
+  "_what_this_is": "Mechanical inventory of the corpus as it sits on disk. Facts and counts only, no interpretation. NOT the output of the Profiler agent — the .raw suffix marks this as human-reviewable source material that a person counted. Interpretation and open questions live in docs/notes/corpus-observations.md.",
+  "corpus": "es-meddocan",
+  "generated": "2026-08-05",
+  "generated_by": "hand-written inventory script, port-human arm",
+  "source": {
+    "doi_version": "10.5281/zenodo.4279323",
+    "doi_concept": "10.5281/zenodo.4279322",
+    "licence": "CC-BY-4.0",
+    "acquired_by": "data/acquire/fetch_meddocan.sh"
+  },
+  "counting_method": "every number below was measured from the extracted files; where the corpus documentation also states a number, both are recorded and compared",
+  "file_composition": {
+    "directory_layout": {
+      ".": 1,
+      "background": 3751,
+      "dev/brat": 500,
+      "dev/xml": 250,
+      "test/brat": 500,
+      "test/xml": 250,
+      "train/brat": 1000,
+      "train/xml": 500
+    },
+    "files_by_extension": {
+      ".ann": 1000,
+      ".txt": 4752,
+      ".xml": 1000
+    },
+    "total_files": 6752,
+    "total_bytes": 20634995,
+    "total_mib": 19.7
+  },
+  "encoding": {
+    "files_probed": 1000,
+    "valid_utf8": 1000,
+    "files_with_bom": 32,
+    "files_containing_crlf": 0,
+    "files_lf_only": 1000,
+    "files_containing_bare_cr": 0,
+    "conclusion": "UTF-8, LF only, but 32 of 1000 brat .txt files carry a UTF-8 BOM",
+    "bom_offset_interaction": {
+      "finding": "in the 32 BOM files the gold offsets COUNT the BOM as one character",
+      "spans_in_bom_files": 761,
+      "match_when_bom_kept_as_char": 761,
+      "match_when_bom_stripped_utf8_sig": 0,
+      "implication": "reading with encoding='utf-8-sig' shifts every span in those files by 1 and silently breaks 761 gold spans; read as plain 'utf-8'"
+    }
+  },
+  "pairing": {
+    "brat": "separate files: {docid}.txt (raw text) + {docid}.ann (standoff annotations), same basename",
+    "xml": "single file per document: {docid}.xml holds TEXT in CDATA plus <TAGS> in the same file",
+    "note": "both encodings of the SAME annotations are shipped; brat and xml are redundant"
+  },
+  "annotation_format": {
+    "brat": "standoff .ann; TAB-separated: 'T{n}<TAB>{TYPE} {start} {end}<TAB>{surface}'",
+    "xml": "i2b2-style; <MEDDOCAN><TEXT><![CDATA[...]]></TEXT><TAGS><{CATEGORY} id start end text TYPE/></TAGS></MEDDOCAN>",
+    "brat_multi_fragment_lines": 0,
+    "type_system_depth": "brat is FLAT (one label); xml is TWO-LEVEL (coarse element name + fine TYPE attribute)",
+    "samples_verbatim": {
+      "_note": "three raw annotation lines quoted exactly as they appear on disk, from train/brat/S0004-06142005000500011-1.ann and its .xml counterpart",
+      "brat_lines": [
+        "T1\tFECHAS 215 225\t03/03/1946",
+        "T7\tNOMBRE_PERSONAL_SANITARIO 303 326\tIgnacio Navarro Cuéllar",
+        "T2\tCORREO_ELECTRONICO 2421 2439\tnnavcu@hotmail.com"
+      ],
+      "xml_tags": [
+        "<NAME id=\"T21\" start=\"29\" end=\"36\" text=\"Ernesto\" TYPE=\"NOMBRE_SUJETO_ASISTENCIA\" comment=\"\"/>",
+        "<LOCATION id=\"T17\" start=\"107\" end=\"130\" text=\"Calle Miguel Benitez 90\" TYPE=\"CALLE\" comment=\"\"/>",
+        "<DATE id=\"T1\" start=\"215\" end=\"225\" text=\"03/03/1946\" TYPE=\"FECHAS\" comment=\"\"/>"
+      ],
+      "xml_envelope": "<?xml version='1.0' encoding='UTF-8'?><MEDDOCAN><TEXT><![CDATA[ ... ]]></TEXT><TAGS> ... </TAGS></MEDDOCAN>",
+      "surfaces_are_synthetic": "MEDDOCAN patient and clinician names are synthetic replacements, not real identifiers; the corpus is CC-BY and openly published"
+    }
+  },
+  "offsets": {
+    "unit": "character (not token)",
+    "base": "0-based",
+    "end": "exclusive — text[start:end] reproduces the annotated surface exactly",
+    "verified_spans": 22795,
+    "mismatched_spans": 0,
+    "mismatch_examples": [],
+    "method": "every gold span in train+dev+test sliced out of its .txt and compared to the surface string in the .ann",
+    "caveat": "offsets index the brat .txt; the xml CDATA text is byte-identical for the documents checked",
+    "verified_spans_note": "all 22795 verified while reading files as plain utf-8 (BOM retained as U+FEFF)"
+  },
+  "phi_types_brat_flat": {
+    "TERRITORIO": 3818,
+    "FECHAS": 2566,
+    "EDAD_SUJETO_ASISTENCIA": 2074,
+    "NOMBRE_SUJETO_ASISTENCIA": 2014,
+    "NOMBRE_PERSONAL_SANITARIO": 1998,
+    "SEXO_SUJETO_ASISTENCIA": 1841,
+    "CALLE": 1709,
+    "PAIS": 1423,
+    "ID_SUJETO_ASISTENCIA": 1142,
+    "CORREO_ELECTRONICO": 959,
+    "ID_TITULACION_PERSONAL_SANITARIO": 931,
+    "ID_ASEGURAMIENTO": 783,
+    "HOSPITAL": 525,
+    "FAMILIARES_SUJETO_ASISTENCIA": 416,
+    "INSTITUCION": 237,
+    "ID_CONTACTO_ASISTENCIAL": 148,
+    "NUMERO_TELEFONO": 109,
+    "PROFESION": 37,
+    "NUMERO_FAX": 28,
+    "OTROS_SUJETO_ASISTENCIA": 22,
+    "CENTRO_SALUD": 14,
+    "ID_EMPLEO_PERSONAL_SANITARIO": 1
+  },
+  "phi_types_by_split": {
+    "train": {
+      "TERRITORIO": 1875,
+      "FECHAS": 1231,
+      "EDAD_SUJETO_ASISTENCIA": 1035,
+      "NOMBRE_SUJETO_ASISTENCIA": 1009,
+      "NOMBRE_PERSONAL_SANITARIO": 1000,
+      "SEXO_SUJETO_ASISTENCIA": 925,
+      "CALLE": 862,
+      "PAIS": 713,
+      "ID_SUJETO_ASISTENCIA": 567,
+      "ID_TITULACION_PERSONAL_SANITARIO": 471,
+      "CORREO_ELECTRONICO": 469,
+      "ID_ASEGURAMIENTO": 391,
+      "HOSPITAL": 255,
+      "FAMILIARES_SUJETO_ASISTENCIA": 243,
+      "INSTITUCION": 98,
+      "ID_CONTACTO_ASISTENCIAL": 77,
+      "NUMERO_TELEFONO": 58,
+      "PROFESION": 24,
+      "NUMERO_FAX": 15,
+      "OTROS_SUJETO_ASISTENCIA": 9,
+      "CENTRO_SALUD": 6
+    },
+    "dev": {
+      "TERRITORIO": 987,
+      "FECHAS": 724,
+      "EDAD_SUJETO_ASISTENCIA": 521,
+      "NOMBRE_SUJETO_ASISTENCIA": 503,
+      "NOMBRE_PERSONAL_SANITARIO": 497,
+      "SEXO_SUJETO_ASISTENCIA": 455,
+      "CALLE": 434,
+      "PAIS": 347,
+      "ID_SUJETO_ASISTENCIA": 292,
+      "CORREO_ELECTRONICO": 241,
+      "ID_TITULACION_PERSONAL_SANITARIO": 226,
+      "ID_ASEGURAMIENTO": 194,
+      "HOSPITAL": 140,
+      "FAMILIARES_SUJETO_ASISTENCIA": 92,
+      "INSTITUCION": 72,
+      "ID_CONTACTO_ASISTENCIAL": 32,
+      "NUMERO_TELEFONO": 25,
+      "NUMERO_FAX": 6,
+      "OTROS_SUJETO_ASISTENCIA": 6,
+      "PROFESION": 4,
+      "CENTRO_SALUD": 2,
+      "ID_EMPLEO_PERSONAL_SANITARIO": 1
+    },
+    "test": {
+      "TERRITORIO": 956,
+      "FECHAS": 611,
+      "EDAD_SUJETO_ASISTENCIA": 518,
+      "NOMBRE_SUJETO_ASISTENCIA": 502,
+      "NOMBRE_PERSONAL_SANITARIO": 501,
+      "SEXO_SUJETO_ASISTENCIA": 461,
+      "CALLE": 413,
+      "PAIS": 363,
+      "ID_SUJETO_ASISTENCIA": 283,
+      "CORREO_ELECTRONICO": 249,
+      "ID_TITULACION_PERSONAL_SANITARIO": 234,
+      "ID_ASEGURAMIENTO": 198,
+      "HOSPITAL": 130,
+      "FAMILIARES_SUJETO_ASISTENCIA": 81,
+      "INSTITUCION": 67,
+      "ID_CONTACTO_ASISTENCIAL": 39,
+      "NUMERO_TELEFONO": 26,
+      "PROFESION": 9,
+      "OTROS_SUJETO_ASISTENCIA": 7,
+      "NUMERO_FAX": 7,
+      "CENTRO_SALUD": 6
+    }
+  },
+  "phi_types_xml_two_level": {
+    "coarse_categories": {
+      "LOCATION": 7726,
+      "NAME": 4012,
+      "ID": 3005,
+      "DATE": 2566,
+      "OTHER": 2279,
+      "AGE": 2074,
+      "CONTACT": 1096,
+      "PROFESSION": 37
+    },
+    "fine_types": {
+      "TERRITORIO": 3818,
+      "FECHAS": 2566,
+      "EDAD_SUJETO_ASISTENCIA": 2074,
+      "NOMBRE_SUJETO_ASISTENCIA": 2014,
+      "NOMBRE_PERSONAL_SANITARIO": 1998,
+      "SEXO_SUJETO_ASISTENCIA": 1841,
+      "CALLE": 1709,
+      "PAIS": 1423,
+      "ID_SUJETO_ASISTENCIA": 1142,
+      "CORREO_ELECTRONICO": 959,
+      "ID_TITULACION_PERSONAL_SANITARIO": 931,
+      "ID_ASEGURAMIENTO": 783,
+      "HOSPITAL": 525,
+      "FAMILIARES_SUJETO_ASISTENCIA": 416,
+      "INSTITUCION": 237,
+      "ID_CONTACTO_ASISTENCIAL": 148,
+      "NUMERO_TELEFONO": 109,
+      "PROFESION": 37,
+      "NUMERO_FAX": 28,
+      "OTROS_SUJETO_ASISTENCIA": 22,
+      "CENTRO_SALUD": 14,
+      "ID_EMPLEO_PERSONAL_SANITARIO": 1
+    },
+    "category_to_type_pairs": {
+      "LOCATION/TERRITORIO": 3818,
+      "DATE/FECHAS": 2566,
+      "AGE/EDAD_SUJETO_ASISTENCIA": 2074,
+      "NAME/NOMBRE_SUJETO_ASISTENCIA": 2014,
+      "NAME/NOMBRE_PERSONAL_SANITARIO": 1998,
+      "OTHER/SEXO_SUJETO_ASISTENCIA": 1841,
+      "LOCATION/CALLE": 1709,
+      "LOCATION/PAIS": 1423,
+      "ID/ID_SUJETO_ASISTENCIA": 1142,
+      "CONTACT/CORREO_ELECTRONICO": 959,
+      "ID/ID_TITULACION_PERSONAL_SANITARIO": 931,
+      "ID/ID_ASEGURAMIENTO": 783,
+      "LOCATION/HOSPITAL": 525,
+      "OTHER/FAMILIARES_SUJETO_ASISTENCIA": 416,
+      "LOCATION/INSTITUCION": 237,
+      "ID/ID_CONTACTO_ASISTENCIAL": 148,
+      "CONTACT/NUMERO_TELEFONO": 109,
+      "PROFESSION/PROFESION": 37,
+      "CONTACT/NUMERO_FAX": 28,
+      "OTHER/OTROS_SUJETO_ASISTENCIA": 22,
+      "LOCATION/CENTRO_SALUD": 14,
+      "ID/ID_EMPLEO_PERSONAL_SANITARIO": 1
+    }
+  },
+  "total_gold_spans": 22795,
+  "identifiers": {
+    "document_id_format": "{journal-article-id}-{n}, e.g. S0004-06142005000500011-1 — SciELO article identifier plus a per-article case number",
+    "document_ids_total": 1000,
+    "unique_ids": 1000,
+    "filename_pattern_parsed": 969,
+    "filename_pattern_unparsed": [
+      "S0465-546X2010000200006-1",
+      "S0465-546X2011000300007-1",
+      "S0465-546X2014000300010-1",
+      "S1138-123X2006000200007-1",
+      "S1579-699X2004000400002-1"
+    ],
+    "distinct_article_stems": 906,
+    "stems_with_more_than_one_document": 47,
+    "example_multi_document_stems": {
+      "S0210-48062009000300013": 5,
+      "S0210-56912008000400007": 4,
+      "S0004-06142006000500002": 3,
+      "S0210-48062007001000004": 3,
+      "S0210-48062009000900015": 3
+    },
+    "patient_identifier_present": false,
+    "patient_id_evidence": "No patient ID field exists in the annotations. Documents are published clinical case reports; each is a separate case. Patient names are annotated as NOMBRE_SUJETO_ASISTENCIA but are synthetic replacements, so they do not link documents. The article stem groups cases from the SAME journal article, which is the only observable grouping above the document.",
+    "unique_unit": "document (no patient key available)"
+  },
+  "provided_splits": {
+    "has_own_split": true,
+    "measured": {
+      "train": 500,
+      "dev": 250,
+      "test": 250
+    },
+    "background_unannotated_txt": 3751,
+    "background_has_annotations": false,
+    "documented": {
+      "train": 500,
+      "dev": 250,
+      "test": 250,
+      "background": 3751,
+      "source": "Zenodo record description / MEDDOCAN task overview"
+    },
+    "agreement": "measured == documented for train/dev/test",
+    "spans_by_split": {
+      "train": 11333,
+      "dev": 5801,
+      "test": 5661
+    }
+  },
+  "length_distribution": {
+    "tokens_per_document_whitespace": {
+      "n": 1000,
+      "min": 127,
+      "p25": 302,
+      "median": 396,
+      "p75": 515,
+      "max": 1266,
+      "mean": 424.1
+    },
+    "characters_per_document": {
+      "n": 1000,
+      "min": 978,
+      "p25": 2067,
+      "median": 2707,
+      "p75": 3467,
+      "max": 8123,
+      "mean": 2888.0
+    },
+    "by_split_tokens": {
+      "train": {
+        "n": 500,
+        "min": 127,
+        "p25": 299,
+        "median": 396,
+        "p75": 500,
+        "max": 1266,
+        "mean": 416.9
+      },
+      "dev": {
+        "n": 250,
+        "min": 147,
+        "p25": 319,
+        "median": 406,
+        "p75": 542,
+        "max": 1003,
+        "mean": 442.4
+      },
+      "test": {
+        "n": 250,
+        "min": 148,
+        "p25": 285,
+        "median": 379,
+        "p75": 511,
+        "max": 1020,
+        "mean": 420.2
+      }
+    },
+    "tokenizer_note": "whitespace split — a mechanical count, not a linguistic tokenizer"
+  }
+}

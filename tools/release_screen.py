@@ -13,6 +13,7 @@ the git history, and making the repository public exposes the history along with
 Nothing is deleted. The script reports; the decisions stay with the author.
 """
 import argparse, json, os, re, subprocess, sys
+from collections import Counter
 
 # Paths that carry note text or generated surrogate values. Never publish.
 #
@@ -118,27 +119,57 @@ def sniff(path, blob=None):
     return None
 
 
+def git_ignored(paths, root):
+    """Subset of paths that git ignores. Checked one call per path.
+
+    A denied file that git cannot see is quarantined; one that git CAN see is a
+    live risk. Conflating the two makes 'BLOCKED must be 0' unusable as soon as a
+    corpus is downloaded, which is exactly when the check matters most.
+
+    Deliberately not using `git check-ignore --stdin`: on macOS the filesystem
+    hands back NFD-normalised names (Stölzl) that do not match on stdin, and a
+    false 'not ignored' here would be reported as a live leak.
+    """
+    ignored = set()
+    for p in paths:
+        r = subprocess.run(["git", "-C", root, "check-ignore", "-q", "--", p],
+                           capture_output=True)
+        if r.returncode == 0:
+            ignored.add(p)
+    return ignored
+
+
 def screen_tree(root):
     """Walk the tree. Denied paths are recorded by name and never opened.
 
     sealed/ is denied, so the content sniffer never reads the test fold — the guard
     works from filenames alone and does not break the seal.
+
+    Returns (blocked, quarantined, suspect, allowed). 'blocked' is the number that
+    must be zero before a commit: denied AND visible to git. 'quarantined' is denied
+    but gitignored — expected once a corpus is on disk, and reported as a count only.
     """
-    blocked, suspect, allowed = [], [], []
+    denied, suspect, allowed = [], [], []
     for base, dirs, files in os.walk(root):
         dirs[:] = [d for d in dirs if d not in {".git", "__pycache__", ".venv", "node_modules"}]
         for f in files:
             full = os.path.join(base, f)
             rel = os.path.relpath(full, root).replace(os.sep, "/")
             if deny(rel):
-                blocked.append(rel); continue
+                denied.append(rel); continue
             why = sniff(full)
             if why:
                 suspect.append((rel, why))
             elif (any(re.search(p, rel) for p in ALLOW_PATTERNS)
                   or any(rel.startswith(h) or rel == h for h in ALLOW_HINTS)):
                 allowed.append(rel)
-    return blocked, suspect, allowed
+
+    ignored = git_ignored(denied, root)
+    # sealed/ is never downgraded: the seal is the one rule where a reminder every
+    # single run is worth more than a quiet count.
+    blocked = [p for p in denied if p not in ignored or p.startswith("sealed/")]
+    quarantined = [p for p in denied if p in ignored and not p.startswith("sealed/")]
+    return blocked, quarantined, suspect, allowed
 
 
 def screen_history():
@@ -162,10 +193,13 @@ if __name__ == "__main__":
     ap.add_argument("--history", action="store_true")
     a = ap.parse_args()
 
-    blocked, suspect, allowed = screen_tree(a.root)
-    print(f"BLOCKED by path rule      : {len(blocked)}")
+    blocked, quarantined, suspect, allowed = screen_tree(a.root)
+    print(f"BLOCKED by path rule      : {len(blocked)}   (denied AND visible to git — must be 0)")
     for p in sorted(blocked):
         print(f"   {p}")
+    print(f"\nQuarantined (gitignored)  : {len(quarantined)}   (denied but git cannot see them — expected once a corpus is on disk)")
+    for prefix, n in sorted(Counter("/".join(p.split("/")[:2]) for p in quarantined).items()):
+        print(f"   {n:6d}  {prefix}/")
     print(f"\nSUSPECT by content sniff  : {len(suspect)}")
     for p, why in sorted(suspect):
         print(f"   {p}  <- {why}")
