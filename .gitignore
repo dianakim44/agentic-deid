@@ -1,0 +1,36 @@
+# ─── DUA 대상: 절대 커밋 금지 ───────────────────────────────
+data/
+**/data/source/
+**/data/derived/
+*value_map*
+*surrogate_registry*
+*ko_tagged*
+*ko_surrogate*
+**/critic_log.jsonl
+**/*_raw_llm*.jsonl
+**/*_predictions_with_text*
+
+# ─── 모델·체크포인트 ────────────────────────────────────────
+*.ckpt
+*.safetensors
+*.bin
+runs/
+checkpoints/
+wandb/
+
+# ─── 환경·캐시 ──────────────────────────────────────────────
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.ipynb_checkpoints/
+.cache/
+.huggingface/
+.pytest_cache/
+
+# ─── OS·에디터 ──────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+~$*
+.vscode/
+.idea/
