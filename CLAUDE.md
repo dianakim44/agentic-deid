@@ -6,6 +6,11 @@ and note types, with annotation-free supervision.
 평가 코퍼스 중 하나로 한국어 surrogate 코퍼스(KoSurroNursingNotes)를 사용한다.
 데이터 출처로 인용은 하되, 코드 계보상 별개 프로젝트다.
 
+## 먼저 읽을 것
+
+설계 결정과 그 근거는 docs/DESIGN.md 에 있다. 파이프라인·에이전트·실험 축을
+바꾸려면 DESIGN.md 를 먼저 고치고, 코드에서 우회하지 않는다.
+
 ---
 
 ## 데이터 취급 (최우선)
@@ -41,6 +46,8 @@ and note types, with annotation-free supervision.
 - 병합 정책은 교체 가능한 전략으로 구현한다
   (fixed-priority / union / agent-arbiter가 같은 탐지 결과 위에서 갈리도록).
 - 탐지(detection)와 가명화(pseudonymization)를 분리한다. 평가는 탐지만 사용한다.
+- 실험 식별자는 config/naming.yaml 에 정의된 값만 쓴다. 새 코퍼스·arm·축이
+  필요하면 코드에 문자열을 하드코딩하지 말고 naming.yaml 에 먼저 추가한다.
 
 ## 코드 규약
 

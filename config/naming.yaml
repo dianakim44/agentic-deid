@@ -1,0 +1,77 @@
+# config/naming.yaml
+#
+# 실험 식별자의 유일한 정의처. 코드는 이 파일에서만 값을 읽는다.
+# 문자열을 하드코딩하지 말 것. 새 값이 필요하면 여기 먼저 추가할 것.
+#
+# 원칙
+#   - 이름은 설정에서 유도된다. 범례를 봐야 아는 이름은 쓰지 않는다.
+#   - 서수 금지 (arm1, arm2), 상태어 금지 (best, final, deployed).
+#   - 설정이 바뀌면 새 ID를 만든다. 기존 ID의 의미를 바꾸지 않는다.
+
+version: 1
+
+axes:
+
+  # ─── 코퍼스 ────────────────────────────────────────────────
+  # {언어코드}-{출처}. 언어는 ISO 639-1.
+  corpus:
+    ko-surro:      Korean surrogate corpus derived from PhysioNet nursing notes
+    es-meddocan:   MEDDOCAN, Spanish synthetic clinical case studies
+    de-grascco:    GraSCCo, German synthetic clinical narratives
+    es-carmen:     CARMEN-I, Spanish/Catalan hospital records (pending access)
+    en-n2c2:       n2c2 2014 de-identification corpus (optional, portal status unclear)
+
+  # ─── 탐지 구성 ─────────────────────────────────────────────
+  # R = rules, T = tagger. 에이전트는 역할 약어를 뒤에 붙인다.
+  # 파일 경로에 들어가므로 '+' 대신 '-' 를 쓴다.
+  detector:
+    R:             rule set only (regex, checksum, context cues, gazetteer)
+    T:             learned span tagger only
+    RT:            rules + tagger, recall-first union merge
+    RT-Arb:        RT with an agent arbitrating disagreeing spans
+    RT-Aud:        RT with a leak auditor re-reading the de-identified output
+    RT-Arb-Aud:    RT with both
+
+  # ─── 감독 방식 ─────────────────────────────────────────────
+  supervision:
+    sup-free:      labels recovered from placeholder positions, no manual annotation
+    sup-human:     labels from the corpus's own human annotations
+
+  # ─── 이식(porting) 주체 ────────────────────────────────────
+  # porting = 고정된 파이프라인이 요구하는 언어별 인스턴스
+  #           (rules, gazetteers, encoder)를 만들어내는 작업
+  #
+  # 축의 순서가 곧 자율성의 정도:
+  #   human < oneshot < loop < multi < selfdesign
+  # port-multi 는 역할 구성이 고정, port-selfdesign 은 역할 구성까지 에이전트가 정함.
+  # 두 arm 의 차이가 "역할 설계를 위임해도 되는가"에 대한 답이 된다.
+  porting:
+    port-human:    a person writes the rules and gazetteers
+    port-oneshot:  a single LLM call writes them, no iteration
+    port-loop:     RuleAuthor <-> Auditor iterate against dev
+    port-multi:    port-loop plus Profiler, Mapper, LexiconBuilder
+    port-selfdesign: |
+      the agent inspects the corpus profile and proposes its own role set
+      before executing it; the roles are not fixed in advance
+
+  # ─── 분할 ──────────────────────────────────────────────────
+  split:
+    train:         tagger training
+    dev:           rule development, agent iteration, checkpoint selection
+    test:          sealed. see CLAUDE.md
+
+# ─── 산출물 경로 ─────────────────────────────────────────────
+# 조합이 곧 경로. 별도의 키 체계를 두지 않는다.
+paths:
+  metrics:  "results/{corpus}/{detector}/{supervision}/{porting}/metrics.json"
+  spans:    "results/{corpus}/{detector}/{supervision}/{porting}/spans.jsonl"
+  agentlog: "results/{corpus}/{detector}/{supervision}/{porting}/agent_calls.jsonl"
+  rules:    "rules/{lang}.yaml"
+  lexicon:  "lexicons/{lang}/"
+  profile:  "profiles/{corpus}.json"
+  mapping:  "mappings/{corpus}.yaml"
+  split:    "splits/{corpus}.json"
+
+# ─── 예시 ────────────────────────────────────────────────────
+# results/es-meddocan/RT/sup-free/port-loop/metrics.json
+# results/ko-surro/R/sup-free/port-human/metrics.json
