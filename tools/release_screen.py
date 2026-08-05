@@ -15,25 +15,55 @@ Nothing is deleted. The script reports; the decisions stay with the author.
 import argparse, json, os, re, subprocess, sys
 
 # Paths that carry note text or generated surrogate values. Never publish.
+#
+# Corpus-agnostic by design: the rules must hold for a corpus that does not exist yet.
+# A pattern naming one corpus ("ko_") silently stops protecting the next one.
 DENY_PATTERNS = [
-    r"data/derived/ko_surrogate.*\.jsonl$",
-    r"data/derived/ko_tagged.*\.jsonl$",
-    r"data/derived/surrogate_registry.*\.jsonl$",
-    r"data/derived/.*value_map.*\.json$",
-    r"results/.*/ko_surrogate.*\.jsonl$",
-    r"results/.*value_map.*\.json$",
-    r"results/.*/call_logs?/.*",           # model call-and-response logs quote the notes
-    r"results/.*/raw_responses.*",
-    r"data/source/.*",                     # the English source release
+    # ─── 봉인된 test fold ───────────────────────────────────────
+    # 무조건 차단. 여기 걸리면 내용을 읽지 않고 종료하므로 봉인 규율과 충돌하지 않는다.
+    r"^sealed/",
+
+    # ─── 코퍼스 데이터 전체 ─────────────────────────────────────
+    # 취득 스크립트와 문서만 예외 (DENY_EXCEPTIONS).
+    r"^data/",
+    r"(^|/)data/(source|derived|raw|interim)/",   # 하위 저장소에 중첩된 경우
+
+    # ─── 원문 텍스트를 담은 파생물 (경로 무관) ──────────────────
+    r"(^|/)[^/]*surrogate[^/]*\.(jsonl|json|csv|tsv|txt)$",
+    r"(^|/)[^/]*value_map[^/]*\.(jsonl|json|csv|tsv)$",
+    r"(^|/)[^/]*_tagged[^/]*\.(jsonl|json|csv|tsv|txt)$",
+    r"(^|/)[^/]*_with_text[^/]*",
+    r"(^|/)[^/]*_raw_llm[^/]*",
+
+    # ─── 모델 호출 로그는 노트를 그대로 인용한다 ────────────────
+    r"(^|/)call_logs?/",
+    r"(^|/)raw_responses[^/]*",
+    r"(^|/)critic_log\.jsonl$",
+    r"(^|/)agent_calls\.jsonl$",           # 에이전트 프롬프트에 dev 원문이 들어간다
+]
+
+# The only things under a denied data path that may be published: how to obtain the
+# corpus, and the licence terms. No note text, no surrogate values.
+DENY_EXCEPTIONS = [
+    r"^data/README\.md$",
+    r"^data/[^/]+/README\.md$",            # 코퍼스별 취득 메모
+    r"^data/[^/]*\.(py|sh)$",              # 취득 스크립트
+    r"^data/acquire/.*\.(py|sh|md)$",
 ]
 
 # Aggregates, code and public reference material. Safe to publish.
+# Result paths follow config/naming.yaml: results/{corpus}/{detector}/{supervision}/{porting}/.
 ALLOW_HINTS = [
-    "src/", "paper/NUMBERS.md", "refs/", "prompts/",
-    "results/T6/fig9_inputs.json", "results/T7/fig8_inputs.json",
-    "results/T2/scores.csv", "results/T2/armP/scores_armP.csv",
-    "results/T2/armP/pool_partition.json", "results/T2/armP/fold_composition.json",
-    "results/T2/armP/surname_reconciliation.json",
+    "src/", "docs/", "config/", "refs/", "prompts/",
+    "rules/", "mappings/", "profiles/", "splits/",
+    "data/README.md",
+]
+
+# Aggregate result files that carry no source text. Offsets, types and scores only.
+ALLOW_PATTERNS = [
+    r"^results/[^/]+/[^/]+/[^/]+/[^/]+/metrics\.json$",
+    r"^results/[^/]+/[^/]+/[^/]+/[^/]+/spans\.jsonl$",
+    r"^results/sealed_eval_log\.md$",
 ]
 
 # Hangul run long enough to be prose rather than a label.
@@ -55,6 +85,8 @@ TEXT_EXT = {".json", ".jsonl", ".csv", ".tsv", ".md", ".txt", ".py", ".yaml", ".
 
 
 def deny(path):
+    if any(re.search(p, path) for p in DENY_EXCEPTIONS):
+        return False
     return any(re.search(p, path) for p in DENY_PATTERNS)
 
 
@@ -87,6 +119,11 @@ def sniff(path, blob=None):
 
 
 def screen_tree(root):
+    """Walk the tree. Denied paths are recorded by name and never opened.
+
+    sealed/ is denied, so the content sniffer never reads the test fold — the guard
+    works from filenames alone and does not break the seal.
+    """
     blocked, suspect, allowed = [], [], []
     for base, dirs, files in os.walk(root):
         dirs[:] = [d for d in dirs if d not in {".git", "__pycache__", ".venv", "node_modules"}]
@@ -98,7 +135,8 @@ def screen_tree(root):
             why = sniff(full)
             if why:
                 suspect.append((rel, why))
-            elif any(rel.startswith(h) or rel == h for h in ALLOW_HINTS):
+            elif (any(re.search(p, rel) for p in ALLOW_PATTERNS)
+                  or any(rel.startswith(h) or rel == h for h in ALLOW_HINTS)):
                 allowed.append(rel)
     return blocked, suspect, allowed
 

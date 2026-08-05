@@ -1,7 +1,13 @@
 # ─── DUA 대상: 절대 커밋 금지 ───────────────────────────────
-data/
+# 'data/' 가 아니라 'data/*' 다. 디렉토리를 통째로 무시하면 git 이 그 안으로
+# 내려가지 않아서 아래 !예외가 동작하지 않는다.
+data/*
+!data/README.md
 **/data/source/
 **/data/derived/
+
+# ─── 봉인된 test fold ───────────────────────────────────────
+sealed/
 *value_map*
 *surrogate_registry*
 *ko_tagged*
