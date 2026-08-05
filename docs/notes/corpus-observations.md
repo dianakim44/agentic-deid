@@ -315,10 +315,232 @@ Ordered by how much they change the numbers.
 
 Unchecked things I stopped short of, because they need a decision above first:
 
-- Whether MEDDOCAN's official split is already article-disjoint (bears on §4, and
-  is a 10-minute check once the split unit is chosen).
 - What `NAME_EXT` (n=1) means; the annotation guide PDF in
   `data/raw/de-grascco/schema/` presumably says, and I did not read it.
 - Whether the `background` set's 3,751 unannotated documents overlap the
   annotated 1,000 (relevant to `sup-free`, since placeholder-derived labels would
   come from there).
+
+(The article-disjointness of MEDDOCAN's official split was on this list and has
+since been measured — see §7.1.)
+
+---
+
+## 7. 추가 조사 (2026-08-05, follow-up)
+
+Three questions asked separately from the eight above. Facts only; the decisions
+in §6 are unaffected except where a §3 statement is corrected by measurement.
+
+### 7.1 Is MEDDOCAN's official split document-level, and can one patient or one source case straddle folds?
+
+**The split is document-level.** Measured file counts per fold: train 500, dev
+250, test 250, summing to 1,000 with 1,000 distinct document ids and no id in more
+than one fold. Span counts per fold: train 11,333 / dev 5,801 / test 5,661.
+
+**No patient concept exists to straddle.** MEDDOCAN's XML carries exactly six
+attribute names (`id`, `start`, `end`, `text`, `TYPE`, `comment`) on annotation
+elements and two child elements of `<MEDDOCAN>` (`<TEXT>` CDATA, `<TAGS>`). There
+is no patient field, case field, or episode field anywhere in the distribution.
+Patient names present in the text are annotated as `NOMBRE_SUJETO_ASISTENCIA` and
+are synthetic substitutions, so they do not function as keys.
+
+**The source *article* can and does straddle folds.** Document ids are
+`{SciELO-article-id}-{n}`:
+
+- 936 distinct article stems over 1,000 documents.
+- Documents per stem: 888 stems have 1, 35 have 2, 11 have 3, one has 4, one has 5
+  → **48 stems carry more than one document**.
+- **34 of those 48 stems have their documents split across folds**, affecting 80
+  documents (8.0% of the corpus). Fold combinations: test+train 15, dev+train 12,
+  dev+test 4, all three 3.
+- Example: `S0004-06142009000300014-1` is in test while
+  `S0004-06142009000300014-4` is in train.
+
+*Correction to `profiles/es-meddocan.raw.json`:* that file records
+`distinct_article_stems: 906` and `stems_with_more_than_one_document: 47`. Both
+are wrong. The stem regex assumed all-digits after the first hyphen, and 31 SciELO
+ids contain a letter (`S1579-699X2004000400002-1`, `S0465-546X2010000200006-1`,
+…), so those ids were dropped from the grouping. The correct figures are 936 and
+48. §3 of this document repeats the wrong numbers ("47 of 906 article stems",
+"906 groups"). The profile has not been edited — recorded here so the fix and its
+reason stay together.
+
+**Whether cross-fold siblings are the same patient — checked, they are not.** For
+each of the 34 cross-fold stems, the sets of `NOMBRE_SUJETO_ASISTENCIA`,
+`ID_SUJETO_ASISTENCIA`, `FECHAS` and `EDAD_SUJETO_ASISTENCIA` surfaces were
+intersected across folds. Two stems share anything at all:
+
+- `S0004-06142009000300014` shares the given name `Antonio`, but the surnames
+  differ: `Moreno Flores` (test) vs `Machado Briceño` (train).
+- `S1137-66272011000100013` shares the age string `45 años`; its three documents
+  carry `Cruz Andrade, Martin` (train), `Massotti Fernandez, Emiliano` (test),
+  `ColmenerO Rodriguez, Esteban` (test).
+
+The other 32 share no identifying surface across folds. So same-article documents
+are distinct synthetic patients; what they share is the article, not the patient.
+
+**No duplicated case text.** 0 exact-duplicate document texts corpus-wide, and 0
+duplicated narrative prefixes (first 1,500 chars after the templated header block)
+— so the cross-fold article relationship is authorship/formatting, not a repeated
+case write-up.
+
+### 7.2 Rate at which the same surface form recurs across splits
+
+MEDDOCAN, exact-string match, test spans whose surface also occurs anywhere in
+train. "distinct" columns count unique surfaces rather than spans.
+
+| type | test spans | seen in train | rate | distinct test | distinct seen |
+|---|---|---|---|---|---|
+| `SEXO_SUJETO_ASISTENCIA` | 461 | 459 | **99.6%** | 19 | 17 |
+| `PAIS` | 363 | 351 | **96.7%** | 20 | 13 |
+| `EDAD_SUJETO_ASISTENCIA` | 518 | 475 | **91.7%** | 125 | 93 |
+| `FAMILIARES_SUJETO_ASISTENCIA` | 81 | 62 | 76.5% | 37 | 18 |
+| `TERRITORIO` | 956 | 702 | 73.4% | 390 | 186 |
+| `HOSPITAL` | 130 | 59 | 45.4% | 105 | 41 |
+| `PROFESION` | 9 | 4 | 44.4% | 8 | 3 |
+| `NOMBRE_SUJETO_ASISTENCIA` | 502 | 199 | **39.6%** | 410 | 119 |
+| `FECHAS` | 611 | 137 | 22.4% | 562 | 106 |
+| `CORREO_ELECTRONICO` | 249 | 48 | 19.3% | 236 | 44 |
+| `INSTITUCION` | 67 | 12 | 17.9% | 58 | 12 |
+| `NOMBRE_PERSONAL_SANITARIO` | 501 | 77 | 15.4% | 247 | 35 |
+| `NUMERO_TELEFONO` | 26 | 4 | 15.4% | 26 | 4 |
+| `NUMERO_FAX` | 7 | 1 | 14.3% | 7 | 1 |
+| `ID_TITULACION_PERSONAL_SANITARIO` | 234 | 25 | 10.7% | 217 | 8 |
+| `CALLE` | 413 | 34 | 8.2% | 404 | 28 |
+| `ID_SUJETO_ASISTENCIA` | 283 | 5 | 1.8% | 259 | 5 |
+| `ID_ASEGURAMIENTO` | 198 | 0 | 0.0% | 198 | 0 |
+| `ID_CONTACTO_ASISTENCIAL` | 39 | 0 | 0.0% | 39 | 0 |
+| `OTROS_SUJETO_ASISTENCIA` | 7 | 0 | 0.0% | 7 | 0 |
+| `CENTRO_SALUD` | 6 | 0 | 0.0% | 6 | 0 |
+| **all types** | **5,661** | **2,654** | **46.9%** | | |
+
+GraSCCo has no split, so the analogue is cross-*document* repetition: spans whose
+exact surface also appears in at least one other document, out of 63 documents.
+
+| kind | spans | distinct surfaces | surfaces in >1 doc | spans carrying such a surface |
+|---|---|---|---|---|
+| `NAME_TITLE` | 139 | 52 | 12 | 97 (**69.8%**) |
+| `AGE` | 19 | 14 | 4 | 8 (42.1%) |
+| `ID` | 59 | 44 | 9 | 22 (37.3%) |
+| `LOCATION_CITY` | 59 | 32 | 4 | 20 (33.9%) |
+| `LOCATION_HOSPITAL` | 35 | 28 | 4 | 9 (25.7%) |
+| `LOCATION_ZIP` | 38 | 28 | 1 | 5 (13.2%) |
+| `DATE` | 632 | 491 | 23 | 53 (8.4%) |
+| `LOCATION_STREET` | 36 | 32 | 1 | 2 (5.6%) |
+| `NAME_DOCTOR` | 154 | 145 | 4 | 8 (5.2%) |
+| `DATE_BIRTH` | 61 | 60 | 1 | 2 (3.3%) |
+| `NAME_PATIENT` | 166 | 102 | 1 | 5 (**3.0%**) |
+| 10 kinds with n ≤ 19 (`CONTACT_PHONE`, `CONTACT_FAX`, `PROFESSION`, `LOCATION_ORGANIZATION`, `LOCATION_COUNTRY`, `NAME_USERNAME`, `NAME_RELATIVE`, `NAME_EXT`, `CONTACT_EMAIL`) | 38 | | 0 | 0 (0.0%) |
+| **all kinds** | **1,436** | | | **231 (16.1%)** |
+
+The single repeated `NAME_PATIENT` surface is `Konstantin Tupolev`, appearing in
+`Tupolev_1..4`. **101 of 102 distinct patient-name surfaces occur in exactly one
+document.** GraSCCo's high-repetition kinds are the ones whose surface inventory is
+small by nature (`NAME_TITLE` = 52 distinct strings, mostly `Dr.`; `ID` includes
+`B`, `119`, `II`).
+
+Scale figures for judging whether a seen/unseen split is measurable: at a 20% test
+fold GraSCCo yields 12–13 documents and roughly 290 spans, of which the
+unseen-name portion of `NAME_PATIENT` would be about 30 spans. MEDDOCAN's test
+fold has 502 `NOMBRE_SUJETO_ASISTENCIA` spans, 303 of them with surfaces absent
+from train.
+
+### 7.3 Document-type distribution of GraSCCo's 63 documents
+
+Three measurements, since the corpus ships no document-type field.
+
+**(i) Explicit type line in the header (first 600 chars, on its own line).** Present
+in **13 of 63**:
+
+| header type line | docs | files |
+|---|---|---|
+| `Arztbrief` / `Definitiver Arztbrief` | 5 | `Colon_Fake_H`, `Dewald`, `Koenig`, `Utz`, `Ypsilanti` |
+| `Befund` / `Befund:` | 4 | `Beuerle`, `Joubert`, `Sudeck`, `Tupolev_3` |
+| `Befund - Ambulanz für …` | 3 | `Dupuytren` (Pigmentveränderungen), `Ehrenberger` (Melanomnachsorge), `Schnitzler` (Melanomnachsorge) |
+| `Entlassungsbrief` | 1 | `Osler` |
+
+`AMBULANZKARTE` appears as the first line of `Recklinghausen.txt` but outside the
+600-char window used above; counting it makes 14.
+
+**(ii) Letter form, by salutation and closing.** Salutation patterns searched:
+`Sehr geehrte`, `Sehr verehrte`, `Werte Frau Kollegin`, `werte(r) geehrter Herr
+Kollege`, `Liebe(r) Frau/Herr Kolleg…`. Closing: `Mit kollegialen/freundlichen/
+vorzüglicher …`.
+
+| | docs |
+|---|---|
+| both salutation and closing | 39 |
+| salutation or closing, not both | 13 |
+| **letter-form total** | **52 / 63** |
+| neither | **11 / 63** — `Ehrenberger`, `Joubert`, `Koenig`, `Meulengracht`, `Recklinghausen`, `Schielaug`, `Tupolev_1`, `Tupolev_2`, `Tupolev_3`, `Utz`, `Ypsilanti` |
+
+The 11 non-letter documents overlap heavily with group (i): 7 of them carry an
+explicit `Arztbrief`/`Befund`/`AMBULANZKARTE` header instead.
+
+**(iii) Content cues, non-exclusive, whole document.** A document can hit several.
+
+| cue (regex over full text) | docs |
+|---|---|
+| collegial letter frame | 46 |
+| radiology / imaging (`MRT`, `Sonographie`, `Röntgen`, `Kontrastmittel`, `CT …Befund`) | 30 |
+| pathology / histology (`Histologie`, `Immunhistochemie`, `Makroskopie`) | 25 |
+| outpatient (`Ambulanz`, `ambulante Vorstellung`, `Sprechstunde`) | 24 |
+| laboratory (`Laborwerte`, `Leukozyten`, `CRP`, `Hämoglobin`) | 22 |
+| progress note (`Verlaufsnotiz`, `Visite`, `Verlauf:`) | 16 |
+| discharge (`Entlassungsbericht/-brief`, `entlassen wir`) | 4 |
+| tumour board (`Tumorboard`, `Tumorkonferenz`) | 3 |
+| operation report (`OP-Bericht`, `Hautschnitt`, `intraoperativ`) | 1 |
+
+**Department named in the header: 20 of 63.** Distinct units include
+`Universitätsklinik für Innere Medizin`, `Abteilung für Onkologie` (4 documents,
+spelled `O N K O L O G I E` letterspaced in `Colon_Fake_B`), `Abteilung für
+Neurologie`, `Klinik für Allgemeinchirurgie`, `Klinik für Chirurgie`, `Klinik für
+Ophthalmologie`, `Klinik für Orthopädie und Traumatologie`,
+`Hals-Nasen-Ohren-Klinik`, `Institut für Röntgendiagnostik`, `Epilepsie-Einheit`
+(2 documents), `Röntgenabteilung`, `Ambulanz für Endoskopie`, `Ambulanz für
+Melanomnachsorge` (2), `Abteilungfür Innere Medizin` (missing space, in
+`Tupolev_1` and `Tupolev_2`).
+
+Document length ranges from 922 chars (`Sudeck`) to 12,214 (`Obradovic`).
+
+**Stem groups, re-examined.** §3 offers `Tupolev_*` and `Colon_Fake_*` as one
+option for the split unit and says "whether they are the same patient is not
+recorded in the data". That is now measurable from the annotations, and the two
+groups behave oppositely:
+
+`Tupolev_1..4` — one patient across four documents:
+
+| file | `NAME_PATIENT` | `DATE_BIRTH` | `ID` |
+|---|---|---|---|
+| `Tupolev_1` | `Konstantin Tupolev` | `21/06/1967` | `1933309807`, `B`, `119`, `A31` |
+| `Tupolev_2` | `Konstantin Tupolev` | `21/06/1967` | `1933309807`, `2111`, `B`, `119` |
+| `Tupolev_3` | `Konstantin Tupolev` | `21.06.67` | `1933309807`, `B`, `119`, `A31` |
+| `Tupolev_4` | `Tupolev, Konstantin` ×4 forms | `21.06.1967` | `I` |
+
+Same name, same birth date in three different formats, same record number
+`1933309807` in three of four. `Tupolev_1`/`_2` are Innere Medizin, `_3` is
+Röntgenabteilung — consistent with one episode documented by different units.
+
+`Colon_Fake_A..K` — eleven different patients:
+
+| file | `NAME_PATIENT` | `DATE_BIRTH` |
+|---|---|---|
+| `A` | `Antonia Anderer` | `21/3/2017` |
+| `B` | `Beatrice DE BEAUHARNAIS` | `24.04.1987` |
+| `C` | `CHRIST, Charlotte` | `24.12.1972` |
+| `D` | `DAMARIS, Dyonisia` | `11.2.1967` |
+| `E` | `Euripedes Erler` | `30.12.1987` |
+| `F` | `FRITZLE, Fridolin` | `6/7/1980` |
+| `G` | `GERODLSAUER, Gerli` | `12.4.1977` |
+| `H` | `Huberta Hotzenplotz` | `3.6.1942` |
+| `I` | `Iris Iselin` | `12.12.1932` |
+| `J` | `Jakob Jockel` | `1.1.1992` |
+| `K` | `Katharina Korsakoff` | `13.5.1981` |
+
+Eleven distinct names alliterating with the suffix letter, eleven distinct birth
+dates, no shared `ID`. The shared stem marks a shared *scenario* (colon
+carcinoma), not a shared patient. So the §3 remark that grouping both stem
+families is "the conservative reading" holds for `Tupolev_*` and does not hold for
+`Colon_Fake_*`; grouping the latter would cost 10 of 63 independent units for a
+relationship the annotations contradict. Stated as measurement — the split unit
+remains open question 5.
