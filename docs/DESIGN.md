@@ -1220,3 +1220,279 @@ shipped label leaves the 264 mixed documents needing a tie-break rule that the l
 cannot supply, and leaves that rule's error unmeasured in the detection metrics.
 High accuracy here is not evidence for routing; it just means the argument for the
 union rests on measurability rather than on the selector being bad.
+
+---
+
+## 11. `port-human` protocol
+
+> **Fixed before the arm runs, and that is the point.** This arm's *procedure is its
+> data*: `port-human` is the control, and a control whose protocol was decided while
+> running it measures the protocol as much as the human. Every rule below was settled
+> before any dev document was read for rule-writing purposes. Deviations are reported
+> as deviations rather than folded into the protocol.
+
+Every sealing rule so far has been structural — a directory that is not read, a gate
+that refuses, a screener that blocks. Those hold whether or not anyone is paying
+attention. `port-human` is the first place a person deliberately reads dev and writes
+rules from what they see, and structure cannot enforce what a person does with what
+they remember. So the protocol has to be written down in advance and reported as
+written, including where it was violated.
+
+**The fairness principle this section serves.** `port-human` exists to answer "does the
+agent pipeline beat a person doing the same job?" That question is only answerable if
+the person and the agents are given the same job. Every decision below therefore
+records **which arm it favours**, because an unfair control does not produce a weaker
+claim — it produces an uninterpretable one. A `port-loop` that beats a handicapped
+human and a `port-loop` that beats a well-equipped human are the same number and
+different results, and nothing in `metrics.json` distinguishes them.
+
+### 11.1 What the human may look at in dev
+
+The constraint is symmetry with the agent arms, in **both** directions: the human must
+not get a window the RuleAuthor lacks, and must not be denied one it has. §3 says the
+RuleAuthor's `rules/{lang}.yaml` is "iterated against dev" and that its tool use is
+"running detection on dev", which fixes less than it appears to — it does not say
+whether the agent sees individual error spans with their surface text or only aggregate
+scores.
+
+**Decision: (b), a fixed sample.** The human sees **n error spans per iteration**, drawn
+by a seeded rule from the previous iteration's scorer output. The alternatives and what
+they would have cost:
+
+| option | the human sees | cost | favours |
+|---|---|---|---|
+| (a) full dev | every error span, every iteration, entire dev fold | Slowest, and the human's advantage compounds in a way that cannot be undone or measured. Also the least reproducible: "the author read the dev fold" is not a specifiable amount of reading. | **the human**, strongly |
+| **(b) fixed sample — adopted** | n error spans per iteration, seeded draw | Requires deciding n and the draw (random / stratified by type / worst-types-first); each choice is an experimental parameter that has to be recorded. Reproducible, and symmetric to an agent arm with the same n. | roughly **neutral** — the arm it favours depends on n, which is why n is derived rather than chosen freely |
+| (c) aggregates only | per-type leak rate and complementarity, no individual spans | Cheapest and most defensible against contamination, but below what the agent arm gets, and a rule author who never sees a miss cannot write a context cue for it. Handicaps the control. | **the agents** |
+
+**Normative ordering: the RuleAuthor prompt is specified first, and the human's window
+is derived from it.** `n` is not chosen for the human's convenience; it is set to the
+number of dev error spans the RuleAuthor's prompt actually carries, and the draw rule is
+set to whatever selects them there. The reverse order — fixing what the human gets and
+then building the agent's prompt around it — takes the human's working conditions as the
+reference point, and a control calibrated to itself is not a control. It is also the
+direction in which the failure is invisible: an agent prompt quietly enlarged to match
+what the author found useful produces a `port-loop` win that reads as an agent result.
+
+Consequences of the ordering, stated so they are not renegotiated later. If the
+RuleAuthor prompt turns out to carry no error spans at all, then n = 0 and the human
+arm runs under (c) — the human is held to the agent's window even though that window is
+poor for rule writing. If it carries a large sample, n is correspondingly large. **The
+agent arm's design fixes the human's window in both directions**, and neither outcome is
+grounds for revisiting this section; it is grounds for revisiting the RuleAuthor prompt,
+which is where the decision belongs.
+
+**Three asymmetries that (b) does not remove.** They are recorded rather than solved,
+and each one carries an explicit instruction for how to read the result — because an
+asymmetry that is merely disclosed still gets forgotten by the time the numbers are
+discussed.
+
+1. **Memory carry-over — human memory does not reset; agent context does.** An agent
+   call sees its prompt. A person who reads a sample at iteration 3 still knows it at
+   iteration 9, and still knows it when porting the *second* corpus. Under (b) the
+   sample is bounded and logged, so the volume of what was seen is known even though
+   what was retained is not. This favours the human, and it specifically contaminates
+   the §11.2 scope split: a decision sincerely reported as "general knowledge about
+   clinical Spanish" may be a memory of a dev document.
+
+   **Reading rule: `port-human` results are an upper bound on human performance under
+   this protocol.** Where an agent arm matches or beats `port-human`, that comparison is
+   sound and if anything conservative. Where `port-human` wins, the margin includes an
+   unmeasured carry-over component and cannot be reported as the cost of automation.
+
+2. **n = 1 — a person cannot be re-run.** Every other arm can be replayed from
+   `agent_calls.jsonl`. `port-human` has one execution, no variance estimate, and no way
+   to separate the protocol's effect from this particular author's skill. Which arm this
+   favours is not determinable — a single sample lands on either side of the mean with
+   no way to know which.
+
+   **Reading rule: every claim is scoped to "compared against one human trial", in that
+   wording, not "compared against a human".** Between-author variance is unmeasured, so
+   a difference smaller than plausible between-author variance is not a finding. No
+   confidence interval is computable for this arm and none is reported for it.
+
+3. **DUA inversion — on some corpora the agent is the more restricted party.** Sending
+   CARMEN-I or MIMIC-derived text to an external LLM API is a data-transfer question,
+   not a prompt-design question. Where the answer is no, the agent arms cannot receive
+   the sample that (b) gives the human, and the asymmetry inverts: the human sees spans
+   the agent is forbidden to see.
+
+   **Reading rule: the window is recorded per corpus, not once for the experiment.**
+   Each corpus's results state the human's n, the agent's n, and which of the two was
+   the binding constraint. A cross-corpus statement about `port-human` is only made
+   across corpora where those agree; where they do not, the corpora are reported
+   separately and the direction of the asymmetry is named. A corpus on which the agent
+   is text-restricted is not evidence about agent capability at all — it is evidence
+   about deployability under a DUA, which is a different claim and is labelled as one.
+
+**What this licenses:** a stated, auditable dev window per corpus, derived from the
+agent arm's own prompt. **What it does not:** a claim that the control was equally
+equipped. Asymmetry (1) is unresolvable in principle, which is why the reading rule
+makes `port-human` a bound rather than a point estimate.
+
+### 11.2 What is recorded
+
+The requirement is that `port-human` costs land on the **same axes** as every other
+arm, since CLAUDE.md requires cost beside quality and §5's cost block is `llm_calls` /
+`prompt_tokens` / `completion_tokens` / `wall_seconds`. A human arm has zero of the
+first three and a working-hours figure that is not comparable to an agent's wall time —
+one is compute, the other is a person's attention.
+
+**`results/{corpus}/{detector}/{supervision}/port-human/human_log.jsonl`**, one line per
+event, deliberately parallel to `agent_calls.jsonl` so the two can be read on one axis
+where they are commensurable and visibly not where they are not. The path is declared as
+`paths.humanlog` in `config/naming.yaml` alongside `paths.agentlog` when the arm is
+implemented — not written as a literal in code, under CLAUDE.md's rule that a new value
+goes into the config before it goes into a module. Note that `{porting}` is fixed to
+`port-human` here rather than templated: this file exists for exactly one value of that
+axis, and a template implying otherwise would invite a second arm to write it.
+
+| field | meaning |
+|---|---|
+| `iteration` | integer, matching the agent arms' iteration counter |
+| `event` | `read_sample` / `decision` / `rule_edit` / `score_run` |
+| `human_minutes` | elapsed human time for this event — **deliberately not `wall_seconds`** |
+| `decision` | free text: what was decided and why |
+| `predicted_scope` | `global` or `corpus_specific`, recorded when the decision is made |
+| `actually_reused` | `true` / `false` / `null`, filled in from the second corpus |
+| `evidence` | what prompted it: sample span IDs (never surfaces), a per-type rate, or `prior_knowledge` |
+| `rules_commit` | commit hash of `rules/{lang}.yaml` after this event |
+
+**Human time is `human_minutes`, never `wall_seconds`, and the name is the mechanism.**
+A person's working hours and a pipeline's wall clock are different quantities, and the
+only thing standing between them and a summed total is that they cannot be summed by
+accident. Under a shared field name, some future aggregation over arms adds them —
+correctly, as far as the code is concerned, since every arm has a `wall_seconds` and
+adding them is what a total does. A distinct name makes that aggregation fail to find
+the field instead of silently producing a number. Minutes rather than seconds for the
+same reason: false precision in a self-reported duration invites arithmetic it cannot
+support. Agent `wall_seconds` is still recorded for `port-human`'s scorer runs, which
+genuinely are compute.
+
+**Span IDs, never surfaces.** CLAUDE.md forbids corpus text in logs, and this file is
+committed. A decision log that records "added a cue for the phrase X" republishes X.
+The referent is `(doc_id, span_index)`, which is resolvable by anyone holding the
+corpus and inert to anyone who does not.
+
+**Scope is two fields, not one, and the split is what makes the optimism bias
+measurable.** The hypothesis is that human intervention converges to a constant as
+corpora are added: global decisions are paid once, corpus-specific ones recur.
+Classifying a decision requires the author's own judgement, and that judgement is weak
+in a *specific direction* — someone who believes the convergence hypothesis will file
+borderline decisions as `global`, which is the flattering direction and the direction of
+the paper's own claim.
+
+A single `scope` field cannot survive this, because it stays editable. When the second
+corpus reveals that a `global` decision had to be redone, the honest move and the
+convenient move are the same edit to the same field, and afterwards nothing in the file
+records that a prediction was ever wrong. So:
+
+- **`predicted_scope`** is written when the decision is made, before any evidence about
+  reuse exists, and **is never edited afterwards**.
+- **`actually_reused`** is written during the *second* corpus's port: `true` if the
+  decision carried over unchanged, `false` if it had to be redone or replaced, `null`
+  while no second corpus has been ported.
+
+The prediction is therefore recorded before its own test, which is what makes optimism
+bias a **measurable quantity rather than a caveat**: the disagreement rate between
+`predicted_scope == "global"` and `actually_reused == false` is the calibration error,
+it is computable from the log, and it is reported. Retrospective adjustment is not
+prevented by trust but by the fact that the two fields disagree permanently — a corrected
+prediction still shows as a wrong prediction.
+
+**Favours: the human arm**, since the residual bias runs toward the convergence
+hypothesis. The two-field split does not remove that; it converts it from an
+unfalsifiable direction of error into a number with a sign, which can then be reported
+against the arm that benefits from it.
+
+**Rule snapshots per iteration.** One commit per iteration on a branch, so each
+iteration's rule file is recoverable and diffable. This is cheap and there is no
+argument against it; the `rules_version` already recorded in `metrics.json` (§5) makes
+each scored iteration point at an exact rule file.
+
+**Scorer runs are logged as their own event type.** The human will run the scorer on dev
+repeatedly. That cost is the harness's, and every agent arm pays it too, so charging it
+to the human would inflate `port-human`; but the person does wait for it, so excluding
+it understates what porting actually costs a person. `score_run` events carry both
+`human_minutes` (waiting) and `wall_seconds` (compute), so either total is reconstructible
+from the log and the choice is a reporting decision rather than a data-collection one.
+
+### 11.3 When the human stops
+
+§3 fixes the agent loop's termination: dev leak rate improves by less than δ for k
+consecutive iterations, or the call budget is exhausted. **If the human arm has no
+corresponding rule, the two arms are compared under different stopping rules, and the
+difference between them is partly a difference in when someone chose to quit.** This is
+the most consequential of the three decisions, because a human who stops early loses
+and a human who stops late wins, and neither is a fact about human-versus-agent
+porting.
+
+**Decision: the same δ and k as the agent loop.** The human iterates until the dev leak
+rate improves by less than δ for k consecutive iterations. The alternatives:
+
+| option | how it works | cost | favours |
+|---|---|---|---|
+| **same δ, same k — adopted** | identical convergence test to §3 | Directly comparable, and the default reading of "same stopping rule". But δ was chosen for a loop that can cheaply run a marginal iteration; a person facing a fifth iteration for a 0.3% gain feels that cost differently, and holding them to it measures protocol compliance as much as judgement. | **the agents** — the rule was designed around their cost structure, and adopting it accepts that cost against the control |
+| human-judgement stop | the author stops when they judge returns exhausted, and logs why | Realistic, and this arm's external validity rests on realism. But unfalsifiable as a comparison: any result is explicable by when they chose to stop. | **the human** |
+| δ/k with a hard ceiling | the convergence test plus an independent cap | Keeps comparability and bounds the worst case in both directions. More bookkeeping. | roughly **neutral** |
+
+Adopting the same δ and k is a choice that **favours the agent arms**, and the reason to
+take it anyway is that the alternative destroys the comparison rather than tilting it. A
+`port-human` that stopped on judgement can be dismissed by any reader who prefers the
+other result, and there is no analysis that recovers from it. A `port-human` held to a
+rule built for a different cost structure yields a comparison that is interpretable and
+biased in a **known and stated direction** — which is the trade this project has taken
+everywhere else it appears.
+
+**The ceiling is in iterations; hours are recorded but do not bind.** The two units fail
+differently. **Iterations** are directly comparable to the agent arms' call budget, are
+the unit §3 already uses, and are the unit in which "the agent ran longer" can be stated
+at all — but an iteration is not a fixed amount of human effort, so an iteration cap lets
+the human spend unbounded time inside a bounded count. That is the direction that
+**favours the human**, and it is the accepted cost of this choice. **Hours** cap the
+resource actually scarce for a person, but have no agent counterpart: an hours ceiling is
+a stopping rule with no mirror in the arm being compared against, and its stringency
+relative to the agent's budget could only be asserted, never computed. `human_minutes`
+from §11.2 is therefore aggregated and reported per iteration and in total, so the
+unbounded-time-inside-bounded-count risk is **visible in the results** even though it is
+not capped. A reader who wants the hours-normalised comparison can compute it; a reader
+who wants iteration-matched comparison gets it directly.
+
+**The agent arm is scored at two points: the human's stopping iteration, and its own
+termination.** Both go in the results. The reason is that "better" and "ran longer" are
+two claims that a single number cannot separate:
+
+- At the **human's stopping iteration**, the comparison is iteration-matched. This is
+  the figure that answers "with the same number of passes over dev, who is ahead?"
+  Scored on its own it would *favour the human*, since a cheap marginal iteration is
+  precisely the agent's real advantage and truncation discards it.
+- At the agent's **own termination**, the comparison is each-to-its-own-completion. This
+  answers the practitioner's question, and scored on its own it favours the agents for
+  the mirror reason.
+
+Reporting both makes the stopping-rule confound a **quantity instead of an argument** —
+the same move §9.3 made with `assignment_slack`, and for the same reason: a gap between
+two defensible numbers is informative, while a single number hiding that gap is not. The
+cost is one extra scorer run against dev and **no extra agent calls**, since the
+iterations already ran and each one's rule file is committed (§11.2). **Favours neither
+arm**, which is the point of doing both.
+
+**The surro 1.9× standard applies to `port-loop` vs `port-multi`, and it is a
+pre-registered criterion.** §3's record notes a configuration that scored better while
+costing 1.9× budget and 2.5× wall time, and was demoted for it. That standard is adopted
+here **before any of these arms have been run**, which is what makes it a criterion
+rather than a rationalisation: a cost threshold chosen after seeing the results is chosen
+to fit them. Concretely — a `port-multi` that beats `port-loop` while costing on the
+order of 1.9× is not accepted as a win for role specialisation, and the same reasoning
+applies to `port-loop` beating `port-human` by running several times as many iterations.
+CLAUDE.md already requires the cost block for exactly this comparison, and §4's ladder
+states that if `port-loop` does not beat `port-oneshot` the agentic framing is not
+earned. **Favours neither arm** — it is a reporting requirement that constrains every
+arm equally, including the ones this project would prefer to win.
+
+**What this licenses:** a stated stopping rule applied to both arms, with the
+iteration-matched and run-to-completion comparisons both reportable, and a cost threshold
+fixed in advance. **What it does not:** a claim that either arm ran to the point of
+diminishing returns for *its own* cost structure. δ and k were set for one cost structure
+and the arms have two, which is a known limitation of the comparison rather than
+something the protocol repairs.
