@@ -23,6 +23,16 @@ and note types, with annotation-free supervision.
 - 커밋 전 `python tools/release_screen.py` 를 실행한다.
   BLOCKED가 1건이라도 나오면 커밋하지 말고 사용자에게 보고한다.
 - 예측 결과를 공개할 때는 원문 텍스트 없이 오프셋·유형·판정만 남긴다.
+- **예외 메시지·로그·경고에 코퍼스 텍스트를 넣지 않는다.** 스팬 인덱스·오프셋·
+  길이만 쓴다. 예외 메시지는 터미널·CI 로그·이슈·스택트레이스로 흘러나가고,
+  그 경로에는 `release_screen.py` 가 닿지 않는다. 합성 코퍼스에서만 안전한
+  검사는 아무도 신뢰할 수 없으므로 코퍼스를 구분하지 않고 전부 적용한다
+  (MEDDOCAN·GraSCCo 도 예외가 아니다 — 어느 코퍼스를 다루는지에 따라 규칙이
+  갈리면 실수가 조용해진다).
+- 테스트도 같은 규칙을 따른다. 나아가 **메시지에 표면형이 없는지 검사하는
+  테스트를 둔다** — 규약을 코드로 고정하지 않으면 다음 로더에서 "디버깅에
+  편하다"는 이유로 되돌아온다. `tests/test_meddocan_loader.py` 의
+  `test_offset_mismatch_message_quotes_no_surface` 가 그 형태다.
 
 ## Git
 
