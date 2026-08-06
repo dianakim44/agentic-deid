@@ -88,6 +88,9 @@ and note types, with annotation-free supervision.
   결합 구성은 recall 에서 구성요소를 by construction 으로 이긴다.
 - 누출률의 headline 값은 `fully_covered` 이고, relaxed 값은 하한으로 병기한다.
   두 정의는 DESIGN.md §9.3 에만 두고 여기서 되풀이하지 않는다.
+- **누출률·상보성 분해는 예측 합집합으로, P/R/F1 은 1:1 배정으로 낸다.**
+  하나로 합치지 않는다 — 합치면 없는 누출이 생기거나 `both` 가 과소평가된다.
+  근거는 DESIGN.md §9.3. headline 을 고르는 것은 보고 층이고 채점기가 아니다.
 - **비용을 품질과 함께 보고한다.** arm 마다 LLM 호출 수 · 토큰 수 ·
   wall time 을 metrics.json 에 같이 기록한다. 2배 비용으로 얻은 향상과
   1.05배 비용으로 얻은 향상은 다른 결과다.

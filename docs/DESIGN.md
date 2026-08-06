@@ -184,9 +184,14 @@ Headline quantities:
   This is the only operationally meaningful number; a missed identifier is a
   disclosure, and a partially redacted one can still be. The looser
   any-overlap variant is reported beside it as a lower bound. Exact definitions
-  and the reason the strict form is the headline are in §9.3.
+  and the reason `fully_covered` is the headline are in §9.3.
 - **Complementarity breakdown** — found by rules only / tagger only / both /
   neither. This is what shows whether the neural layer earns its cost.
+
+Both are computed against the **union** of same-type predictions rather than against
+a one-to-one assignment, for reasons given in §9.3 — coverage answers "is this
+identifier hidden", which does not depend on which detector gets the credit, and a
+one-to-one matching would undercount `both` exactly where the layers agree.
 
 Precision, recall, and F1 are reported but are not the headline, for the
 reason in §2.
@@ -782,46 +787,119 @@ only meaningful if the *evaluation* labels stay untouched. Merging loses
 granularity; inventing labels loses the ability to make any claim at all. GraSCCo's
 finer distinction is preserved in `subtype` for German-only analysis.
 
-### 9.3 Matching: relaxed is the headline, strict reported alongside
+### 9.3 Matching: two modes, and two different matchings within each
 
-**Relaxed (primary).** A predicted span matches a gold span when their character
-ranges overlap by **at least one character** and the **canonical types are equal**.
-Matching is a one-to-one assignment: each gold span is claimed by at most one
-prediction and vice versa, resolved greedily by largest overlap so that one wide
-prediction cannot claim credit for several gold spans.
+Two things are decided here and they are independent. **How strict is "covered"** —
+answered by two *modes*, `fully_covered` and `relaxed`. **What competes for credit** —
+answered by two *matchings*, coverage and assignment, both computed in both modes.
+Conflating them is the mistake this section exists to prevent.
 
-**Strict (secondary).** Exact `begin` and `end` plus equal canonical type.
+#### The two modes
 
-**Why relaxed leads.** Boundary conventions differ between corpora — the
-`NAME_TITLE` case is the proof: 130 of GraSCCo's 139 `NAME_TITLE` spans are
-immediately followed by another `NAME_*` span (122 `NAME_DOCTOR`, 8
-`NAME_PATIENT`), so a detector emitting `Dr. Osler` as one span is right by
-MEDDOCAN's convention and boundary-wrong by GraSCCo's. Under strict-only scoring
-the headline number would move with the annotation guideline rather than with the
-detector, which is the opposite of what the porting axis is meant to measure.
-Relaxed span scoring is also the i2b2/n2c2 de-identification convention, so it is
-what a reader expects.
+**`relaxed`.** A prediction covers a gold span when their character ranges overlap by
+**at least one character** and the **canonical types are equal**.
 
-**Why type equality is still required.** Type-agnostic overlap would let one
+**`fully_covered`.** Every character of the gold span is covered, by predictions of
+the equal canonical type.
+
+**Exact-boundary strict scoring is not computed, and dropping it is a change from an
+earlier version of this section.** That version defined a third mode requiring
+`begin` and `end` to match exactly, alongside the argument that refutes it: 130 of
+GraSCCo's 139 `NAME_TITLE` spans are immediately followed by another `NAME_*` span
+(122 `NAME_DOCTOR`, 8 `NAME_PATIENT`), so a detector emitting `Dr. Osler` as one span
+is right by MEDDOCAN's convention and boundary-wrong by GraSCCo's. An exact-boundary
+figure therefore moves with the annotation guideline rather than with the detector,
+which is the opposite of what the porting axis measures — and that is true of the
+number wherever it appears, not only when it leads. Having established that, there is
+no place left in the paper to cite it: `relaxed` is the boundary-tolerant quality
+figure and the i2b2/n2c2 convention a reader expects, `fully_covered` is the
+disclosure figure, and a third column nobody can interpret invites exactly the
+comparison the paragraph above rules out. Two modes rather than three also means each
+reported number has one definition behind it instead of a mode label to check first.
+
+**Why type equality is required in both modes.** Type-agnostic overlap would let one
 prediction cover two adjacent gold spans of different types and would make the
 complementarity breakdown in §5 uninterpretable — "found by rules only" has to mean
-found *as the right kind of thing*. The cost is visible and accepted: a detector
-that finds a date but calls it an ID is scored as both a miss and a false positive.
+found *as the right kind of thing*. The cost is visible and accepted: a detector that
+finds a date but calls it an ID is scored as both a miss and a false positive.
 
-**Leak rate uses relaxed, and this is deliberately generous to the system.** A
-gold span with any overlap at all counts as covered, even if only one character was
-detected. Partial redaction can still disclose (a surname detected but the given
-name left in place is a disclosure), so the leak rate as defined is a **lower
-bound** on true disclosure risk. Stated in the paper as such. A stricter
-`fully_covered` variant — every character of the gold span covered by some
-prediction — is computed and reported next to it so the gap is visible rather than
-argued about.
+#### The two matchings, and why one is not enough
 
-**The paper's headline leak rate is the `fully_covered` figure**, with the relaxed
-figure reported beside it as the lower bound. Relaxed matching is the right
-convention for scoring detector *quality* against inconsistent boundary
-guidelines, but a disclosure claim must not rest on a definition under which one
-detected character redacts a name.
+A single one-to-one assignment cannot serve both headline quantities. The failure is
+concrete:
+
+```
+gold:  [Juan] [Pérez]        two adjacent NAME spans
+pred:  [Juan  Pérez    ]     one NAME span covering both completely
+```
+
+One-to-one assignment gives that prediction to one gold span and leaves the other a
+false negative — which is *correct* for credit, and the reason the rule exists. But
+computing the leak rate from false negatives then reports a leak on an identifier that
+is completely covered in the text. The mirror case exists too: a gold span split
+between two adjacent predictions is fully covered while no single prediction covers it,
+so a per-prediction `fully_covered` test would report a leak on a span that is entirely
+redacted. **Both directions invent leaks that do not exist.**
+
+The cause is that two different questions are being asked.
+
+- **"Is this identifier hidden in the text?"** — a disclosure question, and a property
+  of the text. Which detector deserves the credit is irrelevant, so nothing needs to
+  compete: the answer is taken against the **union** of same-type predictions.
+- **"Does the detector get credit for finding it?"** — a quality question. Here one
+  wide prediction must not collect several gold spans, so the answer requires a
+  **one-to-one assignment**.
+
+Accordingly:
+
+| matching | definition | feeds |
+|---|---|---|
+| **coverage** | the **union** of same-type predictions, tested against each gold span under the mode's rule | leak rate, complementarity breakdown |
+| **assignment** | **one-to-one greedy** by largest overlap; each gold span claimed by at most one prediction and each prediction by at most one gold span | TP / FP / FN → precision, recall, F1 |
+
+Note that `fully_covered` is only meaningful against the union — "every character
+covered by *some* prediction" is a union statement — which is a second reason the two
+matchings cannot be collapsed.
+
+**The complementarity breakdown uses coverage, and this is load-bearing.** "Found by
+rules only" is a claim about what a mechanism found, not about which mechanism won an
+assignment. Under one-to-one matching, when two layers both find the same gold span,
+one of them loses the assignment and is scored as not having found it — so `both` is
+undercounted and `rules only` / `tagger only` are inflated by exactly the cases where
+the layers agree. That is the reverse of what §5's complementarity is measuring, and
+the error is largest precisely where the layers overlap most, which is the region the
+number exists to quantify.
+
+**The greedy assignment must be totally ordered.** Ties are resolved by
+`(-overlap, gold.start, gold.end, pred.start, pred.end, pred_index)`, so the result
+cannot depend on input order, dictionary iteration, or the order a detector happened to
+emit spans in. A scorer whose output moves when the same spans arrive in a different
+order is not a measurement, and this is checked by scoring shuffled input twice.
+
+**`assignment_slack` is reported.** It counts gold spans that coverage calls covered
+and assignment calls a false negative — the `[Juan] [Pérez]` case above, and nothing
+else. It is not an error term to be minimised or corrected for: it is the amount by
+which the detector's span boundaries group differently from the gold guideline's. A
+large value means the two disagree about where one identifier ends and the next begins,
+which is a fact about the porting target worth reading, and the alternative to
+reporting it is that the gap between the leak rate and recall looks unexplained.
+
+#### Which figure is the headline is a per-metric decision
+
+- **Leak rate: `fully_covered`.** The `relaxed` figure is reported beside it as a
+  **lower bound**. A gold span with any overlap counts as covered under `relaxed` even
+  if one character was detected, and partial redaction can still disclose — a surname
+  detected with the given name left in place is a disclosure. A disclosure claim must
+  not rest on a definition under which one detected character redacts a name.
+- **Precision / recall / F1: `relaxed`.** These score detector quality against
+  inconsistent boundary guidelines, which is what `relaxed` is for; `fully_covered`
+  P/R/F1 is reported alongside.
+
+**The scorer does not choose.** It computes both modes symmetrically, records which
+figure is the headline for which metric in its output, and leaves the selection to the
+reporting layer. This is why `src/eval/scorer.py` has no notion of a primary mode: if
+a later judgement changes which figure leads, that is an edit to how results are
+presented, not a recomputation — and no result already written becomes unreadable.
 
 ### 9.4 Sparse types are in the leak-rate denominator
 

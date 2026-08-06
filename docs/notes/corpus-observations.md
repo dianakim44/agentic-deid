@@ -810,8 +810,12 @@ which is convenient for the comparison and is a coincidence worth naming as one.
 `Dr.` belongs inside the name span) therefore does not arise for CARMEN-I, so the
 argument in §9.3 for relaxed matching rests on GraSCCo alone among the three
 corpora. That does not weaken the decision — one corpus with the conflict is enough
-to make strict-only scoring guideline-dependent — but it does mean the evidence base
-for it is narrower than three corpora.
+to make exact-boundary scoring guideline-dependent — but it does mean the evidence
+base for it is narrower than three corpora. §9.3 now carries that argument further
+than demotion: the exact-boundary mode is not computed at all, since a figure that
+moves with the annotation guideline does so wherever it appears and not only when it
+leads. Worth noting that this single-corpus evidence base is what a fourth corpus
+could change, in either direction.
 
 ### 8.4 Catalan mixing and the `rules/{lang}.yaml` convention
 
