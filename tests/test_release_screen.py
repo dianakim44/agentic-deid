@@ -10,6 +10,7 @@ both layers at once. Both layers were changed; both directions are tested.
 
     python3 -m pytest tests/ -q
 """
+import json
 import os
 import subprocess
 import sys
@@ -294,3 +295,230 @@ def test_gitignore_matches_deny_exceptions(path, should_be_ignored):
         f"{path}: git ignored={r.returncode == 0}, expected {should_be_ignored}")
     assert rs.deny(path) is should_be_ignored, (
         f"{path}: screener denied={rs.deny(path)}, expected {should_be_ignored}")
+
+
+# ─── the known-false-positive allowlist ────────────────────────────────────
+# Five files trip the sniffer on every run for reasons that are not note text.
+# Printed in full they were five permanent lines nobody read, so a sixth would have
+# arrived among them unnoticed. The allowlist turns the expected ones into a count
+# and prints only what is new — the same treatment BLOCKED got with SEALED.
+
+
+def _allowlist(tmp_path, entries):
+    p = tmp_path / "tools" / "screen_allowlist.json"
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(json.dumps({"version": 1, "entries": entries}), encoding="utf-8")
+    return str(p)
+
+
+GOOD = {"path": "docs/x.md", "sniff": "Korean prose",
+        "why": "a reason long enough to be evaluated later"}
+
+
+def test_the_real_allowlist_loads_and_validates():
+    """The committed list must satisfy its own rules, or the screener refuses to run."""
+    entries = rs.load_allowlist()
+    assert entries
+    for path, entry in entries.items():
+        assert entry["sniff"] and entry["why"]
+        assert not rs.deny(path)
+
+
+def test_the_real_allowlist_has_no_stale_entries():
+    """Every entry names a file that exists. A pruned list is the point of having one."""
+    missing = [p for p in rs.load_allowlist()
+               if not os.path.exists(os.path.join(ROOT, p))]
+    assert not missing, f"stale allowlist entries: {missing}"
+
+
+def test_every_current_false_positive_is_covered():
+    """The live invariant: this repository screens with zero unexpected hits.
+
+    If a change introduces a new sniffer hit, this fails — which is the whole purpose
+    of the allowlist. Adding the file to the list is a deliberate, reviewable act.
+    """
+    _, _, _, suspect, _ = rs.screen_tree(ROOT)
+    _, unexpected, _, _ = rs.partition_suspect(suspect, rs.load_allowlist(), ROOT)
+    assert not unexpected, (
+        "unexpected sniffer hits: "
+        f"{[(p, why) for p, why, _ in unexpected]}")
+
+
+# ─── what the allowlist may not contain ────────────────────────────────────
+
+
+@pytest.mark.parametrize("path", [
+    "sealed/es-meddocan/test/brat/doc.txt",
+    "sealed/anything.txt",
+    "data/raw/es-meddocan/note.txt",
+    "data/derived/spans.jsonl",
+    "data/README.md",
+])
+def test_a_corpus_or_sealed_entry_is_refused(tmp_path, path):
+    """The one thing this list must never be able to do.
+
+    An allowlist that can silence a sniffer hit on a corpus or sealed path is a way
+    to publish note text with a one-line diff to a JSON file. `data/README.md` is
+    refused too, despite being publishable by path: it is the single file published
+    out of a denied prefix, so it is the last one that should also be exempt from the
+    content check.
+    """
+    p = _allowlist(tmp_path, [{**GOOD, "path": path}])
+    with pytest.raises(rs.AllowlistError, match="data/|sealed/|denied"):
+        rs.load_allowlist(p)
+
+
+@pytest.mark.parametrize("path", [
+    "docs/*.md",
+    "docs/",
+    "config/?.yaml",
+    "docs/[a-z].md",
+])
+def test_a_pattern_entry_is_refused(tmp_path, path):
+    """Literal paths only — the `data/acquire/*.sh` lesson, restated.
+
+    That whitelist was keyed on an extension and published a file holding a clinical
+    note header. Any entry broader than a filename stops naming what it permits.
+    """
+    p = _allowlist(tmp_path, [{**GOOD, "path": path}])
+    with pytest.raises(rs.AllowlistError, match="pattern or a directory"):
+        rs.load_allowlist(p)
+
+
+def test_an_entry_without_a_reason_is_refused(tmp_path):
+    p = _allowlist(tmp_path, [{"path": "docs/x.md", "sniff": "Korean prose",
+                               "why": "noise"}])
+    with pytest.raises(rs.AllowlistError, match="why"):
+        rs.load_allowlist(p)
+
+
+def test_an_entry_without_a_sniff_kind_is_refused(tmp_path):
+    p = _allowlist(tmp_path, [{"path": "docs/x.md", "why": GOOD["why"]}])
+    with pytest.raises(rs.AllowlistError, match="sniff"):
+        rs.load_allowlist(p)
+
+
+def test_a_missing_or_broken_allowlist_is_refused(tmp_path):
+    """Not "carry on without it": every known hit would then read as new."""
+    with pytest.raises(rs.AllowlistError, match="missing"):
+        rs.load_allowlist(str(tmp_path / "nope.json"))
+    bad = tmp_path / "bad.json"
+    bad.write_text("{not json", encoding="utf-8")
+    with pytest.raises(rs.AllowlistError, match="valid JSON"):
+        rs.load_allowlist(str(bad))
+
+
+def test_a_rejected_allowlist_screens_nothing(tmp_path):
+    """Exit 2 and no report. "SUSPECT 5 (all known)" from a rejected list would be
+    the most misleading line this tool could print."""
+    p = _allowlist(tmp_path, [{**GOOD, "path": "sealed/leak.txt"}])
+    script = os.path.join(ROOT, "tools", "release_screen.py")
+    r = subprocess.run([sys.executable, script, "--root", str(tmp_path),
+                        "--allowlist", p], capture_output=True, text=True)
+    assert r.returncode == 2
+    assert "ALLOWLIST REJECTED" in r.stderr
+    assert "SUSPECT" not in r.stdout
+
+
+# ─── how hits are partitioned ──────────────────────────────────────────────
+
+
+def test_a_known_hit_is_counted_not_printed(tmp_path):
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs" / "x.md").write_text("x", encoding="utf-8")
+    known, unexpected, _, _ = rs.partition_suspect(
+        [("docs/x.md", "Korean prose (9 runs)")], {"docs/x.md": GOOD}, str(tmp_path))
+    assert known and not unexpected
+
+
+def test_a_different_sniff_kind_on_a_known_file_is_unexpected(tmp_path):
+    """The subtle one. A file excused for Korean prose that starts matching the
+    clinical-header pattern is a new fact about it, and being previously excused for
+    another reason is not a reason to excuse this."""
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    known, unexpected, _, _ = rs.partition_suspect(
+        [("docs/x.md", "clinical note header")], {"docs/x.md": GOOD}, str(tmp_path))
+    assert not known
+    assert unexpected[0][0] == "docs/x.md"
+    assert unexpected[0][2] is GOOD, "the report should say what it WAS excused for"
+
+
+def test_an_unlisted_visible_hit_is_unexpected(tmp_path):
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    _, unexpected, _, _ = rs.partition_suspect(
+        [("docs/new.md", "clinical note header")], {}, str(tmp_path))
+    assert len(unexpected) == 1
+
+
+def test_a_gitignored_hit_is_unpublishable_not_unexpected(tmp_path):
+    """Machine-local files (data_paths.local.yaml, editor settings) cannot be pushed.
+
+    Counted rather than allowlisted on purpose: an entry for one would read as stale
+    on every other machine, which is the noise this change removes.
+    """
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    (tmp_path / ".gitignore").write_text("local.yaml\n", encoding="utf-8")
+    (tmp_path / "local.yaml").write_text("x", encoding="utf-8")
+    _, unexpected, unpublishable, _ = rs.partition_suspect(
+        [("local.yaml", "Korean prose (9 runs)")], {}, str(tmp_path))
+    assert not unexpected
+    assert unpublishable == [("local.yaml", "Korean prose (9 runs)")]
+
+
+def test_a_stale_entry_is_reported(tmp_path):
+    """A list nobody prunes eventually permits something by accident, and a renamed
+    file loses its exemption silently — the orphaned entry is the clue."""
+    p = _allowlist(tmp_path, [{**GOOD, "path": "docs/gone.md"}])
+    _, _, _, stale = rs.partition_suspect(
+        [], rs.load_allowlist(p), str(tmp_path), p)
+    assert stale == ["docs/gone.md"]
+
+
+def test_staleness_is_not_reported_against_another_tree(tmp_path):
+    """Screening a scratch directory must not call every entry stale.
+
+    A check that cries wolf on a temporary tree is one people learn to skip on the
+    tree that matters.
+    """
+    _, _, _, stale = rs.partition_suspect([], rs.load_allowlist(), str(tmp_path))
+    assert stale == []
+
+
+def test_stale_entries_do_not_fail_the_run(tmp_path):
+    """Exit 0. Failing on staleness would pressure someone into deleting an entry to
+    get a green run, and deleting entries is how a list stops describing reality."""
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    p = _allowlist(tmp_path, [{**GOOD, "path": "docs/gone.md"}])
+    script = os.path.join(ROOT, "tools", "release_screen.py")
+    r = subprocess.run([sys.executable, script, "--root", str(tmp_path),
+                        "--allowlist", p], capture_output=True, text=True)
+    assert r.returncode == 0, r.stdout
+    assert "STALE allowlist entries   : 1" in r.stdout
+
+
+def test_a_clean_tree_exits_zero_and_an_unexpected_hit_exits_one(tmp_path):
+    """The habit this protects: a screener that exits 1 on a clean tree gets ignored.
+
+    Before the allowlist it exited 1 on every run because of those five files.
+    """
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    script = os.path.join(ROOT, "tools", "release_screen.py")
+    p = _allowlist(tmp_path, [])
+
+    clean = subprocess.run([sys.executable, script, "--root", str(tmp_path),
+                            "--allowlist", p], capture_output=True, text=True)
+    assert clean.returncode == 0, clean.stdout
+
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs" / "leak.md").write_text(NOTE, encoding="utf-8")
+    dirty = subprocess.run([sys.executable, script, "--root", str(tmp_path),
+                            "--allowlist", p], capture_output=True, text=True)
+    assert dirty.returncode == 1
+    assert "UNEXPECTED" in dirty.stdout
+    assert "docs/leak.md" in dirty.stdout
+
+
+def test_the_allowlist_reasons_contain_no_korean(tmp_path):
+    """The list would otherwise trip HANGUL_PROSE and need an entry for itself."""
+    assert rs.sniff(rs.ALLOWLIST, force=True) is None

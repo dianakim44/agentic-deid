@@ -1,0 +1,54 @@
+{
+  "version": 1,
+  "note": [
+    "Known false positives of tools/release_screen.py's content sniffer.",
+    "An entry says: this file trips the sniffer, for this reason, and the reason is",
+    "not note text. Nothing here weakens the path rules — a file must already be",
+    "publishable by path to be sniffed at all.",
+    "",
+    "Rules the screener enforces on this file, so they cannot be quietly relaxed:",
+    "  - Literal paths only. No wildcards, no directory prefixes. The lesson of the",
+    "    data/acquire/*.sh bypass is that a whitelist keyed on anything broader than",
+    "    a filename stops naming what it permits.",
+    "  - Nothing under data/ or sealed/, and nothing the deny rules cover. Those are",
+    "    corpus and sealed paths; a sniffer hit on one of them is the alarm, not a",
+    "    nuisance. data/README.md is excluded too, even though it is publishable: it",
+    "    is the one file published out of a denied prefix, so it is the last file",
+    "    that should be exemptible from the content check as well.",
+    "  - `sniff` pins WHICH kind of hit is expected. A file allowlisted for Korean",
+    "    prose that starts tripping the clinical-header pattern is reported as",
+    "    unexpected, because that is a different fact about the file.",
+    "  - `why` has to be a real sentence. An entry nobody can evaluate later is an",
+    "    entry that gets renewed forever.",
+    "",
+    "Reasons are written in English deliberately: Korean prose in this file would",
+    "trip HANGUL_PROSE and the allowlist would need an entry for itself."
+  ],
+  "entries": [
+    {
+      "path": "CLAUDE.md",
+      "sniff": "Korean prose",
+      "why": "Project instructions, written in Korean. Prose about the rules — including the rule against putting corpus text in files like this one. No corpus text."
+    },
+    {
+      "path": "config/naming.yaml",
+      "sniff": "Korean prose",
+      "why": "Korean comments documenting the identifier vocabulary. The values are experiment identifiers; the prose explains what each axis is for."
+    },
+    {
+      "path": "config/data_paths.example.yaml",
+      "sniff": "Korean prose",
+      "why": "Korean comments explaining the corpora: and sealed: keys. This is the committed template and holds no real path; the machine's real paths live in data_paths.local.yaml, which is gitignored."
+    },
+    {
+      "path": "tools/release_screen.py",
+      "sniff": "clinical note header",
+      "why": "This is the file that searches for that header, and its own docstring and CLINICAL_HEADER pattern quote it. Self-match, present since the first version."
+    },
+    {
+      "path": "tests/test_release_screen.py",
+      "sniff": "clinical note header",
+      "why": "The NOTE constant is a synthetic MIMIC-shaped header, invented for the test that proves the sniffer catches one. It comes from no corpus, which is why it can be committed."
+    }
+  ]
+}

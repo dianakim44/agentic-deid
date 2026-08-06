@@ -19,7 +19,7 @@ is tested by `tests/test_mutation_harness.py`, which pytest does collect.
 
 Each one corresponds to a decision in DESIGN.md that a plausible "simplification"
 would silently undo. What they have in common is the property that makes them
-dangerous: **sixteen of the twenty-three change no total.** The corpus still loads,
+dangerous: **sixteen of the twenty-four change no total.** The corpus still loads,
 the document count is still 750, the span count is still 17,134 — and every
 downstream number is wrong. Those are the errors a reviewer cannot catch and an
 aggregate cannot reveal, which is why they get a harness rather than trust.
@@ -86,6 +86,24 @@ wrong, so that way gets a mutation.
 |---|---|---|---|
 | `staged_sealed_not_escalated` | sealed paths are excluded from `blocked` | the plausible misreading of "SEALED is expected, so it should not block a commit". What is expected is a sealed fold git *cannot* see; a staged one lands in neither list, the screener exits 0, and the fold goes into a public commit with the output saying nothing | **2** |
 | `sealed_exempt_from_exit_code` | `if blocked or suspect` becomes `if suspect` | the exit status stops depending on BLOCKED. Its own mutation because the SEALED change moved exactly this line's meaning — SEALED must not affect the exit code and BLOCKED must, and one edit could get the first half right and the second half wrong | **1** |
+| `allowlist_may_name_corpus_paths` | `load_allowlist` stops refusing entries under `data/` and `sealed/` | the allowlist's one hard limit. `deny(p)` below still covers most corpus paths, so the edit looks harmless until `data/README.md` — the single file published out of a denied prefix, and therefore not denied. With this, a four-line JSON entry silences the content sniffer on a file inside the corpus tree | **1** |
+
+The third row is the same shape as the two above it: a mechanism added to *reduce*
+noise, mutated at the point where reducing noise turns into suppressing the signal.
+The allowlist exists because five permanent SUSPECT lines meant a sixth would arrive
+unread; what it must never become is a way to make a real hit permanent too. The
+invariant is directional — an entry can only excuse a file the path rules already
+publish, never widen what they publish — and it is a JSON edit away from being
+violated by someone who never reads this file, which is why it is enforced in code.
+
+Its count of **1** is worth reading carefully, because the test that catches it is
+parametrized over five corpus paths and only one of the five fails. That is not thin
+coverage of the guarantee; it is the guarantee having exactly one uncovered path. Four
+of those five are refused twice over — by the `data/`-and-`sealed/` check and by
+`deny()` — so removing the first leaves them refused and the assertion passes.
+`data/README.md` is the only path the second check does not cover, which is precisely
+why the rule extends past `deny()` at all. A single test failing here means the
+mutation is only visible where it is actually dangerous.
 
 `git_tracked()` is not mutated, and that is worth stating rather than leaving as a
 gap in the table. It asks the index directly whether a denied path is staged or
@@ -98,7 +116,7 @@ quietly omitted.
 
 Counts are the number of tests that fail or error, from
 `tests/test_meddocan_loader.py`, `tests/test_split_file.py`, `tests/test_seal.py`
-and `tests/test_release_screen.py` (132 tests). Errors count as kills: a mutation
+and `tests/test_release_screen.py` (157 tests). Errors count as kills: a mutation
 that breaks the module-scoped fixture takes whole tests out, and those are caught,
 not uncounted.
 
@@ -180,7 +198,7 @@ applies to the code. Two safeguards follow from that:
   Three checks, described in the next section. Skipping them lets the harness count
   its own breakage as a kill.
 
-The maintenance cost is real but bounded: twenty-three anchors, each a line or two,
+The maintenance cost is real but bounded: twenty-four anchors, each a line or two,
 and a refactor that breaks one gets a `STALE` message naming the file. That is
 cheaper than the failure mode it prevents.
 

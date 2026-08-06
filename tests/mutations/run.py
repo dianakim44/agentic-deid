@@ -52,8 +52,10 @@ COPIED = ("src", "tests", "config", "splits", "results", "tools")
 #: Single files copied alongside COPIED. `.gitignore` is one half of a rule the
 #: screener encodes twice (DENY_EXCEPTIONS is the other), and
 #: `test_gitignore_matches_deny_exceptions` checks the two agree — without the file
-#: that test measures nothing.
-COPIED_FILES = (".gitignore",)
+#: that test measures nothing. `CLAUDE.md` is named by the screener's allowlist, so
+#: leaving it out makes the entry read as stale here and nowhere else — a tree that
+#: differs from the real one in what the tests measure is worse than no tree.
+COPIED_FILES = (".gitignore", "CLAUDE.md")
 
 
 @dataclass(frozen=True)
@@ -509,13 +511,34 @@ MUTATIONS = [
     Mutation(
         name="sealed_exempt_from_exit_code",
         path=SCREEN,
-        anchor="    if blocked or suspect:\n        sys.exit(1)",
-        replacement="    if suspect:\n        sys.exit(1)",
+        anchor="    if blocked or unexpected:\n        sys.exit(1)",
+        replacement="    if unexpected:\n        sys.exit(1)",
         breaks=(
             "The exit status stops depending on BLOCKED. Kept as its own mutation "
             "because the SEALED change moved exactly this line's meaning: SEALED must "
             "not affect the exit code and BLOCKED must, and an edit that got the first "
-            "half right could get the second half wrong in the same breath."
+            "half right could get the second half wrong in the same breath. The anchor "
+            "read `blocked or suspect` until the allowlist split SUSPECT three ways — "
+            "reported STALE on the first run afterwards, which is the anchor check "
+            "earning its place: the old text was gone and the mutation was silently "
+            "testing nothing."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="allowlist_may_name_corpus_paths",
+        path=SCREEN,
+        anchor='        if p.startswith("data/") or p.startswith(SEALED_PREFIX):',
+        replacement='        if False:',
+        breaks=(
+            "The allowlist stops refusing corpus and sealed paths. What survives is "
+            "the `deny(p)` check below, which covers most of them — so the mutation "
+            "looks harmless right up to `data/README.md`, the one file published out "
+            "of a denied prefix. That path is not denied, so with this edit a "
+            "four-line JSON entry silences the content sniffer on a file inside the "
+            "corpus tree, and note text pasted into it is published clean. The "
+            "guarantee is that the allowlist can only ever excuse a file the path "
+            "rules already publish, never widen what they publish."
         ),
         min_kills=1,
     ),

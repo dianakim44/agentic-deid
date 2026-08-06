@@ -381,6 +381,25 @@ before it was a paragraph:
   that can never pass is one people stop reading. The `staged_sealed_not_escalated`
   mutation is what keeps the reassuring line from absorbing the real violation.
 
+- **The same reasoning applies to the content sniffer, via `tools/screen_allowlist.json`.**
+  Five files trip it on every run for reasons that are not note text — Korean project
+  prose, and the synthetic header that `release_screen.py` and its tests necessarily
+  quote. Printed in full they were five permanent lines nobody read, so a sixth would
+  have arrived among them unnoticed; the allowlist turns the expected hits into a count
+  and prints only what is new. Three properties make it a reduction in noise rather
+  than in coverage. It is committed and reviewable, so adding an entry is a visible
+  act. Each entry pins the *kind* of hit expected, so a file excused for Korean prose
+  that starts matching the clinical-header pattern is still reported. And the direction
+  is fixed: an entry may only excuse a file the path rules already publish, never widen
+  what they publish — nothing under `data/` or `sealed/`, nothing `deny()` covers, no
+  patterns, and a rejected list aborts screening entirely rather than producing a
+  report that says "all known". `allowlist_may_name_corpus_paths` is the mutation on
+  that limit, and it is aimed at `data/README.md` specifically: the one publishable
+  path inside a denied prefix, and therefore the gap that the surviving `deny()` check
+  does not close. Entries whose files no longer exist are reported as `STALE` but do
+  not fail the run — failing would pressure someone into deleting an entry to get a
+  green run, and deleting entries is how a list stops describing reality.
+
 **Dirty working tree.** A sealed evaluation run with uncommitted changes produces a
 log row whose commit hash does not describe the code that ran. Three options were
 considered and the choice is: **refuse by default, `--allow-dirty` proceeds and

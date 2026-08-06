@@ -10,18 +10,30 @@ Two separate risks are checked. The first is the obvious one: files that hold no
 surrogate values themselves. The second is the one people miss: a file deleted today is still in
 the git history, and making the repository public exposes the history along with the tip.
 
-Four counts are reported and only two of them gate a commit:
+What is reported, and what gates a commit:
 
-    BLOCKED       denied AND visible to git. Must be 0. Exit status is this number.
+    BLOCKED       denied AND visible to git. Must be 0. Gates the commit.
     SEALED        the sealed test fold — denied, and git cannot see it. Expected, printed
                   every run, exit 0. A sealed path git CAN see is BLOCKED, not SEALED.
     Quarantined   any other denied path git cannot see, e.g. a downloaded corpus.
-    SUSPECT       content sniff. Also gates a commit.
+    SUSPECT       content sniff, split three ways: entries in tools/screen_allowlist.json
+                  are counted as known, gitignored hits are counted as unpublishable,
+                  and anything left is printed individually and gates the commit.
+    STALE         allowlist entries whose file no longer exists. Reported, exit 0.
+
+The design principle behind the last three: a finding that appears on every run is not
+a finding. Five permanent SUSPECT lines meant a sixth would have arrived among them
+unread, and a screener that exits 1 on a clean tree teaches people to ignore it.
+Everything expected is summarised as a count; only what is new is printed.
 
 Nothing is deleted. The script reports; the decisions stay with the author.
 """
 import argparse, json, os, re, subprocess, sys
 from collections import Counter
+
+#: The sealed test fold. Named once and used by the deny rule, the reporting split
+#: and the allowlist validator, so those three cannot drift apart.
+SEALED_PREFIX = "sealed/"
 
 # Paths that carry note text or generated surrogate values. Never publish.
 #
@@ -31,7 +43,7 @@ DENY_PATTERNS = [
     # ─── 봉인된 test fold ───────────────────────────────────────
     # 무조건 deny. 여기 걸리면 내용을 읽지 않으므로 봉인 규율과 충돌하지 않는다.
     # 보고는 SEALED 줄로 분리한다 (screen_tree 참조). git 에 보이게 되면 BLOCKED.
-    r"^sealed/",
+    "^" + SEALED_PREFIX,
 
     # ─── 코퍼스 데이터 전체 ─────────────────────────────────────
     # 취득 스크립트와 문서만 예외 (DENY_EXCEPTIONS).
@@ -99,6 +111,90 @@ COMMENT_OR_DOCSTRING = re.compile(
 TEXT_EXT = {".json", ".jsonl", ".csv", ".tsv", ".md", ".txt",
             ".py", ".sh", ".yaml", ".yml"}
 
+# ─── known false positives ──────────────────────────────────────────────────
+# Five files trip the content sniffer for reasons that are not note text, on every
+# single run. Printed in full they were five lines nobody read, which meant a sixth
+# — a real one — would have arrived unnoticed. Same problem the SEALED line solved
+# for BLOCKED: a permanent finding is not a finding.
+#
+# The list is data rather than code, and committed, so adding an entry is a diff
+# someone can object to. Its rules are enforced in load_allowlist(), not documented
+# and hoped for.
+ALLOWLIST = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                         "screen_allowlist.json")
+
+
+class AllowlistError(Exception):
+    """The allowlist itself is not acceptable. Screening does not continue.
+
+    Refusing to run is the only safe response: the alternative is to drop the bad
+    entry and keep screening, which produces a clean-looking report from a file that
+    was tampered with. A screener that reports 'all known' on the strength of a list
+    it also rejected would be worse than one that never had a list.
+    """
+
+
+def load_allowlist(path=None):
+    """Read the allowlist and validate every entry. Returns {path: entry}.
+
+    Four rules, each with a specific abuse in mind:
+
+      - **Literal paths only.** A wildcard entry stops naming what it permits. This
+        is the `data/acquire/*.sh` lesson: that whitelist was keyed on an extension
+        and published a file holding a clinical note header.
+      - **Nothing denied, nothing under data/ or sealed/.** A sniffer hit on a corpus
+        or sealed path is the alarm this tool exists for, and an allowlist that can
+        silence it is a way to publish note text with a one-line diff. `data/README.md`
+        is refused too, despite being publishable by path: it is the one file
+        published out of a denied prefix, so it is the last one that should also be
+        exempt from the content check.
+      - **A stated sniff kind.** Pinning it means a file allowlisted for Korean prose
+        that starts matching the clinical-header pattern is reported, because that is
+        a new fact about the file rather than the known one.
+      - **A real reason.** Short or absent text produces entries nobody can evaluate
+        later, which get renewed forever.
+    """
+    path = path or ALLOWLIST
+    try:
+        with open(path, encoding="utf-8") as fh:
+            data = json.load(fh)
+    except FileNotFoundError:
+        raise AllowlistError(
+            f"{path} is missing. It is committed; if it was deleted, restore it "
+            "rather than screening without it — every known false positive would "
+            "otherwise be reported as new and the report becomes unreadable.")
+    except json.JSONDecodeError as exc:
+        raise AllowlistError(f"{path} is not valid JSON: {exc}")
+
+    entries = {}
+    for i, entry in enumerate(data.get("entries", [])):
+        p = entry.get("path", "")
+        where = f"{path} entry {i}"
+        if not p:
+            raise AllowlistError(f"{where} has no path")
+        if any(c in p for c in "*?[]") or p.endswith("/"):
+            raise AllowlistError(
+                f"{where}: {p!r} is a pattern or a directory. Literal file paths "
+                "only — an entry has to name what it permits.")
+        if p.startswith("data/") or p.startswith(SEALED_PREFIX):
+            raise AllowlistError(
+                f"{where}: {p!r} is under data/ or {SEALED_PREFIX} and must not be "
+                "allowlisted. A sniffer hit there is the alarm, not noise.")
+        if deny(p):
+            raise AllowlistError(
+                f"{where}: {p!r} is denied by a path rule and must not be "
+                "allowlisted. Denied paths are never published, so a content "
+                "exemption for one can only serve to publish it.")
+        if not entry.get("sniff"):
+            raise AllowlistError(
+                f"{where}: {p!r} has no `sniff`. State which hit is expected, so a "
+                "different one is still reported.")
+        if len(entry.get("why", "").split()) < 5:
+            raise AllowlistError(
+                f"{where}: {p!r} needs a `why` that a reader can evaluate later.")
+        entries[p] = entry
+    return entries
+
 
 def deny(path):
     if any(re.search(p, path) for p in DENY_EXCEPTIONS):
@@ -152,9 +248,6 @@ def sniff(path, blob=None, force=False):
     if len(hits) >= 3:
         return f"Korean prose ({len(hits)} runs)"
     return None
-
-
-SEALED_PREFIX = "sealed/"
 
 
 def git_ignored(paths, root):
@@ -256,6 +349,57 @@ def screen_tree(root):
     return blocked, sealed, quarantined, suspect, allowed
 
 
+def partition_suspect(suspect, allowlist, root=".", allowlist_path=None):
+    """Sort sniffer hits into (known, unexpected, unpublishable, stale).
+
+      - 'known' matches an allowlist entry, *and* matches the kind of hit that entry
+        expects. Reported as a count.
+      - 'unexpected' is everything else git can see. This is the only category that
+        gates a commit, and it is the reason the other three exist: five permanent
+        lines meant a sixth arrived among them unread.
+      - 'unpublishable' is a hit on a file git cannot see. It cannot reach the public
+        repository, so it is a count rather than a finding — the same reasoning that
+        separates `quarantined` from `blocked`. Not allowlisted instead, because these
+        files are machine-local (`config/data_paths.local.yaml`, editor settings) and
+        an entry for one would read as stale on every other machine, which is the
+        noise this whole change is removing.
+      - 'stale' is an allowlist entry whose file is gone. Reported because an
+        allowlist nobody prunes is one that eventually permits something by accident,
+        and because a renamed file silently loses its exemption — the hit comes back
+        under the new name as unexpected, and the old entry is the clue.
+
+    A path in the allowlist whose sniff kind has *changed* is unexpected, not known.
+    That is a new fact about the file, and being previously excused for a different
+    reason is not a reason to excuse it.
+    """
+    paths = [p for p, _ in suspect]
+    ignored = git_ignored(paths, root)
+    tracked = git_tracked(paths, root)
+
+    known, unexpected, unpublishable = [], [], []
+    for path, why in suspect:
+        entry = allowlist.get(path)
+        if entry and why.startswith(entry["sniff"]):
+            known.append((path, why))
+        elif path in tracked or path not in ignored:
+            unexpected.append((path, why, entry))
+        else:
+            unpublishable.append((path, why))
+
+    # Staleness is only meaningful against the tree the allowlist describes: entries
+    # are relative to the repository containing the list. Screening some other tree
+    # would otherwise report every entry as stale, and a check that cries wolf on a
+    # scratch directory is one people learn to skip on the tree that matters. Derived
+    # from the list's own location rather than from this file's, so a caller that
+    # supplies its own allowlist still gets the check.
+    describes = os.path.dirname(os.path.dirname(
+        os.path.abspath(allowlist_path or ALLOWLIST)))
+    stale = sorted(p for p in allowlist
+                   if os.path.realpath(root) == os.path.realpath(describes)
+                   and not os.path.exists(os.path.join(root, p)))
+    return known, unexpected, unpublishable, stale
+
+
 def screen_history():
     """Every blob ever committed, including ones deleted from the tip.
 
@@ -296,7 +440,20 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--root", default=".")
     ap.add_argument("--history", action="store_true")
+    ap.add_argument("--allowlist", default=None,
+                    help="path to the known-false-positive list "
+                         "(default: tools/screen_allowlist.json)")
     a = ap.parse_args()
+
+    # Before anything is screened. A rejected allowlist must not produce a report at
+    # all: "SUSPECT 5 (all known)" computed from a list this tool refused is the most
+    # misleading line it could print.
+    try:
+        allowlist = load_allowlist(a.allowlist)
+    except AllowlistError as exc:
+        print(f"ALLOWLIST REJECTED — nothing was screened.\n\n   {exc}",
+              file=sys.stderr)
+        sys.exit(2)
 
     blocked, sealed, quarantined, suspect, allowed = screen_tree(a.root)
     print(f"BLOCKED by path rule      : {len(blocked)}   (denied AND visible to git — must be 0)")
@@ -318,9 +475,41 @@ if __name__ == "__main__":
     print(f"\nQuarantined (gitignored)  : {len(quarantined)}   (denied but git cannot see them — expected once a corpus is on disk)")
     for prefix, n in sorted(Counter("/".join(p.split("/")[:2]) for p in quarantined).items()):
         print(f"   {n:6d}  {prefix}/")
-    print(f"\nSUSPECT by content sniff  : {len(suspect)}")
-    for p, why in sorted(suspect):
-        print(f"   {p}  <- {why}")
+    known, unexpected, unpublishable, stale = partition_suspect(
+        suspect, allowlist, a.root, a.allowlist)
+
+    summary = f"{len(known)} known"
+    if unpublishable:
+        summary += f", {len(unpublishable)} gitignored"
+    if unexpected:
+        summary += f", {len(unexpected)} UNEXPECTED"
+    print(f"\nSUSPECT by content sniff  : {len(suspect)}   ({summary})")
+
+    # Only the unexpected ones are printed. The known five were five permanent lines
+    # that nobody read, which is how a sixth would have gone unnoticed.
+    if unexpected:
+        print("   ┌─ NOT IN THE ALLOWLIST — read these before committing ─────────")
+        for p, why, entry in sorted(unexpected):
+            print(f"   │  {p}  <- {why}")
+            if entry:
+                print(f"   │     allowlisted for {entry['sniff']!r}, so this is a "
+                      "different hit and is not covered")
+        print("   └───────────────────────────────────────────────────────────────")
+        print("   If one is genuinely harmless, add it to "
+              f"{os.path.basename(a.allowlist or ALLOWLIST)} with a reason.")
+    if unpublishable:
+        print(f"   {len(unpublishable)} more are gitignored and cannot be published "
+              "(machine-local config, editor settings).")
+
+    # A list nobody prunes eventually permits something by accident, and a renamed
+    # file loses its exemption silently — the hit reappears as unexpected under the
+    # new name, and the orphaned entry is the clue to what happened.
+    if stale:
+        print(f"\nSTALE allowlist entries   : {len(stale)}   "
+              "(listed, but no such file — prune or fix the path)")
+        for p in stale:
+            print(f"   {p}")
+
     print(f"\nExplicitly allowed        : {len(allowed)}")
 
     if a.history:
@@ -333,9 +522,11 @@ if __name__ == "__main__":
             print("   Start a fresh repository with no history, or rewrite history with git-filter-repo")
             print("   and force-push before publishing.")
 
-    # Exit status is BLOCKED (plus SUSPECT), never SEALED. A gate that can never pass
-    # stops being read: once a fold is sealed, folding it into BLOCKED would make
-    # "BLOCKED must be 0" permanently false on every machine holding the data, and the
-    # first response to a check that always fails is to stop running it.
-    if blocked or suspect:
+    # Exit status is BLOCKED plus unexpected SUSPECT hits. Never SEALED, never the
+    # known false positives, never a gitignored one. A gate that can never pass stops
+    # being read — the screener used to exit 1 on every clean tree because of those
+    # five files, which trains exactly the habit that makes the tool useless. Stale
+    # entries do not fail either: they are a housekeeping signal, and failing on them
+    # would put pressure on someone to delete an entry to get a green run.
+    if blocked or unexpected:
         sys.exit(1)
