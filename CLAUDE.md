@@ -22,6 +22,9 @@ and note types, with annotation-free supervision.
 - **`git add -A` 와 `git add .` 를 사용하지 않는다.** 항상 명시적 경로만 스테이징한다.
 - 커밋 전 `python tools/release_screen.py` 를 실행한다.
   BLOCKED가 1건이라도 나오면 커밋하지 말고 사용자에게 보고한다.
+  **SEALED 는 별개 줄이고 0 이 아닌 것이 정상이다** — 봉인된 test fold 이고
+  git 이 볼 수 없으므로 커밋을 막지 않는다. 단 `sealed/` 가 스테이징·추적되면
+  SEALED 가 아니라 BLOCKED 로 올라간다. 그게 실제 위반이다.
 - 예측 결과를 공개할 때는 원문 텍스트 없이 오프셋·유형·판정만 남긴다.
 - **예외 메시지·로그·경고에 코퍼스 텍스트를 넣지 않는다.** 스팬 인덱스·오프셋·
   길이만 쓴다. 예외 메시지는 터미널·CI 로그·이슈·스택트레이스로 흘러나가고,

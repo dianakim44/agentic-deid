@@ -30,14 +30,30 @@ from dataclasses import dataclass
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-#: Both loader suites. The split file is part of loading now — a mutation that
-#: corrupts the folds must be able to be caught by the tests that check them.
-TEST_FILES = ["tests/test_meddocan_loader.py", "tests/test_split_file.py"]
+#: All four suites. The split file is part of loading now — a mutation that
+#: corrupts the folds must be able to be caught by the tests that check them — the
+#: seal tests are what catch a gate bypass, and the release screener is the seal's
+#: other half: it is what notices a sealed fold on its way into a public commit.
+TEST_FILES = [
+    "tests/test_meddocan_loader.py",
+    "tests/test_split_file.py",
+    "tests/test_seal.py",
+    "tests/test_release_screen.py",
+]
 
 #: Repository directories the loader tests need. `splits/` is here because the
 #: loader reads `splits/{corpus}.json` to assign folds; without it every test
-#: errors on a missing split file and the baseline is not green.
-COPIED = ("src", "tests", "config", "splits")
+#: errors on a missing split file and the baseline is not green. `results/` is here
+#: for `sealed_eval_log.md`: the gate refuses to run when the log is absent, so
+#: without it every seal test would be caught by the wrong guard. `tools/` is here
+#: for the release screener, which is mutated like any other guard.
+COPIED = ("src", "tests", "config", "splits", "results", "tools")
+
+#: Single files copied alongside COPIED. `.gitignore` is one half of a rule the
+#: screener encodes twice (DENY_EXCEPTIONS is the other), and
+#: `test_gitignore_matches_deny_exceptions` checks the two agree — without the file
+#: that test measures nothing.
+COPIED_FILES = (".gitignore",)
 
 
 @dataclass(frozen=True)
@@ -61,31 +77,78 @@ class Mutation:
     also: tuple[tuple[str, str, str], ...] = ()
 
     def apply(self, tree: Path) -> None:
+        """Edit the tree, then verify the edit is one that could have had an effect.
+
+        Three things are checked after every write, because a harness that miscounts
+        its own failures as successes is worse than no harness — it reports green.
+        See "Verifying the mutation" in README.md.
+        """
         for path, anchor, replacement in (
             (self.path, self.anchor, self.replacement),
             *self.also,
         ):
             target = tree / path
             source = target.read_text(encoding="utf-8")
+
+            # 1. The anchor exists. Otherwise the mutation is a no-op that would be
+            #    reported as caught by however many tests happen to be failing.
             if anchor not in source:
                 raise StaleMutation(
-                    f"{self.name}: anchor not found in {path}. The loader was "
+                    f"{self.name}: anchor not found in {path}. The code was "
                     "refactored; update the anchor here so the check keeps "
                     "testing what its name claims."
                 )
-            target.write_text(
-                source.replace(anchor, replacement, 1), encoding="utf-8"
-            )
+            mutated = source.replace(anchor, replacement, 1)
+
+            # 2. The file actually changed. An anchor equal to its replacement, or a
+            #    replacement edited to match after a copy-paste, passes check 1 and
+            #    mutates nothing.
+            if mutated == source:
+                raise StaleMutation(
+                    f"{self.name}: the anchor was found in {path} but the file is "
+                    "unchanged — the replacement is identical to the anchor. A "
+                    "no-op mutation is caught by whatever was already failing."
+                )
+            target.write_text(mutated, encoding="utf-8")
+
+            # 3. The result is still a runnable module. A SyntaxError takes out every
+            #    test in the file at collection time, which pytest reports as errors
+            #    and `kills()` counts — an emphatic pass for a mutation that never
+            #    ran. Anchors are indentation-blind, so this is what notices.
+            if path.endswith(".py"):
+                import ast
+
+                try:
+                    ast.parse(mutated)
+                except SyntaxError as exc:
+                    raise StaleMutation(
+                        f"{self.name}: {path} does not parse after the mutation "
+                        f"({exc.msg} at line {exc.lineno}). The anchor probably "
+                        "matched at the wrong indentation — a mutation that cannot "
+                        "run is not a mutation that was caught."
+                    ) from exc
 
 
 class StaleMutation(Exception):
     pass
 
 
+class BrokenSuite(Exception):
+    """The suite did not run, as opposed to running and failing.
+
+    Distinct from StaleMutation because the diagnosis differs: a stale mutation is
+    fixed by updating an anchor, a broken suite means the mutated tree cannot be
+    collected at all and the reported kill count describes nothing.
+    """
+
+
 BASE = "src/corpora/base.py"
 MEDDOCAN = "src/corpora/meddocan.py"
 SPLIT = "src/split.py"
 SPLIT_FILE = "splits/es-meddocan.json"
+SEALED_LOG = "src/eval/sealed_log.py"
+RUN_SEALED = "src/eval/run_sealed_eval.py"
+SCREEN = "tools/release_screen.py"
 
 MUTATIONS = [
     Mutation(
@@ -126,11 +189,11 @@ MUTATIONS = [
     Mutation(
         name="drop_excluded",
         path=BASE,
-        anchor="        docs = list(self._read())",
+        anchor="            docs = list(self._read())",
         replacement=(
-            "        docs = list(self._read())\n"
-            "        for _d in docs:\n"
-            "            _d.spans = [_s for _s in _d.spans if not _s.excluded]"
+            "            docs = list(self._read())\n"
+            "            for _d in docs:\n"
+            "                _d.spans = [_s for _s in _d.spans if not _s.excluded]"
         ),
         breaks=(
             "Discards the §9.1 spans instead of flagging them. The canonical "
@@ -191,10 +254,19 @@ MUTATIONS = [
         anchor='{"train": "train", "dev": "dev", "test": "test"}',
         replacement='{"train": "train", "dev": "dev"}',
         breaks=(
-            "Loads only train and dev. The suite must not be satisfiable by a "
-            "corpus that is silently 750 documents instead of 1,000."
+            "Drops the test fold from `fold_dirs`. Before the seal this made the "
+            "corpus silently 750 documents instead of 1,000 and 16 tests failed. "
+            "Now 750 is the correct unsealed figure, so the count-based tests "
+            "cannot see it — what remains visible is that an *authorised* sealed "
+            "read would return no sealed documents while the log records a "
+            "completed test evaluation. That is the sharper fault and the one the "
+            "gate now raises on."
         ),
-        min_kills=16,
+        # Lowered from 16 deliberately, and the reason is recorded above rather
+        # than in a commit message: the coverage did not decay, the corpus stopped
+        # being fully readable. Raising the number by adding a test that recounted
+        # 1,000 documents would mean reading the sealed fold from the suite.
+        min_kills=1,
     ),
     Mutation(
         name="bucket_unknown_types",
@@ -295,14 +367,17 @@ MUTATIONS = [
         name="grouping_name_only",
         path=SPLIT,
         anchor=(
-            '        grouped = bool(shared["name"]) and '
+            '    return bool(shared["name"]) and '
             'bool(shared["record"] or shared["date"])'
         ),
-        replacement='        grouped = bool(shared["name"])',
+        replacement='    return bool(shared["name"])',
         breaks=(
             "Weakens §9.5 step 2 to a name match alone, which groups the one stem "
             "sharing a bare given name with different surnames. One group forms "
-            "where none should, and two documents stop being independent units."
+            "where none should, and two documents stop being independent units. "
+            "The one discriminating stem straddles the seal, so this is caught by "
+            "applying the rule to the counts the split file records rather than by "
+            "recounting the corpus — which is why `step_2_confirms` takes counts."
         ),
         min_kills=1,
     ),
@@ -320,19 +395,171 @@ MUTATIONS = [
         ),
         min_kills=1,
     ),
+    # ─── the seal (DESIGN §6) ───────────────────────────────────────────────
+    # These are the mutations that matter most, because the seal is the one
+    # guarantee whose violation cannot be detected after the fact: a test fold that
+    # was looked at cannot be un-looked-at, and no downstream number reveals it.
+    Mutation(
+        name="sealed_callable_from_anywhere",
+        path=BASE,
+        anchor="        if SEALED_CALLER not in callers:",
+        replacement="        if False:",
+        breaks=(
+            "Removes the caller check, so `load(sealed=True)` works from any "
+            "module — an interactive session, a notebook, a rule-development "
+            "script. The physical move still stands, so the fold is only reachable "
+            "through this call; that is exactly why the gate has to hold. Note the "
+            "log append survives this mutation, which is the point of having both: "
+            "a bypass here still leaves a trace, and the trace is what makes it "
+            "recoverable rather than merely wrong."
+        ),
+        min_kills=2,
+    ),
+    Mutation(
+        name="log_append_disabled",
+        path=BASE,
+        anchor="        record_access(self.corpus_id, purpose=purpose, arms=arms)",
+        replacement=(
+            "        try:\n"
+            "            record_access(self.corpus_id, purpose=purpose, arms=arms)\n"
+            "        except Exception:\n"
+            "            pass"
+        ),
+        breaks=(
+            "Swallows a failed append, so an evaluation proceeds unlogged. The "
+            "numbers are then real and the log says the test fold was never opened "
+            "— the failure mode CLAUDE.md's 'evaluated N times' requirement exists "
+            "to prevent, and the only one where the artefact actively misleads "
+            "rather than merely omits. The counterpart of the mutation above: this "
+            "one leaves no trace, which is why neither guard is sufficient alone."
+        ),
+        min_kills=2,
+    ),
+    Mutation(
+        name="sealed_flag_not_cleared",
+        path=BASE,
+        anchor="        finally:\n            # Cleared even on failure",
+        replacement="        finally:\n            pass\n        if False:\n            # Cleared even on failure",
+        breaks=(
+            "`_sealed_ok` survives the call that set it, so one authorised "
+            "evaluation leaves that loader object permanently able to reach the "
+            "sealed fold. Every subsequent ordinary `load()` on it silently "
+            "includes the test fold, with no second log row — 250 documents appear "
+            "in a dev number and nothing says so."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="sealed_root_falls_back_to_corpus",
+        path=BASE,
+        anchor="    raw = mapping.get(corpus_id)\n    if not raw:\n        return None\n    return _resolve(raw, corpus_id)",
+        replacement=(
+            "    raw = mapping.get(corpus_id)\n"
+            "    if not raw:\n"
+            "        return corpus_root(corpus_id)\n"
+            "    return _resolve(raw, corpus_id)"
+        ),
+        breaks=(
+            "A corpus with no `sealed:` entry resolves to its ordinary root, so "
+            "`fold_roots()` treats unsealed data as sealed and a 'sealed "
+            "evaluation' reads and logs it as a test run. Worse than a refusal: "
+            "the log row is indistinguishable from a real evaluation, so the count "
+            "the paper reports becomes wrong in the direction that flatters it."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="unsealed_load_filters_instead_of_not_reaching",
+        path=BASE,
+        anchor="                if not self._sealed_ok:\n                    continue\n                roots[fold_dir] = sealed",
+        replacement=(
+            "                roots[fold_dir] = sealed\n"
+            "                if not self._sealed_ok:\n"
+            "                    pass"
+        ),
+        breaks=(
+            "`fold_roots()` hands out the sealed path unconditionally, so the "
+            "sealed fold is read and then discarded downstream instead of never "
+            "being opened. Every count still comes out right — `_apply_split_file` "
+            "and `_assert_no_sealed_fold` are what notice — but the test fold's "
+            "text has been read into memory on every ordinary load, unlogged. The "
+            "distinction this defends is that the seal is a path that is not known, "
+            "not a filter that is applied."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="staged_sealed_not_escalated",
+        path=SCREEN,
+        anchor="    blocked = [p for p in denied if visible(p)]",
+        replacement=(
+            "    blocked = [p for p in denied\n"
+            "               if visible(p) and not p.startswith(SEALED_PREFIX)]"
+        ),
+        breaks=(
+            "Exempts sealed paths from BLOCKED — the plausible reading of 'SEALED is "
+            "expected, so it should not block a commit', and wrong: what is expected "
+            "is a sealed fold git *cannot* see. With this, a staged sealed file is in "
+            "neither list, the screener exits 0, and the fold goes into a public "
+            "commit with the output saying nothing. This is the failure mode the "
+            "separate SEALED line introduces, so it is the one that gets a mutation."
+        ),
+        min_kills=2,
+    ),
+    Mutation(
+        name="sealed_exempt_from_exit_code",
+        path=SCREEN,
+        anchor="    if blocked or suspect:\n        sys.exit(1)",
+        replacement="    if suspect:\n        sys.exit(1)",
+        breaks=(
+            "The exit status stops depending on BLOCKED. Kept as its own mutation "
+            "because the SEALED change moved exactly this line's meaning: SEALED must "
+            "not affect the exit code and BLOCKED must, and an edit that got the first "
+            "half right could get the second half wrong in the same breath."
+        ),
+        min_kills=1,
+    ),
 ]
 
 COUNT_RE = re.compile(r"(\d+) (passed|failed|error|errors)")
+#: pytest gave up before running anything. Then there is no kill count to read: the
+#: number of collection errors is a property of the import, not of the guarantee.
+NOT_RUN_RE = re.compile(r"Interrupted: \d+ error(s)? during collection|"
+                        r"^INTERNALERROR", re.M)
 
 
-def kills(output: str) -> int:
+def kills(output: str, *, expect_ran: bool = True) -> int:
     """Tests that failed or errored, from pytest's summary line.
 
     Errors count: a mutation that breaks the module-scoped fixture takes out
     whole tests, and those are caught tests, not uncounted ones.
+
+    A collection interrupt does not count, and raises instead. The distinction is
+    the one this harness got wrong once: a suite that *ran* and errored has told us
+    the guarantee is checked, whereas a suite that could not be imported has told us
+    nothing while producing a larger number. `expect_ran=False` for the baseline,
+    which has its own reporting path.
     """
+    if expect_ran and NOT_RUN_RE.search(output):
+        raise BrokenSuite(
+            "pytest stopped during collection, so no test ran. The number of "
+            "collection errors is not a kill count — it is the same number for a "
+            "mutation that works and one that broke the import."
+        )
     counts = {kind.rstrip("s"): int(n) for n, kind in COUNT_RE.findall(output)}
     return counts.get("failed", 0) + counts.get("error", 0)
+
+
+def outcomes(output: str) -> int:
+    """Total tests pytest reported an outcome for: passed + failed + errored.
+
+    Compared against the baseline to catch the milder version of a broken suite —
+    one that collects, runs, and quietly reports on fewer tests than it should. A
+    mutation is supposed to change which tests pass, never how many exist.
+    """
+    counts = {kind.rstrip("s"): int(n) for n, kind in COUNT_RE.findall(output)}
+    return (counts.get("passed", 0) + counts.get("failed", 0)
+            + counts.get("error", 0))
 
 
 def make_tree(tmp: Path) -> Path:
@@ -342,6 +569,12 @@ def make_tree(tmp: Path) -> Path:
     several GB. The symlink is read-only in practice because no mutation touches
     a data path, and copying would be both slow and a second place for restricted
     text to live.
+
+    `sealed/` is symlinked for the same reasons and one more: a mutation that
+    breaks the seal must be able to *fail* by reaching the real sealed fold's
+    directory structure, so a fake one here would let a bypass look prevented. No
+    mutation reads its contents, and neither does any test — the seal tests check
+    that paths are absent and that the gate refuses, both decidable from the path.
     """
     tree = tmp / "repo"
     tree.mkdir()
@@ -349,7 +582,30 @@ def make_tree(tmp: Path) -> Path:
         shutil.copytree(
             ROOT / name, tree / name, ignore=shutil.ignore_patterns("__pycache__")
         )
-    (tree / "data").symlink_to(ROOT / "data")
+    for name in COPIED_FILES:
+        shutil.copy2(ROOT / name, tree / name)
+
+    # `data/` is a real directory here and only `data/raw/` is symlinked. Symlinking
+    # the whole of `data/` was simpler and made two screener tests unrunnable: `git
+    # check-ignore` refuses a pathspec "beyond a symbolic link", so every question
+    # about `data/acquire/...` came back rc=128, and the tests comparing .gitignore
+    # with DENY_EXCEPTIONS were reading a git error as an answer. What is copied is
+    # exactly the publishable part — the acquisition scripts and the READMEs — and the
+    # corpora themselves stay behind the symlink.
+    (tree / "data").mkdir()
+    shutil.copytree(ROOT / "data" / "acquire", tree / "data" / "acquire")
+    for readme in ROOT.glob("data/*.md"):
+        shutil.copy2(readme, tree / "data" / readme.name)
+    (tree / "data" / "raw").symlink_to(ROOT / "data" / "raw")
+    if (ROOT / "sealed").exists():
+        (tree / "sealed").symlink_to(ROOT / "sealed")
+    # An empty git repository, so the screener's git questions have an answer here.
+    # Without it `git check-ignore` runs against whatever repository happens to
+    # contain the temporary directory — usually none — and the tests that compare
+    # .gitignore with DENY_EXCEPTIONS would pass by both sides being unavailable.
+    # Nothing is committed: history screening must find an empty history, not this
+    # repository's.
+    subprocess.run(["git", "init", "-q", str(tree)], check=True)
     return tree
 
 
@@ -390,11 +646,11 @@ def main() -> int:
         pristine = make_tree(tmp)
 
         baseline = run_suite(pristine)
-        base_kills = kills(baseline)
-        if base_kills:
+        if kills(baseline, expect_ran=False) or NOT_RUN_RE.search(baseline):
             print("BASELINE IS NOT GREEN — fix the suite before mutating.")
             print(baseline[-2000:])
             return 1
+        base_outcomes = outcomes(baseline)
         print(f"baseline: {baseline.strip().splitlines()[-1]}\n")
 
         failures = []
@@ -403,11 +659,27 @@ def main() -> int:
             shutil.copytree(pristine, tree, symlinks=True)
             try:
                 mutation.apply(tree)
+                output = run_suite(tree)
+                caught = kills(output)
+                # A mutation changes which tests pass, never how many there are. A
+                # smaller total means the suite was damaged rather than challenged,
+                # and every "kill" in it is unattributable.
+                ran = outcomes(output)
+                if ran != base_outcomes:
+                    raise BrokenSuite(
+                        f"the suite reported on {ran} tests, baseline "
+                        f"{base_outcomes}. The mutation changed how many tests exist, "
+                        "so its kill count cannot be read as coverage of the "
+                        "guarantee."
+                    )
             except StaleMutation as exc:
                 print(f"STALE   {mutation.name:24} {exc}")
                 failures.append(mutation.name)
                 continue
-            caught = kills(run_suite(tree))
+            except BrokenSuite as exc:
+                print(f"BROKEN  {mutation.name:24} {exc}")
+                failures.append(mutation.name)
+                continue
             ok = caught >= mutation.min_kills
             print(
                 f"{'ok     ' if ok else 'SURVIVED'} {mutation.name:24} "

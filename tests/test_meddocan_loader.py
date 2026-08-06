@@ -13,6 +13,19 @@ table of wrong numbers. They come in two kinds, deliberately:
     re-released with different content these fail, which is the intent: a changed
     corpus must be a decision, not a silent shift in every published figure.
 
+**These tests see 750 documents, not 1,000.** The test fold is sealed (DESIGN §6),
+so it is not under the corpus root and no test here can reach it. Two consequences
+worth stating, because both look like a weakening and neither is:
+
+  - The corpus-wide totals (1,000 / 22,795 / 20,538) are still asserted, but
+    against `splits/es-meddocan.json` — the figures were recorded from the corpus
+    *before* the seal, which is precisely why the ordering in DESIGN §6 is a
+    requirement rather than a convenience. See `test_split_file.py`.
+  - The recount over raw `.ann` bytes now covers train+dev. It remains an
+    independent check of the loader's parser on 17,134 spans; what it no longer is
+    is a check of the sealed fold, and a test claiming otherwise would be claiming
+    to have read what it must not.
+
     python3 -m pytest tests/ -q
 """
 import os
@@ -27,36 +40,46 @@ sys.path.insert(0, ROOT)
 from src.corpora import CorpusError, Document, Span, base  # noqa: E402
 from src.corpora.meddocan import EXCLUDED_TYPES, TYPE_MAP, MeddocanLoader  # noqa: E402
 
-# ─── expected values, from DESIGN §9.0 / §9.1 ───────────────────────────────
+# ─── expected values ────────────────────────────────────────────────────────
+# What the loader can see: train+dev. Measured from the corpus before the seal and
+# re-derived by the recount fixture below, so these are checked, not transcribed.
 
-N_DOCS = 1000
-N_SPANS = 22795
-N_CANONICAL = 20538
-N_EXCLUDED = 2257
-OFFICIAL_SPLIT = {"train": 500, "dev": 250, "test": 250}
-N_BOM_DOCS = 32
-N_BOM_SPANS = 761
-# DESIGN §9.0, es column
+N_DOCS = 750
+N_SPANS = 17134
+N_CANONICAL = 15419
+N_EXCLUDED = 1715
+UNSEALED_SPLIT = {"train": 500, "dev": 250}
+N_BOM_DOCS = 22
+N_BOM_SPANS = 524
 CANONICAL_COUNTS = {
-    "NAME": 4012,
-    "DATE": 2566,
-    "AGE": 2074,
-    "LOCATION_AREA": 5241,
-    "LOCATION_STREET": 1709,
-    "ORGANISATION": 776,
-    "CONTACT": 1096,
-    "ID": 3005,
-    "PROFESSION": 37,
-    "OTHER": 22,
+    "NAME": 3009,
+    "DATE": 1955,
+    "AGE": 1556,
+    "LOCATION_AREA": 3922,
+    "LOCATION_STREET": 1296,
+    "ORGANISATION": 573,
+    "CONTACT": 814,
+    "ID": 2251,
+    "PROFESSION": 28,
+    "OTHER": 15,
 }
-# DESIGN §9.1
 EXCLUDED_COUNTS = {
-    "SEXO_SUJETO_ASISTENCIA": 1841,
-    "FAMILIARES_SUJETO_ASISTENCIA": 416,
+    "SEXO_SUJETO_ASISTENCIA": 1380,
+    "FAMILIARES_SUJETO_ASISTENCIA": 335,
 }
-# DESIGN §9.1, per fold
-SPANS_BY_SPLIT = {"train": 11333, "dev": 5801, "test": 5661}
-IN_SCOPE_BY_SPLIT = {"train": 10165, "dev": 5254, "test": 5119}
+SPANS_BY_SPLIT = {"train": 11333, "dev": 5801}
+IN_SCOPE_BY_SPLIT = {"train": 10165, "dev": 5254}
+
+# ─── the corpus-wide figures DESIGN §9.0/§9.1 report ────────────────────────
+# Kept here because they are the published numbers, and asserted against the
+# frozen split file rather than the corpus: the test fold is sealed, so the only
+# remaining evidence for them is the file that was generated before the seal.
+# A test that recomputed them would have to read the sealed fold to do it.
+FULL_N_DOCS = 1000
+FULL_N_SPANS = 22795
+FULL_N_CANONICAL = 20538
+FULL_N_EXCLUDED = 2257
+OFFICIAL_SPLIT = {"train": 500, "dev": 250, "test": 250}
 
 BOM = "﻿"
 
@@ -94,10 +117,16 @@ def docs(loader):
 
 @pytest.fixture(scope="module")
 def ann_paths(loader):
-    """Every .ann file, found independently of the loader's iteration order."""
+    """Every reachable .ann file, found independently of the loader's iteration.
+
+    The fold list comes from `fold_roots()` rather than from a literal tuple, so a
+    test cannot reach a fold the loader would refuse — hardcoding `"test"` here
+    would be a way of reading the sealed fold from the test suite, which is the
+    thing the seal forbids.
+    """
     paths = []
-    for split_dir in ("train", "dev", "test"):
-        paths.extend(sorted(loader._brat_dir(split_dir).glob("*.ann")))
+    for split_dir, root in loader.fold_roots().items():
+        paths.extend(sorted(loader._brat_dir(split_dir, root).glob("*.ann")))
     return paths
 
 
@@ -157,7 +186,7 @@ def test_recount_matches_the_documented_totals(recount):
     """
     assert recount["docs"] == N_DOCS
     assert recount["spans"] == N_SPANS
-    assert recount["by_split"] == OFFICIAL_SPLIT
+    assert recount["by_split"] == UNSEALED_SPLIT
     assert recount["bom_docs"] == N_BOM_DOCS
     assert recount["bom_spans"] == N_BOM_SPANS
 
@@ -220,8 +249,37 @@ def test_ten_canonical_types_all_occur(docs):
 # ─── the official split ─────────────────────────────────────────────────────
 
 
-def test_official_split_sizes(docs):
-    assert base.count_by_split(docs) == OFFICIAL_SPLIT
+def test_only_the_unsealed_folds_load(docs):
+    """An ordinary load is train+dev and nothing else (DESIGN §6).
+
+    Not a filter that was applied: the sealed fold's directory is not under the
+    corpus root, so `fold_roots()` never offers a path to it. This test is what
+    makes that structural fact a checked one.
+    """
+    assert base.count_by_split(docs) == UNSEALED_SPLIT
+    assert "test" not in base.count_by_split(docs)
+
+
+def test_the_full_official_split_is_recorded_in_the_frozen_file():
+    """The 1,000-document figures survive the seal in the split file, not here.
+
+    The test fold's contribution can no longer be recomputed, which is the reason
+    DESIGN §6 requires the split file to be generated before the seal. Asserted
+    against the file so that the published totals still have a check standing over
+    them after the corpus stopped being fully readable.
+    """
+    from src import split
+
+    record = split.read(MeddocanLoader.corpus_id)
+    assert {f: b["n_documents"] for f, b in record["folds"].items()} == OFFICIAL_SPLIT
+    assert record["totals"]["n_documents"] == FULL_N_DOCS
+    assert record["totals"]["n_spans"] == FULL_N_SPANS
+    assert record["totals"]["n_spans_in_scope"] == FULL_N_CANONICAL
+    assert record["totals"]["n_spans_excluded"] == FULL_N_EXCLUDED
+    # And the unsealed part of the file agrees with what actually loads, which is
+    # what keeps the sealed figures credible rather than merely unfalsifiable.
+    for fold, expected in UNSEALED_SPLIT.items():
+        assert record["folds"][fold]["n_documents"] == expected
 
 
 def test_official_split_is_read_not_constructed(docs):
@@ -402,8 +460,15 @@ def test_excluded_spans_keep_their_source_type(docs):
 
 
 def test_exclusion_share_matches_the_reported_limitation():
-    """9.90% of gold, the figure the paper must state (DESIGN §9.1)."""
-    assert round(100 * N_EXCLUDED / N_SPANS, 2) == 9.90
+    """9.90% of gold, the figure the paper must state (DESIGN §9.1).
+
+    Corpus-wide, so it uses the frozen figures: the reported limitation is about
+    MEDDOCAN, not about the part of MEDDOCAN that is still readable. The train+dev
+    share (10.01%) is asserted separately below, because a reader who saw only one
+    of the two numbers would be entitled to assume it was the other.
+    """
+    assert round(100 * FULL_N_EXCLUDED / FULL_N_SPANS, 2) == 9.90
+    assert round(100 * N_EXCLUDED / N_SPANS, 2) == 10.01
 
 
 # ─── gold spans carry no provenance (DESIGN §3) ─────────────────────────────

@@ -50,8 +50,9 @@ def test_disguised_sh_is_flagged_end_to_end(tmp_path):
     acq.mkdir(parents=True)
     (acq / "disguised.sh").write_text(NOTE, encoding="utf-8")
 
-    blocked, quarantined, suspect, _ = rs.screen_tree(str(tmp_path))
-    named = set(blocked) | {p for p, _ in suspect} | set(quarantined)
+    blocked, sealed, quarantined, suspect, _ = rs.screen_tree(str(tmp_path))
+    named = (set(blocked) | set(sealed) | set(quarantined)
+             | {p for p, _ in suspect})
     assert "data/acquire/disguised.sh" in named
 
 
@@ -126,17 +127,97 @@ def test_sealed_content_is_never_read():
     assert rs.deny("sealed/ko-surro/any.txt")
 
 
-def test_sealed_stays_blocked_even_when_gitignored(tmp_path):
-    """sealed/ is the one denied prefix that is not downgraded to quarantined."""
+def _sealed_repo(tmp_path):
+    """A git repository with a gitignored sealed fold. Nothing is ever read."""
     subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
     (tmp_path / ".gitignore").write_text("sealed/\n", encoding="utf-8")
-    s = tmp_path / "sealed" / "ko-surro"
+    s = tmp_path / "sealed" / "ko-surro" / "test"
     s.mkdir(parents=True)
     (s / "leak.txt").write_text("whatever\n", encoding="utf-8")
+    return "sealed/ko-surro/test/leak.txt"
 
-    blocked, quarantined, _, _ = rs.screen_tree(str(tmp_path))
-    assert "sealed/ko-surro/leak.txt" in blocked
-    assert "sealed/ko-surro/leak.txt" not in quarantined
+
+def test_sealed_is_reported_on_its_own_line_not_as_blocked(tmp_path):
+    """A sealed fold git cannot see is SEALED: expected, and not a commit blocker.
+
+    Previously it was reported as BLOCKED, which was defensible in isolation and
+    unusable in practice: 'BLOCKED must be 0' became permanently false the moment a
+    fold was sealed, and a gate that can never pass stops being read. The reminder
+    survives as its own line; what it no longer does is block every commit.
+    """
+    path = _sealed_repo(tmp_path)
+    blocked, sealed, quarantined, _, _ = rs.screen_tree(str(tmp_path))
+    assert path in sealed
+    assert path not in blocked
+    assert path not in quarantined, (
+        "sealed/ must not be folded into the corpus count either — the point of the "
+        "separate line is that it stays visible"
+    )
+    assert not blocked
+
+
+def test_a_staged_sealed_file_is_blocked_not_sealed(tmp_path):
+    """The real violation: the fold is on its way into a commit.
+
+    `git add -f` is what it takes, and it is the one case where the reassuring line
+    would be the wrong one. This is the assertion that has to hold; which of the two
+    checks inside `visible()` produces it is not this test's business.
+    """
+    path = _sealed_repo(tmp_path)
+    subprocess.run(["git", "-C", str(tmp_path), "add", "-f", "--", path], check=True)
+
+    blocked, sealed, _, _, _ = rs.screen_tree(str(tmp_path))
+    assert path in blocked, "a staged sealed file must block the commit"
+    assert path not in sealed
+
+
+def test_git_tracked_sees_a_staged_sealed_file(tmp_path):
+    """The index question, asked on its own.
+
+    `screen_tree` currently reaches the same verdict twice over — on git 2.54
+    check-ignore consults the index too, so a force-added file is already 'visible'
+    without this. Tested separately because that is a property of one git version and
+    escalation must not depend on it.
+    """
+    path = _sealed_repo(tmp_path)
+    subprocess.run(["git", "-C", str(tmp_path), "add", "-f", "--", path], check=True)
+    assert path in rs.git_tracked([path], str(tmp_path))
+
+
+def test_git_tracked_is_empty_for_an_unstaged_file(tmp_path):
+    path = _sealed_repo(tmp_path)
+    assert rs.git_tracked([path], str(tmp_path)) == set()
+
+
+def test_sealed_exits_zero_and_blocked_exits_one(tmp_path):
+    """End to end through the CLI, because the exit code is what CI reads."""
+    _sealed_repo(tmp_path)
+    script = os.path.join(ROOT, "tools", "release_screen.py")
+    clean = subprocess.run([sys.executable, script, "--root", str(tmp_path)],
+                           capture_output=True, text=True)
+    assert clean.returncode == 0, clean.stdout
+    assert "SEALED (expected, exit 0) : 1" in clean.stdout
+    assert "BLOCKED by path rule      : 0" in clean.stdout
+
+    subprocess.run(["git", "-C", str(tmp_path), "add", "-f", "--",
+                    "sealed/ko-surro/test/leak.txt"], check=True)
+    staged = subprocess.run([sys.executable, script, "--root", str(tmp_path)],
+                            capture_output=True, text=True)
+    assert staged.returncode == 1, staged.stdout
+    assert "SEALED (expected, exit 0) : 0" in staged.stdout
+
+
+def test_the_sealed_line_is_printed_even_when_zero(tmp_path):
+    """Zero-suppressing it would make its absence ambiguous.
+
+    A run with no SEALED line could mean 'nothing sealed' or 'this screener predates
+    the seal'. The line is always there so the reader knows which.
+    """
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    script = os.path.join(ROOT, "tools", "release_screen.py")
+    out = subprocess.run([sys.executable, script, "--root", str(tmp_path)],
+                         capture_output=True, text=True).stdout
+    assert "SEALED (expected, exit 0) : 0" in out
 
 
 def test_gitignored_corpus_is_quarantined_not_blocked(tmp_path):
@@ -147,9 +228,29 @@ def test_gitignored_corpus_is_quarantined_not_blocked(tmp_path):
     d.mkdir(parents=True)
     (d / "doc.txt").write_text(NOTE, encoding="utf-8")
 
-    blocked, quarantined, _, _ = rs.screen_tree(str(tmp_path))
+    blocked, sealed, quarantined, _, _ = rs.screen_tree(str(tmp_path))
     assert "data/raw/es-meddocan/doc.txt" in quarantined
     assert not blocked
+    assert not sealed
+
+
+def test_a_staged_corpus_file_is_blocked(tmp_path):
+    """The same index-beats-ignore rule, on the path that is not sealed.
+
+    Kept separate from the sealed case so that a change to the seal reporting cannot
+    quietly weaken this one — they share `visible()` and must both keep holding.
+    """
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    (tmp_path / ".gitignore").write_text("data/*\n", encoding="utf-8")
+    d = tmp_path / "data" / "raw" / "es-meddocan"
+    d.mkdir(parents=True)
+    (d / "doc.txt").write_text(NOTE, encoding="utf-8")
+    subprocess.run(["git", "-C", str(tmp_path), "add", "-f", "--",
+                    "data/raw/es-meddocan/doc.txt"], check=True)
+
+    blocked, _, quarantined, _, _ = rs.screen_tree(str(tmp_path))
+    assert "data/raw/es-meddocan/doc.txt" in blocked
+    assert not quarantined
 
 
 # ─── gitignore and the screener must agree ─────────────────────────────────

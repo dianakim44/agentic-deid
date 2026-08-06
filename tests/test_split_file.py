@@ -41,6 +41,12 @@ N_CANDIDATE_STEMS = 48
 N_CROSSING_STEMS = 34
 N_CROSSING_DOCS = 80
 
+#: The folds still readable after the seal (DESIGN §6). Tests that recount against
+#: the corpus can only cover these; tests about the corpus as a whole read the file,
+#: which was generated before the seal for exactly this reason.
+UNSEALED = ("train", "dev")
+N_UNSEALED_DOCS = 750
+
 
 # ─── fixtures ───────────────────────────────────────────────────────────────
 
@@ -57,6 +63,10 @@ def docs():
 
     `use_split_file=False` is the point of the fixture: loading with the file and
     then checking the file against the result would be circular.
+
+    This is train+dev — 750 documents. The sealed fold is not reachable from a test
+    and no fixture here tries: what the file claims about `test` is carried by the
+    fold/total reconciliation and by the freeze commit, not by a recount.
     """
     try:
         base.corpus_root(CORPUS)
@@ -148,14 +158,26 @@ def test_hashes_cover_every_document(record):
 def test_source_hashes_match_the_files_on_disk(record, docs):
     """The hashes are a claim about bytes; check it on a sample.
 
-    A sample rather than all 1,000: hashing every file is a second full read of
-    the corpus for a check whose failure mode (a re-release) is corpus-wide, not
+    A sample rather than all 750: hashing every file is a second full read of the
+    corpus for a check whose failure mode (a re-release) is corpus-wide, not
     per-document. The manifest digest above already binds all 1,000 hashes
     together, so a single altered document cannot hide behind the sample.
+
+    Sampled from the unsealed folds only. The sealed fold's hashes are exactly the
+    part of this file that can no longer be re-derived — which is the point of
+    having recorded them before the seal, and the reason the manifest digest
+    matters more now than it did then: it is the only remaining evidence that the
+    250 sealed hashes were not edited after the fact.
     """
     loader = MeddocanLoader(use_split_file=False)
     recorded = record["source"]["documents"]
-    sampled = sorted(recorded)[::100]
+    unsealed_ids = sorted(
+        doc_id
+        for fold in UNSEALED
+        for doc_id in record["folds"][fold]["document_ids"]
+    )
+    assert len(unsealed_ids) == N_UNSEALED_DOCS
+    sampled = unsealed_ids[::75]
     assert len(sampled) == 10
     for doc_id in sampled:
         assert split.digest_document(loader.source_files(doc_id)) == recorded[doc_id]
@@ -264,14 +286,94 @@ def test_no_meddocan_stem_passes_step_two(record):
     assert not any(e["grouped"] for e in audit["candidate_stems"].values())
 
 
+def test_the_step_two_rule_reproduces_every_recorded_decision(record):
+    """Re-apply §9.5 step 2 to the recorded counts, for all 48 stems.
+
+    This works after the seal where a recount cannot: the counts are in the file, so
+    the rule can be checked against every stem including those with a document
+    behind `sealed/`. That is not a convenience — the single MEDDOCAN stem that
+    shares a name surface and nothing else straddles the split, so it is the only
+    evidence that step 2 requires more than a name match, and a check restricted to
+    the readable folds would not contain it.
+    """
+    stems = record["group_key"]["grouping_audit"]["candidate_stems"]
+    for stem, entry in stems.items():
+        assert split.step_2_confirms(entry["n_shared_surfaces"]) == entry["grouped"], (
+            stem
+        )
+
+
+def test_a_shared_name_alone_does_not_confirm_a_group(record):
+    """The rule's discriminating case, stated as a property of the rule.
+
+    A shared given name across different surnames is not one patient. Asserted
+    directly on `step_2_confirms` as well as against the recorded stem, so the
+    guarantee does not depend on that stem continuing to exist in the corpus.
+    """
+    assert not split.step_2_confirms({"name": 1, "record": 0, "date": 0})
+    assert split.step_2_confirms({"name": 1, "record": 1, "date": 0})
+    assert split.step_2_confirms({"name": 1, "record": 0, "date": 1})
+    assert not split.step_2_confirms({"name": 0, "record": 1, "date": 1})
+
+    # And the corpus actually contains the case, so the rule is not defending
+    # against a hypothetical. If a re-release removes it, this fails and the
+    # §9.5 rationale needs rewriting rather than the test relaxing.
+    stems = record["group_key"]["grouping_audit"]["candidate_stems"]
+    name_only = [
+        stem
+        for stem, entry in stems.items()
+        if entry["n_shared_surfaces"]["name"] > 0
+        and not entry["n_shared_surfaces"]["record"]
+        and not entry["n_shared_surfaces"]["date"]
+    ]
+    assert len(name_only) == 1, (
+        f"expected exactly one name-only stem in MEDDOCAN, found {len(name_only)}"
+    )
+    assert not stems[name_only[0]]["grouped"]
+
+
 def test_grouping_audit_is_reproducible_from_the_corpus(record, docs):
-    """Recompute the whole audit and require an exact match.
+    """Recompute the audit and require an exact match where it can be recomputed.
 
     This is the check that keeps §9.5 from drifting: if the step-1 pattern or the
     step-2 types change, the recorded decisions and the code's decisions part
     company here.
+
+    Restricted to stems whose documents are all in the unsealed folds. A stem with
+    one document behind `sealed/` cannot be re-decided — step 2 compares surfaces
+    across the stem's documents, so a partial recomputation would be comparing a
+    subset and would disagree with the record for a legitimate reason. Those stems
+    are counted rather than skipped silently, so this test cannot pass by finding
+    nothing to check.
     """
-    assert split.grouping_audit(CORPUS, docs) == record["group_key"]["grouping_audit"]
+    unsealed_ids = {
+        doc_id
+        for fold in UNSEALED
+        for doc_id in record["folds"][fold]["document_ids"]
+    }
+    recorded = record["group_key"]["grouping_audit"]["candidate_stems"]
+    recomputed = split.grouping_audit(CORPUS, docs)["candidate_stems"]
+
+    checkable = {
+        stem: entry
+        for stem, entry in recorded.items()
+        if set(entry["documents"]) <= unsealed_ids
+    }
+    assert len(checkable) >= 20, (
+        f"only {len(checkable)} of {len(recorded)} candidate stems are wholly "
+        "unsealed; this check has stopped covering enough to be evidence"
+    )
+    for stem, entry in checkable.items():
+        assert stem in recomputed, f"{stem} was a candidate then and is not now"
+        assert recomputed[stem] == entry, stem
+
+    # And the rule itself, which is corpus-independent and must not drift.
+    full = split.grouping_audit(CORPUS, docs)
+    assert full["rule_ref"] == record["group_key"]["grouping_audit"]["rule_ref"]
+    assert full["step_1_pattern"] == (
+        record["group_key"]["grouping_audit"]["step_1_pattern"]
+    )
+    assert full["step_2_types"] == record["group_key"]["grouping_audit"]["step_2_types"]
 
 
 def test_grouping_audit_records_no_surfaces(record):
@@ -379,17 +481,33 @@ def test_token_distribution_is_recorded_per_fold(record):
 
 
 def test_the_loader_gets_its_folds_from_the_split_file(record):
-    """Loading normally must reproduce the folds the file records.
+    """Loading normally must reproduce the folds the file records — for what loads.
 
     The default path reads the file; `use_split_file=False` (used by the fixtures
     above) is only for the generator and for these tests.
+
+    The sealed fold is absent from the load and that absence is checked positively:
+    every document the file assigns to `test` must be missing, and every document
+    the file assigns to train or dev must be present with the fold the file gives
+    it. Asserting only `len(loaded) == 750` would also pass if the loader had
+    dropped 250 arbitrary documents.
     """
     loader = MeddocanLoader()
     assert loader.use_split_file
     loaded = loader.load()
     from_file = split.fold_of(record)
-    assert {d.doc_id: d.split for d in loaded} == from_file
-    assert base.count_by_split(loaded) == OFFICIAL_SPLIT
+    got = {d.doc_id: d.split for d in loaded}
+
+    expected = {
+        doc_id: fold for doc_id, fold in from_file.items() if fold in UNSEALED
+    }
+    assert got == expected
+    sealed_ids = {
+        doc_id for doc_id, fold in from_file.items() if fold not in UNSEALED
+    }
+    assert len(sealed_ids) == OFFICIAL_SPLIT["test"]
+    assert not sealed_ids & set(got)
+    assert base.count_by_split(loaded) == {f: OFFICIAL_SPLIT[f] for f in UNSEALED}
 
 
 def test_the_loader_rejects_a_split_file_that_moves_a_document(monkeypatch, docs):

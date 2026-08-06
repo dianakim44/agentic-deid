@@ -86,37 +86,45 @@ class MeddocanLoader(CorpusLoader):
     corpus_id = "es-meddocan"
     type_map = TYPE_MAP
     excluded_types = EXCLUDED_TYPES
+    fold_dirs = SPLIT_DIRS
 
-    def _brat_dir(self, split_dir: str) -> Path:
+    def _brat_dir(self, split_dir: str, root: Path | None = None) -> Path:
         """Locate `{split}/brat/`, tolerating one wrapper directory.
 
         The Zenodo archive extracts to a `meddocan/` directory, but whether that
         wrapper survives depends on how the archive was unpacked. Probing two
         depths beats requiring every machine's checkout to match, and beats
         hardcoding the wrapper name in a path (CLAUDE.md: no hardcoded paths).
+
+        `root` defaults to the corpus root. A sealed fold is passed its own root by
+        `fold_roots()`, which is the only place that root is known.
         """
+        base_path = self.root if root is None else root
         candidates = [
-            self.root / split_dir / "brat",
-            self.root / "meddocan" / split_dir / "brat",
+            base_path / split_dir / "brat",
+            base_path / "meddocan" / split_dir / "brat",
         ]
         for path in candidates:
             if path.is_dir():
                 return path
         raise CorpusError(
-            f"{self.corpus_id}: no {split_dir}/brat directory under the corpus "
-            "root. Check config/data_paths.local.yaml and "
-            "data/acquire/fetch_meddocan.sh."
+            f"{self.corpus_id}: no {split_dir}/brat directory under the "
+            f"{'corpus' if root is None else 'given'} root. Check "
+            "config/data_paths.local.yaml and data/acquire/fetch_meddocan.sh."
         )
 
     def source_files(self, doc_id: str) -> list[Path]:
         """The files one document is made of, for hashing into the split file.
 
         Searched across folds rather than taking a fold argument, so the caller
-        does not have to already know the answer the split file records.
+        does not have to already know the answer the split file records. Only the
+        folds `fold_roots()` currently offers are searched, so once the test fold is
+        sealed this cannot reach it — which is why the hashes had to be recorded
+        before the seal, not after.
         """
         found: list[Path] = []
-        for split_dir in SPLIT_DIRS:
-            ann = self._brat_dir(split_dir) / f"{doc_id}.ann"
+        for split_dir, root in self.fold_roots().items():
+            ann = self._brat_dir(split_dir, root) / f"{doc_id}.ann"
             if ann.exists():
                 found.extend([ann, ann.with_suffix(".txt")])
         if not found:
@@ -129,11 +137,17 @@ class MeddocanLoader(CorpusLoader):
         return found
 
     def _read(self) -> Iterator[Document]:
-        for split_dir, split in SPLIT_DIRS.items():
-            brat = self._brat_dir(split_dir)
+        for split_dir, root in self.fold_roots().items():
+            split = SPLIT_DIRS[split_dir]
+            brat = self._brat_dir(split_dir, root)
             ann_files = sorted(brat.glob("*.ann"))
             if not ann_files:
-                raise CorpusError(f"{self.corpus_id}: {brat} holds no .ann files")
+                # The directory name, not the path: for a sealed or out-of-tree
+                # corpus the path is a data location and does not belong in a log.
+                raise CorpusError(
+                    f"{self.corpus_id}: the {split_dir} brat directory holds no "
+                    ".ann files"
+                )
             for ann_path in ann_files:
                 yield self._read_document(ann_path, split)
 

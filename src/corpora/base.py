@@ -37,12 +37,28 @@ DATA_PATHS_EXAMPLE = ROOT / "config" / "data_paths.example.yaml"
 
 BOM = "﻿"
 
+#: The only module allowed to load a sealed fold. Checked by import identity, not
+#: by inspecting the call stack: a stack walk can be satisfied by naming a
+#: function or a file the same thing, and the point of the gate is that satisfying
+#: it takes a deliberate edit to a committed file rather than a clever caller.
+SEALED_CALLER = "src.eval.run_sealed_eval"
+
 
 class CorpusError(Exception):
     """Anything wrong with a corpus on disk, its config, or its annotations.
 
     Deliberately one exception type: every case here is "stop and tell a human",
     and callers have no recovery path that differs by cause.
+    """
+
+
+class SealError(CorpusError):
+    """An attempt to reach a sealed fold from somewhere that may not.
+
+    The one exception here with its own type, because it is the one failure whose
+    right response is never "handle it and continue". It subclasses CorpusError so
+    existing handlers still stop — but a handler that means to swallow a corpus
+    problem has to name this type explicitly to swallow a seal breach too.
     """
 
 
@@ -126,17 +142,52 @@ def corpus_root(corpus_id: str) -> Path:
             f"config/data_paths.local.yaml has no path for {corpus_id!r}. "
             "See data/acquire/ for how to obtain it."
         )
+    return _resolve(raw, corpus_id)
+
+
+def _resolve(raw: str, corpus_id: str) -> Path:
+    """Expand and validate a configured path.
+
+    Never echoes the resolved path. For a DUA corpus that is a data location, and
+    this message travels into logs and issues.
+    """
     path = Path(os.path.expanduser(str(raw)))
     if not path.is_absolute():
         path = ROOT / path
     if not path.is_dir():
-        # Deliberately not echoing the resolved path: for a DUA corpus that is a
-        # data location, and this message may end up in a log or an issue.
         raise CorpusError(
             f"the configured path for {corpus_id!r} is not a directory. "
             "Check config/data_paths.local.yaml and the acquisition script."
         )
     return path
+
+
+def sealed_root(corpus_id: str) -> Path | None:
+    """Where this corpus's sealed test fold lives, or None if it is not sealed.
+
+    Reads the `sealed:` block **only**, which is why that block is separate from
+    `corpora:` in the config. A single mapping would mean any code iterating over
+    corpus paths reaches the sealed fold as a matter of course; the seal has to be
+    "the path is not known here", not "the path is known and politely avoided".
+
+    Returns None rather than raising when a corpus has no entry: not-yet-sealed is
+    a real and distinct state (the split file has to be frozen first), and
+    conflating it with a misconfiguration would push someone towards adding an
+    entry that points at unsealed data.
+    """
+    if corpus_id not in axis("corpus"):
+        raise CorpusError(
+            f"{corpus_id!r} is not a corpus in config/naming.yaml "
+            f"(have: {corpus_ids()})"
+        )
+    if not DATA_PATHS.exists():
+        return None
+    with open(DATA_PATHS, encoding="utf-8") as fh:
+        mapping = (yaml.safe_load(fh) or {}).get("sealed") or {}
+    raw = mapping.get(corpus_id)
+    if not raw:
+        return None
+    return _resolve(raw, corpus_id)
 
 
 # ─── data model ─────────────────────────────────────────────────────────────
@@ -312,6 +363,17 @@ class CorpusLoader:
     type_map: dict[str, str] = {}
     #: corpus types kept but not scored. See DESIGN §9.1.
     excluded_types: frozenset[str] = frozenset()
+    #: Folds that live behind `sealed/`. A tuple rather than the literal "test" so
+    #: that a corpus needing a second held-out fold does not invite a string
+    #: comparison somewhere else in the code.
+    sealed_splits: tuple[str, ...] = ("test",)
+
+    #: Fold directory name -> naming.yaml split value, in load order. A mapping
+    #: rather than a list of names because MEDDOCAN's directories happen to be
+    #: named after the folds and no other corpus is promised to be — a corpus whose
+    #: `held_out/` directory holds the test fold must not be able to reach it just
+    #: because the string differs from `"test"`.
+    fold_dirs: dict[str, str] = {}
 
     def __init__(self, root: Path | None = None, use_split_file: bool = True) -> None:
         """`use_split_file=False` loads the corpus without `splits/{corpus}.json`.
@@ -329,7 +391,58 @@ class CorpusLoader:
             raise CorpusError(f"{type(self).__name__} does not set corpus_id")
         self.root = root if root is not None else corpus_root(self.corpus_id)
         self.use_split_file = use_split_file
+        #: Set for the duration of an authorised sealed read, and only there. An
+        #: attribute rather than an argument threaded through `_read()` because
+        #: `_read()` is a subclass hook and a flag it had to remember to honour
+        #: would be a flag a new loader could forget.
+        self._sealed_ok = False
         self._check_type_map()
+
+    def fold_roots(self) -> dict[str, Path]:
+        """Fold directory -> the root it lives under. The reachability decision.
+
+        This is the single place that answers "which folds can be read", and it
+        answers by returning paths rather than by filtering documents afterwards. A
+        sealed fold that is not in this mapping is not skipped downstream — its
+        directory is never looked at, so there is no later step that could forget.
+
+        A sealed fold appears here only when `_sealed_ok` is set, which only
+        `_authorise_sealed()` does, and only after the access has been logged.
+        """
+        if not self.fold_dirs:
+            raise CorpusError(f"{type(self).__name__} does not set fold_dirs")
+        unknown = sorted(set(self.fold_dirs.values()) - set(axis("split")))
+        if unknown:
+            raise CorpusError(
+                f"{self.corpus_id}: fold_dirs maps to {unknown}, which are not "
+                f"split values in config/naming.yaml (have: {split_names()})"
+            )
+        sealed = sealed_root(self.corpus_id)
+        roots: dict[str, Path] = {}
+        for fold_dir, fold in self.fold_dirs.items():
+            if fold in self.sealed_splits and sealed is not None:
+                if not self._sealed_ok:
+                    continue
+                roots[fold_dir] = sealed
+            else:
+                roots[fold_dir] = self.root
+        if self._sealed_ok:
+            # An authorised sealed read must actually reach every sealed fold. If
+            # `fold_dirs` has no entry for one, the read would return the unsealed
+            # folds alone — while the log records a test evaluation that happened.
+            # A run that is counted but did not read the fold is worse than a
+            # refusal: it spends a row and produces numbers from the wrong data.
+            reachable = {self.fold_dirs[d] for d in roots}
+            unreachable = sorted(set(self.sealed_splits) - reachable)
+            if unreachable:
+                raise SealError(
+                    f"{self.corpus_id}: a sealed read was authorised but "
+                    f"{unreachable} has no entry in fold_dirs, so the fold would "
+                    "not be read at all. The log has already recorded this access; "
+                    "note in results/sealed_eval_log.md that the run did not "
+                    "complete, and fix the loader before running again."
+                )
+        return roots
 
     def _check_type_map(self) -> None:
         """Fail at construction if the mapping disagrees with naming.yaml."""
@@ -355,9 +468,33 @@ class CorpusLoader:
 
     # -- shared machinery --
 
-    def load(self) -> list[Document]:
-        """Read the corpus, apply the frozen split, then assert every offset."""
-        docs = list(self._read())
+    def load(
+        self,
+        sealed: bool = False,
+        *,
+        purpose: str | None = None,
+        arms: str = "—",
+    ) -> list[Document]:
+        """Read the corpus, apply the frozen split, then assert every offset.
+
+        Returns the **unsealed** folds only. For a corpus whose test fold has been
+        moved to `sealed/`, that is train and dev; the sealed documents are not on
+        disk under the corpus root at all, so this is not a filter that could be
+        forgotten — there is nothing there to filter.
+
+        `sealed=True` additionally reads the sealed fold, and only
+        `src/eval/run_sealed_eval.py` may pass it. It logs the access before
+        reading anything and refuses to proceed if the log cannot be written.
+        `purpose` and `arms` go into that log row and are ignored otherwise.
+        """
+        if sealed:
+            self._authorise_sealed(purpose=purpose, arms=arms)
+        try:
+            docs = list(self._read())
+        finally:
+            # Cleared even on failure: a half-read sealed fold must not leave the
+            # loader in a state where the next ordinary `load()` reaches it.
+            self._sealed_ok = False
         if not docs:
             raise CorpusError(f"{self.corpus_id}: no documents found under the root")
         seen: set[str] = set()
@@ -368,7 +505,82 @@ class CorpusLoader:
             doc.assert_offsets()
         if self.use_split_file:
             self._apply_split_file(docs)
+        if not sealed:
+            self._assert_no_sealed_fold(docs)
         return docs
+
+    def _authorise_sealed(
+        self, purpose: str | None = None, arms: str = "—"
+    ) -> None:
+        """Permit a sealed read, or raise. Called before anything is opened.
+
+        Two conditions, both required:
+
+          - the calling module is `SEALED_CALLER`. Checked by walking the frames'
+            `__name__`, which cannot be satisfied by naming a local file
+            suggestively — it requires the real module to be on the stack.
+          - the access has been appended to `results/sealed_eval_log.md`. The
+            append happens **here**, before the read, and a failure to append
+            aborts the read. An evaluation that ran without being logged is worse
+            than one that did not run, because it leaves the log looking complete.
+        """
+        import inspect
+
+        callers = set()
+        frame = inspect.currentframe()
+        try:
+            while frame is not None:
+                callers.add(frame.f_globals.get("__name__", ""))
+                frame = frame.f_back
+        finally:
+            del frame
+        if SEALED_CALLER not in callers:
+            raise SealError(
+                f"{self.corpus_id}: the sealed fold may only be read from "
+                f"{SEALED_CALLER}, and it is not on the call stack. The test fold "
+                "is sealed (CLAUDE.md): rule development, agent iteration and "
+                "checkpoint selection use dev. If a test evaluation is genuinely "
+                "intended, run that script — it records the run in "
+                "results/sealed_eval_log.md, which is the number the paper has to "
+                "report."
+            )
+
+        if sealed_root(self.corpus_id) is None:
+            raise SealError(
+                f"{self.corpus_id}: a sealed read was requested but the corpus has "
+                "no `sealed:` entry in config/data_paths.local.yaml, so no fold of "
+                "it is sealed. Do not add one pointing at the unsealed corpus — "
+                "seal the fold first (DESIGN §6: generate, freeze, seal)."
+            )
+
+        from ..eval.sealed_log import record_access
+
+        # Logged before the flag is set, so a failed append leaves the sealed fold
+        # unreachable rather than merely unread. record_access raises SealError.
+        # This is the only call site: a second one would put two rows in the log for
+        # one read, and the row count is the number the paper reports.
+        record_access(self.corpus_id, purpose=purpose, arms=arms)
+        self._sealed_ok = True
+
+    def _assert_no_sealed_fold(self, docs: list[Document]) -> None:
+        """No sealed fold may appear in an ordinary load.
+
+        Belt and braces on top of the physical move: if a corpus is configured as
+        sealed but its sealed documents are still reachable under the corpus root,
+        the move did not happen or was undone, and every downstream result would be
+        computed on data the seal claims is untouched.
+        """
+        if sealed_root(self.corpus_id) is None:
+            return
+        leaked = sorted(d.doc_id for d in docs if d.split in self.sealed_splits)
+        if leaked:
+            raise SealError(
+                f"{self.corpus_id}: {len(leaked)} documents of the sealed fold(s) "
+                f"{sorted(self.sealed_splits)} loaded from the unsealed corpus "
+                f"root (first: {leaked[:3]}). The fold is configured as sealed but "
+                "its documents are still present outside sealed/ — the move did "
+                "not happen, or was undone."
+            )
 
     def _apply_split_file(self, docs: list[Document]) -> None:
         """Set every document's fold from `splits/{corpus}.json`.
@@ -399,11 +611,21 @@ class CorpusLoader:
                 "cover."
             )
 
+        # A document the split file assigns but that did not load is normally a
+        # corpus/file disagreement — except for a sealed fold on an ordinary load,
+        # where its absence is exactly what the seal means.
         absent = sorted(set(assigned) - {d.doc_id for d in docs})
-        if absent:
+        unexplained = [
+            doc_id
+            for doc_id in absent
+            if assigned[doc_id] not in self.sealed_splits
+            or sealed_root(self.corpus_id) is None
+        ]
+        if unexplained:
             raise CorpusError(
                 f"{self.corpus_id}: splits/{self.corpus_id}.json assigns "
-                f"{len(absent)} documents that did not load (first: {absent[:3]})"
+                f"{len(unexplained)} documents that did not load (first: "
+                f"{unexplained[:3]})"
             )
         for doc in docs:
             fold = assigned[doc.doc_id]

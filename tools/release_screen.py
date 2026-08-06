@@ -10,6 +10,14 @@ Two separate risks are checked. The first is the obvious one: files that hold no
 surrogate values themselves. The second is the one people miss: a file deleted today is still in
 the git history, and making the repository public exposes the history along with the tip.
 
+Four counts are reported and only two of them gate a commit:
+
+    BLOCKED       denied AND visible to git. Must be 0. Exit status is this number.
+    SEALED        the sealed test fold — denied, and git cannot see it. Expected, printed
+                  every run, exit 0. A sealed path git CAN see is BLOCKED, not SEALED.
+    Quarantined   any other denied path git cannot see, e.g. a downloaded corpus.
+    SUSPECT       content sniff. Also gates a commit.
+
 Nothing is deleted. The script reports; the decisions stay with the author.
 """
 import argparse, json, os, re, subprocess, sys
@@ -21,7 +29,8 @@ from collections import Counter
 # A pattern naming one corpus ("ko_") silently stops protecting the next one.
 DENY_PATTERNS = [
     # ─── 봉인된 test fold ───────────────────────────────────────
-    # 무조건 차단. 여기 걸리면 내용을 읽지 않고 종료하므로 봉인 규율과 충돌하지 않는다.
+    # 무조건 deny. 여기 걸리면 내용을 읽지 않으므로 봉인 규율과 충돌하지 않는다.
+    # 보고는 SEALED 줄로 분리한다 (screen_tree 참조). git 에 보이게 되면 BLOCKED.
     r"^sealed/",
 
     # ─── 코퍼스 데이터 전체 ─────────────────────────────────────
@@ -145,6 +154,9 @@ def sniff(path, blob=None, force=False):
     return None
 
 
+SEALED_PREFIX = "sealed/"
+
+
 def git_ignored(paths, root):
     """Subset of paths that git ignores. Checked one call per path.
 
@@ -165,15 +177,51 @@ def git_ignored(paths, root):
     return ignored
 
 
+def git_tracked(paths, root):
+    """Subset of paths git has in its index — tracked, or staged for the next commit.
+
+    This is the check that decides whether `sealed/` is reported as expected or as a
+    violation, so it is asked directly rather than inferred. On git 2.54 the inference
+    happens to work: `check-ignore` consults the index, so a force-added file comes
+    back *not ignored* and the path is already treated as visible. That is a behaviour
+    of one command on one version, and the property being enforced — a sealed file on
+    its way into a commit must escalate — is too consequential to rest on it. Asking
+    the index is redundancy today and the actual answer either way.
+
+    Batched pathspecs rather than one call per path: 750 sealed files is one process,
+    not 750. Chunked because a corpus can be large enough to overrun the argument
+    limit.
+    """
+    tracked = set()
+    paths = list(paths)
+    for i in range(0, len(paths), 400):
+        r = subprocess.run(
+            ["git", "-C", root, "ls-files", "-c", "-z", "--", *paths[i:i + 400]],
+            capture_output=True, text=True)
+        tracked.update(p for p in r.stdout.split("\0") if p)
+    return tracked
+
+
 def screen_tree(root):
     """Walk the tree. Denied paths are recorded by name and never opened.
 
     sealed/ is denied, so the content sniffer never reads the test fold — the guard
     works from filenames alone and does not break the seal.
 
-    Returns (blocked, quarantined, suspect, allowed). 'blocked' is the number that
-    must be zero before a commit: denied AND visible to git. 'quarantined' is denied
-    but gitignored — expected once a corpus is on disk, and reported as a count only.
+    Returns (blocked, sealed, quarantined, suspect, allowed).
+
+      - 'blocked' is the number that must be zero before a commit: denied AND visible
+        to git.
+      - 'sealed' is the sealed test fold, denied and invisible to git. Expected, and
+        reported on its own line rather than mixed into either of the others: it is
+        not a risk (git cannot see it) and it is not routine either (the seal is the
+        one rule where a reminder every single run is worth its noise).
+      - 'quarantined' is any other denied path git cannot see — a downloaded corpus,
+        expected once the data is on disk, reported as a count.
+
+    A sealed path that git CAN see is counted as blocked, not sealed. That is the
+    actual violation the seal exists to prevent, and it is the one case where the
+    reassuring line would be the wrong one.
     """
     denied, suspect, allowed = [], [], []
     for base, dirs, files in os.walk(root):
@@ -191,11 +239,21 @@ def screen_tree(root):
                 allowed.append(rel)
 
     ignored = git_ignored(denied, root)
-    # sealed/ is never downgraded: the seal is the one rule where a reminder every
-    # single run is worth more than a quiet count.
-    blocked = [p for p in denied if p not in ignored or p.startswith("sealed/")]
-    quarantined = [p for p in denied if p in ignored and not p.startswith("sealed/")]
-    return blocked, quarantined, suspect, allowed
+    tracked = git_tracked(denied, root)
+
+    def visible(p):
+        """Can git see this file? Either answer for yes; the index is decisive."""
+        return p in tracked or p not in ignored
+
+    blocked = [p for p in denied if visible(p)]
+    # sealed/ gets its own line rather than being folded into `quarantined`, and it
+    # is NOT exempt from `blocked`: a staged or tracked sealed file is caught by
+    # `visible()` above before it can be reported as expected.
+    sealed = [p for p in denied
+              if not visible(p) and p.startswith(SEALED_PREFIX)]
+    quarantined = [p for p in denied
+                   if not visible(p) and not p.startswith(SEALED_PREFIX)]
+    return blocked, sealed, quarantined, suspect, allowed
 
 
 def screen_history():
@@ -240,10 +298,23 @@ if __name__ == "__main__":
     ap.add_argument("--history", action="store_true")
     a = ap.parse_args()
 
-    blocked, quarantined, suspect, allowed = screen_tree(a.root)
+    blocked, sealed, quarantined, suspect, allowed = screen_tree(a.root)
     print(f"BLOCKED by path rule      : {len(blocked)}   (denied AND visible to git — must be 0)")
     for p in sorted(blocked):
         print(f"   {p}")
+
+    # Its own line, always printed, never zero-suppressed, and stated as a count
+    # with its folds — a sealed fold is not a finding to be scrolled past, and it is
+    # not a reason to fail either. Exit status ignores it (see below).
+    print(f"\nSEALED (expected, exit 0) : {len(sealed)}   "
+          "(the sealed test fold — denied, gitignored, and not readable from src/)")
+    if sealed:
+        for prefix, n in sorted(Counter(
+                "/".join(p.split("/")[:3]) for p in sealed).items()):
+            print(f"   {n:6d}  {prefix}/")
+        print("   Do not open these. Test evaluation goes through "
+              "src/eval/run_sealed_eval.py (CLAUDE.md, DESIGN §6).")
+
     print(f"\nQuarantined (gitignored)  : {len(quarantined)}   (denied but git cannot see them — expected once a corpus is on disk)")
     for prefix, n in sorted(Counter("/".join(p.split("/")[:2]) for p in quarantined).items()):
         print(f"   {n:6d}  {prefix}/")
@@ -262,5 +333,9 @@ if __name__ == "__main__":
             print("   Start a fresh repository with no history, or rewrite history with git-filter-repo")
             print("   and force-push before publishing.")
 
+    # Exit status is BLOCKED (plus SUSPECT), never SEALED. A gate that can never pass
+    # stops being read: once a fold is sealed, folding it into BLOCKED would make
+    # "BLOCKED must be 0" permanently false on every machine holding the data, and the
+    # first response to a check that always fails is to stop running it.
     if blocked or suspect:
         sys.exit(1)

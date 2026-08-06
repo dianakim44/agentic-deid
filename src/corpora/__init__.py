@@ -7,6 +7,7 @@ from .base import (  # noqa: F401
     CorpusError,
     CorpusLoader,
     Document,
+    SealError,
     Span,
     canonical_types,
     corpus_ids,
@@ -16,12 +17,14 @@ from .base import (  # noqa: F401
     count_spans,
     load,
     rule_langs,
+    sealed_root,
 )
 
 __all__ = [
     "CorpusError",
     "CorpusLoader",
     "Document",
+    "SealError",
     "Span",
     "canonical_types",
     "corpus_ids",
@@ -31,4 +34,5 @@ __all__ = [
     "count_spans",
     "load",
     "rule_langs",
+    "sealed_root",
 ]

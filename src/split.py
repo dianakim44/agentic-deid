@@ -148,6 +148,23 @@ GROUPING_TYPES = {
 STEM_RE = re.compile(r"^(?P<stem>.+)[-_](?P<suffix>[0-9]+|[A-Za-z]+)$")
 
 
+def step_2_confirms(shared: dict[str, int]) -> bool:
+    """DESIGN §9.5 step 2: do these shared-surface counts confirm one patient?
+
+    A shared name is necessary and not sufficient — two case reports about
+    different patients with the same given name share a name surface — so a record
+    number or a date must agree as well.
+
+    Extracted from `grouping_audit` so that the rule can be applied to the counts
+    the split file already records, not only to a corpus that is fully readable.
+    That matters directly: the one MEDDOCAN stem that shares a name and nothing
+    else straddles the seal, so after the test fold was sealed a recount could no
+    longer reach the case that distinguishes this rule from `bool(shared["name"])`.
+    Taking `dict[str, int]` rather than documents is what keeps that case checkable.
+    """
+    return bool(shared["name"]) and bool(shared["record"] or shared["date"])
+
+
 def grouping_audit(corpus_id: str, docs: Sequence[Document]) -> dict:
     """Apply the DESIGN §9.5 grouping rule and record why each group formed.
 
@@ -203,7 +220,7 @@ def grouping_audit(corpus_id: str, docs: Sequence[Document]) -> dict:
                 for i in ids
             ]
             shared[role] = len(set.intersection(*per_doc)) if per_doc else 0
-        grouped = bool(shared["name"]) and bool(shared["record"] or shared["date"])
+        grouped = step_2_confirms(shared)
         if grouped:
             confirmed += 1
         audited[stem] = {
@@ -535,6 +552,17 @@ def verify(record: dict, docs: Sequence[Document]) -> None:
     This is the check that makes the file trustworthy rather than merely present.
     A summary written once and never re-derived is a comment; re-derived on every
     load, it is an assertion. Raises on the first disagreement.
+
+    **Only the folds present in `docs` are recounted.** Once the test fold is
+    sealed it cannot be loaded, so its recorded summaries stop being checkable —
+    that is the cost of the seal and the reason DESIGN §6 requires the file to be
+    generated first. What remains checkable is checked, and the totals are then
+    reconciled arithmetically (fold sums must equal `totals`), so a stale sealed
+    block cannot hide: it would have to be stale in a way that keeps the sum
+    correct, which means a second compensating edit elsewhere in the file.
+
+    A fold in `docs` that the file does not know about is still an error. The
+    tolerance runs one way only.
     """
     corpus_id = record["corpus"]
     by_fold: dict[str | None, list[Document]] = {}
@@ -543,13 +571,17 @@ def verify(record: dict, docs: Sequence[Document]) -> None:
 
     file_folds = set(record["folds"])
     loaded_folds = {f for f in by_fold if f is not None}
-    if file_folds != loaded_folds:
+    if not loaded_folds <= file_folds:
         raise CorpusError(
-            f"{corpus_id}: split file has folds {sorted(file_folds)}, loaded "
-            f"documents have {sorted(loaded_folds)}"
+            f"{corpus_id}: loaded documents are in folds "
+            f"{sorted(loaded_folds - file_folds)}, which the split file does not "
+            "record. The corpus on disk has a fold the frozen split never saw."
         )
+    unchecked = sorted(file_folds - loaded_folds)
 
     for fold, block in sorted(record["folds"].items()):
+        if fold not in by_fold:
+            continue  # sealed, or otherwise not loaded — see the docstring
         fold_docs = by_fold[fold]
         recomputed = fold_summary(fold_docs)
         for key in sorted(REQUIRED_FOLD_KEYS - {"document_ids"}):
@@ -572,14 +604,61 @@ def verify(record: dict, docs: Sequence[Document]) -> None:
                 f"split file ({only_loaded[:3]})"
             )
 
-    recomputed_totals = fold_summary(docs)
-    for key in sorted(REQUIRED_FOLD_KEYS - {"document_ids"}):
-        if recomputed_totals[key] != record["totals"][key]:
+    if not unchecked:
+        recomputed_totals = fold_summary(docs)
+        for key in sorted(REQUIRED_FOLD_KEYS - {"document_ids"}):
+            if recomputed_totals[key] != record["totals"][key]:
+                raise CorpusError(
+                    f"{corpus_id}: split file records total {key}="
+                    f"{record['totals'][key]!r} but the loader recounted "
+                    f"{recomputed_totals[key]!r}"
+                )
+    else:
+        reconcile_totals(record)
+
+
+def reconcile_totals(record: dict) -> None:
+    """`totals` must equal the sum of the folds. Needs no corpus on disk.
+
+    This is what carries the totals once a fold is sealed. It is weaker than a
+    recount and it is not weak: `totals` and the per-fold blocks are written
+    independently, so an edit to either alone breaks the sum. Combined with the
+    recount of every unsealed fold, the only surviving way to corrupt a sealed
+    fold's figures is to edit them *and* the totals consistently — which is no
+    longer a stale file, it is a forged one, and no check inside the file can
+    distinguish that. The frozen commit hash in results/sealed_eval_log.md is what
+    covers that case.
+    """
+    corpus_id = record["corpus"]
+    folds = list(record["folds"].values())
+    for key in ("n_documents", "n_spans", "n_spans_in_scope", "n_spans_excluded"):
+        summed = sum(b[key] for b in folds)
+        if summed != record["totals"][key]:
             raise CorpusError(
                 f"{corpus_id}: split file records total {key}="
-                f"{record['totals'][key]!r} but the loader recounted "
-                f"{recomputed_totals[key]!r}"
+                f"{record['totals'][key]!r} but its folds sum to {summed!r}"
             )
+    if record["totals"]["n_spans_in_scope"] + record["totals"]["n_spans_excluded"] != (
+        record["totals"]["n_spans"]
+    ):
+        raise CorpusError(
+            f"{corpus_id}: in-scope and excluded span counts do not add up to the "
+            "total"
+        )
+    summed_tokens = sum(b["tokens"]["total"] for b in folds)
+    if summed_tokens != record["totals"]["tokens"]["total"]:
+        raise CorpusError(
+            f"{corpus_id}: split file records {record['totals']['tokens']['total']!r} "
+            f"tokens in total but its folds sum to {summed_tokens!r}"
+        )
+    for group in ("spans_by_phi_type", "spans_by_excluded_type"):
+        for type_name, total in record["totals"][group].items():
+            summed = sum(b[group].get(type_name, 0) for b in folds)
+            if summed != total:
+                raise CorpusError(
+                    f"{corpus_id}: split file records {total!r} {type_name} spans "
+                    f"in total ({group}) but its folds sum to {summed!r}"
+                )
 
 
 def fold_of(record: dict) -> dict[str, str]:
@@ -612,7 +691,18 @@ def main(argv: Sequence[str] | None = None) -> int:
 
         docs = MeddocanLoader(use_split_file=False).load()
         verify(record, docs)
+        reconcile_totals(record)
+        loaded = sorted({d.split for d in docs})
+        unchecked = sorted(set(record["folds"]) - set(loaded))
         print(f"ok  {_shown(path)} agrees with the corpus on disk")
+        print(f"    recounted: {', '.join(loaded)}")
+        if unchecked:
+            # Stated, not silent: a check that covered two thirds of the corpus and
+            # printed "ok" would be read as covering all of it.
+            print(
+                f"    not recounted (sealed): {', '.join(unchecked)} — figures "
+                "carried by the fold/total reconciliation and by the freeze commit"
+            )
         return 0
 
     record = build(args.corpus)

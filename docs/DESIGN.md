@@ -331,6 +331,136 @@ against gold without putting a selector in the pipeline. Recorded as §10 A1.
 - The dev fold is where rules are developed, agents iterate, and checkpoints
   are selected.
 
+### 6.1 The seal is physical separation *and* a code gate
+
+Both, because either alone permits a bypass that leaves no trace.
+
+**Physical separation alone.** The test fold sits in `sealed/`, outside the corpus
+root, so ordinary code cannot reach it. But nothing stops someone pointing a loader
+at that path — in a notebook, in a one-off script, in a rule-tuning loop — and the
+only evidence it happened is that person's memory. The fold was read, no row
+appears in `results/sealed_eval_log.md`, and the log now reads as a complete
+account of a corpus that was looked at more often than it says.
+
+**A code gate alone.** `load(sealed=True)` is accepted only from
+`src/eval/run_sealed_eval.py`, checked by module identity on the call stack, and it
+appends to the log before opening anything. But if the fold still sits under the
+corpus root, a loader that never asks for `sealed=True` reaches it anyway: a glob
+over fold directories, a re-release that restores a directory, a loader added for
+another purpose. The gate is not bypassed, it is simply not on the path.
+
+Together the two close each other's gap. The fold is somewhere ordinary code cannot
+reach, and the one code path that can reach it records the fact first and refuses to
+proceed if it cannot. A read therefore requires either a deliberate edit to a
+committed file or a deliberate path in a script — both of which are visible in a
+diff, which is the property that matters. Neither guard is redundant, and
+`tests/mutations/` breaks each one separately to keep that true:
+`sealed_callable_from_anywhere` disables the gate while the logging survives (a
+bypass with a trace), `log_append_disabled` disables the logging while the gate
+survives (a bypass without one).
+
+Three further properties the implementation holds, each of which was a mutation
+before it was a paragraph:
+
+- **The seal is a path that is not known, not a filter that is applied.**
+  `fold_roots()` is the single place that decides which folds are reachable, and it
+  answers by returning paths rather than by loading everything and discarding the
+  sealed part. There is no later step that could forget.
+- **Fail-closed logging.** The append happens before the read and a failure aborts
+  it. An unlogged evaluation is worse than none: the numbers are real and the log
+  says the fold was never opened.
+- **Not-yet-sealed is a distinct state.** `sealed_root()` returns `None` rather than
+  falling back to the corpus root, so a `sealed=True` read of an unsealed corpus is
+  refused instead of quietly reading unsealed data and logging it as a test run.
+- **Publication is a third path, and `tools/release_screen.py` covers it.** The gate
+  stops the fold being read; the screener stops it being published. It reports
+  `sealed/` on its own `SEALED` line — expected, always printed, exit 0 — and
+  escalates to `BLOCKED` the moment git can see one of those files. Reporting it as
+  `BLOCKED` unconditionally was the earlier behaviour and had to change: it made
+  "BLOCKED must be 0" permanently false on every machine holding the data, and a gate
+  that can never pass is one people stop reading. The `staged_sealed_not_escalated`
+  mutation is what keeps the reassuring line from absorbing the real violation.
+
+**Dirty working tree.** A sealed evaluation run with uncommitted changes produces a
+log row whose commit hash does not describe the code that ran. Three options were
+considered and the choice is: **refuse by default, `--allow-dirty` proceeds and
+records `tree=dirty`.**
+
+The principle is that **the path of least resistance must be the most honest state.**
+Whichever option is the default is what almost every row will be produced by, because
+the default is what happens when nobody is thinking about this — and the rows are read
+years later by someone who was not there. So the question is not which option is
+defensible but which one is safe to reach for absent-mindedly.
+
+- **Warn and proceed** fails that test outright. The warning goes to a terminal that
+  is not archived; the row that survives is indistinguishable from a clean one. The
+  process feels careful and the artefact ends up lying, which is the worst available
+  combination — worse than no check, because the check is what supplies the
+  confidence.
+- **Always record `tree=dirty`** is honest and was the close second. It was not
+  chosen because it makes the dirty run frictionless: the row is accurate, and a
+  reader still cannot tell what code produced the numbers. Accuracy about an
+  unrecoverable fact is not the same as avoiding it.
+- **Refuse** costs an inconvenient stop when the uncommitted change is a stray note.
+  That cost is paid at the moment the person has full context and can commit in ten
+  seconds, which is the cheapest possible time to pay it — and the alternative is
+  paid later by someone reconstructing what ran.
+
+`--allow-dirty` exists because refusal alone would be dishonest in a different way:
+under deadline pressure the response to a hard block is to stash, run, and unstash,
+which produces a *clean-looking* row that is just as wrong and now unmarked. The flag
+keeps that case inside the system and labelled. It is deliberately not the default —
+`tree=dirty` should be a thing someone chose, which is also what makes it worth
+reading when it appears.
+
+`tests/test_seal.py` pins both halves: `test_a_dirty_tree_is_refused_by_default` and
+`test_allow_dirty_gets_past_the_tree_check`, the latter written so the override stops
+at the *next* guard rather than at the fold, so it cannot become a general bypass.
+
+### 6.2 The split file must be generated before the fold is sealed
+
+The order is **generate, freeze, seal**, and it is a requirement rather than a
+convenience.
+
+`splits/{corpus}.json` records, for every fold including test, the document ids,
+span counts, per-canonical-type counts, token distribution and per-document
+hashes. Every one of those figures is derived by reading the documents. Once the
+test fold is behind `sealed/`, none of them can be recomputed — so a file generated
+after sealing would contain figures for a third of the corpus that nobody can ever
+check, which is indistinguishable from figures that are wrong.
+
+Sealing second means the file was written while the corpus was fully readable, and
+the commit that froze it is recorded on the first line of
+`results/sealed_eval_log.md`. That commit hash is what carries the sealed fold's
+figures from then on.
+
+What this costs, stated plainly because a seal that is described as free will be
+applied carelessly:
+
+- `split.verify()` recounts the unsealed folds only. The sealed fold's summaries are
+  carried by `reconcile_totals()` — the folds must sum to `totals` — plus the freeze
+  commit. Corrupting the sealed figures now takes two consistent edits rather than
+  one stale block, which is forgery rather than staleness, and no check inside the
+  file can distinguish it.
+- `python3 -m src.split --check` prints which folds it recounted and names the one
+  it did not, because a check covering two thirds of the corpus and printing `ok`
+  would be read as covering all of it.
+- Checks that happened to depend on a sealed document must be restated rather than
+  dropped. §9.5's step 2 is the example: the one MEDDOCAN stem that shares a name
+  surface and nothing else straddles the split, so the rule was extracted to take
+  the *counts the file records* instead of documents, keeping the discriminating
+  case checkable after the corpus stopped being fully readable.
+
+**GraSCCo and CARMEN-I use the same structure** — same schema, same `sealed:` config
+key, same gate, same ordering. Two things differ and neither changes the structure:
+their splits are constructed rather than adopted (§9.5), so `provenance` carries a
+seed and a stratification that the split file must record and a test must verify was
+actually applied; and CARMEN-I is DUA-restricted, so
+`test_the_committed_file_contains_no_span_surface` has to pass *before* its split
+file is committed. The generator writes into a file the release screener reports as
+allowed, which makes that the one check whose failure would be a disclosure rather
+than a bug.
+
 ---
 
 ## 7. Data

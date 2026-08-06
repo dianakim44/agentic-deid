@@ -12,16 +12,23 @@ python3 tests/mutations/run.py utf8_sig   # one mutation
 
 Exit 0 when every mutation is caught by at least its expected number of tests.
 Not collected by pytest: it runs pytest itself, and each mutation costs a full
-suite run.
+suite run. The harness's own logic — the checks that a mutation was really applied —
+is tested by `tests/test_mutation_harness.py`, which pytest does collect.
 
 ## Why these particular mutations
 
 Each one corresponds to a decision in DESIGN.md that a plausible "simplification"
 would silently undo. What they have in common is the property that makes them
-dangerous: **eleven of the sixteen change no total.** The corpus still loads, the
-document count is still 1,000, the span count is still 22,795 — and every
+dangerous: **sixteen of the twenty-three change no total.** The corpus still loads,
+the document count is still 750, the span count is still 17,134 — and every
 downstream number is wrong. Those are the errors a reviewer cannot catch and an
 aggregate cannot reveal, which is why they get a harness rather than trust.
+
+The seal mutations are the sharpest case of that. A broken seal produces no wrong
+number at all: the figures are real, they are simply computed on data that was
+supposed to be untouched, and nothing in the output distinguishes them from
+legitimate ones. There is no aggregate to check and no way to undo it after the
+fact, so a harness is the only place the guarantee can live.
 
 ## The loader mutations
 
@@ -33,7 +40,7 @@ aggregate cannot reveal, which is why they get a harness rather than trust.
 | `drop_excluded` | `load()` filters out `excluded` spans | §9.1 spans discarded instead of flagged; the canonical count stays a correct 20,538 while the reported exclusion volume becomes unmeasurable | **11** |
 | `familiares_as_other` | `FAMILIARES_SUJETO_ASISTENCIA` moves from `EXCLUDED_TYPES` into `TYPE_MAP` as `OTHER` | an excluded type is scored; every span still loads and the total still reconciles to 22,795, so the corruption is entirely in *which* spans count | **7** |
 | `type_in_both_lists` | the same type is added to `TYPE_MAP` while left in `EXCLUDED_TYPES` | `_check_type_map` must reject it at construction. See "What this found", below | **28** |
-| `missing_test_fold` | `SPLIT_DIRS` loses its `test` entry | 750 documents load instead of 1,000; the suite must not be satisfiable by a silently truncated corpus | **16** |
+| `missing_test_fold` | `SPLIT_DIRS` loses its `test` entry | before the seal: 750 documents loaded instead of 1,000. Now 750 is correct, so what remains visible is that an *authorised* sealed read would return no sealed documents while the log records a completed evaluation | **1** |
 | `bucket_unknown_types` | `classify()` returns `("OTHER", False)` instead of raising | an unmapped type is scored as a residual bucket. Invisible on today's corpus and waiting for the day a re-release adds a type | **1** |
 
 ## The split-file mutations
@@ -53,10 +60,47 @@ than a comment — every one of them leaves all 22,795 spans loading correctly.
 | `grouping_name_only` | §9.5 step 2 accepts a name match without a record number or date | the one stem sharing a bare given name across different surnames becomes a group, and two independent units stop being independent | **1** |
 | `split_file_span_count` | `"n_spans": 5801` → `5800` **in the committed JSON** | a stale summary — which is what a re-released corpus actually produces. Direction reversed from every other mutation here: the artefact is the suspect and the code is the check | **3** |
 
+## The seal mutations
+
+The test fold is behind `sealed/` and reachable only through
+`src/eval/run_sealed_eval.py` (DESIGN §6). These five are what make that a
+guarantee. The first two are the pair the seal's design rests on, and they are
+listed together because neither guard is sufficient alone:
+
+| mutation | changes | breaks | tests that catch it |
+|---|---|---|---|
+| `sealed_callable_from_anywhere` | the `SEALED_CALLER` check becomes `if False` | `load(sealed=True)` works from any module — a notebook, a rule-development script. **The log append survives**, so a bypass here still leaves a trace, which is what makes it recoverable rather than merely wrong | **2** |
+| `log_append_disabled` | the `record_access` call is wrapped in `except Exception: pass` | an evaluation proceeds unlogged. The numbers are real and the log says the test fold was never opened. **The caller check survives**, so this needs the allowed script — the counterpart of the mutation above, and the one that leaves nothing behind | **2** |
+| `sealed_flag_not_cleared` | `_sealed_ok` is not reset after the read | one authorised evaluation leaves that loader object permanently able to reach the sealed fold; every later ordinary `load()` silently includes 250 test documents, with no second log row | **1** |
+| `sealed_root_falls_back_to_corpus` | an absent `sealed:` entry resolves to the corpus root | a "sealed evaluation" reads unsealed data and logs itself as a test run. Worse than a refusal: the row is indistinguishable from a real evaluation, so the reported count becomes wrong in the flattering direction | **1** |
+| `unsealed_load_filters_instead_of_not_reaching` | `fold_roots()` hands out the sealed path unconditionally | the sealed fold is read and then discarded downstream. Every count still comes out right; the test fold's text has been read on every ordinary load, unlogged. Defends the distinction that the seal is a path that is not known, not a filter that is applied | **37** |
+
+## The release screener mutations
+
+The screener is the seal's other half: the gate stops the fold being *read*, and
+`tools/release_screen.py` is what stops it being *published*. It reports `sealed/`
+on its own `SEALED` line — expected, exit 0 — which introduces one new way to be
+wrong, so that way gets a mutation.
+
+| mutation | changes | breaks | tests that catch it |
+|---|---|---|---|
+| `staged_sealed_not_escalated` | sealed paths are excluded from `blocked` | the plausible misreading of "SEALED is expected, so it should not block a commit". What is expected is a sealed fold git *cannot* see; a staged one lands in neither list, the screener exits 0, and the fold goes into a public commit with the output saying nothing | **2** |
+| `sealed_exempt_from_exit_code` | `if blocked or suspect` becomes `if suspect` | the exit status stops depending on BLOCKED. Its own mutation because the SEALED change moved exactly this line's meaning — SEALED must not affect the exit code and BLOCKED must, and one edit could get the first half right and the second half wrong | **1** |
+
+`git_tracked()` is not mutated, and that is worth stating rather than leaving as a
+gap in the table. It asks the index directly whether a denied path is staged or
+tracked. On git 2.54 `check-ignore` consults the index too, so a force-added file is
+already reported as visible without it and every mutation of `git_tracked` survives —
+the function is redundancy, not a load-bearing check. It is kept because the
+escalation it guarantees is too consequential to rest on the behaviour of one command
+on one version, and it is listed here as untested-because-redundant rather than
+quietly omitted.
+
 Counts are the number of tests that fail or error, from
-`tests/test_meddocan_loader.py` and `tests/test_split_file.py` (70 tests). Errors
-count as kills: a mutation that breaks the module-scoped fixture takes whole tests
-out, and those are caught, not uncounted.
+`tests/test_meddocan_loader.py`, `tests/test_split_file.py`, `tests/test_seal.py`
+and `tests/test_release_screen.py` (132 tests). Errors count as kills: a mutation
+that breaks the module-scoped fixture takes whole tests out, and those are caught,
+not uncounted.
 
 `bucket_unknown_types` is caught by exactly one test, which is the honest number
 and not a comfortable one — the guarantee has a single point of failure. It is
@@ -64,11 +108,42 @@ listed at 1 rather than padded, because the value of this table is that it says
 where the coverage is thin. Seven of the split-file mutations are in the same
 position.
 
-The loader counts rose when the split tests joined the run (23→33, 11→12, 7→8,
-16→29): a corrupted load fails the recount too. The `min_kills` thresholds were
-left at the original figures rather than raised to match. The threshold states what
-the check requires; pinning it to today's incidental total would turn every
-unrelated new test into a reason to edit this file.
+The loader counts rose when the split tests joined the run (23→34, 11→12, 7→8): a
+corrupted load fails the recount too. The `min_kills` thresholds were left at the
+original figures rather than raised to match. The threshold states what the check
+requires; pinning it to today's incidental total would turn every unrelated new test
+into a reason to edit this file.
+
+**One threshold was lowered, and that needs saying out loud.** `missing_test_fold`
+went from 16 to 1 when the test fold was sealed. The coverage did not decay: 750
+documents became the correct figure, so the count-based tests can no longer see a
+missing test fold, and the fault is now visible only in the sealed-read path. The
+alternative — adding a test that recounts 1,000 documents — would mean reading the
+sealed fold from the suite, which is the thing being protected. A lowered threshold
+with the reason recorded is honest; the same number preserved by a test that
+breaches the seal would not be.
+
+## What the seal cost, and what carries the difference
+
+Sealing 250 documents removed checks that cannot be replaced, and pretending
+otherwise would be the more dangerous outcome:
+
+- **The recount stops at the fold boundary.** `split.verify()` recounts train and
+  dev; the sealed fold's recorded summaries are carried by `reconcile_totals()`
+  (folds must sum to `totals`) and by the freeze commit. That is weaker than a
+  recount and not weak: `totals` and the fold blocks are written independently, so
+  corrupting the sealed figures now requires two consistent edits — no longer a
+  stale file but a forged one, which no check inside the file can detect.
+- **One §9.5 case survived only by being restated.** The single MEDDOCAN stem that
+  shares a name surface and nothing else straddles the split, so `grouping_name_only`
+  lost its only killing test when the audit recount was narrowed to wholly-unsealed
+  stems. The rule was extracted into `step_2_confirms(shared: dict[str, int])` so it
+  can be re-applied to the counts the split file already records — which cover all
+  48 stems, sealed or not. Taking counts rather than documents is what keeps the
+  discriminating case checkable, and is worth preserving under refactoring.
+- **`--check` says what it did not check.** `python3 -m src.split --check` prints
+  the folds it recounted and names the sealed one it did not. A check that covered
+  two thirds of the corpus and printed `ok` would be read as covering all of it.
 
 ## Code, not just prose
 
@@ -83,16 +158,91 @@ applies to the code. Two safeguards follow from that:
   `STALE` and exits non-zero. Without this the harness degrades into a file of
   no-ops that reports every mutation as caught — worse than no harness, because
   it produces a green result.
-- **Mutations never touch the working copy.** `src/`, `tests/`, `config/` and
-  `splits/` are copied to a temporary directory; `data/` is symlinked, because it
-  is DUA-restricted and large, and no mutation touches a data path. An interrupted
-  run cannot leave a mutated file behind. `splits/` is copied rather than
-  symlinked precisely so that `split_file_span_count` can edit the committed JSON
-  without touching the real one.
+- **Mutations never touch the working copy.** `src/`, `tests/`, `config/`,
+  `splits/`, `results/` and `tools/` are copied to a temporary directory, along with
+  `.gitignore` and the publishable part of `data/`; `data/raw/` and `sealed/` are
+  symlinked, because they are restricted and large and no mutation touches either
+  path. An interrupted run cannot leave a mutated file behind.
 
-The maintenance cost is real but bounded: sixteen anchors, each a line or two,
+  `data/` itself is a real directory in the copy and only `data/raw/` is a symlink,
+  which is not fussiness: `git check-ignore` refuses a pathspec "beyond a symbolic
+  link", so with the whole of `data/` symlinked the two screener tests comparing
+  `.gitignore` against `DENY_EXCEPTIONS` got rc=128 for every question and read a git
+  error as an answer. The tree is also `git init`ed, for the same reason — otherwise
+  those tests run against no repository at all and pass by both sides being
+  unavailable. Nothing is committed there: history screening must find an empty
+  history rather than this repository's.
+  `splits/` is copied rather than symlinked precisely so that
+  `split_file_span_count` can edit the committed JSON without touching the real
+  one, and `results/` is copied so a mutated gate cannot append to the real
+  `sealed_eval_log.md` — the row count there is a reported number.
+- **A mutation is verified to have been applied before its result is believed.**
+  Three checks, described in the next section. Skipping them lets the harness count
+  its own breakage as a kill.
+
+The maintenance cost is real but bounded: twenty-three anchors, each a line or two,
 and a refactor that breaks one gets a `STALE` message naming the file. That is
 cheaper than the failure mode it prevents.
+
+## Verifying the mutation
+
+Every result here is a claim of the form "breaking X was noticed by N tests". That
+claim is only worth reading if X was actually broken — and the two ways it can fail to
+be both produce a *larger* N than a working mutation. The harness therefore verifies
+its own edit before believing the count.
+
+Three checks in `Mutation.apply()`, after the write:
+
+1. **The anchor exists.** Otherwise nothing is edited and whatever was already
+   failing is reported as the kill. Reported `STALE`, exit non-zero.
+2. **The file changed.** An anchor identical to its replacement passes check 1 and
+   mutates nothing — reachable by copy-paste, or by updating an anchor to match code
+   that had already drifted in the direction the mutation was meant to introduce.
+3. **The result parses.** `.py` files only; `split_file_span_count` mutates JSON.
+
+Two more at the run level:
+
+4. **The suite ran.** `Interrupted: N errors during collection` and `INTERNALERROR`
+   mean pytest gave up before executing a test. Reported `BROKEN`, not counted — the
+   number of collection errors is the same whether the mutation works or the import
+   is broken.
+5. **The suite did not shrink.** The total tests reported on must equal the
+   baseline's. A mutation changes *which* tests pass, never *how many exist*; a
+   smaller total means the suite was damaged rather than challenged.
+
+`tests/test_mutation_harness.py` tests all five, including the indentation case
+specifically. A check against false greens that is itself unchecked is the same
+category of problem one level further up.
+
+### The incident this section records
+
+It is not hypothetical. Wrapping `docs = list(self._read())` in a `try/finally` while
+implementing the seal re-indented that line by four spaces. `drop_excluded`'s anchor
+is the line's text, and anchors are indentation-blind, so it went on matching — and
+inserted its replacement at the old nesting level. The file no longer parsed. pytest
+errored on every test in it. The run printed:
+
+```
+ok      drop_excluded             37 tests caught it (expected >= 11)
+```
+
+Three times the expected number, the most convincing line in the output, and nothing
+had been tested at all. The seal was being built at the time, and `drop_excluded` was
+green throughout.
+
+**This is the loader fixture's failure, one layer up.** That defect was a fixture
+wrapping construction in `except CorpusError: pytest.skip(...)`, so a real loader bug
+was reported as "MEDDOCAN not available on this machine" — 27 skips and a green suite.
+The shape is identical: a mechanism that cannot distinguish *the check worked* from
+*the check could not run* resolves the ambiguity in the reassuring direction. It
+happened once in the tests and once in the harness that tests the tests, which is
+enough repetitions to treat it as the standing hazard of this kind of code rather than
+as two mistakes.
+
+The general form, worth checking against any future addition here: **anything that
+counts failures as evidence must first establish that the thing failed for the reason
+claimed.** A skip is not a pass, a collection error is not a kill, and a syntax error
+is not thirty-seven tests agreeing with you.
 
 ## What this found
 
@@ -111,6 +261,23 @@ different ways.
 
 Worth stating plainly: this was a defect in the tests, found by testing the tests.
 The loader was correct throughout.
+
+**The seal round found one of each.** Adding the five seal mutations turned up a real
+gate defect and a harness defect, in that order:
+
+- `missing_test_fold` survived at 1 kill against an expected 16, and the reason was a
+  genuine hole: with `test` absent from `fold_dirs`, an *authorised* sealed read
+  returned 750 documents while the log recorded a completed test evaluation. A run
+  that spends a row and reads the wrong data is worse than a refused one.
+  `fold_roots()` now raises when an authorised sealed fold is unreachable. The
+  threshold went to 1 afterwards, for the reason recorded above.
+- `drop_excluded` reported 37 kills and had tested nothing — the incident in the
+  previous section. Found by reading a suspiciously good number rather than by any
+  check, which is exactly why the checks now exist.
+
+So the tally over two rounds is two defects in the tests, one in the harness, one in
+the code. The harness is not primarily finding loader bugs; it is finding places where
+a green result meant less than it appeared to. That is the thing it is for.
 
 ## Applied to every loader
 
@@ -144,6 +311,15 @@ is claimed but not achieved, and — for CARMEN-I — a grouping rule that must 
 against CARMEN-I before its split file is committed, because that is the corpus
 where the generator would be writing restricted text into a file the release
 screener reports as allowed.
+
+The seal mutations transfer unchanged, because the gate is corpus-agnostic: it
+guards `sealed_root(corpus_id)` and `fold_roots()`, neither of which knows which
+corpus it is protecting. What each new corpus adds is the ordering check —
+`splits/{corpus}.json` must be committed before the fold moves, or the sealed
+fold's summaries are unverifiable forever (DESIGN §6). For CARMEN-I that is the
+step where `test_the_committed_file_contains_no_span_surface` has to run first,
+since the generator would otherwise be writing DUA-restricted text into a file the
+release screener reports as allowed.
 
 Mutation counts will differ per corpus and the table is expected to grow a column
 rather than be replaced.
