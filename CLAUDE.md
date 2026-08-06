@@ -6,6 +6,8 @@ and note types, with annotation-free supervision.
 평가 코퍼스 중 하나로 한국어 surrogate 코퍼스 `ko-surro` 를 사용한다.
 데이터 출처로 인용은 하되, 코드 계보상 별개 프로젝트다.
 코퍼스 명칭은 config/naming.yaml 의 ID 를 쓴다. 다른 이름을 만들지 않는다.
+(naming.yaml 어휘 전반에 대한 규칙은 "실험 무결성" 절에 있다. 이 문장은
+그중 코퍼스에 해당하는 부분이다.)
 
 ## 먼저 읽을 것
 
@@ -54,17 +56,21 @@ and note types, with annotation-free supervision.
 - 병합 정책은 교체 가능한 전략으로 구현한다
   (fixed-priority / union / agent-arbiter가 같은 탐지 결과 위에서 갈리도록).
 - 탐지(detection)와 가명화(pseudonymization)를 분리한다. 평가는 탐지만 사용한다.
-- 실험 식별자는 config/naming.yaml 에 정의된 값만 쓴다. 새 코퍼스·arm·축이
-  필요하면 코드에 문자열을 하드코딩하지 말고 naming.yaml 에 먼저 추가한다.
+- config/naming.yaml 에 정의된 어휘만 쓴다. 실험 식별자(코퍼스·arm·축)뿐
+  아니라 스팬에 붙는 값(layer 등)도 포함한다 — 결과 경로에 들어가지 않는
+  값도 예외가 아니다. 새 값이 필요하면 코드에 문자열을 하드코딩하지 말고
+  naming.yaml 에 먼저 추가한다. 위 "코퍼스 명칭" 조항은 이 규칙의 한 사례다.
 
 ## 코드 규약
 
 - Python 3.11+. 의존성은 `pyproject.toml`.
 - 난수 시드는 config에 고정하고 결과 파일에 함께 기록한다.
 - 평가 지표: precision / recall / F1 에 더해 **누출률(leak rate)** 과
-  **상보성 분해**(rule만 / AI만 / 둘 다 / 둘 다 놓침)를 항상 함께 낸다.
+  **상보성 분해**(rules only / tagger only / both / neither)를 항상 함께 낸다.
   누출률과 상보성 분해가 headline 이고 F1 은 아니다. 병합이 union 이므로
   결합 구성은 recall 에서 구성요소를 by construction 으로 이긴다.
+- 누출률의 headline 값은 `fully_covered` 이고, relaxed 값은 하한으로 병기한다.
+  두 정의는 DESIGN.md §9.3 에만 두고 여기서 되풀이하지 않는다.
 - **비용을 품질과 함께 보고한다.** arm 마다 LLM 호출 수 · 토큰 수 ·
   wall time 을 metrics.json 에 같이 기록한다. 2배 비용으로 얻은 향상과
   1.05배 비용으로 얻은 향상은 다른 결과다.
