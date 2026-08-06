@@ -48,6 +48,29 @@ axes:
     gazetteer:      dictionary membership under case folding; orthography-independent
     tagger:         learned span tagger; uses orthography among many features
 
+  # ─── 표준 PHI 유형 ─────────────────────────────────────────
+  # 스팬에 붙는 값이므로 여기 정의한다. 근거와 코퍼스별 매핑 표는 DESIGN.md §9.0.
+  #
+  # 코퍼스 원본 유형은 이 축의 값이 아니다. 원본 유형은 스팬의 subtype 에
+  # 그대로 보존되고 (DESIGN.md §9.0), 코퍼스별 매핑은 mappings/{corpus}.yaml 에
+  # 있다. 축을 하나로 두는 이유는 교차 코퍼스 채점이 이 10개 값에서만
+  # 이뤄져야 하기 때문이다.
+  #
+  # §9.1 에서 제외한 유형(SEXO_*, FAMILIARES_*, NAME_TITLE)은 여기에 값이 없다.
+  # 제외는 유형이 아니라 스팬의 excluded 표시이고, 스팬 자체는 버리지 않는다 —
+  # 제외량을 보고해야 한다.
+  phi_type:
+    NAME:            person names; role (patient/clinician/relative) stays in subtype
+    DATE:            dates, including dates of birth
+    AGE:             ages
+    LOCATION_AREA:   place names and postcodes, merged per DESIGN §9.2
+    LOCATION_STREET: street addresses
+    ORGANISATION:    hospitals, health centres, other institutions
+    CONTACT:         email, phone, fax
+    ID:              record, insurance, licence and employment identifiers
+    PROFESSION:      occupations
+    OTHER:           residual bucket shipped by a corpus; not a rule-development target
+
   # ─── 감독 방식 ─────────────────────────────────────────────
   supervision:
     sup-free:      labels recovered from placeholder positions, no manual annotation
