@@ -220,7 +220,10 @@ Headline quantities:
   any-overlap variant is reported beside it as a lower bound. Exact definitions
   and the reason `fully_covered` is the headline are in §9.3.
 - **Complementarity breakdown** — found by rules only / tagger only / both /
-  neither. This is what shows whether the neural layer earns its cost.
+  joint only / neither. This is what shows whether the neural layer earns its cost.
+  The fifth category is forced by the `fully_covered` definition and is explained in
+  §9.3; under `relaxed` it is always zero, so the familiar four-way reading of this
+  breakdown is intact wherever `joint_only` is absent.
 
 Both are computed against the **union** of same-type predictions rather than against
 a one-to-one assignment, for reasons given in §9.3 — coverage answers "is this
@@ -917,6 +920,76 @@ which the detector's span boundaries group differently from the gold guideline's
 large value means the two disagree about where one identifier ends and the next begins,
 which is a fact about the porting target worth reading, and the alternative to
 reporting it is that the gap between the leak rate and recall looks unexplained.
+
+#### `joint_only`: the fifth complementarity category
+
+The four-way breakdown of §5 — rules only / tagger only / both / neither — does not
+partition the gold spans once `fully_covered` is the coverage rule. The gap is the
+mirror case above, seen from the complementarity side:
+
+```
+gold:  [Calle Mayor 3        ]   one LOCATION_STREET span
+pred:  [Calle Mayor ]           gazetteer (rules) finds the street name
+                    [3      ]   the tagger finds the number
+```
+
+The union covers every character, so the span is not a leak. But no *family* covers it
+alone: neither the rules union nor the tagger union spans it by itself. (Two *layers*
+of the same family splitting a span this way is not the case at issue — that is
+`rules_only`, since the family's own union covers it. The category needs one family on
+each side of the split.) Under the
+four-way scheme this span has to be filed as `neither`, and that single misfiling
+breaks an identity the output depends on — **`neither` must equal the leaked count**.
+Once it does not, the complementarity breakdown and the leak rate contradict each other
+inside the same `metrics.json`, with both numbers computed correctly and neither one
+flagged. A reader comparing them has no way to tell which is wrong, and the natural
+guess — that `neither` is the reliable one because it is a count of spans rather than a
+ratio — is the wrong guess.
+
+So the category is named rather than absorbed: `joint_only` is "covered, but by no
+single family alone". The five categories then partition the denominator and `neither`
+is exactly the leaked set, both of which the scorer asserts on every fixture.
+
+**Under `relaxed` this category is always zero**, and that is a theorem rather than an
+observation: if any prediction in the union overlaps the gold span, that prediction
+belongs to some family, so that family's own union overlaps it too. `joint_only` is
+therefore a `fully_covered` phenomenon exclusively, and a non-zero value in a `relaxed`
+block would be a scorer bug rather than a finding.
+
+The layer view carries the same case for the same reason, under the name
+**`layers.covered_by_union_only`**. There the constraint being protected is that the
+empty-set key of the subset distribution stays exactly the leaked set: `sets[""]` reads
+as "no layer found this", and a jointly-hidden identifier put in that bucket would be
+indistinguishable from a disclosed one — the same wrong-number-with-no-symptom shape as
+an unfamilied layer falling into `neither` (§3). Counting it separately keeps the
+empty-set key honest and keeps the layer subsets summing, with
+`covered_by_union_only`, to the denominator.
+
+#### Identical predictions are collapsed; differently bounded ones are not
+
+Two layers that emit the byte-identical span found one thing, not two. The assignment
+matching is one-to-one, so without a collapse the second copy is an unmatched
+prediction and scores as a false positive — **precision would fall exactly where the
+layers agree.** That is the same pathology this section rules out for complementarity,
+reappearing in a different number, and it penalises the agreement that the
+complementarity breakdown exists to measure. Predictions identical in
+`(start, end, phi_type)` are therefore deduplicated before assignment.
+
+The rule stops there, and the boundary is load-bearing in the other direction.
+Merging predictions that *overlap* but disagree on boundaries is the merge policy's
+decision, and the merge policy is a replaceable strategy (§4) whose variants —
+fixed-priority, union, agent-arbiter — are supposed to be comparable on identical
+detections. A scorer that merged overlapping spans on its own authority would apply
+one policy's behaviour to all of them, and every `RT`-family arm would score alike no
+matter which policy produced it. The comparison the experiment is built to make would
+return "no difference" for a reason having nothing to do with the detectors.
+
+Deduplication happens for the credit question only. Coverage and the layer view read
+the full prediction set, since "which layers found this" is precisely what they are
+asking, so nothing about provenance is lost. The collapsed volume is reported as
+**`duplicate_predictions`** per mode: it is the amount of layer agreement that would
+otherwise have been counted against precision, and an unreported collapse is
+indistinguishable in the output from a detector whose layers never duplicated anything.
 
 #### Which figure is the headline is a per-metric decision
 

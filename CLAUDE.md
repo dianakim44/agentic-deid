@@ -83,7 +83,8 @@ and note types, with annotation-free supervision.
 - Python 3.11+. 의존성은 `pyproject.toml`.
 - 난수 시드는 config에 고정하고 결과 파일에 함께 기록한다.
 - 평가 지표: precision / recall / F1 에 더해 **누출률(leak rate)** 과
-  **상보성 분해**(rules only / tagger only / both / neither)를 항상 함께 낸다.
+  **상보성 분해**(rules only / tagger only / both / joint only / neither)를 항상
+  함께 낸다. `joint_only` 는 `fully_covered` 에서만 생기고 relaxed 에서는 항상 0 이다.
   누출률과 상보성 분해가 headline 이고 F1 은 아니다. 병합이 union 이므로
   결합 구성은 recall 에서 구성요소를 by construction 으로 이긴다.
 - 누출률의 headline 값은 `fully_covered` 이고, relaxed 값은 하한으로 병기한다.
@@ -91,6 +92,8 @@ and note types, with annotation-free supervision.
 - **누출률·상보성 분해는 예측 합집합으로, P/R/F1 은 1:1 배정으로 낸다.**
   하나로 합치지 않는다 — 합치면 없는 누출이 생기거나 `both` 가 과소평가된다.
   근거는 DESIGN.md §9.3. headline 을 고르는 것은 보고 층이고 채점기가 아니다.
+- 채점기는 바이트 동일 스팬만 합친다. 경계가 다른 예측을 합치는 것은 병합 정책의
+  일이고 채점기가 하면 모든 병합 정책이 같은 점수를 받는다 (DESIGN §9.3, §4).
 - **비용을 품질과 함께 보고한다.** arm 마다 LLM 호출 수 · 토큰 수 ·
   wall time 을 metrics.json 에 같이 기록한다. 2배 비용으로 얻은 향상과
   1.05배 비용으로 얻은 향상은 다른 결과다.
