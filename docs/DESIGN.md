@@ -204,21 +204,83 @@ document type constant. It is also small: the subsets overlap, and per-type figu
 for the 12 rare PHI types will not survive the split, so this is a secondary
 analysis, not a headline arm.
 
-Selection is not opportunistic. The corpora span a spectrum of **orthographic
-cue reliability**:
+Selection is not opportunistic. The corpora span a spectrum of **orthographic cue
+reliability** — but that spectrum is two-dimensional, not one. An earlier version of
+this section listed one row per (language × note type) pair, which cannot be right:
+English discharge summaries and English nursing notes sat at opposite ends of a
+single ordering despite sharing a writing system. The two dimensions are separate.
+
+**Axis 1 — baseline cue availability, fixed by the language.** What the
+orthography makes *possible*, before anyone writes anything.
 
 ```
-English discharge / radiology   capitalisation marks names        rules strong
-Spanish clinical cases          capitalisation, compound names    middle
-German GP letters               all nouns capitalised             cue uninformative
-English nursing notes           capitalisation breaks down        cue unreliable
-Korean                          no case distinction at all        cue absent
+English    capitalisation marks proper nouns and little else     high
+Spanish    capitalisation present, but compound given names
+           and multi-part surnames blur the span boundary        medium
+German     every noun is capitalised, so the cue fires on
+           almost every token and carries no information         low
+Korean     no case distinction exists at all                     none
 ```
 
-Hypothesis: the rule layer's contribution scales with cue reliability, and the
-learned tagger fills the gap. This unifies the language axis and the note-type
-axis under one mechanism — English nursing notes sit near Korean, not near
-English discharge summaries.
+**Axis 2 — realisation, modulated by note type within one language.** Whether the
+available cue actually appears in the text.
+
+```
+English discharge / radiology   edited, proofread register — the cue is realised
+English nursing notes           capitalisation collapses under time pressure;
+                                the cue exists in the orthography and not on
+                                the page — cue unrealised
+German mixed (GraSCCo)          baseline is already low, so there is little for
+                                note type to modulate; the 8-way document-type
+                                spread in §7 above measures how little
+```
+
+Hypothesis: **a detection layer's contribution ≈ f(baseline availability ×
+realisation).** The two axes multiply rather than add, which is why English nursing
+notes behave like Korean (high baseline, near-zero realisation) while German
+behaves uninformatively for a different reason entirely (low baseline, realisation
+irrelevant). A one-dimensional ordering conflates those two routes to the same
+observed performance; separating them is what makes the language axis and the
+note-type axis (§4) predictions of one mechanism rather than two unrelated
+comparisons.
+
+**The hypothesis does not apply uniformly to "the rule layer".** §2 stage 1 lists
+four detection layers, and they depend on orthography to different degrees — so
+stating this at the level of "rules vs tagger" would predict an effect where three
+of the four layers should show none:
+
+| layer | depends on | sensitivity to realisation |
+|---|---|---|
+| regex / checksum | structural form (digit counts, check digits, delimiters) | **none** — a phone number or NIF is shaped the same in a nursing note as in a discharge summary |
+| context cues | the orthography *around* a role word (`paciente`, `Dr.`, `Frau`) — whether the following token is capitalised, where the span ends | **high** — this is the layer the cue actually feeds |
+| gazetteer | dictionary membership of the surface form | **none** — a lowercase `madrid` still matches under case folding, and case folding is free |
+| learned tagger | orthography among many features | **partial** — it learns capitalisation where it is informative and can compensate with position, morphology, and collocation where it is not |
+
+**Prediction: when realisation falls, the loss concentrates in the context-cue
+layer**, while regex/checksum and gazetteer recall are approximately flat, and the
+tagger degrades but by less than the context-cue layer. This is a sharper and more
+falsifiable claim than "rules do worse in nursing notes" — it names which component
+should move and which should not, so a result where all four fall together would
+refute the mechanism even if the aggregate rule-layer number moved as expected.
+
+**Measuring this requires layer-level provenance, which is not yet in place.** §5's
+complementarity breakdown is a rules/tagger dichotomy: it can show that the rule
+layer as a whole lost ground, but it cannot attribute the loss to context cues
+rather than to regexes, so it cannot test the prediction above. §3's provenance
+requirement (detector · rule ID · score) records the *detector* — aggregating that
+to a layer means grouping detector names by hand, which is exactly the kind of
+string convention CLAUDE.md forbids elsewhere. **What is needed is an explicit layer
+field on every span's provenance record**, with the four values above, so
+complementarity can be computed per layer without renaming anything. §5 is left as
+it is: the rules/tagger breakdown stays the headline decomposition, and the
+per-layer view is an additional cut over the same detections, not a replacement.
+
+The consequence for corpus selection is that **a language is an interval, not a
+point.** English spans nearly the whole range on its own. German's interval is
+narrow, and GraSCCo's measured document-type distribution is what lets us state its
+width rather than assume it — the within-corpus note-type contrast described above
+is the instrument for that, which is why it is worth running even as a secondary
+analysis.
 
 ---
 
