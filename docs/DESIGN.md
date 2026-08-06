@@ -168,10 +168,41 @@ material nor openly licensed corpora. Acquisition scripts only.
 | Corpus | Language | Note types | Access |
 |--------|----------|------------|--------|
 | MEDDOCAN | Spanish | clinical case studies | Zenodo, open |
-| GraSCCo | German | GP letters | Zenodo, open |
+| GraSCCo | German | mixed inpatient/outpatient — see below | Zenodo, open |
 | CARMEN-I | Spanish / Catalan | discharge, referral, radiology | PhysioNet, request pending |
 | ko-surro | Korean | nursing notes | derived from PhysioNet; DUA |
 | n2c2 2014 | English | longitudinal progress notes | portal unavailable; on hold |
+
+**GraSCCo is not a GP-letter corpus.** An earlier version of this table said "GP
+letters", which was wrong and would have mis-stated the note-type axis. The corpus
+ships no document-type field, so the distribution below was measured by content
+cues over the full text of all 63 documents (`docs/notes/corpus-observations.md`
+§7.3). Labels are **multi-label** — one document can be an outpatient letter
+reporting an imaging finding — so the counts do not sum to 63:
+
+```
+radiology / imaging    30      progress note      16
+pathology / histology  25      discharge           4
+outpatient             24      tumour board        3
+laboratory             22      operation report    1
+```
+
+52 of 63 documents carry a collegial letter frame, which is what made "GP letters"
+look right; the letter frame is a *register*, not a document type, and it sits on
+top of eight different kinds of content. 20 documents name a department in the
+header (internal medicine, oncology, neurology, general surgery, ophthalmology,
+orthopaedics, ENT, radiology, epilepsy unit, endoscopy and melanoma-follow-up
+clinics), which corroborates the spread.
+
+**Consequence for the axes (§4).** The note-type axis was designed to be carried by
+cross-corpus contrast — nursing notes vs case studies vs discharge summaries. It
+also stands *within GraSCCo alone*: radiology, pathology, and outpatient
+subsets of 30 / 25 / 24 documents are large enough to compare against each other at
+fixed language, fixed annotation guideline, and fixed corpus. That is a cleaner
+note-type contrast than any cross-corpus pair, because it holds everything except
+document type constant. It is also small: the subsets overlap, and per-type figures
+for the 12 rare PHI types will not survive the split, so this is a secondary
+analysis, not a headline arm.
 
 Selection is not opportunistic. The corpora span a spectrum of **orthographic
 cue reliability**:
