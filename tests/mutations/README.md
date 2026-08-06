@@ -19,7 +19,7 @@ is tested by `tests/test_mutation_harness.py`, which pytest does collect.
 
 Each one corresponds to a decision in DESIGN.md that a plausible "simplification"
 would silently undo. What they have in common is the property that makes them
-dangerous: **sixteen of the twenty-four change no total.** The corpus still loads,
+dangerous: **sixteen of the twenty-five change no total.** The corpus still loads,
 the document count is still 750, the span count is still 17,134 — and every
 downstream number is wrong. Those are the errors a reviewer cannot catch and an
 aggregate cannot reveal, which is why they get a harness rather than trust.
@@ -114,11 +114,29 @@ escalation it guarantees is too consequential to rest on the behaviour of one co
 on one version, and it is listed here as untested-because-redundant rather than
 quietly omitted.
 
+## The vocabulary mutations
+
+`config/naming.yaml` is the single definition site for identifiers, and a check that
+the config and the code agree is only worth having if it cannot be weakened into a
+check that agrees with anything.
+
+| mutation | changes | breaks | tests that catch it |
+|---|---|---|---|
+| `layer_family_union_becomes_subset` | `layer_families()` compares `set(assigned) - layers` twice instead of once in each direction | the union check becomes a subset check — the plausible reading of "make sure every declared member is a real layer", which sounds like the whole job and is half of it. A layer added to the `layer` axis and left out of every family then validates, and every span it emits is counted as `neither` in the complementarity breakdown: indistinguishable from spans that genuinely nothing found | **2** |
+
+This one belongs in the same family as `bucket_unknown_types` and
+`split_disagreement_ignored`: a guard whose weakened form is *more* permissive in a
+way that produces no error, only a wrong number in the flattering direction. An
+unfamilied layer's detections vanish into `neither`, which reads as evidence that a
+mechanism found nothing — the opposite of the truth — while every total still
+reconciles. DESIGN §3 records why the validation lives in `src/corpora/base.py` rather
+than in the scorer that first consumes it.
+
 Counts are the number of tests that fail or error, from
-`tests/test_meddocan_loader.py`, `tests/test_split_file.py`, `tests/test_seal.py`
-and `tests/test_release_screen.py` (157 tests). Errors count as kills: a mutation
-that breaks the module-scoped fixture takes whole tests out, and those are caught,
-not uncounted.
+`tests/test_meddocan_loader.py`, `tests/test_split_file.py`, `tests/test_seal.py`,
+`tests/test_release_screen.py` and `tests/test_layer_families.py` (170 tests). Errors
+count as kills: a mutation that breaks the module-scoped fixture takes whole tests
+out, and those are caught, not uncounted.
 
 `bucket_unknown_types` is caught by exactly one test, which is the honest number
 and not a comfortable one — the guarantee has a single point of failure. It is
@@ -198,7 +216,7 @@ applies to the code. Two safeguards follow from that:
   Three checks, described in the next section. Skipping them lets the harness count
   its own breakage as a kill.
 
-The maintenance cost is real but bounded: twenty-four anchors, each a line or two,
+The maintenance cost is real but bounded: twenty-five anchors, each a line or two,
 and a refactor that breaks one gets a `STALE` message naming the file. That is
 cheaper than the failure mode it prevents.
 

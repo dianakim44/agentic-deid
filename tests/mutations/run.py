@@ -39,6 +39,7 @@ TEST_FILES = [
     "tests/test_split_file.py",
     "tests/test_seal.py",
     "tests/test_release_screen.py",
+    "tests/test_layer_families.py",
 ]
 
 #: Repository directories the loader tests need. `splits/` is here because the
@@ -522,6 +523,24 @@ MUTATIONS = [
             "reported STALE on the first run afterwards, which is the anchor check "
             "earning its place: the old text was gone and the mutation was silently "
             "testing nothing."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="layer_family_union_becomes_subset",
+        path=BASE,
+        anchor="    missing = sorted(layers - set(assigned))",
+        replacement="    missing = sorted(set(assigned) - layers)",
+        breaks=(
+            "The union check becomes a subset check in one direction only — the "
+            "plausible reading of 'make sure every declared member is a real layer', "
+            "which sounds like the whole job and is half of it. A layer added to the "
+            "`layer` axis and left out of every family then validates, and every span "
+            "it emits is counted as `neither` in the complementarity breakdown: "
+            "indistinguishable in the output from spans that genuinely nothing found. "
+            "The number is wrong, the arithmetic still adds up, and there is no "
+            "symptom anywhere — which is why the check is a union comparison rather "
+            "than the subset one it is easy to mistake it for."
         ),
         min_kills=1,
     ),

@@ -103,6 +103,107 @@ def split_names() -> list[str]:
     return sorted(axis("split"))
 
 
+@lru_cache(maxsize=1)
+def layer_families() -> dict[str, tuple[str, ...]]:
+    """Family name -> the layers in it, validated. See DESIGN §3.
+
+    The complementarity breakdown (DESIGN §5) reports rules only / tagger only /
+    both / neither, which requires knowing which layers are the rules ones. That
+    grouping lives in `config/naming.yaml`, not here: a layer whose value is read
+    from the config while its family is hardcoded in Python is the same drift the
+    "never derive a layer from a detector name" rule exists to prevent, just moved
+    one level up.
+
+    This validates rather than merely reads, and the union check is the load-bearing
+    one. **Every layer must be in exactly one family, and no family may name a layer
+    that does not exist.** A subset check would pass when a new layer is added to the
+    axis and forgotten here — and then every span that layer emits falls into
+    `neither`, which reads as "nothing found it" rather than as a configuration gap.
+    That is a wrong number with no symptom, so it is refused at load time.
+
+    Families and layers are different levels of description, and a family name that
+    is also a layer name opens the way to filling a span's `layer` with a family.
+    `tagger` is both, which is permitted under one condition: **a family may share a
+    layer's name only if that layer is its sole member.** Then the two readings of the
+    value agree — a span from the `tagger` family has `layer="tagger"` either way — so
+    the ambiguity cannot produce a wrong value.
+
+    The condition is not decoration. Add a second learned layer to the `tagger` family
+    and the readings diverge: `layer="tagger"` would then be a valid value meaning
+    "some learned layer", the provenance DESIGN §3 requires would be unrecoverable for
+    those spans, and nothing would fail. This raises at that moment and says to rename
+    the family, which is the edit that keeps the two namespaces separable.
+    """
+    families = naming().get("layer_families")
+    if not families:
+        raise CorpusError(
+            "config/naming.yaml has no layer_families block. The complementarity "
+            "breakdown (DESIGN §5) needs it, and deriving families in code would "
+            "put the grouping somewhere naming.yaml cannot be checked against."
+        )
+
+    layers = set(axis("layer"))
+    assigned: dict[str, str] = {}
+    for family, members in families.items():
+        if not isinstance(members, list):
+            raise CorpusError(
+                f"layer_families[{family!r}] is not a list. A family of one is "
+                "written as a list too, so that it is not a special case."
+            )
+        if family in layers and members != [family]:
+            raise CorpusError(
+                f"family {family!r} shares its name with a layer but is not that "
+                f"layer alone (members: {members}). Sharing a name is only safe for "
+                "a family of one, where the family reading and the layer reading of "
+                "the value agree. With more members, `layer=\"{0}\"` becomes a valid "
+                "value meaning 'some layer of this family' and the per-layer "
+                "provenance DESIGN §3 requires is unrecoverable. Rename the "
+                "family.".format(family)
+            )
+        for layer in members:
+            if layer in assigned:
+                raise CorpusError(
+                    f"layer {layer!r} is in both the {assigned[layer]!r} and "
+                    f"{family!r} families. The complementarity breakdown counts "
+                    "each layer once, so the families must partition the axis."
+                )
+            assigned[layer] = family
+
+    missing = sorted(layers - set(assigned))
+    if missing:
+        raise CorpusError(
+            f"layers {missing} are in the `layer` axis but in no family of "
+            "layer_families. Add them to a family: an unfamilied layer's spans "
+            "would be counted as `neither` in the complementarity breakdown, which "
+            "reads as 'nothing found it' rather than as a missing declaration."
+        )
+    unknown = sorted(set(assigned) - layers)
+    if unknown:
+        raise CorpusError(
+            f"layer_families names {unknown}, which are not values of the `layer` "
+            f"axis (have: {sorted(layers)}). A family entry for a layer that does "
+            "not exist is a leftover from a rename, and it silently contributes "
+            "nothing to any count."
+        )
+    return {f: tuple(m) for f, m in families.items()}
+
+
+def family_of(layer: str) -> str:
+    """Which family a layer belongs to. Raises for an unknown layer.
+
+    Never guesses from the name: `layer_families` is the only answer, so a layer
+    added to the axis without a family is an error here rather than a silent
+    `neither` in the complementarity breakdown.
+    """
+    for family, members in layer_families().items():
+        if layer in members:
+            return family
+    raise CorpusError(
+        f"{layer!r} is not a layer in config/naming.yaml "
+        f"(have: {sorted(axis('layer'))})"
+    )
+
+
 def rule_langs(corpus_id: str) -> list[str]:
     """Rule-file languages this corpus loads (DESIGN §5.2).
 

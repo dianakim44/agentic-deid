@@ -115,6 +115,28 @@ axes:
     dev:           rule development, agent iteration, checkpoint selection
     test:          sealed. see CLAUDE.md
 
+# ─── 층 → 계열 ───────────────────────────────────────────────
+# 상보성 분해(DESIGN.md §5)는 "rules only / tagger only / both / neither" 로
+# 보고한다. 그러려면 어느 층이 rules 계열인지 알아야 하는데, 그 지식이 코드에만
+# 있으면 layer 값을 탐지기 이름에서 유도하지 않는다는 규칙을 우회하는 것과 같은
+# 종류의 문제가 된다 — 값은 config 에 있고 묶음은 코드에 있는 상태다.
+#
+# 계열 이름은 layer 축과 다른 층위의 개념이다. 같은 이름을 쓰면 스팬의 layer 에
+# 계열을 채워넣어도 검증을 통과하게 되므로, **원소가 하나인 계열만 층 이름을
+# 공유할 수 있다.** tagger 가 그 경우다 — 두 해석이 같은 것을 가리키므로 모호함이
+# 틀린 값을 만들지 못한다. 학습 층이 하나 더 늘어 tagger 계열에 들어가는 순간
+# layer="tagger" 가 "어떤 학습 층인가"를 뜻하게 되어 DESIGN.md §3 이 요구하는
+# 층 단위 provenance 를 잃는다. 그 시점에 검증이 거부하고 계열 이름을 바꾸라고
+# 말한다. 계열이 원소 하나여도 리스트로 적는다.
+#
+# 합집합이 layer 축과 정확히 일치해야 한다 — 누락도 잉여도 거부한다.
+# 부분집합만 검사하면 새 층을 추가하고 계열에 넣는 것을 잊었을 때 통과하고,
+# 그 층이 찾은 스팬은 조용히 neither 로 집계된다. 검증은 src/corpora/base.py
+# 에 있다 (DESIGN.md §3).
+layer_families:
+  rules:  [regex_checksum, context_cue, gazetteer]
+  tagger: [tagger]
+
 # ─── 코퍼스 → 로드할 규칙 파일 목록 ──────────────────────────
 # 탐지 실행은 이 목록의 파일을 **전부** 로드하고 매치를 합집합한다.
 # 문서 단위 언어 판별을 하지 않는다 (DESIGN.md §5.2 의 결정).

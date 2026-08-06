@@ -97,6 +97,40 @@ re-run. It is what makes §7's per-layer prediction measurable: the complementar
 breakdown in §5 is a rules/tagger dichotomy and cannot say whether a loss came from
 context cues or from regexes, but the same detections grouped by `layer` can.
 
+**Which layers form the rules family is declared, not inferred** —
+`layer_families` in `config/naming.yaml`, mapping `rules` to `regex_checksum` ·
+`context_cue` · `gazetteer` and `tagger` to itself. §5's complementarity breakdown is
+a rules/tagger dichotomy, so it needs that grouping; and a grouping hardcoded in
+Python while the layer values are read from the config is the same drift the
+paragraph above forbids, moved up one level. Both facts about a layer come from the
+same file or the arrangement is only half enforced.
+
+**The validation lives in `src/corpora/base.py`**, next to `axis()` — the one module
+that reads `naming.yaml`. Putting it in the scorer would be the obvious placement,
+since the scorer is the first consumer, but a family is a property of span provenance
+rather than of scoring: the merge policies of §8 and any per-layer report are equally
+entitled to ask. Validation that sits with the first consumer gets duplicated by the
+second and diverges at the third, and the version that diverges is the one that
+stops rejecting things.
+
+What it validates is that the families **partition** the layer axis: the union is
+equal, not merely contained, and the intersection is empty. The asymmetry matters. A
+subset check in the natural direction — every declared member is a real layer — sounds
+like the whole job and is half of it: a layer added to the axis and left out of every
+family would validate, and every span it emits would be counted as `neither` in the
+breakdown, indistinguishable from spans that genuinely nothing found. The arithmetic
+still reconciles and nothing looks wrong, which is why this is refused at load time
+rather than reviewed. `layer_family_union_becomes_subset` is the mutation that keeps
+the check from being weakened into the plausible half.
+
+One collision is permitted: a family may share a layer's name **only when that layer
+is its sole member**, which is why `tagger` can be both. The two readings of
+`layer: tagger` then name the same thing, so the ambiguity cannot yield a wrong value.
+Add a second learned layer to that family and they diverge — `layer: tagger` would
+mean "some learned layer" and the per-layer provenance this section requires would be
+gone, with nothing failing. The check raises at exactly that edit and says to rename
+the family.
+
 **Agents do not get a `layer` value.** `RT-Arb` and `RT-Aud` do not create spans —
 the arbiter drops or retypes spans that already exist, and the auditor flags
 suspected residual PHI in output. Giving them a layer would put a filtering step in
