@@ -5,7 +5,7 @@ proposing changes to the pipeline, the agents, or the experiment matrix.
 If a decision here turns out to be wrong, change it here first — do not
 work around it in code.
 
-Last updated: 2026-08-05
+Last updated: 2026-08-06
 
 ---
 
@@ -91,7 +91,7 @@ rules in §4 exist to prevent.
 in the result path; `layer` names the mechanism that produced one span and never
 appears in a path. A single arm spans several layers — `R` covers three of them.
 
-**This field is fixed before the first span exists**, deliberately. Adding it after
+**`layer` is fixed before the first span exists**, deliberately. Adding it after
 a run would leave already-emitted spans unattributed and force every arm to be
 re-run. It is what makes §7's per-layer prediction measurable: the complementarity
 breakdown in §5 is a rules/tagger dichotomy and cannot say whether a loss came from
@@ -111,6 +111,23 @@ A list rather than a single field because `RT-Arb-Aud` runs both agents over the
 same span. Two alternatives were considered and rejected: a single
 `agent_action` string cannot represent that arm, and separate `arbiter_action` /
 `auditor_action` fields would need a new column per future agent.
+
+**`rule_id` carries the rule file's language as a prefix**: `es:doctor_prefix`,
+`cat:doctor_prefix`. Two files can define the same rule name, and after the §5.2
+decision a corpus can load several at once, so an unqualified name is ambiguous about
+which file produced a match. The prefix is a value from the `lang` axis in
+`config/naming.yaml` — the language of the *file*, not of the corpus or the document.
+It is what makes the precision cost of loading an extra rule file a measured quantity
+rather than an accepted unknown: a false positive is attributable to the file that
+produced it.
+
+**Adding that prefix does not break §7's per-layer attribution.** `layer` and
+`rule_id` are independent fields answering different questions.
+`es:doctor_prefix` and `cat:doctor_prefix` both carry `layer: context_cue`, so the
+per-layer grouping §7 depends on — and its reconciliation — are unaffected by how many
+files contributed spans. `rule_id` cuts *within* a layer, by language and by individual
+rule, which §7's prediction does not need and §5.2's accounting does. What is not
+permitted is deriving either field from the other, or from the detector name.
 
 **Start with three.** Profiler, RuleAuthor, Auditor. Add Mapper and
 LexiconBuilder only if the ablation shows the first three leave something on
@@ -242,6 +259,50 @@ totals, and §7's prediction would not be testable across these two corpora at a
 The same discipline applies to every corpus pair, not just this one; MEDDOCAN and
 CARMEN-I are documented here because they are the pair where the confound was
 measured rather than anticipated.
+
+**Documents with no PHI are not free.** CARMEN-I has 462 of them (461 in the
+`replaced` variant), 23% of the corpus, at a median of 96 tokens — they are not empty
+files. They contribute nothing to the leak-rate numerator or denominator, and they do
+contribute false-positive opportunity, so they belong in a precision denominator and
+not in a recall one. Two consequences for reporting: **a fold's effective size is not
+its document count**, and **no per-document leak rate is defined for them** — a
+per-document average over the corpus would be an average over 1,538 documents, not
+2,000, and must say so. Counts are in `docs/notes/corpus-observations.md` §8.5.
+
+### 5.2 Rule files are loaded per language, not selected per document
+
+**Decision: load every rule file the corpus is configured for and take the union of
+their matches. No language identification is performed** — not per document, not per
+passage. `config/naming.yaml` holds the mapping (`corpus_rule_langs`): `es-carmen`
+loads `[es, cat]`, `es-meddocan` `[es]`, `de-grascco` `[de]`, `ko-surro` `[ko]`.
+
+The problem this settles: CARMEN-I mixes Spanish and Catalan **inside** 264 of its
+2,000 documents (13.2%), with only 39 Catalan-only. A one-language-per-corpus
+convention has no correct value to put in `{lang}` — `es` is wrong for 13.2% of
+documents and `es+cat` is not a language code.
+
+**Why the union, over the three alternatives.** The decisive criterion is that the
+rejected options all introduce a component whose own error rate is invisible to the
+metric set in §5. A per-document selector needs a tie-break for the 264 mixed
+documents, and a sub-document segmenter needs boundaries; when either is wrong, the
+resulting miss is scored as a detection failure, and nothing in the leak rate or the
+complementarity breakdown separates "the rules lacked the pattern" from "the language
+router sent the text to the wrong file". Adding an unmeasured component to answer a
+question that can be avoided entirely is the worse trade. Treating Catalan as noise
+was also rejected, for a different reason: it hides the failures of the Catalan
+passages inside documents counted as Spanish, so the cost would land in the aggregate
+where it cannot be seen.
+
+**The cost is precision, and it is paid knowingly.** Loading both files means a
+Catalan trigger word that is also a Spanish word can fire where it should not. That
+cost is attributed through the `rule_id` prefix convention defined in §3, which also
+records why adding the prefix leaves §7's per-layer attribution intact. The point of
+the convention here is that the precision cost of adding `cat` is a quantity we
+measure, not an unknown we accept.
+
+One consequence is worth measuring but is **not** part of this decision: because
+CARMEN-I ships a per-document language label, a per-document selector can be scored
+against gold without putting a selector in the pipeline. Recorded as §10 A1.
 
 ---
 
@@ -680,3 +741,34 @@ earned its place — it is what caught the BOM interaction, and it passed on all
 The same assertion runs for every corpus added later, which is the point: the next
 corpus's encoding surprise should fail loudly on acquisition rather than quietly at
 results time.
+
+---
+
+## 10. Secondary analyses
+
+Results worth reporting that are **not** load-bearing for any decision above. Each
+entry says what it measures and what it does not license. They are separated from the
+main sections deliberately: a design decision that turns out to rest on an appendix
+result is a decision that was made for the wrong reason.
+
+### A1. How well would a per-document language selector have done?
+
+§5.2 rejected per-document language identification because a selector's own error
+rate is invisible to the metric set in §5. That is an argument about what we can
+measure inside the pipeline, not a claim that selectors are inaccurate — and CARMEN-I
+lets us check the second question separately, because it ships a per-document language
+label (`es` / `bi` / `cat`) as corpus metadata rather than something we would have had
+to infer. So the selector can be scored against gold: run a language identifier over
+all 2,000 documents, compare to the shipped label, and report accuracy with a
+confusion matrix.
+
+The interesting cell is `bi` — 264 documents, 13.2% — since a single-label identifier
+has no correct answer available for them and its behaviour there is exactly what
+option (b) would have depended on.
+
+**What this licenses:** a statement of how accurate the rejected component would have
+been. **What it does not:** reopening §5.2. Even a selector at 100% against the
+shipped label leaves the 264 mixed documents needing a tie-break rule that the label
+cannot supply, and leaves that rule's error unmeasured in the detection metrics.
+High accuracy here is not evidence for routing; it just means the argument for the
+union rests on measurability rather than on the selector being bad.

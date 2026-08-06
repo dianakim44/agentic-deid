@@ -18,7 +18,7 @@ axes:
     ko-surro:      Korean surrogate corpus derived from PhysioNet nursing notes
     es-meddocan:   MEDDOCAN, Spanish synthetic clinical case studies
     de-grascco:    GraSCCo, German synthetic clinical narratives
-    es-carmen:     CARMEN-I, Spanish/Catalan hospital records (pending access)
+    es-carmen:     CARMEN-I, authentic Hospital Clinic de Barcelona records; Spanish with within-document Catalan
     en-n2c2:       n2c2 2014 de-identification corpus (optional, portal status unclear)
 
   # ─── 탐지 구성 ─────────────────────────────────────────────
@@ -70,11 +70,45 @@ axes:
       the agent inspects the corpus profile and proposes its own role set
       before executing it; the roles are not fixed in advance
 
+  # ─── 규칙 파일의 언어 ──────────────────────────────────────
+  # {lang} 은 **규칙 파일의 언어**다. 코퍼스의 언어가 아니다.
+  #
+  # 이 구분이 필요한 이유: CARMEN-I 는 2000 문서 중 264(13.2%)가 문서 내부에서
+  # 스페인어와 카탈루냐어를 섞는다. 코퍼스 하나에 언어 하나를 배정하는 방식으로는
+  # {lang} 에 넣을 올바른 값이 존재하지 않는다. es 는 13.2% 에 대해 틀리고
+  # 'es+cat' 은 언어 코드가 아니다. 그래서 {lang} 의 정의를 파일 쪽으로 옮기고,
+  # 코퍼스가 어떤 파일들을 로드하는지는 아래 corpus_rule_langs 가 정한다.
+  # 근거는 DESIGN.md §5.2.
+  lang:
+    es:            Spanish rule file
+    cat:           Catalan rule file
+    de:            German rule file
+    ko:            Korean rule file
+    en:            English rule file
+
   # ─── 분할 ──────────────────────────────────────────────────
   split:
     train:         tagger training
     dev:           rule development, agent iteration, checkpoint selection
     test:          sealed. see CLAUDE.md
+
+# ─── 코퍼스 → 로드할 규칙 파일 목록 ──────────────────────────
+# 탐지 실행은 이 목록의 파일을 **전부** 로드하고 매치를 합집합한다.
+# 문서 단위 언어 판별을 하지 않는다 (DESIGN.md §5.2 의 결정).
+#
+# 언어 판별을 하지 않는 이유는 판별기의 오류가 현재 지표 집합 어디에서도
+# 측정되지 않기 때문이다. 파일을 고르는 선택자든 문서를 쪼개는 세그멘터든,
+# 그 자체의 정확도를 재는 지표가 없는 구성요소를 파이프라인에 넣으면 그
+# 오류가 탐지 성능 안에 섞여 들어가 분리되지 않는다.
+#
+# 값은 위 lang 축에 정의된 것만 쓴다. 목록 길이가 1 이어도 리스트로 적는다 —
+# 단일언어를 특수한 경우로 두지 않는다.
+corpus_rule_langs:
+  es-meddocan:  [es]
+  es-carmen:    [es, cat]
+  de-grascco:   [de]
+  ko-surro:     [ko]
+  en-n2c2:      [en]
 
 # ─── 산출물 경로 ─────────────────────────────────────────────
 # 조합이 곧 경로. 별도의 키 체계를 두지 않는다.
@@ -82,6 +116,9 @@ paths:
   metrics:  "results/{corpus}/{detector}/{supervision}/{porting}/metrics.json"
   spans:    "results/{corpus}/{detector}/{supervision}/{porting}/spans.jsonl"
   agentlog: "results/{corpus}/{detector}/{supervision}/{porting}/agent_calls.jsonl"
+  # {lang} 은 규칙 파일의 언어다 (lang 축). 코퍼스 하나가 여러 파일을 로드할 수
+  # 있으므로 이 경로는 코퍼스당 1:1 이 아니다. 어느 파일들을 로드할지는
+  # corpus_rule_langs 가 정한다.
   rules:    "rules/{lang}.yaml"
   lexicon:  "lexicons/{lang}/"
   profile:  "profiles/{corpus}.json"
