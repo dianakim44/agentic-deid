@@ -309,9 +309,19 @@ against gold without putting a selector in the pipeline. Recorded as §10 A1.
 ## 6. Experimental integrity
 
 - Split unit is the largest natural group available (patient where patients
-  exist, document otherwise). Never record-level random split.
+  exist, document otherwise). Never record-level random split. What counts as
+  a group is decided by identifier agreement, not filename structure — §9.5,
+  which also records the per-corpus outcome.
+- **Folds are stratified where an unstratified draw would confound composition
+  with performance.** Stratification is a sampling constraint, not a grouping
+  claim: it never links two units. CARMEN-I is stratified by document type and
+  language because PHI density varies 4× across types and the bilingual
+  documents concentrate in one of them (§9.5).
 - `splits/{corpus}.json` is frozen and committed **before** any rule is
-  written. The commit hash is the reference point.
+  written. The commit hash is the reference point. Where a corpus ships an
+  official split it is kept as the primary result (§9.6); where none ships, as
+  in CARMEN-I, the split is constructed here and there is no external
+  comparability to inherit.
 - The test fold lives in `sealed/` and is not read during development —
   by agents or by people. Rules developed while looking at test are the same
   leakage as training on test.
@@ -688,10 +698,60 @@ This supersedes the conjecture in `corpus-observations.md` §3 that grouping bot
 stem families is the conservative reading. It is conservative for `Tupolev_*` and
 simply wrong for `Colon_Fake_*`.
 
-Note for CLAUDE.md's "patient-disjoint" requirement: neither corpus has a patient
-key, so §6's "largest natural group available" applies. Under this rule the group
-is a confirmed same-patient cluster where one is demonstrable and the document
-otherwise.
+**How CARMEN-I resolves: document-disjoint, stratified, 2,000 units.** No grouping
+survives step 2, so every document is its own group — and because CARMEN-I ships no
+official split, the folds are constructed here and frozen before any rule is written
+(§6). Both candidate groupings were measured and both fail:
+
+- **Same `(doctype, number)` across section tokens** — 189 candidate groups covering
+  775 documents. `IA_ANTECEDENTES_7` and `IA_PROCESO_ACTUAL_7` read like two sections
+  of one letter, which is exactly why the filename cannot be trusted to answer it.
+  **0 of 189 groups share a single identifier surface.** And the numbering is
+  contiguous `1..N` within all 20 `(doctype, section)` pairs, so the number is a
+  per-section index and shared numbers are arithmetic, not linkage. Grouping anyway
+  would collapse 775 documents into 189 units, discarding **586 independent units** to
+  prevent leakage the annotations contradict. Same verdict as `Colon_Fake_*`, and the
+  MEDDOCAN article-stem error in a third costume.
+- **Transitive grouping on shared identifier surfaces** — also rejected, for a
+  different reason. It yields 1,944 groups, 1,941 of them singletons, plus one group
+  of 52, one of 5, one of 2. The three linking surfaces are 7, 3 and 9 characters,
+  **letters only, zero digits**: not identifier values. The 52-document group would
+  merge that many unrelated patients on what is most likely a generic word emitted by
+  the surrogate generator. A surface that agrees is not automatically an identifier
+  that agrees, which is the part of step 2 this case exercises.
+
+**Stratified by document type and language**, unlike the other corpora, because two
+confounds here are large enough to move a fold: PHI density varies **4× by document
+type** (`IR` 8.1 spans per 1,000 tokens vs `IA` 32.0), and **84% of bilingual
+documents are `IR`** (221 of 264). An unstratified random split over 2,000 documents
+can hand one fold a materially different PHI density and language mix from another, and
+a leak-rate difference between folds would then be uninterpretable — corpus composition
+and detector behaviour would be confounded. Stratification is not a grouping claim: the
+unit is still the document, and no document is linked to another.
+
+The cross of the two strata is ragged and the split code must say so rather than
+silently round: `CC` and `IE` have 5 documents each, `IE` has no bilingual document at
+all, and cells like `CC`/`bi` hold exactly one. Small cells are assigned by a
+deterministic rule recorded in `splits/es-carmen.json` alongside the achieved per-fold
+density and language mix, so a reader can check what the stratification actually
+delivered instead of trusting that it was requested.
+
+**Limitation, stated rather than assumed away:** whether two documents belong to the
+same patient is not knowable from this release. There is no patient key, and the
+identifier surfaces do not agree, so if two documents *are* the same patient they can
+land on opposite sides of the split and inflate the results. This is not an argument
+for grouping — grouping on the measurements above would be the larger error — but it is
+also not a risk we can bound. It is reported as a limitation of every CARMEN-I number,
+and it is one more reason not to read a CARMEN-I / MEDDOCAN difference as a porting
+result (§5.1).
+
+Note for CLAUDE.md's "patient-disjoint" requirement: **no corpus here has a patient
+key** — not MEDDOCAN, not GraSCCo, not CARMEN-I — so §6's "largest natural group
+available" applies to all three. Under this rule the group is a confirmed same-patient
+cluster where one is demonstrable (`Tupolev_1..4`, the only case in three corpora) and
+the document otherwise. That the rule so far yields the document almost everywhere is
+the measurement, not a shortcut: each rejection above cost a specific, counted number
+of units that a filename-based grouping would have thrown away.
 
 ### 9.6 MEDDOCAN keeps its official split as the primary result
 
