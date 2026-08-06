@@ -559,3 +559,319 @@ families is "the conservative reading" holds for `Tupolev_*` and does not hold f
 `Colon_Fake_*`; grouping the latter would cost 10 of 63 independent units for a
 relationship the annotations contradict. Stated as measurement — the split unit
 remains open question 5.
+
+---
+
+## 8. CARMEN-I (`es-carmen`), inventoried 2026-08-06
+
+**DUA notice.** CARMEN-I is real clinical text from the Hospital Clínic of
+Barcelona under the PhysioNet Contributor Review Health Data License. **No span
+surface form appears in this section.** Where a surface had to be characterised,
+only its length and charset class are given. This is stricter than the treatment of
+MEDDOCAN and GraSCCo above, where sample surfaces are quoted because those corpora
+are synthetic. Mechanical detail is in `profiles/es-carmen.raw.json`.
+
+2,000 documents, 8,231 PHI spans, 18 PHI types observed of 28 declared. Two
+anonymisation variants (`masked`, `replaced`), brat standoff, no BOM anywhere, LF
+only, no official split.
+
+### 8.1 Mapping CARMEN-I's types onto the §9.0 canonical set
+
+**CARMEN-I's PHI schema is a superset of MEDDOCAN's observed type set.** Measured, not
+assumed: CARMEN-I's `ann/annotation.conf` declares 35 entity types, of which 28 are
+PHI and 7 are the medical-concept layer (`SINTOMA`, `PROCEDIMIENTO`, `ENFERMEDAD`,
+`FARMACO`, `SPECIES`, `HUMANO`, `ENTIDAD_OBSERVABLE`). All **22** of MEDDOCAN's
+observed types appear among those 28, and the 6 PHI types CARMEN-I declares beyond
+them are `NUMERO_IDENTIF`, `URL_WEB`, `DIREC_PROT_INTERNET`,
+`IDENTIF_VEHICULOS_NRSERIE_PLACAS`, `IDENTIF_DISPOSITIVOS_NRSERIE`,
+`IDENTIF_BIOMETRICOS`.
+
+Stated carefully, because the comparison is asymmetric: **the MEDDOCAN release ships
+no `annotation.conf`** (verified — no `.conf` or `.dtd` anywhere in
+`data/raw/es-meddocan/`), so MEDDOCAN's *declared* schema is not observable from the
+data we hold and only its *observed* 22 types can be compared. The two type systems
+are clearly the same lineage — identical names, identical `_SUJETO_ASISTENCIA` /
+`_PERSONAL_SANITARIO` role suffixes — but "identical schema" is not something the
+releases let us verify, and this section does not claim it.
+
+The practical consequence still holds: the mapping is mostly not a new design problem
+but the §9.0 MEDDOCAN column restricted to the 18 types CARMEN-I actually uses, with
+two exceptions treated below.
+
+**Maps by the existing §9.0 rows, no new decision required — 16 of the 18 types:**
+
+| canonical (§9.0) | CARMEN-I source types | n |
+|---|---|---|
+| `NAME` | `NOMBRE_PERSONAL_SANITARIO` | 151 |
+| `DATE` | `FECHAS` | 5,386 |
+| `AGE` | `EDAD_SUJETO_ASISTENCIA` | 815 |
+| `LOCATION_AREA` | `TERRITORIO` 90, `PAIS` 118 | 208 |
+| `LOCATION_STREET` | `CALLE` | 22 |
+| `ORGANISATION` | `HOSPITAL` 316, `INSTITUCION` 129, `CENTRO_SALUD` 52 | 497 |
+| `CONTACT` | `NUMERO_TELEFONO` | 22 |
+| `ID` | `ID_SUJETO_ASISTENCIA` 14, `ID_CONTACTO_ASISTENCIAL` 2 | 16 |
+| `PROFESSION` | `PROFESION` | 91 |
+| `OTHER` | `OTROS_SUJETO_ASISTENCIA` | 38 |
+| **mapped by existing rows** | | **7,246** |
+
+**Not settled by the existing table — the remaining 2 types, decided below or not at
+all:**
+
+| source type | n | status |
+|---|---|---|
+| `NUMERO_IDENTIF` | 227 | no §9.0 row covers it; **undecided**, see (i) |
+| `URL_WEB` | 1 | no §9.0 row covers it; **undecided**, see (ii) |
+| `SEXO_SUJETO_ASISTENCIA` | 458 | §9.1 excluded, same type name as MEDDOCAN's exclusion |
+| `FAMILIARES_SUJETO_ASISTENCIA` | 299 | §9.1 excluded, same type name as MEDDOCAN's exclusion |
+
+7,246 + 227 + 1 + 458 + 299 = 8,231. Reconciles against the corpus gold total, so no
+span is unaccounted for either way the two open types are decided.
+
+**Types that do not map cleanly. Options only; no conclusion drawn.**
+
+**(i) `NUMERO_IDENTIF` — 227 spans, no MEDDOCAN counterpart.** All five ID subtypes
+MEDDOCAN actually uses name *a role* (`ID_SUJETO_ASISTENCIA` patient,
+`ID_ASEGURAMIENTO` insurance, `ID_TITULACION_PERSONAL_SANITARIO` clinician licence,
+`ID_EMPLEO_PERSONAL_SANITARIO` clinician employment, `ID_CONTACTO_ASISTENCIAL`
+contact), which is why §9.0 could collapse them into one `ID` without losing anything
+recoverable. `NUMERO_IDENTIF` names a *number* with no role,
+and it is CARMEN-I's largest ID type by far (227 against 14 for
+`ID_SUJETO_ASISTENCIA`), so it is not a residual bucket. MEDDOCAN has zero instances
+of it, and since MEDDOCAN ships no schema file we cannot tell whether it was declared
+there and unused or never existed in that guideline at all.
+- **(a)** add a canonical `ID_UNSPECIFIED`. Honest, but it exists to hold one
+  corpus's habit and would be empty for MEDDOCAN and GraSCCo, so per-type tables
+  would carry a column that is structurally absent elsewhere.
+- **(b)** merge into `ID`. §9.0 already collapses five MEDDOCAN ID subtypes into one
+  `ID`, and role survives as `subtype`, so this is the consistent move — the cost is
+  that `subtype` becomes non-comparable in a new way: MEDDOCAN's subtypes name roles
+  and CARMEN-I's does not. Note that §9.0's stated justification for the collapse is
+  that "the two corpora do not partition the space the same way", which this case fits
+  exactly; whether that argument extends to a subtype carrying *no* role information
+  is the open part.
+- **(c)** exclude. Not defensible: an unqualified identifier number in a hospital
+  record is a HIPAA identifier and 227 spans is 2.8% of the corpus.
+
+**(ii) `URL_WEB` — 1 span, no MEDDOCAN instance.** CARMEN-I declares two
+internet-address types, `DIREC_PROT_INTERNET` (line 38 of `annotation.conf`) and
+`URL_WEB` (line 39), and uses only the latter, once. Neither is observed in MEDDOCAN.
+- **(a)** fold into `CONTACT`, which already holds email, phone and fax — a URL is
+  the same kind of thing (a channel), and this keeps the canonical set at ten types.
+- **(b)** own canonical type. At n=1 it cannot be scored either way, so this buys
+  nothing measurable.
+- **(c)** exclude as n=1. Conflicts with §9.4, which deliberately keeps n≤8 types in
+  the leak-rate denominator on the grounds that a leak is a leak.
+
+**(iii) `NOMBRE_SUJETO_ASISTENCIA` — declared, ZERO instances.** This is the
+patient-name type. MEDDOCAN has 2,014; GraSCCo has `NAME_PATIENT`. CARMEN-I's only
+name type is the clinician one. Not a mapping problem but an evaluation problem:
+- **(a)** report patient-name recall as **undefined** for `es-carmen` rather than
+  as a number. There is no gold, so any figure would be an artefact of the
+  denominator being zero.
+- **(b)** treat the absence as informative and report it: a detector that fires on
+  patient names here produces only false positives, which makes CARMEN-I a
+  precision-only probe for that type.
+- **(c)** merge `NAME` across roles and report one figure, accepting that the
+  `es-carmen` `NAME` number is a clinician-name number and the MEDDOCAN one is a
+  mixture. This is the option that quietly breaks cross-corpus comparability, so it
+  needs stating either way.
+
+**(iv) Ten declared types with zero instances.** `NOMBRE_SUJETO_ASISTENCIA`,
+`CORREO_ELECTRONICO`, `NUMERO_FAX`, `DIREC_PROT_INTERNET`, `ID_ASEGURAMIENTO`,
+`ID_TITULACION_PERSONAL_SANITARIO`, `ID_EMPLEO_PERSONAL_SANITARIO`,
+`IDENTIF_VEHICULOS_NRSERIE_PLACAS`, `IDENTIF_DISPOSITIVOS_NRSERIE`,
+`IDENTIF_BIOMETRICOS`. Declared-but-unused is not the same as absent-from-schema,
+and the distinction matters for the Mapper agent: a mapping built from
+`annotation.conf` alone would produce ten dead entries, and one built from observed
+data alone would silently fail on a future release that uses them. Options: build
+from the schema and mark observed counts; build from observations and validate
+against the schema; or require both and fail on disagreement.
+
+### 8.2 CARMEN-I vs MEDDOCAN — same type names, very different usage
+
+Both Spanish, and every MEDDOCAN type name recurs in CARMEN-I's declared set (§8.1),
+so the comparison is direct with no name translation in between.
+
+| type | MEDDOCAN | CARMEN-I | note |
+|---|---|---|---|
+| `FECHAS` | 2,566 | 5,386 | CARMEN-I's dominant type: 65.4% of its spans vs 11.3% in MEDDOCAN |
+| `NOMBRE_SUJETO_ASISTENCIA` | 2,014 | **0** | patient names absent from CARMEN-I |
+| `NOMBRE_PERSONAL_SANITARIO` | 1,998 | 151 | |
+| `TERRITORIO` | 3,818 | 90 | MEDDOCAN's largest type is nearly absent here |
+| `PAIS` | 1,423 | 118 | |
+| `CALLE` | 1,709 | 22 | |
+| `CORREO_ELECTRONICO` | 959 | **0** | |
+| `ID_TITULACION_PERSONAL_SANITARIO` | 931 | **0** | |
+| `ID_ASEGURAMIENTO` | 783 | **0** | |
+| `ID_SUJETO_ASISTENCIA` | 1,142 | 14 | |
+| `NUMERO_IDENTIF` | **0** | 227 | present only in CARMEN-I |
+| `NUMERO_TELEFONO` | 109 | 22 | |
+| `NUMERO_FAX` | 28 | **0** | |
+| `HOSPITAL` | 525 | 316 | |
+| `INSTITUCION` | 237 | 129 | |
+| `CENTRO_SALUD` | 14 | 52 | the one type CARMEN-I uses more |
+| `PROFESION` | 37 | 91 | also more here |
+| `EDAD_SUJETO_ASISTENCIA` | 2,074 | 815 | |
+| `SEXO_SUJETO_ASISTENCIA` | 1,841 | 458 | §9.1 excluded |
+| `FAMILIARES_SUJETO_ASISTENCIA` | 416 | 299 | §9.1 excluded |
+| `OTROS_SUJETO_ASISTENCIA` | 22 | 38 | |
+| `URL_WEB` | 0 | 1 | |
+| `ID_CONTACTO_ASISTENCIAL` | 148 | 2 | |
+| `ID_EMPLEO_PERSONAL_SANITARIO` | 1 | 0 | |
+
+**Same name, different concept — none found.** No type name appears to mean something
+different between the two corpora; the shared naming and shared role suffixes come
+with shared meaning as far as the type list shows. The false-friend problem of §2.1
+(`FAMILIARES_SUJETO_ASISTENCIA` vs GraSCCo's `NAME_RELATIVE`) does not recur here.
+One caveat worth stating rather than assuming away: this was checked at the level of
+type names and counts, **not** by reading annotated spans, which the DUA rule for this
+corpus rules out. A guideline divergence that leaves the type names intact — for
+instance a different convention on whether a date range is one span or two — would not
+be visible to this comparison. The span-length distributions in the profile are the
+only proxy available for that.
+
+**Present in one only.** `NUMERO_IDENTIF` (CARMEN-I only, 227). Absent from
+CARMEN-I but substantial in MEDDOCAN: patient names 2,014, email 959, clinician
+licence 931, insurance 783, fax 28.
+
+**The interesting asymmetry is not the type list but the distribution.** MEDDOCAN is
+synthetic case reports with fabricated administrative blocks — addresses, emails,
+insurance numbers, licence numbers — because its generator inserted them. CARMEN-I
+is real hospital text where those elements simply are not written into the clinical
+narrative; what survives is dates, ages and institution names. So MEDDOCAN
+over-represents exactly the types that checksum and regex rules find easily
+(email, phone, structured IDs), and CARMEN-I over-represents the type whose
+surface form is most variable (dates: 5,386 spans across 3,071 distinct surfaces).
+A rule set tuned on MEDDOCAN should be expected to transfer badly here, and this
+is a confound in any MEDDOCAN→CARMEN-I porting result: the corpora differ in
+authenticity and in type mix at the same time.
+
+### 8.3 §9.1 exclusions in CARMEN-I
+
+| §9.1 excluded type | CARMEN-I | share of corpus |
+|---|---|---|
+| `SEXO_SUJETO_ASISTENCIA` | 458 | 5.56% |
+| `FAMILIARES_SUJETO_ASISTENCIA` | 299 | 3.63% |
+| `NAME_TITLE` equivalent | **0** | — |
+| **total excluded** | **757** | **9.20%** |
+
+Both Spanish exclusions recur here at a proportion close to MEDDOCAN's 9.90%
+(2,257/22,795), so §9.1 costs the two Spanish corpora about the same fraction —
+which is convenient for the comparison and is a coincidence worth naming as one.
+
+`NAME_TITLE` has **no counterpart**: no title/honorific type is declared in
+`annotation.conf` and none is observed. The boundary question of §2.6 (whether
+`Dr.` belongs inside the name span) therefore does not arise for CARMEN-I, so the
+argument in §9.3 for relaxed matching rests on GraSCCo alone among the three
+corpora. That does not weaken the decision — one corpus with the conflict is enough
+to make strict-only scoring guideline-dependent — but it does mean the evidence base
+for it is narrower than three corpora.
+
+### 8.4 Catalan mixing and the `rules/{lang}.yaml` convention
+
+Measured from the corpus's own per-document language label
+(`CARMEN1_mappings.tsv`, cross-checked against the file list — all 2,000 keys match):
+
+| label | documents | share |
+|---|---|---|
+| `es` Spanish | 1,697 | 84.9% |
+| `bi` mixed Spanish + Catalan **within one document** | 264 | 13.2% |
+| `cat` Catalan | 39 | 2.0% |
+
+**`rules/{lang}.yaml` as currently specified does not survive this.** The convention
+assumes one rule file per language and one language per corpus. Here 13.2% of
+documents are internally mixed, so there is no document-level language assignment
+that makes a single file correct — and 221 of the 264 bilingual documents are one
+document type (`IR`), so the mixing is not evenly spread either.
+
+What the options cost:
+
+- **(a) One `rules/es.yaml`, treat Catalan as noise.** 2.0% Catalan-only documents
+  is small enough to absorb, but the 13.2% bilingual documents are not: the Catalan
+  passages inside them are where context-cue rules will fail, and the failures land
+  inside documents counted as Spanish. Cheapest, and it hides the failure in the
+  aggregate.
+- **(b) `rules/es.yaml` + `rules/cat.yaml`, select per document.** Works for the
+  1,736 monolingual documents and is undefined for the 264 mixed ones. Needs a
+  tie-break rule, and the tie-break is where the errors go.
+- **(c) Load both files for every document; union the matches.** No language
+  identification needed at all, which removes a failure mode rather than adding one.
+  Costs precision wherever a Catalan trigger word is a Spanish word, and makes the
+  per-layer attribution of §7 harder because a match may come from either file.
+- **(d) Sub-document language segmentation.** Most faithful to the data and the most
+  machinery; also introduces a component whose own errors are not measured
+  anywhere in the current metric set.
+
+Note that (c) is the only option that does not require language identification, and
+that the `bi` label is the corpus's own — we did not have to infer it, which means
+option (b)'s selector could be *evaluated* against a gold label here. That is a
+reason to prefer measuring before choosing. **No decision drawn.**
+
+Consequence for `config/naming.yaml`: if `rules/{lang}.yaml` stays as the path
+convention, `{lang}` needs a defined value for a bilingual corpus. `es` would be
+wrong for 13.2% of documents and `es+cat` is not a language code. This is a naming
+decision, so per CLAUDE.md it belongs in `naming.yaml` before any rule file exists.
+
+### 8.5 Split unit candidates
+
+**No patient key exists.** Filenames are
+`CARMEN-I_{doctype}_{section}_{n}`; there is no patient, encounter, or record
+identifier in the filename, in `CARMEN1_mappings.tsv`, or anywhere else in the
+release.
+
+Two candidate groupings were tested against the §9.5 rule (identifier-surface
+agreement, not filename structure), and **both fail**:
+
+1. **Same `(doctype, number)` across different section tokens** — 189 candidate
+   groups covering 775 documents. This looks compelling: `IA_ANTECEDENTES_7` and
+   `IA_PROCESO_ACTUAL_7` read like two sections of one patient's letter. Measured:
+   **0 of 189 groups share a single identifier surface**. And the numbering is
+   contiguous `1..N` within every one of the 20 `(doctype, section)` pairs, so the
+   number is a per-section index and the co-numbering is arithmetic, not linkage.
+   This is the MEDDOCAN article-stem error in a new costume — filename structure
+   raising the question and being mistaken for the answer.
+2. **Transitive grouping on shared identifier surfaces** (`ID_SUJETO_ASISTENCIA`,
+   `NUMERO_IDENTIF`) — yields 1,944 groups, of which 1,941 are singletons, plus one
+   group of 52, one of 5, one of 2. The three linking surfaces are 7, 3 and 9
+   characters, **letters only, zero digits** — not identifier values. Grouping on
+   them would merge 52 unrelated patients on what is most likely a generic word from
+   the surrogate generator.
+
+So under CLAUDE.md's rule — largest natural group available, §9.5 identifier
+agreement where no patient key exists — the largest *defensible* unit is the
+**document**. Candidates and their costs:
+
+- **(a) Document-disjoint, 2,000 units.** The only grouping the data supports.
+  Risk: if two documents really are the same patient and we cannot tell, they can
+  land on opposite sides of the split, which inflates results. Unmeasurable here,
+  and it must be stated as a limitation rather than assumed away.
+- **(b) Document-disjoint, stratified by document type and language.** Same units,
+  but controls two large confounds: PHI density varies 4× by document type (`IR`
+  8.1 spans per 1,000 tokens vs `IA` 32.0) and the bilingual documents are 84%
+  concentrated in `IR`. Without stratification a random split can hand one fold a
+  materially different PHI density and language mix.
+- **(c) Group by `(doctype, number)` anyway, as the conservative reading.**
+  Rejected by measurement above, and the cost is concrete: 775 documents collapse
+  to 189 units, losing 586 independent units for a relationship the annotations
+  contradict. This is exactly the `Colon_Fake_*` decision from §7.3.
+
+Two further facts bear on any split:
+
+- **462 documents have zero PHI spans** in the masked variant (`IR` 389, `IA` 66,
+  `IT` 7) and 461 in the replaced variant (`IR` 388), the difference being the one
+  `CARMEN-I_IR_746` discrepancy recorded under `span_count_reconciliation` in the
+  profile. They are not empty — median 96 tokens — so
+  they contribute false-positive opportunity but nothing to the leak-rate numerator or
+  denominator. A fold's effective size is not its document count, and 23% of documents
+  cannot be assigned a per-document leak rate at all.
+- **789 of 2,000 units are clinical *sections*, not whole notes** (`IA` and `IT`
+  filenames name `ANTECEDENTES`, `PROCESO_ACTUAL`, `EXPLORACION_*`,
+  `PLAN_TERAPEUTICO`, `SEGUIMIENTO`, `EVOL`). A section is not a note type, so
+  CARMEN-I cannot straightforwardly supply the note-type axis the way §7 describes
+  for GraSCCo — and the `IR` documents, which have no section token, are a
+  different kind of unit from the `IA`/`IT` ones in the same corpus.
+
+**No official split ships** (verified: no manifest, index, or split-named file
+anywhere in the release). Unlike MEDDOCAN there is no external comparability to
+inherit, and unlike MEDDOCAN's frozen 500/250/250 the split must be made here and
+frozen before any rule is written.

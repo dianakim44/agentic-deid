@@ -11,6 +11,11 @@ data/acquire/*
 **/data/source/
 **/data/derived/
 
+# 코퍼스 경로 매핑. 기계마다 다르고 DUA 데이터 위치를 노출한다.
+# 커밋되는 것은 config/data_paths.example.yaml 뿐이다.
+config/data_paths.local.yaml
+config/data_paths.*.local.yaml
+
 # ─── 봉인된 test fold ───────────────────────────────────────
 sealed/
 *value_map*

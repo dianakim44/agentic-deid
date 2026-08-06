@@ -1,0 +1,317 @@
+{
+  "corpus": "es-carmen",
+  "profiled": "2026-08-06",
+  "profiler": "mechanical inventory, counts and offsets only",
+  "_dua_notice": "CARMEN-I is real clinical text under the PhysioNet Contributor Review Health Data License. NO span surface form appears anywhere in this file, by any encoding. Where a surface had to be characterised, only its length, charset class, or a truncated hash-derived count is given. This is stricter than the es-meddocan and de-grascco profiles, which quote sample surfaces because those corpora are synthetic.",
+  "local_path": "read from config/data_paths.local.yaml (gitignored); not recorded here",
+
+  "source": {
+    "name": "CARMEN-I",
+    "provider": "PhysioNet, credentialed access",
+    "creators": "Barcelona Supercomputing Center NLP4BIA, Hospital Clinic de Barcelona, Universitat de Barcelona CLiC",
+    "origin": "Hospital Clinic of Barcelona, 2020-03 to 2022-03, COVID-19 admissions",
+    "corpus_licence": "CC-BY-SA-4.0",
+    "access_licence": "PhysioNet Contributor Review Health Data License v1.5.0",
+    "licence_note": "The permissive corpus licence does not relax the access agreement. Clause 3 forbids sharing access. Additional CARMEN-I registration of intended use is required.",
+    "authenticity": "Sensitive items are annotated and replaced with synthetic equivalents, but the clinical narrative is authentic patient text. Unlike MEDDOCAN and GraSCCo it is not a synthetic construction.",
+    "integrity_file": "SHA256SUMS.txt ships with the release"
+  },
+
+  "layout": {
+    "top_level": ["CARMEN-I/", "LICENSE.txt", "SHA256SUMS.txt"],
+    "directories": {
+      "txt/masked": "2000 .txt — every sensitive item replaced by its bracketed type label",
+      "txt/replaced": "2000 .txt — every sensitive item replaced by a synthetic surrogate",
+      "ann/masked/anon": "2000 .ann + 2000 .txt — PHI spans, brat standoff, masked variant",
+      "ann/masked/ner": "500 .ann + 500 .txt — medical concept spans, masked variant",
+      "ann/replaced/anon": "2000 .ann + 2000 .txt — PHI spans, replaced variant",
+      "ann/replaced/ner": "500 .ann + 500 .txt — medical concept spans, replaced variant",
+      "tsv/masked": "2 .tsv — anon and ner, flat table form",
+      "tsv/replaced": "2 .tsv — anon and ner, flat table form",
+      "ann/annotation.conf": "brat type declaration",
+      "ann/visual.conf": "brat display config"
+    },
+    "metadata_file": "CARMEN1_mappings.tsv — 2000 rows, columns: filename, language, ner_annotations",
+    "on_disk_size": "60 MiB",
+    "format": "brat standoff (.txt + .ann), same family as MEDDOCAN's brat view",
+    "no_split_manifest": "verified — no file matching split|train|dev|test|valid|fold anywhere in the release"
+  },
+
+  "documents": {
+    "n": 2000,
+    "masked_and_replaced_have_identical_filename_sets": true,
+    "ann_txt_copies_match_txt_dir": true,
+    "ner_subset_is_a_subset_of_all_documents": true,
+    "ner_annotated": 500,
+    "ner_dir_matches_mappings_flag": true
+  },
+
+  "encoding": {
+    "encoding": "utf-8, all 2000 files in both variants",
+    "bom_files": 0,
+    "_bom_note": "Zero BOM in every .txt and every .ann, both variants. This is the failure that cost 761 spans in MEDDOCAN and 2 documents in GraSCCo; checked explicitly and it does not occur here. utf-8 and utf-8-sig give identical results, but read as plain utf-8 for consistency with the other loaders.",
+    "newlines": "LF only, 2000/2000 both variants. No CRLF, no lone CR.",
+    "unicode_normalisation": "NFC, 2000/2000. No NFD filenames or content."
+  },
+
+  "offset_convention": {
+    "unit": "character offsets into the .txt of the SAME variant",
+    "verification": "every span sliced from its own document and compared to the .ann surface field",
+    "results": {
+      "masked/anon": {"spans": 8230, "exact": 8230, "mismatch": 0},
+      "masked/ner": {"spans": 26360, "exact": 26360, "mismatch": 0, "discontinuous": 1},
+      "replaced/anon": {"spans": 8231, "exact": 8230, "mismatch": 1},
+      "replaced/ner": {"spans": 26360, "exact": 26360, "mismatch": 0}
+    },
+    "offsets_are_variant_specific": "anon offsets differ between masked and replaced in 1533 of 2000 documents. The two variants are NOT offset-compatible: a span list from one cannot be applied to the other. 467 documents agree, and 461 of those are documents with zero PHI spans.",
+    "discontinuous_spans": "brat allows `start end;start end`. Exactly 1 occurrence, in masked/ner. Zero in either anon set, so a PHI loader may treat spans as contiguous — but should assert rather than assume.",
+    "known_defect": {
+      "where": "replaced/anon, 1 span",
+      "document": "CARMEN-I_IA_EVOL_112",
+      "type": "FECHAS",
+      "offsets": [153, 157],
+      "gold_surface_length": 4,
+      "sliced_length": 4,
+      "note": "Same length, different content — an off-by-N offset, not a length error. Surface withheld. The corresponding masked span verifies exactly. Loader must report and skip, not silently accept."
+    }
+  },
+
+  "span_count_reconciliation": {
+    "masked_ann_total": 8230,
+    "replaced_ann_total": 8231,
+    "tsv_total_both_variants": 8231,
+    "discrepancy": "The masked variant has one span fewer than the replaced variant and one fewer than either TSV.",
+    "located": "document CARMEN-I_IR_746 has 0 anon spans in masked and 1 in replaced; the type is OTROS_SUJETO_ASISTENCIA (masked 37, replaced 38).",
+    "interpretation": "The masked .ann is missing a span the TSV and the replaced .ann both record. Treat 8231 as the annotation count and the masked .ann as the outlier. Any per-variant total must be stated with its variant.",
+    "ner_totals_agree": "26360 in .ann and .tsv, both variants"
+  },
+
+  "phi_types": {
+    "declared_in_annotation_conf": 28,
+    "observed_in_anon_data": 18,
+    "declared_but_never_used": [
+      "NOMBRE_SUJETO_ASISTENCIA", "CORREO_ELECTRONICO", "NUMERO_FAX",
+      "DIREC_PROT_INTERNET", "ID_ASEGURAMIENTO", "ID_TITULACION_PERSONAL_SANITARIO",
+      "ID_EMPLEO_PERSONAL_SANITARIO", "IDENTIF_VEHICULOS_NRSERIE_PLACAS",
+      "IDENTIF_DISPOSITIVOS_NRSERIE", "IDENTIF_BIOMETRICOS"
+    ],
+    "_critical_absence": "NOMBRE_SUJETO_ASISTENCIA (patient name) is DECLARED but has ZERO instances. The only name type present is NOMBRE_PERSONAL_SANITARIO (clinician, 151). MEDDOCAN has 2014 patient-name spans. A patient-name detector therefore cannot be evaluated on CARMEN-I at all, and its recall on that type is undefined rather than zero.",
+    "counts_masked": {
+      "FECHAS": 5386,
+      "EDAD_SUJETO_ASISTENCIA": 815,
+      "SEXO_SUJETO_ASISTENCIA": 458,
+      "HOSPITAL": 316,
+      "FAMILIARES_SUJETO_ASISTENCIA": 299,
+      "NUMERO_IDENTIF": 227,
+      "NOMBRE_PERSONAL_SANITARIO": 151,
+      "INSTITUCION": 129,
+      "PAIS": 118,
+      "PROFESION": 91,
+      "TERRITORIO": 90,
+      "CENTRO_SALUD": 52,
+      "OTROS_SUJETO_ASISTENCIA": 37,
+      "NUMERO_TELEFONO": 22,
+      "CALLE": 22,
+      "ID_SUJETO_ASISTENCIA": 14,
+      "ID_CONTACTO_ASISTENCIAL": 2,
+      "URL_WEB": 1
+    },
+    "counts_replaced_delta": {"OTROS_SUJETO_ASISTENCIA": 38, "_all_others": "identical to masked"},
+    "total_masked": 8230,
+    "total_replaced": 8231,
+    "dominance": "FECHAS is 65.4% of all PHI spans (5386/8231). The next largest type is 9.9%. Any aggregate PHI metric on this corpus is close to a date-detection metric; per-type reporting is not optional here.",
+    "sparse_types_n_le_8": ["ID_CONTACTO_ASISTENCIAL (2)", "URL_WEB (1)"],
+    "medical_concept_types": {
+      "SINTOMA": 8089, "PROCEDIMIENTO": 6519, "ENFERMEDAD": 5430,
+      "FARMACO": 3546, "SPECIES": 1439, "HUMANO": 1337,
+      "_total": 26360,
+      "_note": "Separate annotation layer on 500 documents. Not PHI; out of scope for detection evaluation. HUMANO includes family members and may partially overlap FAMILIARES_SUJETO_ASISTENCIA — not measured."
+    }
+  },
+
+  "anonymisation_variants": {
+    "masked": {
+      "what": "each sensitive span replaced by its own type label in brackets",
+      "verified": "all 8230 masked anon surfaces equal their own tag name after stripping non-letters (8230/8230). Charset classes present: uppercase letters, brackets, underscores and punctuation only — zero lowercase letters, zero digits.",
+      "surface_length_is_determined_by_type": "e.g. every FECHAS span is 12 chars, every NOMBRE_PERSONAL_SANITARIO span is 31",
+      "implication": "The masked variant contains NO surrogate values. It is the safer variant to read during development, and it is useless for training a detector: the labels are trivially findable and carry no orthographic signal."
+    },
+    "replaced": {
+      "what": "each sensitive span replaced by a synthetic surrogate of the same kind",
+      "verified": "0 of 8214 comparable spans share a surface with the masked variant; no surface equals an annotation label; 27 all-uppercase surfaces total (institution names, not placeholders)",
+      "implication": "This is the variant to use for detection experiments. Treat it as identifying: it reads like a real note and the surrounding narrative is authentic."
+    },
+    "not_offset_compatible": "see offset_convention.offsets_are_variant_specific"
+  },
+
+  "document_identifiers": {
+    "filename_pattern": "^CARMEN-I_(?P<doctype>[A-Z]{2})(?:_(?P<section>[A-Z_]+))?_(?P<n>\\d+)$",
+    "parsed": 2000,
+    "unparsed": 0,
+    "_parse_rule_note": "The last underscore-separated token is all digits in 2000/2000 cases, so a numeric-suffix assumption happens to hold here. It is still written as an explicit measurement rather than an assumption: the same assumption was wrong for MEDDOCAN (S1579-699X) and for GraSCCo (Colon_Fake_A..K). The measured shape is recorded so a future release that adds a letter suffix fails loudly.",
+    "doctype_codes": {
+      "IR": {"n": 1201, "expansion_evidence": "no section token; shortest documents; lowest PHI density"},
+      "IA": {"n": 617, "expansion_evidence": "always carries a clinical section token"},
+      "IT": {"n": 172, "expansion_evidence": "same section vocabulary as IA"},
+      "CC": {"n": 5},
+      "IE": {"n": 5}
+    },
+    "_doctype_expansion_caveat": "The two-letter codes are not expanded anywhere in the release — not in README.md, not in annotation.conf. The README names three genres (discharge letters, referrals, radiology reports) but does not map them to codes. Any mapping is inference and is recorded as such in docs/notes/corpus-observations.md, not asserted here.",
+    "section_tokens": {
+      "IR/(none)": 1201, "IA/EVOL": 149, "IA/ANTECEDENTES": 141,
+      "IA/PROCESO_ACTUAL": 122, "IA/EXPLORACION_COMPLEMENTARIA": 54,
+      "IT/PROCESO_ACTUAL": 54, "IT/ANTECEDENTES": 48,
+      "IT/EXPLORACION_CLINICA": 41, "IA/RADIOGRAFIA": 40, "IA/SEGUIMIENTO": 40,
+      "IA/EXPLORACION_CLINICA": 31, "IA/PLAN_TERAPEUTICO": 27,
+      "IA/INTERVENCION_QUIRURGICA": 13, "IT/INTERVENCION_QUIRURGICA": 12,
+      "IT/EXPLORACION_COMPLEMENTARIA": 7, "CC/(none)": 5, "IE/(none)": 5,
+      "IT/EVOL": 5, "IT/PLAN_TERAPEUTICO": 4, "IT/SEGUIMIENTO": 1
+    },
+    "_unit_is_a_section_not_a_note": "For IA and IT the filename names a clinical SECTION (antecedentes, proceso actual, exploracion, plan terapeutico, seguimiento, evolucion). These are the sections of a letter, so a 'document' in CARMEN-I is a section excerpt rather than a whole note. 789 of 2000 units are section-level. This matters for note-type comparison: a section is not a note type.",
+    "numbering": "contiguous 1..N within every (doctype, section) pair, all 20 pairs verified. The number is a per-section index, NOT a record or patient identifier.",
+    "patient_identifier": "NONE. No patient key of any kind is present in filenames or metadata."
+  },
+
+  "grouping": {
+    "_question": "Do multiple documents belong to the same patient, and can that be decided?",
+    "filename_candidate_groups": {
+      "definition": "documents sharing (doctype, number) across different section tokens — the only filename structure that could plausibly mark one patient's sections",
+      "groups": 189,
+      "documents_in_them": 775,
+      "groups_sharing_any_identifier_surface": 0,
+      "groups_sharing_a_patient_id_surface": 0,
+      "groups_sharing_nothing": 189,
+      "verdict": "REJECTED by DESIGN.md §9.5. All 189 candidate groups share zero identifier surfaces. Combined with the finding that numbering is contiguous per section, the number is an index and the co-numbering is coincidence. Grouping on it would be exactly the MEDDOCAN article-stem error: filename structure raising a question and being mistaken for the answer."
+    },
+    "grouping_by_identifier_surface": {
+      "method": "union-find over documents sharing a surface of ID_SUJETO_ASISTENCIA or NUMERO_IDENTIF (replaced variant)",
+      "documents_carrying_such_a_tag": {"ID_SUJETO_ASISTENCIA": 12, "NUMERO_IDENTIF": 151, "ID_CONTACTO_ASISTENCIAL": 1},
+      "distinct_strong_id_surfaces": 148,
+      "surfaces_appearing_in_more_than_one_document": 3,
+      "resulting_groups": 1944,
+      "group_size_distribution": {"1": 1941, "2": 1, "5": 1, "52": 1},
+      "_the_52_document_group_is_spurious": "The surface linking 52 documents is 7 characters, letters only, zero digits — it is not an identifier value in any plausible sense. The 5-document link is 3 letters and the 2-document link is 9 letters. All three are short alphabetic strings, i.e. the surrogate generator produced generic words, or the annotation marks an identifier LABEL rather than its value. Transitive grouping on these would merge 52 unrelated patients.",
+      "verdict": "Also fails §9.5 once the surfaces are inspected. 1941 of 2000 documents are singletons under this rule, and the three non-singleton links are artefacts."
+    },
+    "conclusion": "No patient grouping is recoverable from CARMEN-I as shipped. Under CLAUDE.md's rule (largest natural group available; §9.5 identifier agreement where no patient key exists) the largest DEFENSIBLE unit is the document. This is the same conclusion as GraSCCo's Colon_Fake case: filename siblings that are not the same patient. Recorded as a limitation, not worked around."
+  },
+
+  "language": {
+    "source": "CARMEN1_mappings.tsv, cross-checked — all 2000 keys match the filename list exactly",
+    "counts": {"es": 1697, "bi": 264, "cat": 39},
+    "percentages": {"es": 84.9, "bi": 13.2, "cat": 2.0},
+    "_mixing_is_within_document": "The `bi` label means Spanish and Catalan mixed INSIDE one document — 264 documents, 13.2%. This is the corpus's own per-document label, not an inference. Only 39 documents are Catalan-only.",
+    "by_doctype": {
+      "IR": {"es": 961, "bi": 221, "cat": 19},
+      "IA": {"es": 573, "bi": 31, "cat": 13},
+      "IT": {"es": 154, "bi": 11, "cat": 7},
+      "CC": {"es": 4, "bi": 1},
+      "IE": {"es": 5}
+    },
+    "_bilingual_concentration": "221 of 264 bilingual documents are IR. Language mixing is concentrated in one document type, which means the language axis and the document-type axis are confounded in this corpus.",
+    "phi_density_by_language_per_1000_tokens": {"es": 19.8, "cat": 21.8, "bi": 16.1}
+  },
+
+  "size": {
+    "tokens_total": 425758,
+    "tokens_per_document": {"min": 1, "p25": 95, "median": 158, "p75": 304, "p95": 553, "max": 1655, "mean": 212.9},
+    "chars_total": 3096670,
+    "chars_per_document": {"min": 8, "median": 1153, "max": 11517, "mean": 1548.3},
+    "_tiny_documents_exist": "The shortest document is 1 token / 8 characters. A loader must not assume a document is a narrative.",
+    "tokens_by_doctype_median": {"IR": 149, "IT": 164, "IA": 191, "IE": 279, "CC": 281},
+    "spans_per_document": {"min": 0, "p25": 1, "median": 2, "p75": 5, "max": 54, "zero": 462},
+    "_documents_with_no_phi_at_all": {
+      "n_masked": 462,
+      "n_replaced": 461,
+      "note": "The one document of difference is CARMEN-I_IR_746, per span_count_reconciliation. Both breakdowns are given because the variant changes them; a single figure would be wrong for one variant.",
+      "by_doctype_masked": {"IR": 389, "IA": 66, "IT": 7},
+      "by_doctype_replaced": {"IR": 388, "IA": 66, "IT": 7},
+      "by_language_masked": {"es": 361, "bi": 88, "cat": 13},
+      "by_language_replaced": {"es": 361, "bi": 88, "cat": 12},
+      "token_length": {"min": 1, "median": 96, "max": 631},
+      "implication": "23% of documents contribute nothing to the leak-rate numerator or denominator. They are not empty — median 96 tokens — so they DO contribute false-positive opportunities and belong in a precision denominator. A per-document leak rate would be undefined for them."
+    },
+    "phi_density_per_1000_tokens": {"overall": 19.3, "CC": 52.0, "IT": 33.9, "IA": 32.0, "IE": 23.4, "IR": 8.1},
+    "_density_varies_4x_by_doctype": "IR carries 8.1 PHI spans per 1000 tokens against IA's 32.0. IR is 60% of documents and 54% of tokens but only 22% of PHI spans."
+  },
+
+  "span_char_length_replaced_variant": {
+    "FECHAS": {"n": 5386, "min": 1, "median": 6, "max": 28},
+    "EDAD_SUJETO_ASISTENCIA": {"n": 815, "min": 2, "median": 7, "max": 15},
+    "SEXO_SUJETO_ASISTENCIA": {"n": 458, "min": 3, "median": 5, "max": 9},
+    "HOSPITAL": {"n": 316, "min": 3, "median": 19, "max": 44},
+    "FAMILIARES_SUJETO_ASISTENCIA": {"n": 299, "min": 2, "median": 6, "max": 28},
+    "NUMERO_IDENTIF": {"n": 227, "min": 3, "median": 4, "max": 50},
+    "NOMBRE_PERSONAL_SANITARIO": {"n": 151, "min": 4, "median": 7, "max": 11},
+    "INSTITUCION": {"n": 129, "min": 3, "median": 13, "max": 22},
+    "PAIS": {"n": 118, "min": 4, "median": 9, "max": 25},
+    "PROFESION": {"n": 91, "min": 7, "median": 22, "max": 51},
+    "TERRITORIO": {"n": 90, "min": 4, "median": 8, "max": 26},
+    "CENTRO_SALUD": {"n": 52, "min": 10, "median": 21, "max": 49},
+    "OTROS_SUJETO_ASISTENCIA": {"n": 38, "min": 5, "median": 28, "max": 28},
+    "NUMERO_TELEFONO": {"n": 22, "min": 4, "median": 9, "max": 16},
+    "CALLE": {"n": 22, "min": 14, "median": 23, "max": 56},
+    "ID_SUJETO_ASISTENCIA": {"n": 14, "min": 3, "median": 8, "max": 17},
+    "ID_CONTACTO_ASISTENCIAL": {"n": 2, "min": 14, "median": 14, "max": 14},
+    "URL_WEB": {"n": 1, "min": 40, "median": 40, "max": 40},
+    "_one_char_spans_exist": "The shortest FECHAS span is 1 character. Under relaxed matching (DESIGN §9.3) a 1-character gold span makes relaxed and fully_covered identical for that span; under strict matching it is nearly unhittable. Worth watching in the per-type breakdown."
+  },
+
+  "surface_reuse_across_documents": {
+    "_method": "typed surface forms compared case-insensitively across documents, on the replaced variant. Surfaces themselves are never stored or printed; comparison was done on truncated hashes.",
+    "spans": 8231,
+    "distinct_typed_surfaces": 3987,
+    "surfaces_in_2plus_documents": 784,
+    "pct_surfaces_in_2plus_documents": 19.66,
+    "spans_covered_by_reused_surfaces": 4504,
+    "pct_spans_from_reused_surfaces": 54.7,
+    "_seen_unseen_feasibility": "54.7% of spans carry a surface that also occurs in another document, so a seen/unseen split is measurable at this scale — but the reuse is extremely uneven by type. HOSPITAL reuses 96% of its surfaces and NOMBRE_PERSONAL_SANITARIO only 2.1%. A single corpus-level seen/unseen figure would average a gazetteer-friendly closed set together with an open set of names. Report per type or not at all.",
+    "by_type": {
+      "FECHAS": {"spans": 5386, "distinct": 3071, "surfaces_in_2plus": 557, "pct": 18.1, "max_docs_one_surface": 26},
+      "EDAD_SUJETO_ASISTENCIA": {"spans": 815, "distinct": 196, "surfaces_in_2plus": 94, "pct": 48.0, "max_docs_one_surface": 25},
+      "SEXO_SUJETO_ASISTENCIA": {"spans": 458, "distinct": 11, "surfaces_in_2plus": 6, "pct": 54.5, "max_docs_one_surface": 171},
+      "HOSPITAL": {"spans": 316, "distinct": 25, "surfaces_in_2plus": 24, "pct": 96.0, "max_docs_one_surface": 22},
+      "FAMILIARES_SUJETO_ASISTENCIA": {"spans": 299, "distinct": 83, "surfaces_in_2plus": 34, "pct": 41.0, "max_docs_one_surface": 17},
+      "NUMERO_IDENTIF": {"spans": 227, "distinct": 139, "surfaces_in_2plus": 2, "pct": 1.4, "max_docs_one_surface": 52},
+      "NOMBRE_PERSONAL_SANITARIO": {"spans": 151, "distinct": 143, "surfaces_in_2plus": 3, "pct": 2.1, "max_docs_one_surface": 2},
+      "INSTITUCION": {"spans": 129, "distinct": 18, "surfaces_in_2plus": 10, "pct": 55.6, "max_docs_one_surface": 38},
+      "PAIS": {"spans": 118, "distinct": 73, "surfaces_in_2plus": 14, "pct": 19.2, "max_docs_one_surface": 13},
+      "PROFESION": {"spans": 91, "distinct": 69, "surfaces_in_2plus": 18, "pct": 26.1, "max_docs_one_surface": 3},
+      "TERRITORIO": {"spans": 90, "distinct": 78, "surfaces_in_2plus": 5, "pct": 6.4, "max_docs_one_surface": 2},
+      "CENTRO_SALUD": {"spans": 52, "distinct": 19, "surfaces_in_2plus": 11, "pct": 57.9, "max_docs_one_surface": 7},
+      "OTROS_SUJETO_ASISTENCIA": {"spans": 38, "distinct": 9, "surfaces_in_2plus": 3, "pct": 33.3, "max_docs_one_surface": 20},
+      "NUMERO_TELEFONO": {"spans": 22, "distinct": 22, "surfaces_in_2plus": 0, "pct": 0.0, "max_docs_one_surface": 1},
+      "CALLE": {"spans": 22, "distinct": 20, "surfaces_in_2plus": 2, "pct": 10.0, "max_docs_one_surface": 2},
+      "ID_SUJETO_ASISTENCIA": {"spans": 14, "distinct": 9, "surfaces_in_2plus": 1, "pct": 11.1, "max_docs_one_surface": 5},
+      "ID_CONTACTO_ASISTENCIAL": {"spans": 2, "distinct": 1, "surfaces_in_2plus": 0, "pct": 0.0, "max_docs_one_surface": 1},
+      "URL_WEB": {"spans": 1, "distinct": 1, "surfaces_in_2plus": 0, "pct": 0.0, "max_docs_one_surface": 1}
+    },
+    "_reuse_is_not_patient_linkage": "High reuse of a HOSPITAL or SEXO surface says nothing about whether two documents share a patient. See grouping: the strong-identifier surfaces that do recur are artefacts."
+  },
+
+  "official_split": {
+    "provided": false,
+    "verified": "no manifest, index, or directory named for a split anywhere in the release; non-data files are only .DS_Store, CARMEN1_mappings.tsv, README.md",
+    "consequence": "Unlike MEDDOCAN (500/250/250) there is no published split to reuse, so no external comparability is available and the split must be made here. Same situation as GraSCCo."
+  },
+
+  "documented_vs_measured": {
+    "documents": {"documented": 2000, "measured": 2000, "agree": true},
+    "ner_annotated_subset": {"documented": "a subset", "measured": 500, "note": "README does not give the number; 500 is measured and matches the mappings flag exactly"},
+    "genres": {"documented": "discharge letters, referrals and radiology reports (3 named)", "measured": "5 two-letter codes, none expanded in the release", "agree": "cannot be checked — see document_identifiers._doctype_expansion_caveat"},
+    "language": {"documented": "mainly Spanish, with some sections in Catalan", "measured": "es 1697 / bi 264 / cat 39", "agree": true},
+    "anonymisation": {"documented": "masked and replaced variants", "measured": "confirmed, and masked surfaces verified to be type labels in 8230/8230 cases", "agree": true},
+    "span_totals": {"documented": "not stated", "measured": "anon 8231 (tsv and replaced .ann) / 8230 (masked .ann); ner 26360"}
+  },
+
+  "loader_requirements": [
+    "Read as plain utf-8. No BOM exists, but keep the convention identical to the other corpora.",
+    "Use the replaced variant for detection experiments; the masked variant carries no orthographic signal.",
+    "Never mix offsets between variants — they disagree in 1533 of 2000 documents.",
+    "Assert every span slice equals its .ann surface field. One span in replaced/anon fails; it must be reported, not silently dropped.",
+    "Treat 8231 as the anon annotation count and note the masked variant is short by one.",
+    "Support discontinuous brat spans, or assert their absence — 1 exists in masked/ner.",
+    "Handle zero-PHI documents (462) and 1-token documents without dividing by zero.",
+    "Do not construct a patient key. None exists; see grouping."
+  ]
+}

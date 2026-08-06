@@ -1,0 +1,32 @@
+# config/data_paths.example.yaml
+#
+# 코퍼스 ID → 로컬 경로 매핑의 템플릿.
+# 이 파일을 config/data_paths.local.yaml 로 복사해서 자기 기계에 맞게 고친다.
+#
+#     cp config/data_paths.example.yaml config/data_paths.local.yaml
+#
+# local 파일은 .gitignore 에 있다. 기계마다 다르고, DUA 대상 데이터의
+# 위치를 노출하기 때문이다. 이 example 파일만 커밋한다.
+#
+# 규칙
+#   - 코퍼스 ID 는 config/naming.yaml 의 corpus 축 값만 쓴다.
+#   - **어떤 코드도 코퍼스 경로를 하드코딩하지 않는다.** 이 매핑에서 읽는다.
+#     경로가 저장소 안인지 밖인지도 코드가 알 필요가 없어야 한다.
+#   - 저장소 밖 경로가 허용된다. DUA 데이터는 저장소 밖에 두는 편이 안전하다
+#     — release_screen.py 가 못 보는 곳이라 실수로 스테이징될 수 없다.
+#   - '~' 는 확장한다. 상대 경로는 저장소 루트 기준이다.
+
+version: 1
+
+corpora:
+  # 저장소 안. data/* 는 gitignore 되고 release_screen.py 가 차단한다.
+  es-meddocan: data/raw/es-meddocan
+  de-grascco:  data/raw/de-grascco
+
+  # 저장소 밖. PhysioNet credentialed 접근이 필요한 실제 병원 기록이다.
+  # 경로는 각자 다르다. data/acquire/fetch_carmen.sh 를 읽을 것.
+  es-carmen:   ~/path/to/carmen-i
+
+  # 아직 취득하지 않음. 취득하면 주석을 풀고 경로를 적는다.
+  # ko-surro:  ~/path/to/ko-surro
+  # en-n2c2:   ~/path/to/n2c2-2014
