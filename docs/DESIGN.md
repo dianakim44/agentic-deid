@@ -177,6 +177,72 @@ reason in §2.
 Per-arm cost is reported alongside quality: LLM calls, tokens, wall time.
 A quality gain that costs 2× is a different result from one that costs 1.05×.
 
+### 5.1 Reporting granularity: aggregates alone cannot carry a porting claim
+
+Both headline quantities are reported **per canonical type as well as in
+aggregate**, and every cross-corpus comparison is accompanied by a figure computed
+on the types the two corpora share. Three rules, then the measurement that forces
+them:
+
+- **Report the complementarity breakdown and the leak rate per canonical type
+  (§9.0), not only as corpus totals.** Types with n ≤ 8 are omitted from the
+  per-type view under §9.4 while staying in the totals; the omission and the
+  omitted count are stated so the rows visibly do not sum.
+- **Alongside any cross-corpus comparison, report the same quantities restricted to
+  the canonical types both corpora observe.** State which types the restriction drops
+  and what share of each corpus's gold they carry — the cost is typically asymmetric,
+  and hiding it would replace one distortion with another. When the restriction drops
+  nothing, say so: that is a fact about the pair, not a clean bill of health.
+- **Do not claim porting difficulty from an aggregate comparison alone.** A
+  difference in corpus totals is not evidence about language or note type until the
+  type mix is held fixed.
+
+**Why this is not defensive over-reporting.** MEDDOCAN and CARMEN-I are both
+Spanish, both clinical, and share every type name — so a naive reading treats a gap
+between them as a language-held-constant measurement of note-type or corpus
+difficulty. Their type distributions make that reading unsafe. Measured at the canonical level of
+§9.0, after the §9.1 exclusions and leaving out the two CARMEN-I types §9.0 does not
+yet place (`NUMERO_IDENTIF` 227, `URL_WEB` 1):
+
+| canonical type | MEDDOCAN (20,538) | CARMEN-I (7,246) |
+|---|---|---|
+| `DATE` | 12.5% | **74.3%** |
+| `CONTACT` + `ID` — email, fax, phone, every ID subtype | 20.0% | **0.5%** |
+| `NAME` | 19.5% | 2.1% |
+
+MEDDOCAN is synthetic case reports whose generator inserted administrative blocks;
+CARMEN-I is authentic hospital narrative, where those elements are simply not
+written down. The consequence is arithmetic, not speculative: **a detector that
+found nothing but dates, perfectly, would score 12.5% recall on MEDDOCAN and 74.3%
+on CARMEN-I** — 62 points of difference with detector quality identical by
+construction. Symmetrically, the two types regex and checksum rules are best at
+carry 20.0% of MEDDOCAN's spans and 0.5% of CARMEN-I's, so a rule set whose strength
+lies exactly there has almost nothing left to find in CARMEN-I.
+
+**And the common-subset rule does not rescue this pair — which is why per-type
+reporting is the load-bearing requirement.** All ten canonical types are observed
+with nonzero counts in both corpora, so restricting to the shared set drops nothing
+and changes no number. The confound lives *inside* a shared type set, as a difference
+in the mixing weights rather than in which types exist. The common-subset rule earns
+its place for pairs where types genuinely are absent — GraSCCo has no `OTHER`,
+CARMEN-I has no patient-name gold at all — but a corpus pair can pass that check and
+still be incomparable in aggregate. Passing it is not evidence of comparability.
+
+An aggregate leak-rate gap between these two corpora therefore mixes at least three
+effects — porting difficulty, corpus authenticity, and type mix — and the type-mix
+term alone is large enough to produce a gap of the size the experiment is trying to
+detect. Only the per-type view separates them.
+
+This interacts with the per-layer prediction in §7: the layer whose sensitivity to
+orthographic realisation is **none** (regex/checksum) is precisely the layer whose
+target types are 20.0% of one corpus and 0.5% of the other. Without per-type
+reporting a type-mix shift and a realisation effect are indistinguishable in the
+totals, and §7's prediction would not be testable across these two corpora at all.
+
+The same discipline applies to every corpus pair, not just this one; MEDDOCAN and
+CARMEN-I are documented here because they are the pair where the confound was
+measured rather than anticipated.
+
 ---
 
 ## 6. Experimental integrity
@@ -205,7 +271,7 @@ material nor openly licensed corpora. Acquisition scripts only.
 |--------|----------|------------|--------|
 | MEDDOCAN | Spanish | clinical case studies | Zenodo, open |
 | GraSCCo | German | mixed inpatient/outpatient — see below | Zenodo, open |
-| CARMEN-I | Spanish / Catalan | discharge, referral, radiology | PhysioNet, request pending |
+| CARMEN-I | Spanish / Catalan / mixed within document | coded, never expanded in the release — see below | PhysioNet, credentialed |
 | ko-surro | Korean | nursing notes | derived from PhysioNet; DUA |
 | n2c2 2014 | English | longitudinal progress notes | portal unavailable; on hold |
 
@@ -239,6 +305,26 @@ note-type contrast than any cross-corpus pair, because it holds everything excep
 document type constant. It is also small: the subsets overlap, and per-type figures
 for the 12 rare PHI types will not survive the split, so this is a secondary
 analysis, not a headline arm.
+
+**The two Spanish corpora are not a language-held-constant pair.** MEDDOCAN and
+CARMEN-I share a language, a clinical domain, and every type name, which makes it
+tempting to read a gap between them as a measurement of note type or of corpus
+difficulty at fixed language. Their type distributions rule that out: `DATE` is 12.5%
+of MEDDOCAN's in-scope spans and 74.3% of CARMEN-I's, while `CONTACT` + `ID` is 20.0%
+against 0.5%. All ten canonical types occur in both corpora, so the mismatch is in the
+mixing weights and no subset restriction removes it. §5.1 gives the arithmetic and the
+reporting rules that follow; the measurement is in
+`docs/notes/corpus-observations.md` §8.2.
+
+Two further asymmetries make the pair weaker than it looks, both recorded rather than
+worked around. **CARMEN-I has no patient-name gold at all** — the type is declared and
+has zero instances, against MEDDOCAN's 2,014 — so the single most-studied PHI type in
+this literature cannot be evaluated on it. And **789 of its 2,000 units are clinical
+section excerpts rather than whole notes**, with the two-letter document-type codes
+never expanded in the release, so CARMEN-I does not supply a clean note-type contrast
+the way GraSCCo does. It earns its place as the only *authentic* clinical corpus here —
+which is exactly what makes it the right corpus for a disclosure-risk claim — not as a
+controlled contrast against MEDDOCAN.
 
 Selection is not opportunistic. The corpora span a spectrum of **orthographic cue
 reliability** — but that spectrum is two-dimensional, not one. An earlier version of

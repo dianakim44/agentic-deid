@@ -746,6 +746,52 @@ A rule set tuned on MEDDOCAN should be expected to transfer badly here, and this
 is a confound in any MEDDOCAN→CARMEN-I porting result: the corpora differ in
 authenticity and in type mix at the same time.
 
+**How large the confound is, in recall points.** Computed on the §9.1-excluded scope
+(MEDDOCAN 20,538 spans; CARMEN-I 7,474, counting the two undecided types of §8.1):
+
+| canonical type (§9.0) | MEDDOCAN 20,538 | CARMEN-I 7,246 |
+|---|---|---|
+| `DATE` | 12.5% | **74.3%** |
+| `CONTACT` + `ID` — email, fax, phone, all ID subtypes | 20.0% | **0.5%** |
+| `NAME` | 19.5% | 2.1% |
+| `LOCATION_AREA` | 25.5% | 2.9% |
+| `AGE` | 10.1% | 11.2% |
+| `ORGANISATION` | 3.8% | 6.9% |
+
+CARMEN-I's total here is 7,246 rather than 7,474 because the two types §9.0 does not yet
+place (`NUMERO_IDENTIF` 227, `URL_WEB` 1) are left out; folding both into `ID` and
+`CONTACT` would move that row to 3.6%, still far below MEDDOCAN's 20.0%, so the
+conclusion does not depend on how §8.1 is decided.
+
+So **a detector that found nothing but dates, perfectly, would score 12.5% recall on
+MEDDOCAN and 74.3% on CARMEN-I** — a 62-point difference produced entirely by type mix,
+with detector quality held identical by construction. In the other direction, the
+regex-and-checksum-friendly types that carry 20.0% of MEDDOCAN's spans carry 0.5% of
+CARMEN-I's, so a rule set whose strength is exactly there has almost nothing to find in
+CARMEN-I. `AGE` is the only type whose weight is close in both (10.1% vs 11.2%).
+Aggregate recall cannot separate any of this from genuine porting difficulty, which is
+why DESIGN.md §5.1 requires per-type reporting.
+
+**The common-type subset, and why it does not help this pair.** §5.1 requires a
+cross-corpus figure restricted to the types both corpora observe. Which types those are
+depends on the level:
+
+- **Source-type level** — 14 of the shared names are nonzero in both, covering **77.0%**
+  of MEDDOCAN's in-scope spans and **96.9%** of CARMEN-I's. The restriction costs
+  MEDDOCAN 4,716 spans (patient names 2,014, email 959, licence 931, insurance 783) and
+  CARMEN-I 228, so it is strongly asymmetric.
+- **Canonical level (§9.0), which is the level §5.1 scores at** — **all ten types are
+  nonzero in both corpora**. `NOMBRE_PERSONAL_SANITARIO` keeps `NAME` alive for
+  CARMEN-I even with zero patient names; `NUMERO_TELEFONO` keeps `CONTACT` alive with 22
+  spans; `ID_SUJETO_ASISTENCIA` keeps `ID` alive with 14. So the restriction **drops
+  nothing and changes no number**.
+
+That is the substantive point rather than a technicality. The confound is not "the two
+corpora annotate different types" — it is that they weight the *same* ten types
+completely differently. A common-subset check passes here and the pair is still
+incomparable in aggregate, so passing that check must not be read as evidence of
+comparability. Per-type reporting is the requirement that actually bites.
+
 ### 8.3 §9.1 exclusions in CARMEN-I
 
 | §9.1 excluded type | CARMEN-I | share of corpus |
