@@ -493,6 +493,41 @@ width rather than assume it — the within-corpus note-type contrast described a
 is the instrument for that, which is why it is worth running even as a secondary
 analysis.
 
+### 7.1 The product hypothesis has an untested cell
+
+The hypothesis above is a product, but it is only tested in the cells the corpora
+populate — and after the CARMEN-I correction those cells do not include the middle of
+axis 1. Recorded here rather than worked around, because a product claim verified at
+its two ends is weaker evidence than the phrasing suggests.
+
+**Axis-2 variation is observable in German, and in English only if n2c2 arrives.**
+GraSCCo's 8-way document-type distribution supplies it at low baseline. The two English
+rows of the axis-2 table are a projection, not a measurement: n2c2 2014 is on hold with
+its portal unavailable, so the high-baseline cell is currently unpopulated too.
+
+**Spanish is the only interior value on axis 1 and supplies no axis-2 variation at
+all.** MEDDOCAN is a single register — published case studies, uniformly edited — so
+note type does not vary within it. CARMEN-I cannot supply note type either, per the
+correction above. Two Spanish corpora, and no way to vary realisation at fixed
+language.
+
+**So "a language is an interval" is instrumented for German and, prospectively,
+English — not for Spanish.** The MEDDOCAN/CARMEN-I contrast was the only candidate
+instrument for Spanish's width, and two independent findings disqualify it: the type-mix
+confound of §5.1, and the unit-kind mismatch of the correction above. Either alone would
+be enough; they are not the same objection, and neither is repairable by reweighting or
+subsetting.
+
+**Conclusion: the multiplicative interaction is checkable in at most two cells, and a
+test at medium baseline is impossible with this corpus set.** Not a flaw in the
+hypothesis and not a reason to restate it as something weaker — the prediction of §7
+remains falsifiable where it is measurable, per layer, within GraSCCo. It is a bound on
+what the result can claim: an interaction confirmed at low baseline and (if n2c2
+arrives) at high baseline, with the interior left unobserved. A second Spanish register
+at fixed language — clinical notes against case studies, or an unedited Spanish
+register — is what closes this, and acquiring one is worth more to the argument than a
+further arm on the corpora already held.
+
 ---
 
 ## 8. What is outside the system
