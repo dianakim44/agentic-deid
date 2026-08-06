@@ -40,6 +40,7 @@ TEST_FILES = [
     "tests/test_seal.py",
     "tests/test_release_screen.py",
     "tests/test_layer_families.py",
+    "tests/test_scorer.py",
 ]
 
 #: Repository directories the loader tests need. `splits/` is here because the
@@ -152,6 +153,7 @@ SPLIT_FILE = "splits/es-meddocan.json"
 SEALED_LOG = "src/eval/sealed_log.py"
 RUN_SEALED = "src/eval/run_sealed_eval.py"
 SCREEN = "tools/release_screen.py"
+SCORER = "src/eval/scorer.py"
 
 MUTATIONS = [
     Mutation(
@@ -558,6 +560,83 @@ MUTATIONS = [
             "corpus tree, and note text pasted into it is published clean. The "
             "guarantee is that the allowlist can only ever excuse a file the path "
             "rules already publish, never widen what they publish."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="greedy_allows_reuse",
+        path=SCORER,
+        anchor="        if gi in matched or pi in used:",
+        replacement="        if gi in matched:",
+        breaks=(
+            "One prediction may be assigned to several gold spans, so the matching "
+            "stops being one-to-one. A single wide prediction spanning two adjacent "
+            "gold names then collects credit for both, and recall rises for producing "
+            "one coarse span instead of two correct ones — the detector is rewarded "
+            "for being less precise about boundaries. DESIGN §9.3 keeps the "
+            "assignment one-to-one for exactly this reason, and the fixture that "
+            "sees it is D1, the `[Juan][Pérez]` geometry the section is written "
+            "around."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="fully_covered_is_relaxed",
+        path=SCORER,
+        anchor="    if mode == FULLY_COVERED:\n        return _covered_length(mark, union) == mark.length",
+        replacement="    if mode == FULLY_COVERED:\n        return _covered_length(mark, union) > 0",
+        breaks=(
+            "The strict mode collapses into the lower bound: a gold span with one "
+            "character covered counts as hidden. The leak rate is the headline "
+            "quantity of this project and it is reported as `fully_covered`, so this "
+            "edit makes the headline number a partial-overlap count while still "
+            "labelling it `fully_covered`. Both modes then agree everywhere, which is "
+            "the visible symptom — `leak_rate` and `leak_rate_lower_bound` become "
+            "equal, and a bound equal to its estimate is not a bound."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="leak_rate_from_assignment",
+        path=SCORER,
+        anchor='            "leaked": len(leaked),',
+        replacement='            "leaked": fn,',
+        breaks=(
+            "The leak rate is computed from the one-to-one assignment's false "
+            "negatives instead of from coverage. This is the specific error DESIGN "
+            "§9.3 was written to prevent: the assignment correctly denies credit for "
+            "the second of two adjacent gold spans under one wide prediction, so a "
+            "leak rate read off it reports a disclosed identifier in a document where "
+            "every character of both identifiers is hidden. It over-reports leaks "
+            "wherever the detector's span boundaries group differently from the gold "
+            "guideline, and that gap has its own honest name in the output: "
+            "`assignment_slack`."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="greedy_tiebreak_dropped",
+        path=SCORER,
+        anchor=(
+            "            candidates.append(\n"
+            "                (-_overlap(g, p), g.start, g.end, p.start, p.end, pi, gi)\n"
+            "            )"
+        ),
+        replacement=(
+            "            candidates.append(\n"
+            "                (-_overlap(g, p), pi, gi)\n"
+            "            )"
+        ),
+        breaks=(
+            "The sort key stops being a total order over span geometry: ties in "
+            "overlap fall through to the emission index, so which of two equally "
+            "overlapping predictions wins depends on the order the detector happened "
+            "to return them in. Every metric downstream of the assignment then moves "
+            "when the same spans arrive shuffled, which makes the numbers "
+            "unreproducible without anything looking wrong in a single run — the "
+            "output is self-consistent every time and different between times. Caught "
+            "by scoring one input twice in different orders and comparing the whole "
+            "result, since no single run can show it."
         ),
         min_kills=1,
     ),

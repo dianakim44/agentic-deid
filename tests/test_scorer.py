@@ -1,0 +1,896 @@
+"""Scorer tests against hand-designed boundary cases (DESIGN §9.3).
+
+Every expected number in this file was computed by hand from the fixture geometry
+*before* the scorer was run, and is written out as a literal. None of it was copied
+from the scorer's output. That order matters: a test whose expectation came from the
+code under test proves the code is deterministic and nothing else, and the two
+matchings of §9.3 are precisely the kind of thing where a plausible implementation
+gives a plausible wrong number.
+
+The fixtures are constructed, not sampled. Real corpus documents would exercise the
+common case densely and the boundaries not at all, and the boundaries are the whole
+question here: adjacency, partial overlap in both directions, one prediction over two
+gold spans and two predictions over one, type mismatch, PHI-free documents, sparse
+types, layers that agree, and empty sides.
+
+No fixture carries note text — `Mark` has no field for it (see
+`test_mark_refuses_a_surface`). Offsets here are arbitrary integers chosen to make the
+geometry legible.
+
+The fixture set, and the geometry each one exists to pin down:
+
+  D1 adjacent-gold-one-wide-pred   §9.3's two-adjacent-NAME illustration: one wide
+                                   prediction over two adjacent gold spans. Coverage
+                                   says both hidden; assignment must give credit for
+                                   one. The case that forces the bifurcation.
+  D2 one-gold-split-by-two-preds   The mirror: fully hidden by the union, covered by
+                                   no single prediction.
+  D3 partial-overlap-both-ways     Prediction runs off the right end of one gold span
+                                   and off the left end of another.
+  D4 layers-agree                  Three gold spans: one found by a rule layer only,
+                                   one by both, one by the tagger only. The fixture
+                                   `complementarity.sets` has to tell apart.
+  D5 type-mismatch                 Right offsets, wrong type. Not a detection.
+  D6 no-gold-with-preds            PHI-free document that got predictions: false
+                                   positive opportunity, out of the leak denominator.
+  D7 gold-no-preds                 Nothing predicted at all.
+  D8 no-gold-no-preds              A clean note nothing fired on. Still a document.
+"""
+from __future__ import annotations
+
+import json
+import random
+
+import pytest
+
+from src.corpora.base import Document, Span
+from src.eval import scorer
+from src.eval.scorer import (
+    FULLY_COVERED,
+    RELAXED,
+    DocPair,
+    Mark,
+    ScorerError,
+    assign,
+    coverage,
+    dedupe,
+    from_documents,
+    metrics_path,
+    score,
+    write_metrics,
+)
+
+# ─── fixtures ───────────────────────────────────────────────────────────────
+
+D1 = DocPair(
+    doc_id="adjacent-gold-one-wide-pred",
+    gold=(Mark(0, 4, "NAME"), Mark(5, 10, "NAME")),
+    pred=(Mark(0, 10, "NAME", "tagger"),),
+)
+D2 = DocPair(
+    doc_id="one-gold-split-by-two-preds",
+    gold=(Mark(0, 10, "NAME"),),
+    # Contiguous, not overlapping: 0-4 and 4-10 leave no uncovered character.
+    pred=(Mark(0, 4, "NAME", "context_cue"), Mark(4, 10, "NAME", "tagger")),
+)
+D3 = DocPair(
+    doc_id="partial-overlap-both-ways",
+    gold=(Mark(100, 110, "DATE"), Mark(200, 210, "ID")),
+    pred=(Mark(105, 115, "DATE", "regex_checksum"),
+          Mark(195, 205, "ID", "regex_checksum")),
+)
+D4 = DocPair(
+    doc_id="layers-agree",
+    gold=(Mark(0, 5, "NAME"), Mark(10, 15, "NAME"), Mark(20, 25, "NAME")),
+    pred=(Mark(0, 5, "NAME", "context_cue"),
+          Mark(10, 15, "NAME", "context_cue"),
+          Mark(10, 15, "NAME", "tagger"),      # same span, second layer
+          Mark(20, 25, "NAME", "tagger")),
+)
+D5 = DocPair(
+    doc_id="type-mismatch",
+    gold=(Mark(0, 5, "NAME"),),
+    pred=(Mark(0, 5, "LOCATION_AREA", "gazetteer"),),
+)
+D6 = DocPair(
+    doc_id="no-gold-with-preds",
+    gold=(),
+    pred=(Mark(0, 5, "NAME", "tagger"), Mark(10, 12, "AGE", "context_cue")),
+)
+D7 = DocPair(doc_id="gold-no-preds", gold=(Mark(0, 5, "PROFESSION"),), pred=())
+D8 = DocPair(doc_id="no-gold-no-preds", gold=(), pred=())
+
+CORPUS = [D1, D2, D3, D4, D5, D6, D7, D8]
+
+RUN = {
+    "corpus": "es-meddocan", "detector": "RT", "supervision": "sup-free",
+    "porting": "port-loop", "split": "dev", "rules_version": "es@test",
+    "seed": 20260805, "commit": "0000000",
+}
+COST = {"llm_calls": 0, "prompt_tokens": 0, "completion_tokens": 0,
+        "wall_seconds": 0.0}
+
+
+@pytest.fixture(scope="module")
+def scored():
+    return score(CORPUS, excluded_gold=3)
+
+
+def approx(value):
+    return pytest.approx(value, abs=1e-9)
+
+
+# ─── the no-surface decision, enforced ──────────────────────────────────────
+
+
+def test_mark_refuses_a_surface():
+    """The absent field is a guarantee, not a habit — so it is asserted.
+
+    A comment saying "we do not pass the text" is undone by one caller passing the
+    text. A constructor that raises is not.
+    """
+    with pytest.raises(TypeError):
+        Mark(0, 4, "NAME", "tagger", surface="whatever")  # type: ignore[call-arg]
+    assert not hasattr(Mark(0, 4, "NAME"), "surface")
+    assert "surface" not in Mark.__slots__
+
+
+def test_from_documents_drops_the_surface_it_is_given():
+    """Loader Spans carry a surface; the scorer boundary is where it stops."""
+    doc = Document(
+        doc_id="d", corpus_id="es-meddocan", text="0123456789",
+        spans=[Span(start=0, end=4, surface="0123", subtype="NOMBRE_SUJETO",
+                    phi_type="NAME")],
+    )
+    pairs, excluded = from_documents([doc], {})
+    assert excluded == 0
+    assert pairs[0].gold == (Mark(0, 4, "NAME"),)
+    assert not hasattr(pairs[0].gold[0], "surface")
+
+
+def test_no_output_field_holds_a_string_from_a_span(scored):
+    """Nothing in the metrics payload could be note text.
+
+    Every string in the output has to be a doc_id, an axis value, a metric name, or a
+    layer-set key built from layer names. Checked structurally rather than by eye,
+    because the output grows.
+    """
+    allowed = (
+        set(scorer.MODES) | {p.doc_id for p in CORPUS}
+        | {"", "rules", "tagger"} | set(scorer.HEADLINE_MODE)
+    )
+    from src.corpora.base import axis
+    for name in ("phi_type", "layer", "corpus", "detector", "supervision",
+                 "porting", "split"):
+        allowed |= set(axis(name))
+    allowed |= {"|".join(sorted(s)) for s in _powerset(axis("layer"))}
+
+    def walk(node, path):
+        if isinstance(node, dict):
+            for key, val in node.items():
+                assert isinstance(key, str)
+                walk(val, f"{path}.{key}")
+        elif isinstance(node, list):
+            for i, val in enumerate(node):
+                walk(val, f"{path}[{i}]")
+        elif isinstance(node, str):
+            assert node in allowed or node in RUN.values(), (
+                f"{path} holds an unrecognised string; if a span's surface can reach "
+                "the metrics file this is where it shows up"
+            )
+
+    walk(scored, "$")
+
+
+def _powerset(items):
+    items = sorted(items)
+    for mask in range(1 << len(items)):
+        yield [x for i, x in enumerate(items) if mask >> i & 1]
+
+
+# ─── D1: the case that forces two matchings ─────────────────────────────────
+#
+# Hand computation. gold [0,4) and [5,10), one prediction [0,10) of the same type.
+#
+#   coverage, both modes:   union = [(0,10)]. Gold 0 has 4 of 4 characters covered,
+#                           gold 1 has 5 of 5. Both covered. Leaked 0.
+#   assignment, both modes: both gold spans are eligible for the one prediction;
+#                           overlaps 4 and 5, so the larger (gold 1) wins it and gold
+#                           0 is a false negative. tp 1, fn 1, fp 0.
+#   slack:                  gold 0 is covered and unmatched → 1.
+
+
+def test_d1_coverage_hides_both_spans():
+    for mode in (FULLY_COVERED, RELAXED):
+        assert coverage(D1.gold, D1.pred, mode) == [True, True]
+
+
+def test_d1_assignment_gives_credit_for_one():
+    for mode in (FULLY_COVERED, RELAXED):
+        matched, fn, fp = assign(D1.gold, D1.pred, mode)
+        assert matched == {1: 0}, mode
+        assert fn == [0] and fp == [], mode
+
+
+def test_d1_coverage_and_assignment_disagree_and_slack_is_the_difference():
+    """The verification the bifurcation exists for.
+
+    A leak rate read off the assignment would report one leaked identifier in a
+    document where every character of both identifiers is hidden.
+    """
+    one = score([D1])
+    for mode in (FULLY_COVERED, RELAXED):
+        block = one["modes"][mode]
+        assert block["leak"] == {"leaked": 0, "denominator": 2, "rate": 0.0}
+        assert block["overall"]["tp"] == 1
+        assert block["overall"]["fn"] == 1
+        assert block["overall"]["recall"] == approx(0.5)
+        # 2 covered vs 1 matched, and the gap is exactly the recorded slack.
+        assert block["assignment_slack"] == 1
+        covered = block["leak"]["denominator"] - block["leak"]["leaked"]
+        assert covered - block["overall"]["tp"] == block["assignment_slack"]
+
+
+# ─── D2: the mirror case ────────────────────────────────────────────────────
+#
+# Hand computation. gold [0,10); predictions [0,4) and [4,10), same type, adjacent.
+#
+#   coverage fully_covered: union = [(0,10)] → 10 of 10 covered → not a leak.
+#   assignment fully_covered: neither prediction contains the gold span on its own,
+#                           so there is no eligible pair. tp 0, fn 1, fp 2.
+#   slack fully_covered:    covered and unmatched → 1.
+#   assignment relaxed:     [4,10) overlaps 6 and wins; [0,4) is a false positive.
+#                           tp 1, fn 0, fp 1. slack 0.
+
+
+def test_d2_union_of_two_predictions_is_not_a_leak():
+    """A jointly hidden identifier is hidden. `fully_covered` is a union statement."""
+    assert coverage(D2.gold, D2.pred, FULLY_COVERED) == [True]
+    one = score([D2])
+    assert one["modes"][FULLY_COVERED]["leak"]["leaked"] == 0
+    # And no single prediction covers it, which is what makes it a false negative.
+    assert assign(D2.gold, D2.pred, FULLY_COVERED) == ({}, [0], [0, 1])
+    assert one["modes"][FULLY_COVERED]["overall"]["tp"] == 0
+    assert one["modes"][FULLY_COVERED]["assignment_slack"] == 1
+
+
+def test_d2_relaxed_assigns_the_larger_overlap():
+    matched, fn, fp = assign(D2.gold, D2.pred, RELAXED)
+    assert matched == {0: 1} and fn == [] and fp == [0]
+
+
+def test_d2_fully_covered_families_are_joint_not_neither():
+    """Covered by the union, by neither family alone.
+
+    Calling this `neither` would break `neither == leaked`, and the breakdown would
+    contradict the leak rate printed in the same file.
+    """
+    fam = score([D2])["modes"][FULLY_COVERED]["complementarity"]["families"]
+    assert fam == {"rules_only": 0, "tagger_only": 0, "both": 0,
+                   "joint_only": 1, "neither": 0, "denominator": 1}
+    layers = score([D2])["modes"][FULLY_COVERED]["complementarity"]["layers"]
+    assert layers["covered_by_union_only"] == 1
+    assert layers["sets"] == {}          # not {"": 1}: nothing leaked here
+    # Relaxed sees both families, since any overlap of the union is some single
+    # prediction's overlap.
+    rel = score([D2])["modes"][RELAXED]["complementarity"]
+    assert rel["families"]["both"] == 1
+    assert rel["families"]["joint_only"] == 0
+    assert rel["layers"]["sets"] == {"context_cue|tagger": 1}
+
+
+# ─── D3: partial overlap in both directions ─────────────────────────────────
+#
+# gold [100,110) with prediction [105,115) — 5 of 10 covered, off the right end.
+# gold [200,210) with prediction [195,205) — 5 of 10 covered, off the left end.
+#
+#   fully_covered: neither covered → 2 leaks; no eligible pair → tp 0, fn 2, fp 2.
+#   relaxed:       both covered → 0 leaks; both matched → tp 2, fn 0, fp 0.
+
+
+def test_d3_direction_of_the_miss_does_not_matter():
+    assert coverage(D3.gold, D3.pred, FULLY_COVERED) == [False, False]
+    assert coverage(D3.gold, D3.pred, RELAXED) == [True, True]
+    one = score([D3])
+    assert one["modes"][FULLY_COVERED]["leak"]["rate"] == approx(1.0)
+    assert one["modes"][FULLY_COVERED]["overall"]["tp"] == 0
+    assert one["modes"][RELAXED]["leak"]["rate"] == approx(0.0)
+    assert one["modes"][RELAXED]["overall"] == {
+        "tp": 2, "fp": 0, "fn": 0, "precision": 1.0, "recall": 1.0, "f1": 1.0}
+    # Nothing is covered under fully_covered, so nothing can be slack.
+    assert one["modes"][FULLY_COVERED]["assignment_slack"] == 0
+
+
+# ─── D4: layers that agree ──────────────────────────────────────────────────
+#
+# gold [0,5) found by context_cue only; [10,15) by context_cue and tagger (identical
+# spans); [20,25) by tagger only. All exact, so both modes agree.
+#
+#   sets: "context_cue" 1, "context_cue|tagger" 1, "tagger" 1
+#   families: rules_only 1, both 1, tagger_only 1
+#   dedupe: the duplicated [10,15) collapses → 3 distinct predictions, 3 gold, tp 3,
+#           fp 0. Without the collapse the second copy would be a false positive.
+
+
+def test_d4_sets_distinguish_only_from_also():
+    """DESIGN §7 needs "context_cue only" told apart from "context_cue also"."""
+    for mode in (FULLY_COVERED, RELAXED):
+        comp = score([D4])["modes"][mode]["complementarity"]
+        assert comp["layers"]["sets"] == {
+            "context_cue": 1, "context_cue|tagger": 1, "tagger": 1}, mode
+        assert comp["layers"]["covered"] == {
+            "context_cue": 2, "gazetteer": 0, "regex_checksum": 0, "tagger": 2}, mode
+        assert comp["families"] == {
+            "rules_only": 1, "tagger_only": 1, "both": 1, "joint_only": 0,
+            "neither": 0, "denominator": 3}, mode
+
+
+def test_d4_layer_agreement_is_not_a_false_positive():
+    """Two layers finding one span found one thing.
+
+    Under a raw 1:1 matching the second copy is unmatched and scores as a false
+    positive, so precision would fall exactly where the layers agree — the same
+    pathology §9.3 rules out for complementarity, in a different number.
+    """
+    kept, dupes = dedupe(D4.pred)
+    assert dupes == 1 and len(kept) == 3
+    block = score([D4])["modes"][FULLY_COVERED]
+    assert block["overall"] == {"tp": 3, "fp": 0, "fn": 0,
+                               "precision": 1.0, "recall": 1.0, "f1": 1.0}
+    assert block["duplicate_predictions"] == 1
+    # The collapse is for credit only; the layer view still sees both layers.
+    assert block["complementarity"]["layers"]["covered"]["tagger"] == 2
+
+
+def test_dedupe_leaves_differently_bounded_predictions_alone():
+    """Merging overlapping predictions is the merge policy's job (DESIGN §4).
+
+    A scorer that merged on its own would make every merge policy score alike.
+    """
+    kept, dupes = dedupe([Mark(0, 5, "NAME", "context_cue"),
+                          Mark(0, 6, "NAME", "tagger")])
+    assert dupes == 0 and len(kept) == 2
+
+
+# ─── D5, D6, D7, D8: type mismatch and the empty sides ──────────────────────
+
+
+def test_d5_type_mismatch_is_a_leak_and_a_false_positive():
+    """Right offsets, wrong type: the identifier is not hidden and the guess is wrong."""
+    for mode in (FULLY_COVERED, RELAXED):
+        assert coverage(D5.gold, D5.pred, mode) == [False], mode
+        assert assign(D5.gold, D5.pred, mode) == ({}, [0], [0]), mode
+    block = score([D5])["modes"][RELAXED]
+    assert block["leak"]["leaked"] == 1
+    assert block["by_type"]["NAME"]["fn"] == 1
+    assert block["by_type"]["NAME"]["fp"] == 0        # the fp belongs to the type
+    assert block["by_type"]["LOCATION_AREA"]["fp"] == 1   # the detector claimed
+    assert block["by_type"]["LOCATION_AREA"]["gold"] == 0
+
+
+def test_d6_phi_free_document_is_out_of_the_leak_denominator():
+    one = score([D6])
+    assert one["modes"][RELAXED]["leak"]["denominator"] == 0
+    assert one["modes"][RELAXED]["leak"]["rate"] is None      # not 0.0
+    assert one["modes"][RELAXED]["by_document"]["denominator"] == 0
+    assert one["false_positive_opportunity"] == {
+        "documents_without_gold_phi": 1, "predictions_in_those_documents": 2}
+    # It is still an opportunity to be wrong, and both predictions are.
+    assert one["modes"][RELAXED]["overall"]["fp"] == 2
+
+
+def test_d7_empty_predictions_leak_everything():
+    for mode in (FULLY_COVERED, RELAXED):
+        assert coverage(D7.gold, D7.pred, mode) == [False], mode
+    block = score([D7])["modes"][FULLY_COVERED]
+    assert block["leak"] == {"leaked": 1, "denominator": 1, "rate": 1.0}
+    assert block["overall"] == {"tp": 0, "fp": 0, "fn": 1,
+                                "precision": 0.0, "recall": 0.0, "f1": 0.0}
+    assert block["complementarity"]["families"]["neither"] == 1
+    assert block["complementarity"]["layers"]["sets"] == {"": 1}
+
+
+def test_d8_empty_document_is_still_counted():
+    one = score([D8])
+    assert one["counts"]["documents"] == {
+        "total": 1, "with_gold_phi": 0, "without_gold_phi": 1}
+    assert one["modes"][RELAXED]["overall"]["fp"] == 0
+
+
+def test_an_empty_corpus_produces_no_rates():
+    """Nothing scored is not a perfect score."""
+    one = score([])
+    assert one["modes"][RELAXED]["leak"]["rate"] is None
+    assert one["modes"][RELAXED]["macro"]["n_types"] == 0
+    assert one["modes"][RELAXED]["macro"]["f1"] is None
+    assert one["counts"]["gold"]["excluded_share"] is None
+
+
+# ─── whole-corpus totals, hand-computed ─────────────────────────────────────
+#
+# Gold: D1 2 NAME, D2 1 NAME, D3 1 DATE + 1 ID, D4 3 NAME, D5 1 NAME,
+#       D7 1 PROFESSION → 10 in scope. Predictions: 1+2+2+4+1+2+0+0 = 12.
+# Documents: 8 total, 6 with gold PHI, 2 without.
+
+
+def test_counts(scored):
+    assert scored["counts"] == {
+        "documents": {"total": 8, "with_gold_phi": 6, "without_gold_phi": 2},
+        "gold": {"in_scope": 10, "excluded": 3,
+                 "excluded_share": approx(3 / 13)},
+        "pred": 12,
+    }
+
+
+# fully_covered, per document:
+#   leaks   D1 0, D2 0, D3 2, D4 0, D5 1, D7 1            → 4 of 10 = 0.4
+#   tp      D1 1, D2 0, D3 0, D4 3, D5 0, D6 0, D7 0      → 4
+#   fp      D2 2, D3 2, D5 1, D6 2                        → 7
+#   fn      10 − 4                                        → 6
+#   precision 4/11, recall 4/10, f1 8/(8+7+6) = 8/21
+#   slack   D1 1, D2 1                                    → 2
+#   leaked documents D3, D5, D7                           → 3 of 6 = 0.5
+
+
+def test_fully_covered_totals(scored):
+    block = scored["modes"][FULLY_COVERED]
+    assert block["leak"] == {"leaked": 4, "denominator": 10, "rate": approx(0.4)}
+    assert block["overall"] == {
+        "tp": 4, "fp": 7, "fn": 6,
+        "precision": approx(4 / 11), "recall": approx(0.4),
+        "f1": approx(8 / 21)}
+    assert block["assignment_slack"] == 2
+    assert block["by_document"] == {
+        "with_leak": 3, "denominator": 6, "rate": approx(0.5)}
+    assert block["duplicate_predictions"] == 1
+
+
+# relaxed, per document:
+#   leaks   D5 1, D7 1                                    → 2 of 10 = 0.2
+#   tp      D1 1, D2 1, D3 2, D4 3                        → 7
+#   fp      D2 1, D5 1, D6 2                              → 4
+#   fn      10 − 7                                        → 3
+#   precision 7/11, recall 0.7, f1 14/(14+4+3) = 14/21
+#   slack   D1 1                                          → 1
+#   leaked documents D5, D7                               → 2 of 6
+
+
+def test_relaxed_totals(scored):
+    block = scored["modes"][RELAXED]
+    assert block["leak"] == {"leaked": 2, "denominator": 10, "rate": approx(0.2)}
+    assert block["overall"] == {
+        "tp": 7, "fp": 4, "fn": 3,
+        "precision": approx(7 / 11), "recall": approx(0.7),
+        "f1": approx(14 / 21)}
+    assert block["assignment_slack"] == 1
+    assert block["by_document"] == {
+        "with_leak": 2, "denominator": 6, "rate": approx(1 / 3)}
+
+
+# by_type, fully_covered. NAME gold 7 (D1 2, D2 1, D4 3, D5 1):
+#   tp 4 (D1 1, D4 3), fn 3, fp 3 (D2 2, D6 1) → P = R = F1 = 4/7
+#   leaked 1 (D5) → 1/7
+# DATE gold 1: tp 0, fp 1, leaked 1.   ID gold 1: tp 0, fp 1, leaked 1.
+# PROFESSION gold 1: tp 0, fp 0, leaked 1.
+# LOCATION_AREA and AGE: gold 0, fp 1 each — in micro, out of macro.
+
+
+def test_by_type_fully_covered(scored):
+    by_type = scored["modes"][FULLY_COVERED]["by_type"]
+    assert by_type["NAME"] == {
+        "gold": 7, "tp": 4, "fp": 3, "fn": 3,
+        "precision": approx(4 / 7), "recall": approx(4 / 7), "f1": approx(4 / 7),
+        "leaked": 1, "leak_rate": approx(1 / 7), "sparse": True}
+    assert by_type["DATE"]["leak_rate"] == approx(1.0)
+    assert by_type["ID"]["fp"] == 1
+    assert by_type["PROFESSION"] == {
+        "gold": 1, "tp": 0, "fp": 0, "fn": 1,
+        "precision": 0.0, "recall": 0.0, "f1": 0.0,
+        "leaked": 1, "leak_rate": approx(1.0), "sparse": True}
+    assert by_type["LOCATION_AREA"]["gold"] == 0
+    assert by_type["LOCATION_AREA"]["leak_rate"] is None
+    assert by_type["LOCATION_AREA"]["sparse"] is False
+    assert sum(t["fp"] for t in by_type.values()) == 7
+
+
+def test_by_type_relaxed(scored):
+    by_type = scored["modes"][RELAXED]["by_type"]
+    # NAME tp 5 (D1 1, D2 1, D4 3), fp 2 (D2 1, D6 1), fn 2, leaked 1.
+    assert by_type["NAME"] == {
+        "gold": 7, "tp": 5, "fp": 2, "fn": 2,
+        "precision": approx(5 / 7), "recall": approx(5 / 7), "f1": approx(5 / 7),
+        "leaked": 1, "leak_rate": approx(1 / 7), "sparse": True}
+    assert by_type["DATE"]["f1"] == approx(1.0)
+    assert by_type["DATE"]["leak_rate"] == approx(0.0)
+    assert sum(t["fp"] for t in by_type.values()) == 4
+
+
+# macro is over the four types that have gold: DATE, ID, NAME, PROFESSION.
+#   fully_covered  P = R = F1 = (0 + 0 + 4/7 + 0)/4;  leak = (1+1+1/7+1)/4
+#   relaxed        P = R = F1 = (1 + 1 + 5/7 + 0)/4;  leak = (0+0+1/7+1)/4
+
+
+def test_macro_excludes_types_with_no_gold(scored):
+    macro = scored["modes"][FULLY_COVERED]["macro"]
+    assert macro["n_types"] == 4
+    assert macro["f1"] == approx((4 / 7) / 4)
+    assert macro["precision"] == approx((4 / 7) / 4)
+    assert macro["leak_rate"] == approx((3 + 1 / 7) / 4)
+    rel = scored["modes"][RELAXED]["macro"]
+    assert rel["n_types"] == 4
+    assert rel["f1"] == approx((2 + 5 / 7) / 4)
+    assert rel["leak_rate"] == approx((1 + 1 / 7) / 4)
+
+
+# Complementarity, fully_covered, gold span by gold span:
+#   D1 g0 tagger_only  D1 g1 tagger_only  D2 joint_only  D3 DATE neither
+#   D3 ID neither      D4 g0 rules_only   D4 g1 both     D4 g2 tagger_only
+#   D5 neither         D7 neither
+# → rules_only 1, tagger_only 3, both 1, joint_only 1, neither 4; sum 10.
+# Relaxed reclassifies D2 (both) and both D3 spans (rules_only):
+# → rules_only 3, tagger_only 3, both 2, joint_only 0, neither 2.
+
+
+def test_complementarity_families(scored):
+    assert scored["modes"][FULLY_COVERED]["complementarity"]["families"] == {
+        "rules_only": 1, "tagger_only": 3, "both": 1, "joint_only": 1,
+        "neither": 4, "denominator": 10}
+    assert scored["modes"][RELAXED]["complementarity"]["families"] == {
+        "rules_only": 3, "tagger_only": 3, "both": 2, "joint_only": 0,
+        "neither": 2, "denominator": 10}
+
+
+def test_complementarity_partitions_the_denominator(scored):
+    """The five categories add up, and `neither` is exactly the leaked set.
+
+    Both are structural: if either breaks, the breakdown and the headline leak rate
+    in the same file disagree, and nothing else in the output would say so.
+    """
+    for mode in (FULLY_COVERED, RELAXED):
+        block = scored["modes"][mode]
+        fam = dict(block["complementarity"]["families"])
+        denominator = fam.pop("denominator")
+        assert sum(fam.values()) == denominator == 10, mode
+        assert fam["neither"] == block["leak"]["leaked"], mode
+
+
+def test_complementarity_layer_sets(scored):
+    fc = scored["modes"][FULLY_COVERED]["complementarity"]["layers"]
+    assert fc["sets"] == {
+        "": 4,                       # the leaked four
+        "context_cue": 1,            # D4 g0 — context_cue *only*
+        "context_cue|tagger": 1,     # D4 g1 — context_cue *also*
+        "tagger": 3,                 # D1 g0, D1 g1, D4 g2
+    }
+    assert fc["covered_by_union_only"] == 1          # D2
+    assert sum(fc["sets"].values()) + fc["covered_by_union_only"] == 10
+    assert fc["covered"] == {"context_cue": 2, "gazetteer": 0,
+                             "regex_checksum": 0, "tagger": 4}
+
+    rel = scored["modes"][RELAXED]["complementarity"]["layers"]
+    assert rel["sets"] == {
+        "": 2, "context_cue": 1, "context_cue|tagger": 2, "regex_checksum": 2,
+        "tagger": 3}
+    assert rel["covered_by_union_only"] == 0
+    assert rel["covered"] == {"context_cue": 3, "gazetteer": 0,
+                              "regex_checksum": 2, "tagger": 5}
+
+
+def test_the_empty_set_key_is_the_leaked_set(scored):
+    for mode in (FULLY_COVERED, RELAXED):
+        layers = scored["modes"][mode]["complementarity"]["layers"]
+        assert layers["sets"].get("", 0) == \
+            scored["modes"][mode]["leak"]["leaked"], mode
+
+
+def test_complementarity_by_type(scored):
+    """Per type, over the same five categories."""
+    name = scored["modes"][FULLY_COVERED]["complementarity"]["by_type"]["NAME"]
+    # NAME's 7: D1 g0/g1 tagger_only, D2 joint_only, D4 rules_only/both/tagger_only,
+    # D5 neither.
+    assert name["families"] == {
+        "rules_only": 1, "tagger_only": 3, "both": 1, "joint_only": 1,
+        "neither": 1, "denominator": 7}
+    date = scored["modes"][RELAXED]["complementarity"]["by_type"]["DATE"]
+    assert date["families"]["rules_only"] == 1
+    assert date["layers"]["sets"] == {"regex_checksum": 1}
+
+
+def test_the_invariants_hold_on_random_geometries():
+    """DESIGN §9.3 states four identities and one theorem. Checked by search.
+
+    The hand-designed fixtures above are the cases I thought of. These identities are
+    what the output's internal consistency rests on — if the five categories stop
+    partitioning, or `neither` stops equalling the leaked count, then the
+    complementarity breakdown and the leak rate contradict each other inside one
+    `metrics.json` with both numbers looking reasonable. That failure has no symptom,
+    so it gets a search over geometries I did not design rather than only the ones I
+    did.
+
+    Seeded, so a failure is reproducible: this is a property check, not a fuzz run
+    whose counterexample is gone by the time it is read.
+    """
+    from src.corpora.base import axis
+
+    rng = random.Random(7)
+    layers = sorted(axis("layer"))
+    types = sorted(axis("phi_type"))[:3]
+    for _ in range(600):
+        gold = tuple(
+            Mark(a, b, rng.choice(types))
+            for a, b in sorted({(s, s + rng.randrange(1, 8))
+                                for s in (rng.randrange(0, 40)
+                                          for _ in range(rng.randrange(0, 4)))})
+        )
+        pred = tuple(
+            Mark(s, s + rng.randrange(1, 9), rng.choice(types), rng.choice(layers))
+            for s in (rng.randrange(0, 42) for _ in range(rng.randrange(0, 5)))
+        )
+        result = score([DocPair("d", gold, pred)])
+        for mode in (FULLY_COVERED, RELAXED):
+            block = result["modes"][mode]
+            leaked = block["leak"]["leaked"]
+            fam = dict(block["complementarity"]["families"])
+            denominator = fam.pop("denominator")
+            layers_block = block["complementarity"]["layers"]
+
+            assert sum(fam.values()) == denominator, (mode, gold, pred)
+            assert fam["neither"] == leaked, (mode, gold, pred)
+            assert (sum(layers_block["sets"].values())
+                    + layers_block["covered_by_union_only"]) == denominator
+            assert layers_block["sets"].get("", 0) == leaked, (mode, gold, pred)
+
+        # A theorem, not an observation: any overlap by the union is some single
+        # prediction's overlap, and that prediction has a family.
+        relaxed = result["modes"][RELAXED]["complementarity"]
+        assert relaxed["families"]["joint_only"] == 0, (gold, pred)
+        assert relaxed["layers"]["covered_by_union_only"] == 0, (gold, pred)
+
+
+def test_sparse_types_are_flagged_not_dropped(scored):
+    """DESIGN §9.4: they stay in every denominator; the reporting layer omits rows."""
+    block = scored["modes"][FULLY_COVERED]
+    assert block["sparse"]["types"] == ["DATE", "ID", "NAME", "PROFESSION"]
+    assert block["sparse"]["gold"] == 10
+    assert sum(block["by_type"][t]["gold"] for t in block["sparse"]["types"]) == \
+        block["leak"]["denominator"]
+
+
+# ─── headline and determinism ───────────────────────────────────────────────
+
+
+def test_headline_records_the_mode_per_metric(scored):
+    """Leak rate leads with fully_covered, P/R/F1 with relaxed (DESIGN §9.3)."""
+    assert scored["headline"]["leak_rate"] == {
+        "value": approx(0.4), "mode": FULLY_COVERED}
+    assert scored["headline"]["leak_rate_lower_bound"] == {
+        "value": approx(0.2), "mode": RELAXED}
+    assert scored["headline"]["f1"] == {
+        "value": approx(14 / 21), "mode": RELAXED}
+    # The lower bound is a lower bound.
+    assert scored["headline"]["leak_rate_lower_bound"]["value"] <= \
+        scored["headline"]["leak_rate"]["value"]
+
+
+def test_the_scorer_does_not_choose(scored):
+    """Both modes are complete and symmetric, so a later change of judgement about
+    which figure leads edits the presentation instead of recomputing results."""
+    assert set(scored["modes"]) == set(scorer.MODES)
+    assert set(scored["modes"][FULLY_COVERED]) == set(scored["modes"][RELAXED])
+
+
+def test_scoring_is_order_independent():
+    """Shuffle the documents, the gold spans and the predictions; get the same file.
+
+    This is what the total-order tie-break in `assign` buys, and the only way to see
+    it is to score the same input twice in different orders. A tie broken by list
+    position produces a scorer whose numbers move when a detector's output happens to
+    come back in another order.
+    """
+    baseline = score(CORPUS)
+    rng = random.Random(20260805)
+    for _ in range(12):
+        shuffled = []
+        for pair in CORPUS:
+            gold = list(pair.gold)
+            pred = list(pair.pred)
+            rng.shuffle(gold)
+            rng.shuffle(pred)
+            shuffled.append(DocPair(pair.doc_id, tuple(gold), tuple(pred)))
+        rng.shuffle(shuffled)
+        assert score(shuffled) == baseline
+
+
+def test_ties_are_broken_by_the_total_order():
+    """Two predictions with equal overlap on one gold span.
+
+    [0,10) and [5,15) both overlap gold [5,10) by 5. The key orders by gold start,
+    gold end, then prediction start — so [0,10) wins regardless of input order.
+    """
+    gold = (Mark(5, 10, "NAME"),)
+    a = Mark(0, 10, "NAME", "tagger")
+    b = Mark(5, 15, "NAME", "context_cue")
+    assert assign(gold, (a, b), RELAXED)[0] == {0: 0}
+    assert assign(gold, (b, a), RELAXED)[0] == {0: 1}    # same Mark, index 1
+
+
+def test_no_agent_and_no_clock(scored):
+    """Pure: the result is a function of the spans. Nothing here can vary between
+    runs, which is why `metrics.json` is comparable across arms at all."""
+    assert score(CORPUS, excluded_gold=3) == scored
+
+
+# ─── input validation ───────────────────────────────────────────────────────
+
+
+def test_an_unknown_type_is_refused():
+    with pytest.raises(ScorerError, match="phi_type"):
+        Mark(0, 4, "PATIENT_NAME")
+
+
+def test_an_unknown_layer_is_refused():
+    with pytest.raises(ScorerError, match="layer"):
+        Mark(0, 4, "NAME", "crf")
+
+
+def test_an_empty_or_inverted_span_is_refused():
+    with pytest.raises(ScorerError, match=r"\[4, 4\)"):
+        Mark(4, 4, "NAME")
+    with pytest.raises(ScorerError, match=r"\[9, 4\)"):
+        Mark(9, 4, "NAME")
+
+
+def test_a_prediction_without_a_layer_is_refused():
+    """DESIGN §3: the detector that emitted the span fills the layer in.
+
+    Without one the span has nowhere to go in the complementarity breakdown, and the
+    tempting default — treat it as a rule — is the kind of guess §3 forbids.
+    """
+    pair = DocPair("d", gold=(Mark(0, 4, "NAME"),), pred=(Mark(0, 4, "NAME"),))
+    with pytest.raises(ScorerError, match="no layer"):
+        score([pair])
+
+
+def test_error_messages_carry_no_surface():
+    """CLAUDE.md: offsets and lengths in messages, never corpus text.
+
+    Exception text reaches terminals, CI logs and stack traces, and
+    `tools/release_screen.py` does not run on any of those.
+    """
+    from src.corpora.base import axis
+
+    # What a message may legitimately quote: config vocabulary, and the rejected
+    # value itself — which came from the caller's arguments, not from a note.
+    vocabulary = set()
+    for name in ("phi_type", "layer"):
+        vocabulary |= set(axis(name))
+
+    cases = [
+        (lambda: Mark(4, 4, "NAME"), set()),
+        (lambda: Mark(0, 4, "NOPE"), {"NOPE"}),
+        (lambda: Mark(0, 4, "NAME", "crf"), {"crf"}),
+        (lambda: score([DocPair("d", (Mark(0, 4, "NAME"),),
+                                (Mark(0, 4, "NAME"),))]), {"d"}),
+    ]
+    for call, own in cases:
+        with pytest.raises(ScorerError) as exc:
+            call()
+        msg = str(exc.value)
+        quoted = {w.strip("'\",.()[]") for w in msg.split() if w.startswith("'")}
+        unexplained = quoted - vocabulary - own
+        assert not unexplained, (
+            f"message quotes {unexplained}, which is neither config vocabulary nor "
+            "the rejected value — that is the shape a leaked surface would take"
+        )
+
+
+# ─── §9.1 excluded spans ────────────────────────────────────────────────────
+
+
+def test_from_documents_filters_excluded_and_counts_them():
+    """The scorer drops them, not the caller.
+
+    A caller that forgets inflates the denominator with spans DESIGN §9.1 keeps out
+    of every metric, and the resulting number looks fine.
+    """
+    doc = Document(
+        doc_id="d", corpus_id="es-meddocan", text="x" * 40,
+        spans=[
+            Span(start=0, end=4, surface="xxxx", subtype="NOMBRE_SUJETO",
+                 phi_type="NAME"),
+            Span(start=10, end=14, surface="xxxx", subtype="OTROS_SUJETO_ASISTENCIA",
+                 excluded=True),
+            Span(start=20, end=24, surface="xxxx", subtype="NOMBRE_PERSONAL_SANITARIO",
+                 phi_type="NAME"),
+        ],
+    )
+    pairs, excluded = from_documents([doc], {"d": [Mark(0, 4, "NAME", "tagger")]})
+    assert excluded == 1
+    assert len(pairs[0].gold) == 2
+    scored = score(pairs, excluded_gold=excluded)
+    assert scored["counts"]["gold"] == {
+        "in_scope": 2, "excluded": 1, "excluded_share": approx(1 / 3)}
+    assert scored["modes"][RELAXED]["leak"]["denominator"] == 2
+
+
+def test_from_documents_accepts_a_document_with_no_predictions():
+    """A detector finding nothing in a note is a result, not a missing entry."""
+    doc = Document(doc_id="d", corpus_id="es-meddocan", text="x" * 10)
+    pairs, excluded = from_documents([doc], {})
+    assert pairs == [DocPair("d", (), ())] and excluded == 0
+
+
+# ─── output ─────────────────────────────────────────────────────────────────
+
+
+def test_metrics_path_follows_the_naming_template(tmp_path):
+    assert metrics_path(RUN, root=tmp_path) == (
+        tmp_path / "results/es-meddocan/RT/sup-free/port-loop/metrics.json")
+
+
+@pytest.mark.parametrize("key,bad", [
+    ("corpus", "meddocan"), ("detector", "R+T"), ("supervision", "supfree"),
+    ("porting", "port-agentic"), ("split", "validation"),
+])
+def test_metrics_path_refuses_an_undefined_axis_value(key, bad, tmp_path):
+    """A typo would create a sibling directory that looks like another arm."""
+    with pytest.raises(ScorerError, match="axis"):
+        metrics_path({**RUN, key: bad}, root=tmp_path)
+
+
+@pytest.mark.parametrize("key", ["corpus", "detector", "supervision", "porting",
+                                 "split"])
+def test_metrics_path_refuses_a_partly_specified_arm(key, tmp_path):
+    with pytest.raises(ScorerError, match=key):
+        metrics_path({**RUN, key: ""}, root=tmp_path)
+
+
+def test_write_metrics_requires_cost(scored, tmp_path):
+    """Cost beside quality (CLAUDE.md) — as an argument, not a convention."""
+    with pytest.raises(TypeError):
+        write_metrics(scored, run=RUN, root=tmp_path)      # type: ignore[call-arg]
+
+
+def test_write_metrics_requires_run(scored, tmp_path):
+    with pytest.raises(TypeError):
+        write_metrics(scored, cost=COST, root=tmp_path)    # type: ignore[call-arg]
+
+
+@pytest.mark.parametrize("key", ["llm_calls", "prompt_tokens", "completion_tokens",
+                                 "wall_seconds"])
+def test_write_metrics_refuses_a_partial_cost_block(scored, tmp_path, key):
+    with pytest.raises(ScorerError, match=key):
+        write_metrics(scored, run=RUN, cost={k: v for k, v in COST.items()
+                                            if k != key}, root=tmp_path)
+
+
+def test_zero_cost_is_accepted_and_absent_cost_is_not(scored, tmp_path):
+    """The R arm makes no LLM calls and says so. Zero is a measurement."""
+    path = write_metrics(scored, run=RUN, cost=COST, root=tmp_path)
+    written = json.loads(path.read_text(encoding="utf-8"))
+    assert written["cost"] == {"llm_calls": 0, "prompt_tokens": 0,
+                              "completion_tokens": 0, "wall_seconds": 0.0}
+    with pytest.raises(ScorerError):
+        write_metrics(scored, run=RUN, cost={**COST, "llm_calls": None},
+                      root=tmp_path)
+
+
+def test_written_file_records_the_run_and_the_versions(scored, tmp_path):
+    path = write_metrics(scored, run=RUN, cost=COST, root=tmp_path)
+    written = json.loads(path.read_text(encoding="utf-8"))
+    assert written["schema_version"] == scorer.SCHEMA_VERSION
+    assert written["run"]["scorer_version"] == scorer.SCORER_VERSION
+    # CLAUDE.md: the seed and the rules version travel with the result.
+    assert written["run"]["seed"] == RUN["seed"]
+    assert written["run"]["rules_version"] == RUN["rules_version"]
+    assert written["run"]["split"] == "dev"
+    assert written["headline_mode"]["leak_rate"] == FULLY_COVERED
+    assert written["modes"][FULLY_COVERED]["leak"]["leaked"] == 4
+
+
+def test_the_written_file_is_the_scored_result(scored, tmp_path):
+    """Nothing is recomputed on the way out."""
+    path = write_metrics(scored, run=RUN, cost=COST, root=tmp_path)
+    written = json.loads(path.read_text(encoding="utf-8"))
+    for key in ("counts", "headline", "modes", "false_positive_opportunity"):
+        assert written[key] == json.loads(json.dumps(scored[key]))

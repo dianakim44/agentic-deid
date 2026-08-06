@@ -1,0 +1,683 @@
+"""Deterministic detection scoring (DESIGN §5, §5.1, §9.3, §9.4).
+
+Corpus-agnostic, arm-agnostic, and agent-free. Given gold spans and predicted spans
+as offsets and canonical types, it produces the metrics block that
+`results/{corpus}/{detector}/{supervision}/{porting}/metrics.json` records.
+
+Three properties this module is built around.
+
+**It never sees text.** `Mark` has no `surface` field — not "does not use one", does
+not have one. The scorer must run unchanged on a DUA corpus, and a field that could
+hold note text is a field that eventually holds note text in a metrics file that gets
+committed. Offsets, canonical types and provenance layers are sufficient to compute
+every number here, so nothing else is accepted.
+
+**It computes two matchings, not one** (DESIGN §9.3). `coverage` tests each gold span
+against the *union* of same-type predictions and feeds the leak rate and the
+complementarity breakdown; `assignment` is a one-to-one greedy matching and feeds
+TP/FP/FN. A single matching cannot serve both: one wide prediction over two adjacent
+gold spans must cost a false negative (credit) while leaking nothing (disclosure), and
+a gold span split between two adjacent predictions is fully hidden while no single
+prediction covers it. Both directions invent leaks that do not exist.
+
+**It does not choose the headline.** Both modes are computed symmetrically; which
+figure leads is recorded in the `headline` block and decided by the reporting layer.
+
+Usage:
+
+    pairs, excluded = from_documents(docs, predictions)
+    scored = score(pairs, excluded_gold=excluded)
+    write_metrics(scored, run={...}, cost={...})
+"""
+from __future__ import annotations
+
+import json
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Iterable, Mapping, Sequence
+
+from ..corpora.base import ROOT, axis, family_of, layer_families, naming
+
+#: Bumped when the meaning of an output field changes, so a results directory holding
+#: two versions is detectable rather than silently mixed.
+SCORER_VERSION = 1
+SCHEMA_VERSION = 1
+
+FULLY_COVERED = "fully_covered"
+RELAXED = "relaxed"
+MODES = (FULLY_COVERED, RELAXED)
+
+#: DESIGN §9.4: types with n <= 8 corpus-wide stay in every denominator and are
+#: omitted only from per-type tables. The scorer flags them and omits nothing — a
+#: reporting layer cannot restore a row the scorer deleted.
+SPARSE_MAX = 8
+
+#: Which mode is the headline for which metric (DESIGN §9.3). Recorded in the output
+#: rather than acted on: no code path here treats one mode as primary.
+HEADLINE_MODE = {
+    "leak_rate": FULLY_COVERED,
+    "leak_rate_lower_bound": RELAXED,
+    "precision": RELAXED,
+    "recall": RELAXED,
+    "f1": RELAXED,
+}
+
+REQUIRED_RUN = ("corpus", "detector", "supervision", "porting", "split")
+REQUIRED_COST = ("llm_calls", "prompt_tokens", "completion_tokens", "wall_seconds")
+
+
+class ScorerError(Exception):
+    """Anything wrong with the input to, or configuration of, the scorer.
+
+    One type: every case is "stop and tell a human", and a caller has no recovery
+    path that differs by cause. A silently degraded metric is the failure mode this
+    module exists to avoid.
+    """
+
+
+# ─── data model ─────────────────────────────────────────────────────────────
+
+
+@dataclass(frozen=True, slots=True)
+class Mark:
+    """One span as the scorer sees it: offsets, canonical type, provenance layer.
+
+    Frozen because scoring must not be able to adjust its own inputs, and because a
+    hashable mark makes the assignment bookkeeping obvious.
+
+    There is no `surface` field and this is load-bearing, not tidiness. Every number
+    in this module is computable from offsets and types; adding the text would make
+    the scorer unrunnable on a DUA corpus under CLAUDE.md's rules, and would put note
+    text one careless `json.dump` away from a committed metrics file. Constructing a
+    `Mark` with a surface raises `TypeError` from the dataclass itself, which is why
+    `tests/test_scorer.py` asserts it rather than trusting this paragraph.
+
+    `layer` is None on gold and a value of naming.yaml's `layer` axis on a
+    prediction. It is never inferred from anything (DESIGN §3).
+    """
+
+    start: int
+    end: int
+    phi_type: str
+    layer: str | None = None
+
+    def __post_init__(self) -> None:
+        if self.end <= self.start:
+            raise ScorerError(f"empty or inverted span: [{self.start}, {self.end})")
+        if self.start < 0:
+            raise ScorerError(f"negative span start: {self.start}")
+        if self.phi_type not in axis("phi_type"):
+            raise ScorerError(
+                f"{self.phi_type!r} is not a phi_type in config/naming.yaml. "
+                "Excluded spans (DESIGN §9.1) carry no canonical type and are "
+                "filtered out before scoring, not passed in with a placeholder."
+            )
+        if self.layer is not None and self.layer not in axis("layer"):
+            raise ScorerError(
+                f"{self.layer!r} is not a layer in config/naming.yaml "
+                f"(have: {sorted(axis('layer'))})"
+            )
+
+    @property
+    def length(self) -> int:
+        return self.end - self.start
+
+
+@dataclass(frozen=True, slots=True)
+class DocPair:
+    """One document's in-scope gold spans and its predictions.
+
+    `doc_id` and nothing else about the document: no text, and deliberately not even
+    its length. A length would make the metrics file carry a fact about the note, and
+    nothing here needs it.
+    """
+
+    doc_id: str
+    gold: tuple[Mark, ...] = ()
+    pred: tuple[Mark, ...] = ()
+
+
+def _mark(obj) -> Mark:
+    """Adapt anything with the four attributes into a Mark.
+
+    Accepts `corpora.base.Span`, which *does* carry a surface — and drops it here.
+    That is the point of the conversion: the surface stops existing at the scorer
+    boundary rather than being carried along unused.
+    """
+    if isinstance(obj, Mark):
+        return obj
+    try:
+        return Mark(
+            start=obj.start, end=obj.end, phi_type=obj.phi_type,
+            layer=getattr(obj, "layer", None),
+        )
+    except AttributeError as exc:
+        raise ScorerError(
+            "a span must expose start, end, phi_type and layer to be scored "
+            f"({exc})"
+        ) from exc
+
+
+def from_documents(
+    docs: Iterable, predictions: Mapping[str, Sequence]
+) -> tuple[list[DocPair], int]:
+    """Build DocPairs from loader Documents plus per-document predictions.
+
+    Returns `(pairs, excluded_gold)`.
+
+    **Excluded spans are filtered here, not by the caller.** DESIGN §9.1 keeps them
+    in the corpus and out of every metric, so somebody has to drop them; a caller
+    that forgets is far more likely than a scorer that forgets, and the resulting
+    error inflates the denominator silently. The count comes back because §9.1
+    requires the excluded volume to be reported as a limitation, which means it has
+    to be countable at the point where it is dropped.
+
+    A document with no predictions is a document with no predictions — absent from
+    the mapping and present in the output with an empty tuple. Not an error: a
+    detector that finds nothing in a note is a result.
+    """
+    pairs: list[DocPair] = []
+    excluded = 0
+    for doc in docs:
+        gold = []
+        for span in doc.spans:
+            if not span.in_scope:
+                excluded += 1
+                continue
+            gold.append(_mark(span))
+        pred = tuple(_mark(p) for p in predictions.get(doc.doc_id, ()))
+        pairs.append(DocPair(doc_id=doc.doc_id, gold=tuple(gold), pred=pred))
+    return pairs, excluded
+
+
+# ─── interval arithmetic ────────────────────────────────────────────────────
+
+
+def _union(marks: Iterable[Mark]) -> list[tuple[int, int]]:
+    """Merged, sorted intervals. The scorer's answer to "what is hidden"."""
+    spans = sorted((m.start, m.end) for m in marks)
+    merged: list[tuple[int, int]] = []
+    for start, end in spans:
+        if merged and start <= merged[-1][1]:
+            merged[-1] = (merged[-1][0], max(merged[-1][1], end))
+        else:
+            merged.append((start, end))
+    return merged
+
+
+def _covered_length(mark: Mark, union: Sequence[tuple[int, int]]) -> int:
+    """How many of `mark`'s characters the union covers."""
+    total = 0
+    for start, end in union:
+        total += max(0, min(mark.end, end) - max(mark.start, start))
+    return total
+
+
+def _covers(mark: Mark, union: Sequence[tuple[int, int]], mode: str) -> bool:
+    """Does the union cover `mark` under this mode's rule?
+
+    `fully_covered` is a statement about the union — "every character covered by some
+    prediction" — which is a second reason coverage and assignment cannot be collapsed
+    into one matching (DESIGN §9.3).
+    """
+    if mode == FULLY_COVERED:
+        return _covered_length(mark, union) == mark.length
+    return _covered_length(mark, union) > 0
+
+
+def _overlap(a: Mark, b: Mark) -> int:
+    return max(0, min(a.end, b.end) - max(a.start, b.start))
+
+
+def _eligible(gold: Mark, pred: Mark, mode: str) -> bool:
+    """May this single prediction be assigned to this gold span?
+
+    Assignment is pairwise, so `fully_covered` here means *this* prediction covers
+    the whole gold span. Under that mode a gold span covered jointly by two adjacent
+    predictions is a false negative — which is correct for a credit question and
+    exactly why the leak rate is not computed from these numbers.
+    """
+    if mode == FULLY_COVERED:
+        return pred.start <= gold.start and pred.end >= gold.end
+    return _overlap(gold, pred) > 0
+
+
+# ─── the two matchings ──────────────────────────────────────────────────────
+
+
+def coverage(gold: Sequence[Mark], pred: Sequence[Mark], mode: str) -> list[bool]:
+    """Per gold span: is it covered by the union of same-type predictions?
+
+    Feeds the leak rate and the complementarity breakdown. No competition for credit
+    happens here — whether an identifier is hidden does not depend on which detector
+    would get the point for it (DESIGN §9.3).
+    """
+    unions: dict[str, list[tuple[int, int]]] = {}
+    for phi_type in {p.phi_type for p in pred}:
+        unions[phi_type] = _union(p for p in pred if p.phi_type == phi_type)
+    return [_covers(g, unions.get(g.phi_type, ()), mode) for g in gold]
+
+
+def dedupe(pred: Sequence[Mark]) -> tuple[list[Mark], int]:
+    """Collapse predictions identical in (start, end, phi_type). Returns (kept, n).
+
+    Two layers emitting the same span found the same thing once, not two things. The
+    assignment matching is one-to-one, so without this collapse the second copy is an
+    unmatched prediction and becomes a false positive — precision would fall exactly
+    where the layers agree, which is the same pathology DESIGN §9.3 identified for
+    complementarity, reappearing in a different number.
+
+    Only *identical* spans collapse. Merging overlapping-but-differently-bounded
+    predictions is the merge policy's decision (DESIGN §4, a replaceable strategy)
+    and belongs upstream of scoring; a scorer that merged on its own would make every
+    merge policy score alike. The layer view is computed from the full prediction set,
+    not this one, so nothing about provenance is lost here.
+    """
+    kept: list[Mark] = []
+    seen: set[tuple[int, int, str]] = set()
+    for p in pred:
+        key = (p.start, p.end, p.phi_type)
+        if key in seen:
+            continue
+        seen.add(key)
+        kept.append(p)
+    return kept, len(pred) - len(kept)
+
+
+def assign(
+    gold: Sequence[Mark], pred: Sequence[Mark], mode: str
+) -> tuple[dict[int, int], list[int], list[int]]:
+    """One-to-one greedy matching. Returns (gold index -> pred index, fn, fp).
+
+    Greedy by largest overlap, so one wide prediction cannot claim credit for several
+    gold spans. Ties are resolved by a **total order** — `(-overlap, gold.start,
+    gold.end, pred.start, pred.end, pred_index)` — so the result cannot depend on the
+    order a detector happened to emit spans in. A scorer whose output moves when the
+    same spans arrive shuffled is not a measurement, which is why
+    `test_scoring_is_order_independent` shuffles and re-scores rather than trusting
+    this comment.
+    """
+    candidates = []
+    for gi, g in enumerate(gold):
+        for pi, p in enumerate(pred):
+            if g.phi_type != p.phi_type or not _eligible(g, p, mode):
+                continue
+            candidates.append(
+                (-_overlap(g, p), g.start, g.end, p.start, p.end, pi, gi)
+            )
+    candidates.sort()
+
+    matched: dict[int, int] = {}
+    used: set[int] = set()
+    for *_, pi, gi in candidates:
+        if gi in matched or pi in used:
+            continue
+        matched[gi] = pi
+        used.add(pi)
+
+    fn = [gi for gi in range(len(gold)) if gi not in matched]
+    fp = [pi for pi in range(len(pred)) if pi not in used]
+    return matched, fn, fp
+
+
+# ─── scoring ────────────────────────────────────────────────────────────────
+
+
+@dataclass(frozen=True, slots=True)
+class _GoldRecord:
+    """One gold span's verdict under one mode. The unit everything aggregates from."""
+
+    doc_id: str
+    phi_type: str
+    covered: bool                   # coverage matching
+    matched: bool                   # assignment matching
+    families: frozenset[str]        # families whose own union covers it
+    layers: frozenset[str]          # layers whose own union covers it
+
+
+def _f1(precision: float, recall: float) -> float:
+    if precision + recall == 0:
+        return 0.0
+    return 2 * precision * recall / (precision + recall)
+
+
+def _prf(tp: int, fp: int, fn: int) -> dict:
+    precision = tp / (tp + fp) if tp + fp else 0.0
+    recall = tp / (tp + fn) if tp + fn else 0.0
+    return {
+        "tp": tp, "fp": fp, "fn": fn,
+        "precision": precision, "recall": recall, "f1": _f1(precision, recall),
+    }
+
+
+def _records(
+    pairs: Sequence[DocPair], mode: str
+) -> tuple[list[_GoldRecord], dict, int]:
+    """Per-gold verdicts, per-type false positives, and duplicate count, for one mode."""
+    families = layer_families()
+    records: list[_GoldRecord] = []
+    fp_by_type: dict[str, int] = {}
+    duplicates = 0
+
+    for pair in pairs:
+        cov = coverage(pair.gold, pair.pred, mode)
+        # Assignment scores distinct spans; coverage and the layer view read the full
+        # prediction set, since "which layers found it" is the question there.
+        distinct, dupes = dedupe(pair.pred)
+        duplicates += dupes
+        matched, _fn, fp = assign(pair.gold, distinct, mode)
+
+        for pi in fp:
+            key = distinct[pi].phi_type
+            fp_by_type[key] = fp_by_type.get(key, 0) + 1
+
+        by_family = {
+            fam: [p for p in pair.pred if family_of(p.layer) == fam]
+            for fam in families
+        }
+        by_layer = {
+            layer: [p for p in pair.pred if p.layer == layer]
+            for layer in axis("layer")
+        }
+
+        for gi, g in enumerate(pair.gold):
+            fams = frozenset(
+                fam for fam, marks in by_family.items()
+                if _covers(g, _union(m for m in marks if m.phi_type == g.phi_type),
+                           mode)
+            )
+            layers = frozenset(
+                layer for layer, marks in by_layer.items()
+                if _covers(g, _union(m for m in marks if m.phi_type == g.phi_type),
+                           mode)
+            )
+            records.append(_GoldRecord(
+                doc_id=pair.doc_id, phi_type=g.phi_type,
+                covered=cov[gi], matched=gi in matched,
+                families=fams, layers=layers,
+            ))
+    return records, fp_by_type, duplicates
+
+
+def _complementarity(records: Sequence[_GoldRecord]) -> dict:
+    """rules only / tagger only / both / joint only / neither, and the layer view.
+
+    `joint_only` is not in DESIGN §5's four-category scheme and is forced by
+    `fully_covered`: a gold span whose first half is found by a rule and second half
+    by the tagger is covered, while neither family covers it alone. Under the
+    four-category scheme it would have to be called `neither`, and `neither` would
+    then stop equalling the leaked count — a breakdown that contradicts the headline
+    leak rate in the same file. With `joint_only` split out, the five categories
+    partition the denominator and `neither` is exactly the leaked set. Under
+    `relaxed` it is always 0, since any overlap by the union is an overlap by some
+    single prediction and therefore by its family.
+    """
+    families = sorted(layer_families())
+    if len(families) != 2:
+        raise ScorerError(
+            f"the complementarity breakdown of DESIGN §5 is a two-family scheme "
+            f"(rules / tagger) and config/naming.yaml declares {families}. Decide "
+            "in DESIGN §5 what the categories are for a third family before adding "
+            "one — 'both' has no meaning until then."
+        )
+
+    out = {f"{fam}_only": 0 for fam in families}
+    out.update({"both": 0, "joint_only": 0, "neither": 0,
+                "denominator": len(records)})
+    for rec in records:
+        if not rec.covered:
+            out["neither"] += 1
+        elif not rec.families:
+            out["joint_only"] += 1
+        elif len(rec.families) == len(families):
+            out["both"] += 1
+        else:
+            out[f"{next(iter(rec.families))}_only"] += 1
+
+    # The layer view of the same question: which layers cover this gold span *on
+    # their own*. `sets` is the subset distribution, because DESIGN §7 predicts
+    # which layer finds what and that needs "context_cue only" told apart from
+    # "context_cue also" — a per-layer count alone cannot do it.
+    covered_by_layer = {layer: 0 for layer in sorted(axis("layer"))}
+    sets: dict[str, int] = {}
+    union_only = 0
+    for rec in records:
+        for layer in rec.layers:
+            covered_by_layer[layer] += 1
+        if rec.covered and not rec.layers:
+            # Covered by the union of predictions but by no single layer alone —
+            # only reachable under `fully_covered`. Counted apart from the empty
+            # subset so that `sets[""]` stays exactly the leaked set, the way
+            # `families.neither` does. Folding the two together would put a
+            # jointly-hidden identifier in the same bucket as a disclosed one and
+            # make the breakdown contradict the leak rate in the same file.
+            union_only += 1
+            continue
+        key = "|".join(sorted(rec.layers))
+        sets[key] = sets.get(key, 0) + 1
+
+    return {
+        "families": out,
+        "layers": {
+            "covered": covered_by_layer,
+            "sets": dict(sorted(sets.items())),
+            "covered_by_union_only": union_only,
+        },
+    }
+
+
+def _mode_block(records: Sequence[_GoldRecord], fp_by_type: dict,
+                pairs: Sequence[DocPair], duplicates: int) -> dict:
+    leaked = [r for r in records if not r.covered]
+    denominator = len(records)
+
+    tp = sum(1 for r in records if r.matched)
+    fn = denominator - tp
+    fp = sum(fp_by_type.values())
+
+    types = sorted({r.phi_type for r in records} | set(fp_by_type))
+    by_type = {}
+    for phi_type in types:
+        rows = [r for r in records if r.phi_type == phi_type]
+        t_tp = sum(1 for r in rows if r.matched)
+        t_leaked = sum(1 for r in rows if not r.covered)
+        entry = {"gold": len(rows)}
+        entry.update(_prf(t_tp, fp_by_type.get(phi_type, 0), len(rows) - t_tp))
+        entry.update({
+            "leaked": t_leaked,
+            "leak_rate": t_leaked / len(rows) if rows else None,
+            # DESIGN §9.4: flagged, never dropped. The reporting layer omits these
+            # rows and states the omitted count; the scorer cannot make that
+            # decision because a deleted row cannot be restored.
+            "sparse": 0 < len(rows) <= SPARSE_MAX,
+        })
+        by_type[phi_type] = entry
+
+    scored_types = [t for t in types if by_type[t]["gold"]]
+    macro = {
+        "precision": _mean(by_type[t]["precision"] for t in scored_types),
+        "recall": _mean(by_type[t]["recall"] for t in scored_types),
+        "f1": _mean(by_type[t]["f1"] for t in scored_types),
+        "leak_rate": _mean(by_type[t]["leak_rate"] for t in scored_types),
+        # Types with gold 0 contribute false positives to micro and nothing to
+        # macro: a recall average over types that have no gold is undefined, not 0.
+        "n_types": len(scored_types),
+    }
+
+    docs_with_gold = [p for p in pairs if p.gold]
+    leaked_docs = {r.doc_id for r in leaked}
+    return {
+        "leak": {
+            "leaked": len(leaked),
+            "denominator": denominator,
+            "rate": len(leaked) / denominator if denominator else None,
+        },
+        "overall": _prf(tp, fp, fn),
+        "macro": macro,
+        "by_type": by_type,
+        "by_document": {
+            # Documents with no gold PHI are out of this denominator (they cannot
+            # leak) and counted as false-positive opportunity instead.
+            "with_leak": sum(1 for p in docs_with_gold if p.doc_id in leaked_docs),
+            "denominator": len(docs_with_gold),
+            "rate": (sum(1 for p in docs_with_gold if p.doc_id in leaked_docs)
+                     / len(docs_with_gold)) if docs_with_gold else None,
+        },
+        # Gold spans coverage calls covered and assignment calls a false negative.
+        # Not an error term: it measures how differently the detector groups span
+        # boundaries from the gold guideline (DESIGN §9.3).
+        "assignment_slack": sum(1 for r in records if r.covered and not r.matched),
+        "complementarity": {
+            **_complementarity(records),
+            "by_type": {
+                phi_type: _complementarity(
+                    [r for r in records if r.phi_type == phi_type])
+                for phi_type in sorted({r.phi_type for r in records})
+            },
+        },
+        "sparse": {
+            "types": [t for t in scored_types if by_type[t]["sparse"]],
+            "gold": sum(by_type[t]["gold"] for t in scored_types
+                        if by_type[t]["sparse"]),
+        },
+        # Predictions collapsed as identical before assignment (see `dedupe`).
+        # Reported because it is the volume of layer agreement that would otherwise
+        # have been counted as false positives, and a silent collapse is
+        # indistinguishable from a detector that never duplicated anything.
+        "duplicate_predictions": duplicates,
+    }
+
+
+def _mean(values: Iterable[float]) -> float | None:
+    vals = [v for v in values if v is not None]
+    return sum(vals) / len(vals) if vals else None
+
+
+def score(pairs: Sequence[DocPair], *, excluded_gold: int = 0) -> dict:
+    """The metrics block: counts, headline, and both modes in full.
+
+    Pure and deterministic. No agent is called, no file is read beyond
+    `config/naming.yaml`, and the result depends on the input spans only — not on
+    their order (see `assign`).
+
+    `excluded_gold` is the §9.1 volume from `from_documents`. Passed in rather than
+    recomputed because by this point the excluded spans are gone, and a number that
+    cannot be recomputed is a number that has to be carried.
+    """
+    for pair in pairs:
+        for p in pair.pred:
+            if p.layer is None:
+                raise ScorerError(
+                    f"{pair.doc_id}: a predicted span has no layer. Every detected "
+                    "span carries its provenance layer, set by the detector that "
+                    "emitted it (DESIGN §3) — without it the complementarity "
+                    "breakdown has nowhere to put the span."
+                )
+
+    modes = {}
+    for mode in MODES:
+        records, fp_by_type, duplicates = _records(pairs, mode)
+        modes[mode] = _mode_block(records, fp_by_type, pairs, duplicates)
+
+    gold_total = sum(len(p.gold) for p in pairs)
+    no_gold = [p for p in pairs if not p.gold]
+    return {
+        "scorer_version": SCORER_VERSION,
+        "counts": {
+            "documents": {
+                "total": len(pairs),
+                "with_gold_phi": len(pairs) - len(no_gold),
+                "without_gold_phi": len(no_gold),
+            },
+            "gold": {
+                "in_scope": gold_total,
+                "excluded": excluded_gold,
+                "excluded_share": (excluded_gold / (gold_total + excluded_gold)
+                                   if gold_total + excluded_gold else None),
+            },
+            "pred": sum(len(p.pred) for p in pairs),
+        },
+        "headline": {
+            "leak_rate": {
+                "value": modes[FULLY_COVERED]["leak"]["rate"],
+                "mode": FULLY_COVERED,
+            },
+            "leak_rate_lower_bound": {
+                "value": modes[RELAXED]["leak"]["rate"], "mode": RELAXED,
+            },
+            "precision": {
+                "value": modes[RELAXED]["overall"]["precision"], "mode": RELAXED,
+            },
+            "recall": {
+                "value": modes[RELAXED]["overall"]["recall"], "mode": RELAXED,
+            },
+            "f1": {"value": modes[RELAXED]["overall"]["f1"], "mode": RELAXED},
+        },
+        "modes": modes,
+        "false_positive_opportunity": {
+            # Documents with no gold PHI cannot contribute to recall, and dropping
+            # them entirely would discard the cleanest evidence about precision.
+            "documents_without_gold_phi": len(no_gold),
+            "predictions_in_those_documents": sum(len(p.pred) for p in no_gold),
+        },
+    }
+
+
+# ─── output ─────────────────────────────────────────────────────────────────
+
+
+def metrics_path(run: Mapping[str, str], root: Path | None = None) -> Path:
+    """The results path for this arm, from naming.yaml's `paths.metrics`.
+
+    Every axis value is validated against its axis. A typo would otherwise create a
+    sibling directory that looks like a new arm, and two spellings of one arm are
+    indistinguishable from two arms once the directory exists.
+    """
+    for key in REQUIRED_RUN:
+        if not run.get(key):
+            raise ScorerError(
+                f"run block has no {key!r}. The result path is the arm's identity "
+                "(config/naming.yaml paths.metrics); it cannot be partly specified."
+            )
+        if run[key] not in axis(key):
+            raise ScorerError(
+                f"{run[key]!r} is not a value of the {key!r} axis in "
+                f"config/naming.yaml (have: {sorted(axis(key))}). Add it there "
+                "before using it, rather than writing to a path nothing defines."
+            )
+    template = naming()["paths"]["metrics"]
+    return (root or ROOT) / template.format(**{k: run[k] for k in REQUIRED_RUN})
+
+
+def write_metrics(
+    scored: Mapping, *, run: Mapping, cost: Mapping, root: Path | None = None
+) -> Path:
+    """Assemble and write metrics.json. `run` and `cost` are required.
+
+    CLAUDE.md requires cost beside quality — LLM calls, tokens, wall time per arm —
+    because a gain that costs 2x is a different result from one that costs 1.05x. It
+    is a required argument rather than an optional one so that a missing cost is a
+    failure at the call site instead of an absent key in a published file. The `R`
+    arm passes zeros: **zero is a measurement and absent is not**, and a default
+    would make them the same thing.
+    """
+    missing = [k for k in REQUIRED_COST if cost.get(k) is None]
+    if missing:
+        raise ScorerError(
+            f"cost block is missing {missing}. Report cost with quality (CLAUDE.md). "
+            "An arm that makes no LLM calls passes 0 — a zero is a measurement and "
+            "an absent key is not, and this refuses to conflate them."
+        )
+    path = metrics_path(run, root=root)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "schema_version": SCHEMA_VERSION,
+        "run": {**dict(run), "scorer_version": SCORER_VERSION},
+        "cost": dict(cost),
+        "headline_mode": dict(HEADLINE_MODE),
+        **{k: v for k, v in scored.items() if k != "scorer_version"},
+    }
+    with open(path, "w", encoding="utf-8") as fh:
+        json.dump(payload, fh, ensure_ascii=False, indent=2, sort_keys=False)
+        fh.write("\n")
+    return path

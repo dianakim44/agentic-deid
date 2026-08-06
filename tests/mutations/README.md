@@ -19,7 +19,7 @@ is tested by `tests/test_mutation_harness.py`, which pytest does collect.
 
 Each one corresponds to a decision in DESIGN.md that a plausible "simplification"
 would silently undo. What they have in common is the property that makes them
-dangerous: **sixteen of the twenty-five change no total.** The corpus still loads,
+dangerous: **twenty of the twenty-nine change no total.** The corpus still loads,
 the document count is still 750, the span count is still 17,134 — and every
 downstream number is wrong. Those are the errors a reviewer cannot catch and an
 aggregate cannot reveal, which is why they get a harness rather than trust.
@@ -132,9 +132,47 @@ mechanism found nothing — the opposite of the truth — while every total stil
 reconciles. DESIGN §3 records why the validation lives in `src/corpora/base.py` rather
 than in the scorer that first consumes it.
 
+## The scorer mutations
+
+The scorer is where every other guarantee is finally cashed in: a correct loader, a
+sealed test fold and a validated vocabulary all exist to make these numbers mean
+something. It is also the one component whose output nobody can sanity-check by
+inspection — a leak rate of 3.1% looks exactly as reasonable as a wrong one.
+
+| mutation | changes | breaks | tests that catch it |
+|---|---|---|---|
+| `greedy_allows_reuse` | `assign()` drops `pi in used` from the skip condition | the matching stops being one-to-one, so one wide prediction collects credit for several gold spans. Recall rises for emitting one coarse span instead of two correct ones — the detector is paid for being vaguer about boundaries | **8** |
+| `fully_covered_is_relaxed` | `_covers()` tests `> 0` instead of `== mark.length` under `fully_covered` | the headline mode collapses into the lower bound while keeping its name; a gold span with one character covered counts as hidden | **10** |
+| `leak_rate_from_assignment` | the `leak.leaked` figure is taken from the assignment's false negatives | the error DESIGN §9.3 exists to prevent: a leak reported on an identifier whose every character is hidden | **8** |
+| `greedy_tiebreak_dropped` | the sort key becomes `(-overlap, pi, gi)` | ties fall through to emission order, so the metrics move when the same spans arrive shuffled | **1** |
+
+The first three are ordinary wrong-number mutations and the counts are comfortable.
+`greedy_tiebreak_dropped` is the interesting one, and it is caught by exactly one
+test — necessarily so. A tie-break that reads the emission index is still a *total*
+order over the candidate list, so every individual run is self-consistent, internally
+plausible and reproducible when repeated. The only way to see the fault is to score
+one input twice with the spans in different orders and compare the whole result, which
+is one test by construction: `test_scoring_is_order_independent`. No fixture, however
+carefully designed, can catch it in a single run, and a table row of **1** is the
+honest way to say that the guarantee has a single point of failure rather than to pad
+it.
+
+`leak_rate_from_assignment` is the mutation this project's central design argument is
+about. Collapsing the two matchings into one is not a careless edit — it is the
+obvious simplification, it removes a whole code path, and the resulting leak rate is
+in the plausible range. What it destroys is the distinction between *is this
+identifier hidden* and *does the detector get credit for it*, and the damage is
+one-directional: it over-reports leaks wherever the detector groups span boundaries
+differently from the gold annotation guideline. A project reporting a leak rate as its
+headline would be publishing a number biased against itself for reasons no reader
+could reconstruct. The gap has its own name in the output — `assignment_slack` — so
+that it is a reported quantity instead of an unexplained discrepancy between the leak
+rate and recall.
+
 Counts are the number of tests that fail or error, from
 `tests/test_meddocan_loader.py`, `tests/test_split_file.py`, `tests/test_seal.py`,
-`tests/test_release_screen.py` and `tests/test_layer_families.py` (170 tests). Errors
+`tests/test_release_screen.py`, `tests/test_layer_families.py` and
+`tests/test_scorer.py` (233 tests). Errors
 count as kills: a mutation that breaks the module-scoped fixture takes whole tests
 out, and those are caught, not uncounted.
 
@@ -216,7 +254,7 @@ applies to the code. Two safeguards follow from that:
   Three checks, described in the next section. Skipping them lets the harness count
   its own breakage as a kill.
 
-The maintenance cost is real but bounded: twenty-five anchors, each a line or two,
+The maintenance cost is real but bounded: twenty-nine anchors, each a line or two,
 and a refactor that breaks one gets a `STALE` message naming the file. That is
 cheaper than the failure mode it prevents.
 
