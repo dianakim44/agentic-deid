@@ -30,7 +30,14 @@ from dataclasses import dataclass
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-TEST_FILE = "tests/test_meddocan_loader.py"
+#: Both loader suites. The split file is part of loading now — a mutation that
+#: corrupts the folds must be able to be caught by the tests that check them.
+TEST_FILES = ["tests/test_meddocan_loader.py", "tests/test_split_file.py"]
+
+#: Repository directories the loader tests need. `splits/` is here because the
+#: loader reads `splits/{corpus}.json` to assign folds; without it every test
+#: errors on a missing split file and the baseline is not green.
+COPIED = ("src", "tests", "config", "splits")
 
 
 @dataclass(frozen=True)
@@ -77,6 +84,8 @@ class StaleMutation(Exception):
 
 BASE = "src/corpora/base.py"
 MEDDOCAN = "src/corpora/meddocan.py"
+SPLIT = "src/split.py"
+SPLIT_FILE = "splits/es-meddocan.json"
 
 MUTATIONS = [
     Mutation(
@@ -202,6 +211,115 @@ MUTATIONS = [
         ),
         min_kills=1,
     ),
+    # ── the split file (DESIGN §9.6, CLAUDE.md's seal) ──────────────────────
+    Mutation(
+        name="split_verify_noop",
+        path=SPLIT,
+        anchor="    corpus_id = record[\"corpus\"]\n",
+        replacement="    return\n    corpus_id = record[\"corpus\"]\n",
+        breaks=(
+            "Turns verify() into a no-op, so the split file's recorded summaries "
+            "stop being checked against the corpus. The file would then be a "
+            "comment rather than a claim, and a stale one would pass silently."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="split_ignores_membership",
+        path=SPLIT,
+        anchor="        ids_file = sorted(block[\"document_ids\"])",
+        replacement=(
+            "        return\n        ids_file = sorted(block[\"document_ids\"])"
+        ),
+        breaks=(
+            "verify() stops comparing fold membership and checks only the "
+            "aggregate counts. A file that swapped one dev document for one test "
+            "document of the same span count would then verify — the exact shape "
+            "of seal violation the counts cannot see."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="fold_from_directory_not_file",
+        path=BASE,
+        anchor="        if self.use_split_file:\n            self._apply_split_file(docs)",
+        replacement="        pass",
+        breaks=(
+            "Documents keep the fold their directory implies and the frozen split "
+            "file is never read. Every count still matches, because MEDDOCAN's "
+            "directories and its split file agree today — the guarantee lost is "
+            "that the file, not the disk layout, decides what is sealed."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="split_disagreement_ignored",
+        path=BASE,
+        anchor="            if doc.split is not None and doc.split != fold:",
+        replacement="            if False:",
+        breaks=(
+            "The cross-check between the corpus's own fold and the frozen file is "
+            "dropped, so the file silently overrides the disk. A re-release that "
+            "moved a document out of test would be accepted without a word."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="top_level_leak_allowed",
+        path=SPLIT,
+        anchor="    extra = sorted(set(record) - REQUIRED_TOP_LEVEL)",
+        replacement="    extra = []",
+        breaks=(
+            "Corpus-specific fields may then sit at the top level next to the "
+            "common ones. Nothing fails today; the schema stops being shared the "
+            "first time GraSCCo's generator adds its own key."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="grouping_numeric_suffix_only",
+        path=SPLIT,
+        anchor=r'STEM_RE = re.compile(r"^(?P<stem>.+)[-_](?P<suffix>[0-9]+|[A-Za-z]+)$")',
+        replacement=(
+            r'STEM_RE = re.compile(r"^(?P<stem>S\d{4}-\d+)-(?P<suffix>\d+)$")'
+        ),
+        breaks=(
+            "Restores the digits-only stem rule that DESIGN §9.5 records as a past "
+            "bug: it drops the 31 MEDDOCAN ids whose journal prefix contains a "
+            "letter, so the grouping audit silently covers 969 of 1,000 documents "
+            "and reports itself as complete."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="grouping_name_only",
+        path=SPLIT,
+        anchor=(
+            '        grouped = bool(shared["name"]) and '
+            'bool(shared["record"] or shared["date"])'
+        ),
+        replacement='        grouped = bool(shared["name"])',
+        breaks=(
+            "Weakens §9.5 step 2 to a name match alone, which groups the one stem "
+            "sharing a bare given name with different surnames. One group forms "
+            "where none should, and two documents stop being independent units."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="split_file_span_count",
+        path=SPLIT_FILE,
+        anchor='"n_spans": 5801,',
+        replacement='"n_spans": 5800,',
+        breaks=(
+            "Edits the committed split file rather than the code — a stale "
+            "summary, which is what happens in practice when a corpus is "
+            "re-released and the file is not regenerated. The recount must catch "
+            "it. Direction reversed from the other mutations: the artefact is the "
+            "suspect and the code is the check."
+        ),
+        min_kills=1,
+    ),
 ]
 
 COUNT_RE = re.compile(r"(\d+) (passed|failed|error|errors)")
@@ -227,7 +345,7 @@ def make_tree(tmp: Path) -> Path:
     """
     tree = tmp / "repo"
     tree.mkdir()
-    for name in ("src", "tests", "config"):
+    for name in COPIED:
         shutil.copytree(
             ROOT / name, tree / name, ignore=shutil.ignore_patterns("__pycache__")
         )
@@ -237,7 +355,7 @@ def make_tree(tmp: Path) -> Path:
 
 def run_suite(tree: Path) -> str:
     result = subprocess.run(
-        [sys.executable, "-m", "pytest", TEST_FILE, "-q", "--no-header", "-p",
+        [sys.executable, "-m", "pytest", *TEST_FILES, "-q", "--no-header", "-p",
          "no:cacheprovider"],
         cwd=tree,
         capture_output=True,

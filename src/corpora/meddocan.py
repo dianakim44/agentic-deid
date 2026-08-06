@@ -108,6 +108,26 @@ class MeddocanLoader(CorpusLoader):
             "data/acquire/fetch_meddocan.sh."
         )
 
+    def source_files(self, doc_id: str) -> list[Path]:
+        """The files one document is made of, for hashing into the split file.
+
+        Searched across folds rather than taking a fold argument, so the caller
+        does not have to already know the answer the split file records.
+        """
+        found: list[Path] = []
+        for split_dir in SPLIT_DIRS:
+            ann = self._brat_dir(split_dir) / f"{doc_id}.ann"
+            if ann.exists():
+                found.extend([ann, ann.with_suffix(".txt")])
+        if not found:
+            raise CorpusError(f"{self.corpus_id}: no files for doc_id {doc_id!r}")
+        if len(found) > 2:
+            raise CorpusError(
+                f"{self.corpus_id}: doc_id {doc_id!r} exists in more than one "
+                "fold directory"
+            )
+        return found
+
     def _read(self) -> Iterator[Document]:
         for split_dir, split in SPLIT_DIRS.items():
             brat = self._brat_dir(split_dir)

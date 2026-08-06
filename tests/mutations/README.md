@@ -18,12 +18,12 @@ suite run.
 
 Each one corresponds to a decision in DESIGN.md that a plausible "simplification"
 would silently undo. What they have in common is the property that makes them
-dangerous: **five of the eight change no total.** The corpus still loads, the
+dangerous: **eleven of the sixteen change no total.** The corpus still loads, the
 document count is still 1,000, the span count is still 22,795 — and every
 downstream number is wrong. Those are the errors a reviewer cannot catch and an
 aggregate cannot reveal, which is why they get a harness rather than trust.
 
-## The mutations
+## The loader mutations
 
 | mutation | changes | breaks | tests that catch it |
 |---|---|---|---|
@@ -36,15 +36,39 @@ aggregate cannot reveal, which is why they get a harness rather than trust.
 | `missing_test_fold` | `SPLIT_DIRS` loses its `test` entry | 750 documents load instead of 1,000; the suite must not be satisfiable by a silently truncated corpus | **16** |
 | `bucket_unknown_types` | `classify()` returns `("OTHER", False)` instead of raising | an unmapped type is scored as a residual bucket. Invisible on today's corpus and waiting for the day a re-release adds a type | **1** |
 
+## The split-file mutations
+
+`splits/es-meddocan.json` is the seal's reference point (CLAUDE.md), so the checks
+around it get the same treatment. These eight are what make the file a claim rather
+than a comment — every one of them leaves all 22,795 spans loading correctly.
+
+| mutation | changes | breaks | tests that catch it |
+|---|---|---|---|
+| `split_verify_noop` | `split.verify()` returns immediately | the recorded summaries stop being compared to the corpus, so a stale split file passes | **2** |
+| `split_ignores_membership` | `verify()` checks the counts but not `document_ids` | a file that swapped one dev document for one test document of equal span count would verify. This is the seal violation the aggregates cannot see | **1** |
+| `fold_from_directory_not_file` | `load()` skips `_apply_split_file` | folds come from the directory layout instead of the frozen file. No count changes, because the two agree today; what is lost is that the *file* decides what is sealed | **2** |
+| `split_disagreement_ignored` | the corpus-vs-file fold cross-check becomes `if False` | the file silently overrides the disk, so a re-release that moved a document out of `test` is accepted without a word | **1** |
+| `top_level_leak_allowed` | `check_schema` stops rejecting unknown top-level keys | corpus-specific fields may then sit beside the common ones. Nothing fails today; the schema stops being shared the first time GraSCCo's generator adds a key | **1** |
+| `grouping_numeric_suffix_only` | `STEM_RE` becomes the old `^(S\d{4}-\d+)-(\d+)$` | reinstates the §9.5 bug that dropped the 31 ids with a letter in the journal prefix, so the grouping audit covers 969 of 1,000 documents and calls itself complete | **1** |
+| `grouping_name_only` | §9.5 step 2 accepts a name match without a record number or date | the one stem sharing a bare given name across different surnames becomes a group, and two independent units stop being independent | **1** |
+| `split_file_span_count` | `"n_spans": 5801` → `5800` **in the committed JSON** | a stale summary — which is what a re-released corpus actually produces. Direction reversed from every other mutation here: the artefact is the suspect and the code is the check | **3** |
+
 Counts are the number of tests that fail or error, from
-`tests/test_meddocan_loader.py` (38 tests). Errors count as kills: a mutation that
-breaks the module-scoped fixture takes whole tests out, and those are caught, not
-uncounted.
+`tests/test_meddocan_loader.py` and `tests/test_split_file.py` (70 tests). Errors
+count as kills: a mutation that breaks the module-scoped fixture takes whole tests
+out, and those are caught, not uncounted.
 
 `bucket_unknown_types` is caught by exactly one test, which is the honest number
 and not a comfortable one — the guarantee has a single point of failure. It is
 listed at 1 rather than padded, because the value of this table is that it says
-where the coverage is thin.
+where the coverage is thin. Seven of the split-file mutations are in the same
+position.
+
+The loader counts rose when the split tests joined the run (23→33, 11→12, 7→8,
+16→29): a corrupted load fails the recount too. The `min_kills` thresholds were
+left at the original figures rather than raised to match. The threshold states what
+the check requires; pinning it to today's incidental total would turn every
+unrelated new test into a reason to edit this file.
 
 ## Code, not just prose
 
@@ -59,14 +83,16 @@ applies to the code. Two safeguards follow from that:
   `STALE` and exits non-zero. Without this the harness degrades into a file of
   no-ops that reports every mutation as caught — worse than no harness, because
   it produces a green result.
-- **Mutations never touch the working copy.** `src/`, `tests/` and `config/` are
-  copied to a temporary directory; `data/` is symlinked, because it is
-  DUA-restricted and large, and no mutation touches a data path. An interrupted
-  run cannot leave a mutated file behind.
+- **Mutations never touch the working copy.** `src/`, `tests/`, `config/` and
+  `splits/` are copied to a temporary directory; `data/` is symlinked, because it
+  is DUA-restricted and large, and no mutation touches a data path. An interrupted
+  run cannot leave a mutated file behind. `splits/` is copied rather than
+  symlinked precisely so that `split_file_span_count` can edit the committed JSON
+  without touching the real one.
 
-The maintenance cost is real but bounded: eight anchors, each a single line or
-two, and a refactor that breaks one gets a `STALE` message naming the file. That
-is cheaper than the failure mode it prevents.
+The maintenance cost is real but bounded: sixteen anchors, each a line or two,
+and a refactor that breaks one gets a `STALE` message naming the file. That is
+cheaper than the failure mode it prevents.
 
 ## What this found
 
@@ -107,6 +133,17 @@ predictable in advance:
   span surface into an exception message is caught (CLAUDE.md forbids it, and
   `test_offset_mismatch_message_quotes_no_surface` is the check that must fail
   when it happens).
+
+The split-file mutations transfer with more force, not less. Both corpora need
+constructed splits rather than adopted ones (§9.5), which adds failure modes
+MEDDOCAN does not have: a seed that is recorded but not used, stratification that
+is claimed but not achieved, and — for CARMEN-I — a grouping rule that must reject
+189 candidate groups on measured grounds. `grouping_name_only` and
+`grouping_numeric_suffix_only` are the templates for those, and
+`test_the_committed_file_contains_no_span_surface` is the one that must be run
+against CARMEN-I before its split file is committed, because that is the corpus
+where the generator would be writing restricted text into a file the release
+screener reports as allowed.
 
 Mutation counts will differ per corpus and the table is expected to grow a column
 rather than be replaced.

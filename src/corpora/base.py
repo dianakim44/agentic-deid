@@ -313,10 +313,22 @@ class CorpusLoader:
     #: corpus types kept but not scored. See DESIGN §9.1.
     excluded_types: frozenset[str] = frozenset()
 
-    def __init__(self, root: Path | None = None) -> None:
+    def __init__(self, root: Path | None = None, use_split_file: bool = True) -> None:
+        """`use_split_file=False` loads the corpus without `splits/{corpus}.json`.
+
+        The default is True: for every ordinary caller the frozen split file is
+        the authority on which fold a document is in, and a loader that produced
+        folds from anywhere else would make the seal unenforceable.
+
+        The False path exists for exactly two callers — the generator that writes
+        the split file (it cannot read what it is about to create) and the test
+        that checks the file against a recount. Both are in this repository and
+        neither is a way to load data for an experiment.
+        """
         if not self.corpus_id:
             raise CorpusError(f"{type(self).__name__} does not set corpus_id")
         self.root = root if root is not None else corpus_root(self.corpus_id)
+        self.use_split_file = use_split_file
         self._check_type_map()
 
     def _check_type_map(self) -> None:
@@ -344,7 +356,7 @@ class CorpusLoader:
     # -- shared machinery --
 
     def load(self) -> list[Document]:
-        """Read the corpus, then assert every document's offsets."""
+        """Read the corpus, apply the frozen split, then assert every offset."""
         docs = list(self._read())
         if not docs:
             raise CorpusError(f"{self.corpus_id}: no documents found under the root")
@@ -354,7 +366,55 @@ class CorpusLoader:
                 raise CorpusError(f"{self.corpus_id}: duplicate doc_id {doc.doc_id!r}")
             seen.add(doc.doc_id)
             doc.assert_offsets()
+        if self.use_split_file:
+            self._apply_split_file(docs)
         return docs
+
+    def _apply_split_file(self, docs: list[Document]) -> None:
+        """Set every document's fold from `splits/{corpus}.json`.
+
+        The split file is the authority, not the directory layout — MEDDOCAN
+        happens to encode the fold in its path and no other corpus here does, so
+        making the path authoritative would produce a rule that works once. Where
+        both exist they are cross-checked and a disagreement raises: a corpus
+        re-release that moved a document between folds must stop the run, because
+        silently honouring either source would move a document across the seal.
+
+        `verify()` is deliberately not called here. It recounts every span in the
+        corpus and load() is on the path of every experiment; the check runs in
+        the test suite and in `python3 -m src.split --check`, where its cost is
+        paid once rather than on every load.
+        """
+        from ..split import fold_of, read
+
+        record = read(self.corpus_id)
+        assigned = fold_of(record)
+        missing = sorted({d.doc_id for d in docs} - set(assigned))
+        if missing:
+            raise CorpusError(
+                f"{self.corpus_id}: {len(missing)} loaded documents are in no "
+                f"fold of splits/{self.corpus_id}.json (first: {missing[:3]}). "
+                "The corpus on disk and the frozen split disagree; resolve that "
+                "before loading — an unfolded document is one the seal does not "
+                "cover."
+            )
+
+        absent = sorted(set(assigned) - {d.doc_id for d in docs})
+        if absent:
+            raise CorpusError(
+                f"{self.corpus_id}: splits/{self.corpus_id}.json assigns "
+                f"{len(absent)} documents that did not load (first: {absent[:3]})"
+            )
+        for doc in docs:
+            fold = assigned[doc.doc_id]
+            if doc.split is not None and doc.split != fold:
+                raise CorpusError(
+                    f"{self.corpus_id}/{doc.doc_id}: the corpus places this "
+                    f"document in {doc.split!r} but the frozen split file says "
+                    f"{fold!r}. Do not proceed: one of the two moved a document "
+                    "across the seal."
+                )
+            doc.split = fold
 
     def strip_bom(self, text: str) -> tuple[str, int]:
         """Remove a leading BOM. Returns the text and the offset shift.
