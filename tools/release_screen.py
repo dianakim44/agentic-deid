@@ -62,6 +62,21 @@ DENY_PATTERNS = [
     r"(^|/)raw_responses[^/]*",
     r"(^|/)critic_log\.jsonl$",
     r"(^|/)agent_calls\.jsonl$",           # 에이전트 프롬프트에 dev 원문이 들어간다
+
+    # ─── 채워진 프롬프트 인스턴스 ───────────────────────────────
+    # 템플릿(docs/prompts/*.md)은 공개된다. 값이 채워진 인스턴스는 dev 원문을
+    # 담는다 — RuleAuthor 프롬프트의 오류 스팬 블록은 ±120자 문맥을 포함하고,
+    # 그것은 코퍼스 원문이다 (docs/prompts/rule_author.md §1.4, §7).
+    #
+    # 이 경로들을 .gitignore 에 넣지 않는 것은 의도적이다. gitignore 하면
+    # 디스크에 생긴 인스턴스가 BLOCKED 대신 Quarantined 로 조용히 집계된다.
+    # 규약은 "커밋 금지"가 아니라 "디스크에 남기지 않는다" 이므로, 파일이
+    # 존재하는 것 자체가 잡혀야 한다. sealed/ 와 반대 판단이고, 이유가 다르다:
+    # 봉인 폴드는 디스크에 있어야 하고 이것은 있어서는 안 된다.
+    r"(^|/)prompts?/(filled|rendered)/",
+    r"(^|/)[^/]*\.(filled|rendered)\.[^/]+$",
+    r"(^|/)[^/]*_(filled|rendered)_prompt[^/]*",
+    r"(^|/)[^/]*prompt[^/]*_iter[0-9]+[^/]*",
 ]
 
 # The only things under a denied data path that may be published: how to obtain the
@@ -110,6 +125,138 @@ COMMENT_OR_DOCSTRING = re.compile(
 
 TEXT_EXT = {".json", ".jsonl", ".csv", ".tsv", ".md", ".txt",
             ".py", ".sh", ".yaml", ".yml"}
+
+# ─── rule_id 검사 ───────────────────────────────────────────────────────────
+# rules/*.yaml 은 공개되고, 규칙 이름은 metrics.json 의 by_rule 블록을 통해
+# 한 번 더 공개된다 (DESIGN §9.3). 패턴에는 표면형을 금지하면서 이름은 열어두면
+# 우회 경로가 된다 — 이름은 자유 텍스트이고 에이전트가 쓴다.
+#
+# 기준은 docs/prompts/rule_author.md Prohibition 2 와 같아야 한다: 임상 상용구
+# (`Dr.`, `nacido el`, `Hospital`)는 허용, 개인을 지목하는 것은 금지.
+# 규칙 이름은 기제를 서술한다 — `doctor_prefix`, `nhc_checksum`, `street_type`.
+# 개인을 지목하는 이름은 그 대신 값을 담고, 값을 담은 이름은 표면적으로
+# 다음 셋 중 하나로 나타난다.
+RULE_ID_KEY = re.compile(r"^\s*(?:-\s*)?rule_id\s*:\s*(.+?)\s*(?:#.*)?$", re.M)
+
+# 기제 어휘. 규칙 이름의 각 토큰은 여기 있거나 아래 코드형 토큰이어야 한다.
+#
+# **화이트리스트인 이유.** 형태 검사만으로는 `perez_ruiz` 와 `street_type` 을
+# 가를 수 없다 — 둘 다 소문자 ASCII 두 토큰이다. 금지 목록으로 이 경계를 그리려면
+# 금지할 이름을 적어야 하고, 그것은 표면형 목록을 저장소에 두는 것이므로 막으려는
+# 바로 그 일이 된다. 반대로 **기제 어휘만으로 조립된 이름은 개인을 지목할 수 없다** —
+# 이것이 Prohibition 2 의 기준(임상 상용구 허용 / 개인 지목 금지)을 상관관계가
+# 아니라 성질로 구현하는 유일한 방법이다.
+#
+# 어휘는 영어·구조 용어이고 코퍼스 텍스트가 아니므로 커밋해도 안전하다.
+# 목록에 없는 낱말이 필요하면 여기 추가한다 — naming.yaml 이 모든 축 값에 이미
+# 부과하는 것과 같은 비용이고, 누군가 이의를 제기할 수 있는 diff 가 된다.
+RULE_ID_VOCAB = {
+    # 대상
+    "name", "given", "surname", "patient", "doctor", "clinician", "staff",
+    "relative", "date", "dob", "birth", "death", "admission", "discharge",
+    "age", "year", "month", "day", "time", "place", "city", "town", "province",
+    "region", "country", "postcode", "street", "road", "avenue", "square",
+    "address", "building", "floor", "hospital", "clinic", "centre", "center",
+    "ward", "unit", "service", "department", "institution", "company",
+    "insurer", "phone", "fax", "email", "url", "profession", "job",
+    "occupation", "record", "episode", "licence", "license", "policy",
+    "account", "number", "code",
+    # 기제
+    "prefix", "suffix", "cue", "trigger", "context", "window", "pattern",
+    "regex", "checksum", "validate", "check", "digit", "digits", "format",
+    "gazetteer", "lexicon", "list", "dictionary", "lookup", "membership",
+    "title", "abbrev", "abbreviation", "initial", "initials", "token",
+    "boundary", "case", "fold", "upper", "lower", "numeric", "alpha",
+    "alphanumeric", "separator", "delimiter", "range", "span", "line",
+    "header", "field", "label", "keyword", "term", "type", "form", "strict",
+    "loose", "narrow", "wide", "generic", "compound", "hyphen", "particle",
+    "preposition", "article", "ordinal", "roman", "written", "spelled",
+    "slash", "dash", "dot", "colon", "paren", "bracket", "quote", "space",
+    "long", "short", "full", "partial", "left", "right", "before", "after",
+    "with", "without", "and", "or", "not", "any", "all", "only",
+}
+#: 코드형 토큰. 국가별 식별자 약어와 자릿수 표기는 기제 어휘가 아니지만
+#: 규칙 이름에 정상적으로 나타난다 (`nhc_checksum`, `cp_5digit`).
+RULE_ID_ALLOWED_TOKENS = {
+    "id", "nhc", "cip", "ss", "dni", "nie", "nif", "cp", "iban", "uuid",
+    "ssn", "mrn", "kvnr", "nhs", "curp", "rut",
+}
+#: 자릿수·버전 표기. `cp_5digit` 의 `5digit`, `v2`.
+RULE_ID_CODE_TOKEN = re.compile(r"^(?:v[0-9]{1,2}|[0-9]{1,2}[a-z]{0,8})$")
+RULE_ID_RULES = (
+    # 사람 이름은 대문자로 시작한다. 규칙 이름은 기제 서술이므로 소문자다.
+    (re.compile(r"[A-ZÁÉÍÓÚÜÑ]"),
+     "capitalised token — a rule name describes a mechanism in lower case; a "
+     "capital is how a proper noun enters one"),
+    # 연도·생년·번호는 값이다. 기제에는 붙을 이유가 없다.
+    (re.compile(r"[0-9]{3,}"),
+     "3+ digit run — that is a value, not a mechanism"),
+    # 비ASCII 문자는 코퍼스 언어의 낱말이다. 규칙 이름은 ASCII 식별자다.
+    (re.compile(r"[^\x00-\x7f]"),
+     "non-ASCII character — a rule name is an ASCII identifier; a word from the "
+     "corpus language is a quoted surface"),
+)
+#: 이름 전체 길이 상한. 기제 서술은 짧다. 긴 이름은 문구를 담고 있다.
+RULE_ID_MAX_LEN = 40
+RULE_ID_MAX_PARTS = 5
+
+
+def rule_id_findings(text):
+    """rule_id 값 중 표면형을 담은 것으로 보이는 것을 (id, 이유) 로 돌려준다.
+
+    Shape first, then a *positive* vocabulary — never a list of names to reject. A
+    screener holding the names it objects to would be a file of surface forms in the
+    repository, which is the thing being prevented. The vocabulary inverts that: it
+    lists what a mechanism name may be built from, and a name assembled only from
+    mechanism words cannot designate an individual.
+
+    Shape alone is not enough and it is worth being explicit about why, because shape
+    is the obvious design: `perez_ruiz` and `street_type` are both two lowercase ASCII
+    tokens with no digits. No property of the string separates them. Only membership
+    does.
+
+    False positives are the acceptable direction. A rejected name is renamed at no
+    cost; a name carrying a patient's surname into `metrics.json` cannot be unpublished
+    (CLAUDE.md: the repository is public and a push is irreversible).
+    """
+    out = []
+    for raw in RULE_ID_KEY.findall(text):
+        value = raw.strip().strip("'\"")
+        if not value:
+            continue
+        body = value.split(":", 1)[1] if ":" in value else value
+        parts = [p for p in re.split(r"[_\-]", body) if p]
+
+        # Shape first: these say something specific about *how* the name is wrong,
+        # and a caller renaming it is better served by "that is a value" than by
+        # "unknown word".
+        shape = next((why for pattern, why in RULE_ID_RULES
+                      if pattern.search(body)), None)
+        if shape:
+            out.append((value, shape))
+            continue
+        if len(body) > RULE_ID_MAX_LEN:
+            out.append((value, f"longer than {RULE_ID_MAX_LEN} characters — a "
+                               "mechanism description is short; a phrase is not"))
+            continue
+        if len(parts) > RULE_ID_MAX_PARTS:
+            out.append((value, f"more than {RULE_ID_MAX_PARTS} parts — that is a "
+                               "phrase rather than a name"))
+            continue
+
+        # Then the vocabulary. This is the check that implements Prohibition 2's
+        # actual criterion, and the one shape cannot: `perez_ruiz` and `street_type`
+        # have the same shape.
+        unknown = [p for p in parts
+                   if p.lower() not in RULE_ID_VOCAB
+                   and p.lower() not in RULE_ID_ALLOWED_TOKENS
+                   and not RULE_ID_CODE_TOKEN.match(p.lower())]
+        if unknown:
+            out.append((value, f"{len(unknown)} token(s) outside the mechanism "
+                               "vocabulary — a name assembled only from mechanism "
+                               "words cannot designate an individual, which is why "
+                               "the check is a vocabulary and not a blacklist"))
+    return out
 
 # ─── known false positives ──────────────────────────────────────────────────
 # Five files trip the content sniffer for reasons that are not note text, on every
@@ -238,6 +385,19 @@ def sniff(path, blob=None, force=False):
     # acquisition script does. A note pasted after `#` in a .sh should still trip.
     if path.endswith(".py"):
         text = strip_code_prose(text)          # 코드 설명은 검사 대상이 아니다
+
+    # rules/*.yaml only. The check is about rule *names*, and a rule_id appears in
+    # other files (spans.jsonl, metrics.json) as a value copied from here — screening
+    # the origin is what stops it, and screening the copies would report one mistake
+    # many times over.
+    if re.search(r"(^|/)rules/[^/]+\.ya?ml$", path.replace(os.sep, "/")):
+        found = rule_id_findings(text)
+        if found:
+            why = found[0][1]
+            # The id is NOT quoted: it may be the surface form itself, and this
+            # message goes to a terminal and a CI log where nothing screens it
+            # (CLAUDE.md). The rule file is small and the shape is enough to find it.
+            return (f"rule_id shape ({len(found)} of them): {why}")
 
     if CLINICAL_HEADER.search(text):
         return "clinical note header"

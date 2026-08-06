@@ -1341,6 +1341,31 @@ agent arm's design fixes the human's window in both directions**, and neither ou
 grounds for revisiting this section; it is grounds for revisiting the RuleAuthor prompt,
 which is where the decision belongs.
 
+**The window, as derived.** `docs/prompts/rule_author.md` is written, so this is now a
+derivation and not a plan. The prompt carries §1.4's error-span block, so the human's
+window is:
+
+| what | value | where it is fixed |
+|---|---|---|
+| error spans per iteration | n = 40 | `config/sampling.yaml: n_error_spans` |
+| context per span | ±120 characters | `config/sampling.yaml: context_chars` |
+| stratification | proportional by `phi_type`, at least 1 per type with any error | `config/sampling.yaml: min_per_type`, `src/sample.py: _allocate` |
+| which spans | seeded draw, seed = SHA-256 of (scheme, base seed, corpus, iteration) | `src/sample.py: sample_seed`, `draw` |
+| score block | the reduced dev `metrics.json` of prompt §1.3, including `by_rule` | §9.3, prompt §1.3 |
+| Auditor report | `reports/leaks_{iter}.json` with prompt §5's three-case reading | §3, prompt §5 |
+
+The values are in a config file and the draw is in one function that both arms call,
+which is what makes the symmetry checkable rather than asserted. **The seed takes the
+corpus and the iteration and not the arm**, so both arms at iteration 3 draw by the same
+procedure from their own error pools — and that the pools differ is the experiment, not an
+asymmetry. The prompt's §7 carries the full row-by-row comparison of what each side
+receives, including the two rows where the human's input is better (the rule file and the
+task frame are re-read rather than re-delivered, since an agent call retains nothing
+between calls) and the direction each favours. Both favour the human, both are asymmetry
+(1) appearing in the input rather than the recollection, and the reading rule below is
+what makes them tolerable: `port-human` is an upper bound, so an advantage to the human
+weakens no claim this project makes.
+
 **Three asymmetries that (b) does not remove.** They are recorded rather than solved,
 and each one carries an explicit instruction for how to read the result — because an
 asymmetry that is merely disclosed still gets forgotten by the time the numbers are
@@ -1416,6 +1441,8 @@ axis, and a template implying otherwise would invite a second arm to write it.
 | `actually_reused` | `true` / `false` / `null`, filled in from the second corpus |
 | `evidence` | what prompted it: sample span IDs (never surfaces), a per-type rate, or `prior_knowledge` |
 | `rules_commit` | commit hash of `rules/{lang}.yaml` after this event |
+| `prompt_sha256` | SHA-256 of `docs/prompts/rule_author.md` — the window this event was held to |
+| `sampling_sha256` | SHA-256 of `config/sampling.yaml` — where n and the context width actually live |
 
 **Human time is `human_minutes`, never `wall_seconds`, and the name is the mechanism.**
 A person's working hours and a pipeline's wall clock are different quantities, and the
@@ -1427,6 +1454,25 @@ the field instead of silently producing a number. Minutes rather than seconds fo
 same reason: false precision in a self-reported duration invites arithmetic it cannot
 support. Agent `wall_seconds` is still recorded for `port-human`'s scorer runs, which
 genuinely are compute.
+
+**The window is identified by content hash, on every line, and in two places.** §11.1
+derives the human's window from the RuleAuthor prompt, so a record of a `port-human` run
+that does not identify which version of that prompt it was held to cannot support the
+comparison it exists for. Three decisions inside that:
+
+- **Content hash, not commit hash.** The commit says when the tree was; the hash says
+  what the file was. An uncommitted edit to the prompt moves the second and not the
+  first, and an uncommitted edit is exactly the event this record exists to catch —
+  `rules_commit` is already there for the question the commit answers.
+- **Two files, because the parameters are not in the prompt.** n = 40 and ±120 characters
+  live in `config/sampling.yaml`. A window can be doubled by changing one integer without
+  touching the prompt at all, and a record naming only `prompt_sha256` would agree with
+  the new window as readily as with the old.
+- **On every line, not once per run.** A per-run header records what was frozen at the
+  start, which is the wrong end of the question: what a reader needs to know is whether
+  the window at iteration 9 was the window at iteration 1. A value repeated on every line
+  answers that by disagreeing with itself; a header answers it by construction and
+  therefore not at all.
 
 **Span IDs, never surfaces.** CLAUDE.md forbids corpus text in logs, and this file is
 committed. A decision log that records "added a cue for the phrase X" republishes X.

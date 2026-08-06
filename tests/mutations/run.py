@@ -571,6 +571,53 @@ MUTATIONS = [
         min_kills=1,
     ),
     Mutation(
+        name="filled_prompt_paths_allowed",
+        path=SCREEN,
+        anchor='    r"(^|/)prompts?/(filled|rendered)/",',
+        replacement='    r"(^|/)prompts?/(filled|rendered)/DOES_NOT_OCCUR/",',
+        breaks=(
+            "A filled RuleAuthor prompt stops being denied by the directory pattern. "
+            "The remaining three patterns catch instances named for the convention, so "
+            "the mutation looks harmless until an instance lands where the harness "
+            "would naturally write it — `prompts/filled/iter03.md` — and that file "
+            "holds the ±120-character context of every dev error span it was built "
+            "from, which on a DUA corpus is note text (rule_author.md §7). The "
+            "screener then reads it as an ordinary publishable file under "
+            "`prompts/`, an ALLOW_HINTS prefix, so it is not merely unblocked: it is "
+            "reported clean. Worth a separate mutation from the general deny-list "
+            "checks because the convention here is 'never written to disk' rather "
+            "than 'never committed', and these patterns are deliberately absent from "
+            "`.gitignore` so that an instance on disk is BLOCKED rather than "
+            "Quarantined — a gitignore entry would downgrade it to a summary line "
+            "and exit 0."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="rule_id_vocabulary_not_checked",
+        path=SCREEN,
+        anchor="        unknown = [p for p in parts\n"
+               "                   if p.lower() not in RULE_ID_VOCAB",
+        replacement="        unknown = [p for p in parts\n"
+                    "                   if False",
+        breaks=(
+            "The vocabulary check is removed and only the shape rules survive, which "
+            "is the version this screener was first written as. It passes every "
+            "legitimate mechanism name, so nothing looks wrong — and it also passes "
+            "`es:perez_ruiz`, because `perez_ruiz` and `street_type` are both two "
+            "lowercase ASCII tokens with no digits and no property of the string "
+            "separates them. A rule name is published twice: in `rules/*.yaml` and "
+            "again in every `metrics.json` `by_rule` block (DESIGN §9.3), so this is "
+            "the bypass rule_author.md Prohibition 2 names — forbidding surface forms "
+            "in patterns while leaving the free-text name the agent writes "
+            "unchecked. The mutation is the argument for a positive vocabulary: the "
+            "alternative that would catch this case by shape does not exist, and the "
+            "alternative that would catch it by blacklist means storing the surname "
+            "in the repository."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
         name="greedy_allows_reuse",
         path=SCORER,
         anchor="        if gi in matched or pi in used:",

@@ -79,9 +79,181 @@ def test_allowed_paths_are_not_denied(path):
     "data/raw/es-meddocan/leak.txt",
     "data/derived/notes.jsonl",
     "sealed/ko-surro/note.txt",
+    # filled prompt instances — see the section below
+    "docs/prompts/filled/rule_author_3.md",
+    "prompts/rendered/rule_author.md",
+    "rule_author.filled.md",
+    "logs/rule_author_filled_prompt_3.txt",
+    "tmp/prompt_iter3.md",
 ])
 def test_denied_paths(path):
     assert rs.deny(path)
+
+
+# ─── filled prompts never touch disk ───────────────────────────────────────
+#
+# The template is committed and the filled instance is not: the RuleAuthor prompt's
+# error-span block carries ±120 characters of dev text (docs/prompts/rule_author.md
+# §1.4, §7), which is corpus text. On a DUA corpus it may travel to Bedrock and must
+# not be written anywhere.
+
+
+@pytest.mark.parametrize("path", [
+    "docs/prompts/rule_author.md",
+    "docs/prompts/auditor.md",
+    "prompts/rule_author.md",
+])
+def test_prompt_templates_are_publishable(path):
+    """The templates are the artifact. Denying them would defeat the point."""
+    assert not rs.deny(path)
+
+
+def test_a_filled_prompt_on_disk_is_blocked_not_quarantined(tmp_path):
+    """It must be BLOCKED, which is why the pattern is NOT in .gitignore.
+
+    The convention is "never written to disk", not "never committed". A gitignored
+    path is counted as Quarantined — expected, a summary line, exit 0 — and that is
+    the right reading for a downloaded corpus, which is supposed to exist. A filled
+    prompt is not supposed to exist, so it has to reach the line that gates the
+    commit. This is the opposite call from `sealed/` for a different reason: the
+    sealed fold must be on disk and this must not.
+    """
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    d = tmp_path / "docs" / "prompts" / "filled"
+    d.mkdir(parents=True)
+    (d / "rule_author_3.md").write_text("context: some dev text\n", encoding="utf-8")
+
+    blocked, sealed, quarantined, _suspect, _ = rs.screen_tree(str(tmp_path))
+    assert "docs/prompts/filled/rule_author_3.md" in blocked
+    assert not quarantined and not sealed
+
+
+def test_the_filled_prompt_patterns_are_not_gitignored():
+    """Stated as a test because adding them to .gitignore looks like an improvement.
+
+    It would silently downgrade every one of them from BLOCKED to Quarantined.
+    """
+    ignored = subprocess.run(
+        ["git", "-C", ROOT, "check-ignore", "-q", "--",
+         "docs/prompts/filled/x.md"], capture_output=True)
+    assert ignored.returncode != 0, (
+        "a filled-prompt path is gitignored, so it would be reported as expected "
+        "rather than as a violation"
+    )
+
+
+# ─── rule_id may not carry a surface form ──────────────────────────────────
+#
+# `rules/*.yaml` is public, and every rule_id is published a second time through
+# metrics.json's by_rule block (DESIGN §9.3). Forbidding surfaces in patterns while
+# leaving names free is a bypass, and the name is free text an agent writes.
+
+
+@pytest.mark.parametrize("rule_id", [
+    "es:doctor_prefix",
+    "es:nhc_checksum",
+    "cat:street_type_particle",
+    "es:dob_cue",
+    "es:cp_5digit",
+    "de:hospital_gazetteer",
+    "es:patient_given_name_cue",
+    "es:record_number_checksum",
+    "es:title_abbrev_context_window",
+])
+def test_mechanism_names_pass(rule_id):
+    """A false positive here costs a real rule its name, so the vocabulary is wide."""
+    assert rs.rule_id_findings(f"  - rule_id: {rule_id}\n") == []
+
+
+@pytest.mark.parametrize("rule_id", [
+    "es:jperez",                 # a surname, lower case, one token
+    "es:perez_ruiz",             # two surnames — the case shape alone cannot catch
+    "es:calle_mayor",            # a street, and the DESIGN §9.3 example
+    "es:born_1978",              # a value
+    "es:García",                 # capitalised
+    "ko:김철수",                  # non-ASCII
+    "es:nacido_el_3_de_mayo",    # a phrase from the corpus language
+    "es:matches_juan_perez",
+])
+def test_names_carrying_a_surface_are_flagged(rule_id):
+    found = rs.rule_id_findings(f"  - rule_id: {rule_id}\n")
+    assert found, f"{rule_id} passed the rule_id screen"
+
+
+def test_the_check_is_a_vocabulary_not_a_blacklist():
+    """The design decision, asserted because a blacklist is the obvious alternative.
+
+    `perez_ruiz` and `street_type` have identical shape: lower case, ASCII, two
+    tokens, no digits. No shape rule separates them. A blacklist would separate them
+    by listing the names it objects to — which means storing surface forms in the
+    repository, the exact thing being prevented. A positive vocabulary works because
+    a name assembled only from mechanism words *cannot* designate an individual.
+    """
+    assert rs.rule_id_findings("  - rule_id: es:street_type\n") == []
+    assert rs.rule_id_findings("  - rule_id: es:perez_ruiz\n")
+    # And the vocabulary itself holds no corpus content: English structural terms.
+    assert all(t.isascii() and t.islower() for t in rs.RULE_ID_VOCAB)
+
+
+def test_the_finding_does_not_quote_the_id():
+    """The id may *be* the surface form, and this message reaches a CI log.
+
+    CLAUDE.md: no corpus text in messages, logs or warnings — and release_screen.py
+    does not run on its own output.
+    """
+    text = "  - rule_id: es:jperez_1978\n"
+    why = rs.sniff("rules/es.yaml", blob=text.encode())
+    assert why is not None
+    assert "jperez" not in why and "1978" not in why
+
+
+def test_a_rules_file_with_a_bad_id_is_suspect_end_to_end(tmp_path):
+    """`rules/` is in ALLOW_HINTS, so this checks the sniff wins over the hint."""
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    (tmp_path / "rules").mkdir()
+    (tmp_path / "rules" / "es.yaml").write_text(
+        "version: 1\nlang: es\nrules:\n  - rule_id: es:perez_ruiz\n"
+        "    layer: gazetteer\n    phi_type: NAME\n",
+        encoding="utf-8")
+    blocked, _sealed, _quar, suspect, allowed = rs.screen_tree(str(tmp_path))
+    assert not blocked
+    assert "rules/es.yaml" in {p for p, _ in suspect}
+    assert "rules/es.yaml" not in allowed
+
+
+def test_a_clean_rules_file_is_allowed_not_suspect(tmp_path):
+    """A screener that flags every rule file trains people to ignore it."""
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    (tmp_path / "rules").mkdir()
+    (tmp_path / "rules" / "es.yaml").write_text(
+        "version: 1\nlang: es\nrules:\n  - rule_id: doctor_prefix\n"
+        "    layer: context_cue\n    phi_type: NAME\n"
+        "    pattern: '(?<=\\bDr\\.\\s)\\p{Lu}\\p{L}+'\n",
+        encoding="utf-8")
+    _blocked, _sealed, _quar, suspect, allowed = rs.screen_tree(str(tmp_path))
+    assert "rules/es.yaml" not in {p for p, _ in suspect}
+    assert "rules/es.yaml" in allowed
+
+
+def test_the_pattern_field_is_not_screened_for_vocabulary():
+    """Prohibition 2 allows cue words in a pattern; that is what the layer is.
+
+    Only `rule_id` is screened this way. A screener that applied the vocabulary to
+    patterns would reject every context_cue rule ever written.
+    """
+    text = ("rules:\n  - rule_id: doctor_prefix\n"
+            "    pattern: '(?<=\\bDr\\.\\s)\\p{Lu}\\p{L}+'\n"
+            "    comment: cue is the title, not the name\n")
+    assert rs.sniff("rules/es.yaml", blob=text.encode()) is None
+
+
+def test_unprefixed_ids_are_screened_too():
+    """The loader adds the prefix; the file on disk does not have it.
+
+    So the check must work on both forms, or it screens only what it never sees.
+    """
+    assert rs.rule_id_findings("  - rule_id: perez_ruiz\n")
+    assert rs.rule_id_findings("  - rule_id: doctor_prefix\n") == []
 
 
 def test_real_fetch_scripts_are_clean_under_forced_sniff():

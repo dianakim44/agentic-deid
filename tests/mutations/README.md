@@ -19,7 +19,7 @@ is tested by `tests/test_mutation_harness.py`, which pytest does collect.
 
 Each one corresponds to a decision in DESIGN.md that a plausible "simplification"
 would silently undo. What they have in common is the property that makes them
-dangerous: **twenty-three of the thirty-two change no total.** The corpus still loads,
+dangerous: **twenty-five of the thirty-four change no total.** The corpus still loads,
 the document count is still 750, the span count is still 17,134 — and every
 downstream number is wrong. Those are the errors a reviewer cannot catch and an
 aggregate cannot reveal, which is why they get a harness rather than trust.
@@ -87,6 +87,8 @@ wrong, so that way gets a mutation.
 | `staged_sealed_not_escalated` | sealed paths are excluded from `blocked` | the plausible misreading of "SEALED is expected, so it should not block a commit". What is expected is a sealed fold git *cannot* see; a staged one lands in neither list, the screener exits 0, and the fold goes into a public commit with the output saying nothing | **2** |
 | `sealed_exempt_from_exit_code` | `if blocked or suspect` becomes `if suspect` | the exit status stops depending on BLOCKED. Its own mutation because the SEALED change moved exactly this line's meaning — SEALED must not affect the exit code and BLOCKED must, and one edit could get the first half right and the second half wrong | **1** |
 | `allowlist_may_name_corpus_paths` | `load_allowlist` stops refusing entries under `data/` and `sealed/` | the allowlist's one hard limit. `deny(p)` below still covers most corpus paths, so the edit looks harmless until `data/README.md` — the single file published out of a denied prefix, and therefore not denied. With this, a four-line JSON entry silences the content sniffer on a file inside the corpus tree | **1** |
+| `filled_prompt_paths_allowed` | the `prompts/(filled|rendered)/` deny pattern stops matching | a filled RuleAuthor prompt at `prompts/filled/iter03.md` — carrying the ±120-character context of every sampled dev error — reads as an ordinary file under `prompts/`, an ALLOW_HINTS prefix. Not merely unblocked: reported clean | **3** |
+| `rule_id_vocabulary_not_checked` | the mechanism-vocabulary check in `rule_id_findings` is removed, leaving the shape rules | the screener returns to its first version, which passes every legitimate name and also passes `es:perez_ruiz` — a surname published through `metrics.json`'s `by_rule` block, which is on the *allow* list | **8** |
 
 `allowlist_may_name_corpus_paths` is the same shape as the two rows above it: a mechanism added to *reduce*
 noise, mutated at the point where reducing noise turns into suppressing the signal.
@@ -104,6 +106,33 @@ of those five are refused twice over — by the `data/`-and-`sealed/` check and 
 `data/README.md` is the only path the second check does not cover, which is precisely
 why the rule extends past `deny()` at all. A single test failing here means the
 mutation is only visible where it is actually dangerous.
+
+The last two rows are not about the sealed fold at all — they are the screener's other
+job, which is stopping dev text and corpus surface forms from reaching a public file by
+a route nobody thought of as a leak.
+
+`filled_prompt_paths_allowed` is worth a row of its own even though three sibling
+patterns survive it, because the failure is not "the file gets committed". The
+convention for a filled RuleAuthor prompt is *never written to disk*
+(`docs/prompts/rule_author.md` §6), so the screener has to object to the file existing.
+That is why these four patterns are deliberately **not** in `.gitignore`: an ignored
+path is reported as Quarantined — expected, one summary line, exit 0 — which is the
+right treatment for a downloaded corpus and exactly the wrong treatment here. The
+opposite call from `sealed/`, and for a reason that does not generalise: the sealed fold
+must be on disk and this must not. `test_the_filled_prompt_patterns_are_not_gitignored`
+exists so that adding them, which looks like an improvement, fails instead.
+
+`rule_id_vocabulary_not_checked` is the one mutation here that reverts the check to a
+version that was actually written and shipped in a draft. The shape-only screener passed
+all ten legitimate mechanism names and four real violations, `es:perez_ruiz` among them,
+and the reason is not a missing pattern: `perez_ruiz` and `street_type` are both two
+lowercase ASCII tokens with no digits, so **no property of the string separates them**.
+The fix could not be a blacklist either, since listing the names to reject means storing
+surface forms in the repository — the thing being prevented. What works is the inversion:
+a positive mechanism vocabulary, because a name assembled only from mechanism words
+*cannot* designate an individual. The mutation is the argument for that design, since it
+demonstrates that the natural alternative fails silently and in the direction that
+publishes a surname through `metrics.json`.
 
 `git_tracked()` is not mutated, and that is worth stating rather than leaving as a
 gap in the table. It asks the index directly whether a denied path is staged or
@@ -310,7 +339,7 @@ applies to the code. Two safeguards follow from that:
   Three checks, described in the next section. Skipping them lets the harness count
   its own breakage as a kill.
 
-The maintenance cost is real but bounded: thirty-two anchors, each a line or two,
+The maintenance cost is real but bounded: thirty-four anchors, each a line or two,
 and a refactor that breaks one gets a `STALE` message naming the file. That is
 cheaper than the failure mode it prevents.
 
