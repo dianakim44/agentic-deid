@@ -76,6 +76,42 @@ scorer. Agents and scoring are never mixed.
 consecutive iterations, or the call budget is exhausted. Never "until it looks
 good enough".
 
+### Span provenance
+
+Every detected span carries **layer · detector · rule ID · score**.
+
+`layer` is one of `regex_checksum` · `context_cue` · `gazetteer` · `tagger`, read
+from the `layer` axis in `config/naming.yaml`. It is **not derived from the detector
+name** — no prefix convention, no substring match, no lookup table built by hand.
+The detector that emitted the span sets the field explicitly. Deriving it would make
+a rename silently re-attribute results, which is the same failure mode the naming
+rules in §4 exist to prevent.
+
+`layer` is not the `detector` axis. `detector` names an experimental arm and appears
+in the result path; `layer` names the mechanism that produced one span and never
+appears in a path. A single arm spans several layers — `R` covers three of them.
+
+**This field is fixed before the first span exists**, deliberately. Adding it after
+a run would leave already-emitted spans unattributed and force every arm to be
+re-run. It is what makes §7's per-layer prediction measurable: the complementarity
+breakdown in §5 is a rules/tagger dichotomy and cannot say whether a loss came from
+context cues or from regexes, but the same detections grouped by `layer` can.
+
+**Agents do not get a `layer` value.** `RT-Arb` and `RT-Aud` do not create spans —
+the arbiter drops or retypes spans that already exist, and the auditor flags
+suspected residual PHI in output. Giving them a layer would put a filtering step in
+a field that means "what produced this", and would make per-layer recall sums stop
+reconciling. Agent involvement is recorded separately, in an
+`agent_actions` list on the span: each entry names the agent, the action
+(`kept` / `dropped` / `retyped` / `flagged`), and the call ID in
+`agent_calls.jsonl`, so an arm's spans can be replayed with and without agent
+intervention from one file.
+
+A list rather than a single field because `RT-Arb-Aud` runs both agents over the
+same span. Two alternatives were considered and rejected: a single
+`agent_action` string cannot represent that arm, and separate `arbiter_action` /
+`auditor_action` fields would need a new column per future agent.
+
 **Start with three.** Profiler, RuleAuthor, Auditor. Add Mapper and
 LexiconBuilder only if the ablation shows the first three leave something on
 the table. Building five at once makes it impossible to tell which one works.
@@ -263,17 +299,16 @@ falsifiable claim than "rules do worse in nursing notes" — it names which comp
 should move and which should not, so a result where all four fall together would
 refute the mechanism even if the aggregate rule-layer number moved as expected.
 
-**Measuring this requires layer-level provenance, which is not yet in place.** §5's
-complementarity breakdown is a rules/tagger dichotomy: it can show that the rule
-layer as a whole lost ground, but it cannot attribute the loss to context cues
-rather than to regexes, so it cannot test the prediction above. §3's provenance
-requirement (detector · rule ID · score) records the *detector* — aggregating that
-to a layer means grouping detector names by hand, which is exactly the kind of
-string convention CLAUDE.md forbids elsewhere. **What is needed is an explicit layer
-field on every span's provenance record**, with the four values above, so
-complementarity can be computed per layer without renaming anything. §5 is left as
-it is: the rules/tagger breakdown stays the headline decomposition, and the
-per-layer view is an additional cut over the same detections, not a replacement.
+**Measuring this requires layer-level provenance, which is why §3 carries a `layer`
+field.** §5's complementarity breakdown is a rules/tagger dichotomy: it can show
+that the rule layer as a whole lost ground, but it cannot attribute the loss to
+context cues rather than to regexes, so on its own it cannot test the prediction
+above. The `layer` field on every span (§3, values defined in
+`config/naming.yaml`) is what closes that gap — the same detections grouped by layer
+give a per-layer complementarity breakdown, and the four values there are exactly
+the four rows of the table above. §5 is left as it is: the rules/tagger breakdown
+stays the headline decomposition, and the per-layer view is an additional cut over
+the same detections, not a replacement.
 
 The consequence for corpus selection is that **a language is an interval, not a
 point.** English spans nearly the whole range on its own. German's interval is

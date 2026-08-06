@@ -32,6 +32,22 @@ axes:
     RT-Aud:        RT with a leak auditor re-reading the de-identified output
     RT-Arb-Aud:    RT with both
 
+  # ─── 탐지 층 (detector 축과 다른 개념) ──────────────────────
+  # detector 는 "어떤 구성을 실험으로 돌리는가" — arm 하나가 결과 경로 한 칸이 된다.
+  # layer 는 "그 실행 안에서 이 스팬을 실제로 만들어낸 기제는 무엇인가" — 스팬 하나에
+  # 붙는 provenance 값이다. 경로에 들어가지 않는다. 하나의 detector arm 이 여러
+  # layer 를 포함한다: R 은 regex_checksum·context_cue·gazetteer 를, RT 는 넷 전부를.
+  #
+  # 층을 따로 두는 이유는 DESIGN.md §7 의 예측이 층 단위로만 반증가능하기 때문이다.
+  # 정서법 단서의 실현도가 떨어질 때 손실은 context_cue 에 집중되고 regex_checksum·
+  # gazetteer 는 거의 움직이지 않아야 한다. detector 축의 R/T 2분법으로는 이 귀속이
+  # 불가능하다. 값은 탐지기 이름에서 유도하지 않고 이 목록에서 읽는다.
+  layer:
+    regex_checksum: pattern and check-digit validation; depends on structural form, not orthography
+    context_cue:    role-word context windows; depends on the orthography around the trigger
+    gazetteer:      dictionary membership under case folding; orthography-independent
+    tagger:         learned span tagger; uses orthography among many features
+
   # ─── 감독 방식 ─────────────────────────────────────────────
   supervision:
     sup-free:      labels recovered from placeholder positions, no manual annotation
