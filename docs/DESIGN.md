@@ -342,7 +342,7 @@ material nor openly licensed corpora. Acquisition scripts only.
 |--------|----------|------------|--------|
 | MEDDOCAN | Spanish | clinical case studies | Zenodo, open |
 | GraSCCo | German | mixed inpatient/outpatient — see below | Zenodo, open |
-| CARMEN-I | Spanish / Catalan / mixed within document | coded, never expanded in the release — see below | PhysioNet, credentialed |
+| CARMEN-I | Spanish / Catalan / mixed within document | mixed units — 61% whole notes, 39% clinical sections; codes never expanded. Does not supply the note-type axis — see below | PhysioNet, credentialed |
 | ko-surro | Korean | nursing notes | derived from PhysioNet; DUA |
 | n2c2 2014 | English | longitudinal progress notes | portal unavailable; on hold |
 
@@ -387,15 +387,34 @@ mixing weights and no subset restriction removes it. §5.1 gives the arithmetic 
 reporting rules that follow; the measurement is in
 `docs/notes/corpus-observations.md` §8.2.
 
-Two further asymmetries make the pair weaker than it looks, both recorded rather than
-worked around. **CARMEN-I has no patient-name gold at all** — the type is declared and
-has zero instances, against MEDDOCAN's 2,014 — so the single most-studied PHI type in
-this literature cannot be evaluated on it. And **789 of its 2,000 units are clinical
-section excerpts rather than whole notes**, with the two-letter document-type codes
-never expanded in the release, so CARMEN-I does not supply a clean note-type contrast
-the way GraSCCo does. It earns its place as the only *authentic* clinical corpus here —
-which is exactly what makes it the right corpus for a disclosure-risk claim — not as a
-controlled contrast against MEDDOCAN.
+A further asymmetry, recorded rather than worked around: **CARMEN-I has no
+patient-name gold at all** — the type is declared and has zero instances, against
+MEDDOCAN's 2,014 — so the single most-studied PHI type in this literature cannot be
+evaluated on it.
+
+**CARMEN-I does not supply the note-type axis.** This is stronger than "its document
+types are coded", and it is not a labelling problem that expanding the codes would fix.
+**789 of its 2,000 units are clinical sections, not notes** — `ANTECEDENTES`,
+`PROCESO_ACTUAL`, `EXPLORACION_*`, `PLAN_TERAPEUTICO`, `SEGUIMIENTO`, `EVOL`. A section
+is a different *kind* of unit from a note, not a different value of the note-type
+variable: it is one part of a note, chosen by the corpus builders, and its PHI profile
+reflects where in a letter it sits rather than what kind of letter it is. The other
+1,211 units carry no section token at all (1,201 `IR`, plus 5 `CC` and 5 `IE`), so
+**the unit is not one kind even within this single corpus** — 61% whole notes and 39%
+section excerpts, with the `IR`/`IA` contrast confounding unit granularity with
+everything else it might measure
+(and, per §9.5, with PHI density and language mix as well). No grouping recovers the
+parent notes: the sections that would compose one letter share no identifier surface,
+and their numbering is a per-section index.
+
+So the note-type axis is **GraSCCo's** to carry, on the 8-way content-cue distribution
+measured above at fixed language, fixed guideline, and whole documents throughout.
+CARMEN-I's value is different and is not substitutable for it: **it is the only
+authentic clinical corpus here**, the only one whose narrative was written by
+clinicians for care rather than composed for publication or synthesis. That is what
+makes it the right corpus for a disclosure-risk claim, and a disclosure-risk claim is
+what the leak rate is for. Asking it to also serve as a note-type contrast would trade
+the property only it has for one another corpus already provides.
 
 Selection is not opportunistic. The corpora span a spectrum of **orthographic cue
 reliability** — but that spectrum is two-dimensional, not one. An earlier version of
