@@ -40,10 +40,17 @@ and note types, with annotation-free supervision.
   (논문에 "the test set was evaluated N times" 로 보고하기 위함).
 - 에이전트가 생성한 규칙·사전에도 같은 규율을 적용한다.
   dev 오류를 보고 고치는 것은 허용, test 오류를 보고 고치는 것은 금지.
-- 분할 단위는 **환자(patient) disjoint**. 레코드 단위 랜덤 분할 금지.
+- 분할 단위는 가용한 최대 자연 그룹이다. 환자 키가 있으면 환자 disjoint,
+  없으면 DESIGN.md §9.5 의 식별 표면형 판정으로 그룹을 정한다.
+  레코드 단위 랜덤 분할은 어느 경우에도 금지한다.
 - dev 체크포인트 선택에 test를 쓰지 않는다.
 - 규칙은 코드가 아니라 `rules/*.yaml` 로 관리하고, 규칙 버전을 결과에 기록한다.
-- 모든 탐지 스팬에 provenance(탐지기 · 규칙 ID · 점수)를 기록한다.
+- 모든 탐지 스팬에 provenance(layer · 탐지기 · 규칙 ID · 점수)를 기록한다.
+  layer 값은 config/naming.yaml 의 layer 축에서 읽는다. 탐지기 이름에서
+  유도하지 않는다 — 접두어·부분문자열·수동 대응표 모두 금지. 스팬을 낸
+  탐지기가 직접 채운다. 자세한 근거는 DESIGN.md §3.
+- 에이전트(Arb/Aud)는 스팬을 만들지 않으므로 layer 값을 갖지 않는다.
+  개입은 스팬의 `agent_actions` 리스트에 별도로 기록한다.
 - 병합 정책은 교체 가능한 전략으로 구현한다
   (fixed-priority / union / agent-arbiter가 같은 탐지 결과 위에서 갈리도록).
 - 탐지(detection)와 가명화(pseudonymization)를 분리한다. 평가는 탐지만 사용한다.
