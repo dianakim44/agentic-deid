@@ -19,7 +19,7 @@ is tested by `tests/test_mutation_harness.py`, which pytest does collect.
 
 Each one corresponds to a decision in DESIGN.md that a plausible "simplification"
 would silently undo. What they have in common is the property that makes them
-dangerous: **twenty-one of the thirty change no total.** The corpus still loads,
+dangerous: **twenty-three of the thirty-two change no total.** The corpus still loads,
 the document count is still 750, the span count is still 17,134 — and every
 downstream number is wrong. Those are the errors a reviewer cannot catch and an
 aggregate cannot reveal, which is why they get a harness rather than trust.
@@ -88,7 +88,7 @@ wrong, so that way gets a mutation.
 | `sealed_exempt_from_exit_code` | `if blocked or suspect` becomes `if suspect` | the exit status stops depending on BLOCKED. Its own mutation because the SEALED change moved exactly this line's meaning — SEALED must not affect the exit code and BLOCKED must, and one edit could get the first half right and the second half wrong | **1** |
 | `allowlist_may_name_corpus_paths` | `load_allowlist` stops refusing entries under `data/` and `sealed/` | the allowlist's one hard limit. `deny(p)` below still covers most corpus paths, so the edit looks harmless until `data/README.md` — the single file published out of a denied prefix, and therefore not denied. With this, a four-line JSON entry silences the content sniffer on a file inside the corpus tree | **1** |
 
-The third row is the same shape as the two above it: a mechanism added to *reduce*
+`allowlist_may_name_corpus_paths` is the same shape as the two rows above it: a mechanism added to *reduce*
 noise, mutated at the point where reducing noise turns into suppressing the signal.
 The allowlist exists because five permanent SUSPECT lines meant a sixth would arrive
 unread; what it must never become is a way to make a real hit permanent too. The
@@ -183,7 +183,7 @@ shrinks its rule set and nobody can say why.
 Counts are the number of tests that fail or error, from
 `tests/test_meddocan_loader.py`, `tests/test_split_file.py`, `tests/test_seal.py`,
 `tests/test_release_screen.py`, `tests/test_layer_families.py` and
-`tests/test_scorer.py` (247 tests). Errors
+`tests/test_scorer.py` and `tests/test_sample.py` (329 tests). Errors
 count as kills: a mutation that breaks the module-scoped fixture takes whole tests
 out, and those are caught, not uncounted.
 
@@ -207,6 +207,51 @@ alternative — adding a test that recounts 1,000 documents — would mean readi
 sealed fold from the suite, which is the thing being protected. A lowered threshold
 with the reason recorded is honest; the same number preserved by a test that
 breaches the seal would not be.
+
+## The sampling mutations
+
+`src/sample.py` decides which dev errors a rule author is shown at a given iteration,
+and both porting arms call it. DESIGN §11.1 makes `port-human` interpretable only on the
+premise that **the two arms drew by the same procedure at the same iteration** — the
+error pools differ, since each arm draws from its own current errors, and that difference
+is the experiment. If the procedure also differs, no analysis afterwards separates the
+two.
+
+| mutation | changes | breaks | tests that catch it |
+|---|---|---|---|
+| `sample_seed_from_process_hash` | `sample_seed()` returns `abs(hash(material))` instead of SHA-256 | Python salts string hashing per process, so the seed is stable within a run and different in the next. The recorded seed documents a draw nobody can repeat | **2** |
+| `sample_pool_not_sorted` | the error pool keeps the caller's iteration order instead of `sorted(..., key=e.key)` | the seed pins which *indices* are drawn and the caller's ordering pins which spans those indices hit — reproducible from the log, different in fact | **2** |
+
+Both are in the same class and it is a class this table has met before: a wrong number
+in the flattering direction with no symptom. What is new is *where* the symptom is
+absent. These two are invisible to the obvious test.
+
+`sample_seed_from_process_hash` passes every in-process check of determinism. Call the
+function twice: equal. Call it after `random.seed(999)`: equal. Compare two arms at one
+iteration: equal. Write the sample and the seed to the results and re-derive the seed
+from the record: equal. Every one of those is a test someone would write, and the
+mutation survives all of them, because within a single interpreter `hash()` **is**
+deterministic. Only a fresh process sees it, which is why
+`test_the_seed_is_stable_across_processes` spawns one rather than calling the function
+again.
+
+Its count of **2** is the honest reading of that. Nineteen tests in `test_sample.py`
+exercise the seed and the draw; two of them survive a fresh interpreter, and those two
+are the entire coverage of this guarantee. The other seventeen are not redundant — they
+check stratification, size, and ordering — but not one of them can see a per-process
+seed, and a table row of 19 would be describing a suite that does not exist.
+
+`sample_pool_not_sorted` is the sharper of the two, because the artifact it corrupts is
+the record that would be used to detect the corruption. A sampler that draws from an
+unordered pool still writes a seed to `metrics.json`, and that seed is correct: it is
+what the RNG was given. The indices drawn from it are correct too. What moves is which
+span each index lands on — so rebuilding a dict, changing how the scorer accumulates its
+errors, or upgrading Python reshuffles the sample while every recorded quantity stays
+identical. Reproducible in the log and different in fact is a worse position than
+plainly irreproducible, since the log invites the reader to trust it.
+
+Neither mutation touches sample size, type coverage, or stratification, so the sample
+still looks entirely correct: 40 spans, every type present, the sparse type included.
 
 ## What the seal cost, and what carries the difference
 
@@ -265,7 +310,7 @@ applies to the code. Two safeguards follow from that:
   Three checks, described in the next section. Skipping them lets the harness count
   its own breakage as a kill.
 
-The maintenance cost is real but bounded: thirty anchors, each a line or two,
+The maintenance cost is real but bounded: thirty-two anchors, each a line or two,
 and a refactor that breaks one gets a `STALE` message naming the file. That is
 cheaper than the failure mode it prevents.
 

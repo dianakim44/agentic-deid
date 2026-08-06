@@ -36,6 +36,11 @@
       "why": "Korean comments documenting the identifier vocabulary. The values are experiment identifiers; the prose explains what each axis is for."
     },
     {
+      "path": "config/sampling.yaml",
+      "sniff": "Korean prose",
+      "why": "Korean comments explaining the error-sample parameters and why changing them invalidates a port-human run. Holds four integers and two strings; no span, no offset, no corpus text."
+    },
+    {
       "path": "config/data_paths.example.yaml",
       "sniff": "Korean prose",
       "why": "Korean comments explaining the corpora: and sealed: keys. This is the committed template and holds no real path; the machine's real paths live in data_paths.local.yaml, which is gitignored."

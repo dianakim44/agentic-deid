@@ -41,6 +41,7 @@ TEST_FILES = [
     "tests/test_release_screen.py",
     "tests/test_layer_families.py",
     "tests/test_scorer.py",
+    "tests/test_sample.py",
 ]
 
 #: Repository directories the loader tests need. `splits/` is here because the
@@ -49,7 +50,12 @@ TEST_FILES = [
 #: for `sealed_eval_log.md`: the gate refuses to run when the log is absent, so
 #: without it every seal test would be caught by the wrong guard. `tools/` is here
 #: for the release screener, which is mutated like any other guard.
-COPIED = ("src", "tests", "config", "splits", "results", "tools")
+#: `docs/` is here for one reason: `prompt_hash()` hashes
+#: `docs/prompts/rule_author.md`, and DESIGN §11.1 records that hash in
+#: `human_log.jsonl` to identify the window a `port-human` run was held to. Without
+#: the file the hash tests error rather than fail, and errors count as kills — so
+#: every sampling mutation would be reported as caught by three tests that never ran.
+COPIED = ("src", "tests", "config", "splits", "results", "tools", "docs")
 
 #: Single files copied alongside COPIED. `.gitignore` is one half of a rule the
 #: screener encodes twice (DENY_EXCEPTIONS is the other), and
@@ -154,6 +160,7 @@ SEALED_LOG = "src/eval/sealed_log.py"
 RUN_SEALED = "src/eval/run_sealed_eval.py"
 SCREEN = "tools/release_screen.py"
 SCORER = "src/eval/scorer.py"
+SAMPLE = "src/sample.py"
 
 MUTATIONS = [
     Mutation(
@@ -668,6 +675,42 @@ MUTATIONS = [
             "removes the one signal that licenses a deletion, while every aggregate in "
             "the file stays correct. Caught by D2, where the cue rule's span helps hide "
             "the identifier and still loses the credit."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="sample_seed_from_process_hash",
+        path=SAMPLE,
+        anchor='    return int.from_bytes(\n'
+               '        hashlib.sha256(material.encode("utf-8")).digest()[:8], "big")',
+        replacement='    return abs(hash(material))',
+        breaks=(
+            "The sample seed is derived from Python's `hash()` instead of SHA-256. "
+            "Python salts string hashing per process, so the seed is perfectly stable "
+            "within one run and different in the next — and every in-process check of "
+            "determinism passes, including checking the seed twice, checking it after "
+            "reseeding `random`, and comparing two arms' seeds. The recorded seed then "
+            "documents a draw nobody can repeat, which is worse than recording nothing: "
+            "DESIGN §11.1 makes `port-human` interpretable only if both arms drew by the "
+            "same procedure at the same iteration, and here the procedure is not even "
+            "reproducible with itself. Caught only by the subprocess tests, which is why "
+            "they spawn a fresh interpreter rather than call the function twice."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="sample_pool_not_sorted",
+        path=SAMPLE,
+        anchor="    pool = sorted(set(errors), key=lambda e: e.key)",
+        replacement="    pool = list(dict.fromkeys(errors))",
+        breaks=(
+            "The error pool keeps the caller's iteration order instead of a canonical "
+            "one. The seed still pins which indices are drawn, so the sample is "
+            "reproducible from the log and the recorded seed is unchanged — while the "
+            "spans those indices land on move whenever the caller builds its error list "
+            "differently. Two arms at the same iteration would then differ for a reason "
+            "that is neither the seed nor their errors, and nothing in the results says "
+            "so. Deduplication survives the edit, so the sample size stays right."
         ),
         min_kills=1,
     ),
