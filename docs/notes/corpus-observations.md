@@ -172,9 +172,11 @@ Facts, from the inventory:
   are synthetic replacements, so they cannot link documents. GraSCCo's
   `documentId` field is the constant string `CURATION_USER` (an INCEpTION curation
   artifact, not a key) — the filename is the only document identifier.
-- MEDDOCAN document IDs are `{SciELO-article-id}-{n}`. **47 of 906 article stems
+- MEDDOCAN document IDs are `{SciELO-article-id}-{n}`. **48 of 936 article stems
   carry more than one document**, i.e. multiple cases from the same journal
-  article.
+  article. (These figures were 47/906 in the first draft; the stem regex assumed
+  digits after the leading `S####` and dropped 31 ids whose journal prefix
+  contains a letter. Corrected — see §7.1.)
 - GraSCCo filenames are surnames/eponyms. `Tupolev_1..4` (4 files) and
   `Colon_Fake_A..K` (11 files) share a stem.
 
@@ -185,15 +187,15 @@ largest *defensible* group is.
 
 Options for MEDDOCAN:
 
-- **(a)** split by article stem (906 groups), keeping same-article cases together.
+- **(a)** split by article stem (936 groups), keeping same-article cases together.
   Rationale: cases from one article share an author, an institution, formatting
   habits, and sometimes a surrogate name pool. Two cases from the same article in
   train and test is the closest thing to patient leakage this corpus can have.
 - **(b)** split by document (1,000 groups). Simpler, and matches how the
   shared task itself was split — but see §4.
 
-Cost of (a) is low: 47 stems are affected, so group-level and document-level
-splits differ by ~5% of documents.
+Cost of (a) is low: 48 stems are affected, so group-level and document-level
+splits differ by ~6% of documents (80 documents, measured in §7.1).
 
 Options for GraSCCo:
 
@@ -202,6 +204,10 @@ Options for GraSCCo:
   deliberate relationship — possibly the same fictional patient across visits, or
   systematic variants of one document. **Whether they are the same patient is not
   recorded in the data**; grouping them is the conservative reading.
+  *Superseded by §7.3:* it is not recorded in the *filename*, but it is decidable
+  from the annotations, and the two groups differ. `Tupolev_*` is one patient;
+  `Colon_Fake_*` is 11 patients. Grouping the latter is not conservative, it is
+  wrong.
 - **(b)** split by document (63 groups), gaining ~24% more independent units,
   which matters a lot at n=63.
 
@@ -356,14 +362,23 @@ are synthetic substitutions, so they do not function as keys.
 - Example: `S0004-06142009000300014-1` is in test while
   `S0004-06142009000300014-4` is in train.
 
-*Correction to `profiles/es-meddocan.raw.json`:* that file records
+*Correction, since applied:* `profiles/es-meddocan.raw.json` recorded
 `distinct_article_stems: 906` and `stems_with_more_than_one_document: 47`. Both
-are wrong. The stem regex assumed all-digits after the first hyphen, and 31 SciELO
-ids contain a letter (`S1579-699X2004000400002-1`, `S0465-546X2010000200006-1`,
-…), so those ids were dropped from the grouping. The correct figures are 936 and
-48. §3 of this document repeats the wrong numbers ("47 of 906 article stems",
-"906 groups"). The profile has not been edited — recorded here so the fix and its
-reason stay together.
+were wrong. The stem regex was `^(S\d{4}-\d+)-\d+$`, which assumes the article
+part is all digits after the leading `S####`; 31 of 1,000 SciELO ids carry a
+letter in the journal prefix (`S0465-546X`, `S1138-123X`, `S1579-699X`,
+`S1699-695X`, `S1889-836X`), so those ids were dropped from the grouping rather
+than counted. The correct figures are **936 stems and 48 multi-document stems**,
+with the rule "stem = everything before the final hyphen, article part opaque"
+parsing 1,000 of 1,000. Only one of the 31 dropped ids belonged to a
+multi-document stem, which is why the stem count moved by 30 but the
+multi-document count moved by 1.
+
+Both profiles and §3 above have been corrected; each profile keeps a
+`_corrected_2026_08_05` block with the old value and the cause. The same numeric
+assumption was present in `profiles/de-grascco.raw.json`, whose stem rule matched
+only digit suffixes and so grouped `Tupolev_1..4` but missed `Colon_Fake_A..K`
+(11 documents) — also corrected.
 
 **Whether cross-fold siblings are the same patient — checked, they are not.** For
 each of the 34 cross-fold stems, the sets of `NOMBRE_SUJETO_ASISTENCIA`,

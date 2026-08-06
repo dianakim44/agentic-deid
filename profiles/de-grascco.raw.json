@@ -164,11 +164,38 @@
       "Clausthal.txt",
       "Colon_Fake_A.txt"
     ],
+    "stem_parse_rule": "stem = everything before the final underscore-delimited suffix, where the suffix may be digits OR letters. Regex ^(?P<stem>.+)_(?P<suffix>[A-Za-z0-9]+)$, applied only where the resulting stem also occurs with a different suffix. The suffix must not be assumed numeric.",
     "name_stems_with_multiple_documents": {
+      "Colon_Fake": 11,
       "Tupolev": 4
     },
+    "_corrected_2026_08_05": {
+      "was": {
+        "name_stems_with_multiple_documents": {
+          "Tupolev": 4
+        }
+      },
+      "cause": "The first pass matched a digits-only suffix (Tupolev_1..4) and so never grouped Colon_Fake_A..K, whose suffixes are letters. Same class of error as the MEDDOCAN stem regex — assuming a numeric tail.",
+      "note": "Amanda_Alzheimer.txt contains an underscore but is a single document with no sibling; a suffix rule applied without the 'stem recurs' condition would wrongly split it into stem 'Amanda'. 16 of 63 filenames contain an underscore; only 15 belong to a stem group."
+    },
     "patient_identifier_present": false,
-    "patient_id_evidence": "No patient field in the type system. Filenames are surnames/eponyms. Tupolev_1..4 and Colon_Fake_A..K share a stem, which is the only visible grouping above the document — whether those are the same fictional patient is a judgement call, not a fact in the data.",
+    "patient_id_evidence": "No patient field in the type system. Filenames are surnames/eponyms. Tupolev_1..4 and Colon_Fake_A..K share a stem, which is the only visible grouping above the document. Whether a stem group is one patient is NOT decidable from the filename and was measured from the annotations instead: Tupolev_1..4 carry one name, one birth date and one record number (see below); Colon_Fake_A..K carry 11 distinct names and 11 distinct birth dates. See docs/notes/corpus-observations.md §7.3.",
+    "stem_group_identity_measured": {
+      "Tupolev": {
+        "documents": 4,
+        "NAME_PATIENT": "Konstantin Tupolev in all four",
+        "DATE_BIRTH": "21/06/1967, 21/06/1967, 21.06.67, 21.06.1967 — one date, four formats",
+        "shared_ID": "1933309807 in Tupolev_1, _2, _3",
+        "verdict": "same fictional patient"
+      },
+      "Colon_Fake": {
+        "documents": 11,
+        "NAME_PATIENT": "11 distinct names, alliterating with the suffix letter (Antonia Anderer, Beatrice DE BEAUHARNAIS, CHRIST Charlotte, DAMARIS Dyonisia, Euripedes Erler, FRITZLE Fridolin, GERODLSAUER Gerli, Huberta Hotzenplotz, Iris Iselin, Jakob Jockel, Katharina Korsakoff)",
+        "DATE_BIRTH": "11 distinct dates",
+        "shared_ID": "none",
+        "verdict": "11 different patients sharing a scenario (colon carcinoma), not a patient"
+      }
+    },
     "unique_unit": "document (no patient key available)"
   },
   "provided_splits": {

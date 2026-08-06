@@ -244,22 +244,33 @@
     "document_id_format": "{journal-article-id}-{n}, e.g. S0004-06142005000500011-1 — SciELO article identifier plus a per-article case number",
     "document_ids_total": 1000,
     "unique_ids": 1000,
-    "filename_pattern_parsed": 969,
-    "filename_pattern_unparsed": [
-      "S0465-546X2010000200006-1",
-      "S0465-546X2011000300007-1",
-      "S0465-546X2014000300010-1",
-      "S1138-123X2006000200007-1",
-      "S1579-699X2004000400002-1"
-    ],
-    "distinct_article_stems": 906,
-    "stems_with_more_than_one_document": 47,
+    "stem_parse_rule": "stem = everything before the FINAL hyphen; case number = the trailing digits. Regex ^(?P<stem>.+)-(?P<case>\\d+)$. The article part is treated as an opaque string because SciELO ids are not all-digits.",
+    "filename_pattern_parsed": 1000,
+    "filename_pattern_unparsed": [],
+    "distinct_article_stems": 936,
+    "stems_with_more_than_one_document": 48,
+    "documents_per_stem_distribution": {
+      "1": 888,
+      "2": 35,
+      "3": 11,
+      "4": 1,
+      "5": 1
+    },
     "example_multi_document_stems": {
       "S0210-48062009000300013": 5,
       "S0210-56912008000400007": 4,
       "S0004-06142006000500002": 3,
-      "S0210-48062007001000004": 3,
-      "S0210-48062009000900015": 3
+      "S0004-06142009000100010": 3,
+      "S0210-48062007001000004": 3
+    },
+    "_corrected_2026_08_05": {
+      "was": {
+        "filename_pattern_parsed": 969,
+        "distinct_article_stems": 906,
+        "stems_with_more_than_one_document": 47
+      },
+      "cause": "The first pass parsed stems with ^(S\\d{4}-\\d+)-\\d+$, which assumes the article part is all digits after the leading S####. 31 of 1,000 SciELO ids contain a letter — the S0465-546X, S1138-123X, S1579-699X, S1699-695X and S1889-836X journal prefixes — so those ids were dropped from the grouping entirely rather than being counted as stems.",
+      "effect": "Only one of the 31 dropped ids belonged to a multi-document stem (S1889-836X2015000200005, 2 documents), which is why the stem count moved by 30 but the multi-document count moved by only 1."
     },
     "patient_identifier_present": false,
     "patient_id_evidence": "No patient ID field exists in the annotations. Documents are published clinical case reports; each is a separate case. Patient names are annotated as NOMBRE_SUJETO_ASISTENCIA but are synthetic replacements, so they do not link documents. The article stem groups cases from the SAME journal article, which is the only observable grouping above the document.",
