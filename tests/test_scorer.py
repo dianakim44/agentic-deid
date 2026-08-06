@@ -15,7 +15,9 @@ types, layers that agree, and empty sides.
 
 No fixture carries note text — `Mark` has no field for it (see
 `test_mark_refuses_a_surface`). Offsets here are arbitrary integers chosen to make the
-geometry legible.
+geometry legible. Rule ids are invented names that describe a mechanism (`cue_person`)
+rather than anything matched, which is the rule the RuleAuthor prompt's Prohibition 2
+puts on real ones: an id reaches `metrics.json` and `metrics.json` is published.
 
 The fixture set, and the geometry each one exists to pin down:
 
@@ -43,7 +45,7 @@ import random
 
 import pytest
 
-from src.corpora.base import Document, Span
+from src.corpora.base import Document, Span, family_of
 from src.eval import scorer
 from src.eval.scorer import (
     FULLY_COVERED,
@@ -62,6 +64,17 @@ from src.eval.scorer import (
 
 # ─── fixtures ───────────────────────────────────────────────────────────────
 
+#: Fixture rule ids. Rules-family spans must carry one and tagger spans must not, so
+#: these are part of the geometry rather than decoration. `es:cue_person` fires in two
+#: documents on purpose: a per-rule count that only ever aggregated within a document
+#: would look correct on every single-document fixture.
+CUE = "es:cue_person"
+DATE_RULE = "es:date_numeric"
+ID_RULE = "es:id_checksum"
+GAZ = "es:area_gazetteer"
+AGE_RULE = "es:age_cue"
+RULE_IDS = {CUE, DATE_RULE, ID_RULE, GAZ, AGE_RULE}
+
 D1 = DocPair(
     doc_id="adjacent-gold-one-wide-pred",
     gold=(Mark(0, 4, "NAME"), Mark(5, 10, "NAME")),
@@ -71,31 +84,32 @@ D2 = DocPair(
     doc_id="one-gold-split-by-two-preds",
     gold=(Mark(0, 10, "NAME"),),
     # Contiguous, not overlapping: 0-4 and 4-10 leave no uncovered character.
-    pred=(Mark(0, 4, "NAME", "context_cue"), Mark(4, 10, "NAME", "tagger")),
+    pred=(Mark(0, 4, "NAME", "context_cue", CUE), Mark(4, 10, "NAME", "tagger")),
 )
 D3 = DocPair(
     doc_id="partial-overlap-both-ways",
     gold=(Mark(100, 110, "DATE"), Mark(200, 210, "ID")),
-    pred=(Mark(105, 115, "DATE", "regex_checksum"),
-          Mark(195, 205, "ID", "regex_checksum")),
+    pred=(Mark(105, 115, "DATE", "regex_checksum", DATE_RULE),
+          Mark(195, 205, "ID", "regex_checksum", ID_RULE)),
 )
 D4 = DocPair(
     doc_id="layers-agree",
     gold=(Mark(0, 5, "NAME"), Mark(10, 15, "NAME"), Mark(20, 25, "NAME")),
-    pred=(Mark(0, 5, "NAME", "context_cue"),
-          Mark(10, 15, "NAME", "context_cue"),
+    pred=(Mark(0, 5, "NAME", "context_cue", CUE),
+          Mark(10, 15, "NAME", "context_cue", CUE),
           Mark(10, 15, "NAME", "tagger"),      # same span, second layer
           Mark(20, 25, "NAME", "tagger")),
 )
 D5 = DocPair(
     doc_id="type-mismatch",
     gold=(Mark(0, 5, "NAME"),),
-    pred=(Mark(0, 5, "LOCATION_AREA", "gazetteer"),),
+    pred=(Mark(0, 5, "LOCATION_AREA", "gazetteer", GAZ),),
 )
 D6 = DocPair(
     doc_id="no-gold-with-preds",
     gold=(),
-    pred=(Mark(0, 5, "NAME", "tagger"), Mark(10, 12, "AGE", "context_cue")),
+    pred=(Mark(0, 5, "NAME", "tagger"),
+          Mark(10, 12, "AGE", "context_cue", AGE_RULE)),
 )
 D7 = DocPair(doc_id="gold-no-preds", gold=(Mark(0, 5, "PROFESSION"),), pred=())
 D8 = DocPair(doc_id="no-gold-no-preds", gold=(), pred=())
@@ -151,13 +165,19 @@ def test_from_documents_drops_the_surface_it_is_given():
 def test_no_output_field_holds_a_string_from_a_span(scored):
     """Nothing in the metrics payload could be note text.
 
-    Every string in the output has to be a doc_id, an axis value, a metric name, or a
-    layer-set key built from layer names. Checked structurally rather than by eye,
-    because the output grows.
+    Every string in the output has to be a doc_id, an axis value, a metric name, a
+    layer-set key built from layer names, or a `rule_id` the caller declared. Checked
+    structurally rather than by eye, because the output grows.
+
+    `rule_id` is the one string here that the scorer takes on trust: it comes from
+    `rules/*.yaml`, an agent writes it, and a rule *name* can contain a surface form.
+    That is screened where the id is created rather than here (CLAUDE.md, and the
+    RuleAuthor prompt's Prohibition 2) — this test can only check that no *other*
+    string appears, which is what it does.
     """
     allowed = (
         set(scorer.MODES) | {p.doc_id for p in CORPUS}
-        | {"", "rules", "tagger"} | set(scorer.HEADLINE_MODE)
+        | {"", "rules", "tagger"} | set(scorer.HEADLINE_MODE) | RULE_IDS
     )
     from src.corpora.base import axis
     for name in ("phi_type", "layer", "corpus", "detector", "supervision",
@@ -347,7 +367,7 @@ def test_dedupe_leaves_differently_bounded_predictions_alone():
 
     A scorer that merged on its own would make every merge policy score alike.
     """
-    kept, dupes = dedupe([Mark(0, 5, "NAME", "context_cue"),
+    kept, dupes = dedupe([Mark(0, 5, "NAME", "context_cue", CUE),
                           Mark(0, 6, "NAME", "tagger")])
     assert dupes == 0 and len(kept) == 2
 
@@ -615,6 +635,12 @@ def test_the_invariants_hold_on_random_geometries():
     rng = random.Random(7)
     layers = sorted(axis("layer"))
     types = sorted(axis("phi_type"))[:3]
+
+    def _pred(start, end, phi_type, layer, rng):
+        rule_id = (f"es:r{rng.randrange(3)}_{layer}"
+                   if family_of(layer) == "rules" else None)
+        return Mark(start, end, phi_type, layer, rule_id)
+
     for _ in range(600):
         gold = tuple(
             Mark(a, b, rng.choice(types))
@@ -623,7 +649,8 @@ def test_the_invariants_hold_on_random_geometries():
                                           for _ in range(rng.randrange(0, 4)))})
         )
         pred = tuple(
-            Mark(s, s + rng.randrange(1, 9), rng.choice(types), rng.choice(layers))
+            _pred(s, s + rng.randrange(1, 9), rng.choice(types),
+                  rng.choice(layers), rng)
             for s in (rng.randrange(0, 42) for _ in range(rng.randrange(0, 5)))
         )
         result = score([DocPair("d", gold, pred)])
@@ -640,6 +667,16 @@ def test_the_invariants_hold_on_random_geometries():
                     + layers_block["covered_by_union_only"]) == denominator
             assert layers_block["sets"].get("", 0) == leaked, (mode, gold, pred)
 
+            # Per-rule attribution: every rules-family emission is attributed, and
+            # the rules' totals exceed the mode's only by spans two rules both
+            # emitted — bounded by the collapsed volume (see `_rule_tally`).
+            rules = block["by_rule"].values()
+            slack = block["duplicate_predictions"]
+            assert sum(r["fires"] for r in rules) == sum(
+                1 for p in pred if p.rule_id is not None), (mode, gold, pred)
+            assert sum(r["tp"] for r in rules) <= block["overall"]["tp"] + slack
+            assert sum(r["fp"] for r in rules) <= block["overall"]["fp"] + slack
+
         # A theorem, not an observation: any overlap by the union is some single
         # prediction's overlap, and that prediction has a family.
         relaxed = result["modes"][RELAXED]["complementarity"]
@@ -654,6 +691,244 @@ def test_sparse_types_are_flagged_not_dropped(scored):
     assert block["sparse"]["gold"] == 10
     assert sum(block["by_type"][t]["gold"] for t in block["sparse"]["types"]) == \
         block["leak"]["denominator"]
+
+
+# ─── per-rule attribution ───────────────────────────────────────────────────
+#
+# Hand computation, from the fixture geometry. Rule emissions, of the 12 predictions:
+#   es:cue_person     D2 [0,4), D4 [0,5), D4 [10,15)      → fires 3
+#   es:date_numeric   D3 [105,115)                        → fires 1
+#   es:id_checksum    D3 [195,205)                        → fires 1
+#   es:area_gazetteer D5 [0,5) LOCATION_AREA              → fires 1
+#   es:age_cue        D6 [10,12) AGE                      → fires 1
+# The remaining 5 predictions are tagger spans and carry no rule_id.
+#
+# fully_covered, from the assignment in each document:
+#   D2  no prediction contains the gold span → cue_person's span is unmatched  → fp
+#   D3  neither prediction contains its gold span → both rules                 → fp
+#   D4  all three distinct spans matched → cue_person [0,5) and [10,15)        → tp 2
+#   D5  type mismatch, no eligible pair → area_gazetteer                       → fp
+#   D6  no gold at all → age_cue                                              → fp
+#   → cue_person tp 2 fp 1, date_numeric 0/1, id_checksum 0/1,
+#     area_gazetteer 0/1, age_cue 0/1.  Rule tp 2 of the mode's 4; fp 5 of 7.
+#
+# relaxed:
+#   D2  the tagger's [4,10) overlaps 6 and wins; cue_person's [0,4) is unmatched → fp
+#   D3  both predictions overlap and match                                  → tp each
+#   D4, D5, D6 unchanged
+#   → cue_person tp 2 fp 1, date_numeric 1/0, id_checksum 1/0,
+#     area_gazetteer 0/1, age_cue 0/1.  Rule tp 4 of the mode's 7; fp 3 of 4.
+
+
+def test_by_rule_fully_covered(scored):
+    assert scored["modes"][FULLY_COVERED]["by_rule"] == {
+        AGE_RULE: {"layer": "context_cue", "fires": 1, "tp": 0, "fp": 1},
+        GAZ: {"layer": "gazetteer", "fires": 1, "tp": 0, "fp": 1},
+        CUE: {"layer": "context_cue", "fires": 3, "tp": 2, "fp": 1},
+        DATE_RULE: {"layer": "regex_checksum", "fires": 1, "tp": 0, "fp": 1},
+        ID_RULE: {"layer": "regex_checksum", "fires": 1, "tp": 0, "fp": 1},
+    }
+
+
+def test_by_rule_relaxed(scored):
+    assert scored["modes"][RELAXED]["by_rule"] == {
+        AGE_RULE: {"layer": "context_cue", "fires": 1, "tp": 0, "fp": 1},
+        GAZ: {"layer": "gazetteer", "fires": 1, "tp": 0, "fp": 1},
+        CUE: {"layer": "context_cue", "fires": 3, "tp": 2, "fp": 1},
+        DATE_RULE: {"layer": "regex_checksum", "fires": 1, "tp": 1, "fp": 0},
+        ID_RULE: {"layer": "regex_checksum", "fires": 1, "tp": 1, "fp": 0},
+    }
+
+
+def test_by_rule_false_positives_come_from_the_assignment_not_coverage():
+    """The distinction the block exists for, in the one fixture that separates them.
+
+    D2's `es:cue_person` span [0,4) overlaps the gold NAME [0,10) — under coverage it
+    contributed to hiding the identifier, and a coverage-based attribution would call
+    it a hit in both modes. But the assignment gives the credit to the tagger's
+    [4,10), which overlaps more, and credit is not given twice. So it is a false
+    positive for that rule under `relaxed` as well as under `fully_covered`.
+
+    This is what makes the block actionable. A rule whose spans always lose the
+    assignment to a better one is contributing nothing but noise, and it is exactly
+    the rule an author should delete — under coverage-based attribution it would read
+    as harmless and the file would only ever grow (§1.3 of the RuleAuthor prompt).
+    """
+    one = score([D2])
+    for mode in (FULLY_COVERED, RELAXED):
+        assert one["modes"][mode]["by_rule"] == {
+            CUE: {"layer": "context_cue", "fires": 1, "tp": 0, "fp": 1}}, mode
+    # And coverage really does disagree: the span is part of what hides the gold.
+    assert coverage(D2.gold, D2.pred, FULLY_COVERED) == [True]
+    assert one["modes"][FULLY_COVERED]["leak"]["leaked"] == 0
+
+
+def test_by_rule_counts_a_rule_across_documents(scored):
+    """`es:cue_person` fires in two documents; the tally is corpus-wide.
+
+    A per-document block would be right on every single-document fixture and wrong on
+    the corpus, which is the failure this asserts against.
+    """
+    entry = scored["modes"][FULLY_COVERED]["by_rule"][CUE]
+    assert entry["fires"] == 3          # D2 once, D4 twice
+    assert entry["tp"] + entry["fp"] == 3
+
+
+def test_by_rule_totals_do_not_exceed_the_mode_totals(scored):
+    """Rules account for part of the mode's tp/fp; the tagger accounts for the rest.
+
+    Not an equality, for two reasons that pull in opposite directions: tagger spans
+    carry no rule_id and are missing from the table, while a span two rules both
+    emitted is counted for both and the mode's totals see it once. So the bound a
+    reader may rely on is `overall + duplicate_predictions`, and nothing stronger —
+    summing `by_rule` and expecting `overall` is the mistake this pins down.
+    """
+    for mode in (FULLY_COVERED, RELAXED):
+        block = scored["modes"][mode]
+        rules = block["by_rule"].values()
+        slack = block["duplicate_predictions"]
+        assert sum(r["tp"] for r in rules) <= block["overall"]["tp"] + slack, mode
+        assert sum(r["fp"] for r in rules) <= block["overall"]["fp"] + slack, mode
+    fc = scored["modes"][FULLY_COVERED]
+    assert sum(r["tp"] for r in fc["by_rule"].values()) == 2      # of 4
+    assert sum(r["fp"] for r in fc["by_rule"].values()) == 5      # of 7
+    rel = scored["modes"][RELAXED]
+    assert sum(r["tp"] for r in rel["by_rule"].values()) == 4     # of 7
+    assert sum(r["fp"] for r in rel["by_rule"].values()) == 3     # of 4
+
+
+def test_by_rule_fires_sum_to_the_rule_layer_predictions(scored):
+    """Every rules-family prediction is attributed to exactly one rule.
+
+    A span that fell out of the table would make a rule look quieter than it is, and
+    the total is the only thing that would notice.
+    """
+    emitted = sum(1 for p in CORPUS for p in p.pred
+                  if p.rule_id is not None)
+    for mode in (FULLY_COVERED, RELAXED):
+        rules = scored["modes"][mode]["by_rule"].values()
+        assert sum(r["fires"] for r in rules) == emitted == 7, mode
+
+
+def test_a_rules_family_span_without_a_rule_id_is_refused():
+    """It would drop out of the attribution silently (DESIGN §3, §9.3)."""
+    with pytest.raises(ScorerError, match="no rule_id"):
+        Mark(0, 4, "NAME", "context_cue")
+    for layer in ("regex_checksum", "gazetteer"):
+        with pytest.raises(ScorerError, match="no rule_id"):
+            Mark(0, 4, "NAME", layer)
+
+
+def test_a_tagger_span_may_not_carry_a_rule_id():
+    """No rule fired, so there is nothing to attribute.
+
+    A checkpoint or model name in this field would put two kinds of thing in one
+    table, and `by_rule`'s rows would stop being deletable objects.
+    """
+    with pytest.raises(ScorerError, match="only rules-family"):
+        Mark(0, 4, "NAME", "tagger", "es:whatever")
+
+
+def test_gold_carries_no_rule_id():
+    assert Mark(0, 4, "NAME").rule_id is None
+    with pytest.raises(ScorerError, match="only rules-family"):
+        Mark(0, 4, "NAME", None, "es:whatever")
+
+
+def test_an_unprefixed_rule_id_is_refused():
+    """DESIGN §5.2: one corpus loads several rule files.
+
+    `es-carmen` loads `es` and `cat`; an unprefixed `doctor_prefix` from each would
+    share one row and the two rules' counts would be added together.
+    """
+    with pytest.raises(ScorerError, match="prefixed"):
+        Mark(0, 4, "NAME", "context_cue", "doctor_prefix")
+    with pytest.raises(ScorerError, match="prefixed"):
+        Mark(0, 4, "NAME", "context_cue", "sv:doctor_prefix")   # not a lang value
+    with pytest.raises(ScorerError, match="prefixed"):
+        Mark(0, 4, "NAME", "context_cue", "es:")
+    # Both files' rules coexist, which is the case the prefix exists for.
+    assert Mark(0, 4, "NAME", "context_cue", "cat:doctor_prefix").rule_id \
+        == "cat:doctor_prefix"
+
+
+def test_one_rule_id_may_not_span_two_layers():
+    """A rule declares its layer in the rule file (DESIGN §3).
+
+    Two layers under one id means either two rules sharing a name or a layer that
+    changed mid-run; both would attribute §7's per-layer results to the wrong
+    mechanism.
+    """
+    pair = DocPair(
+        "d", gold=(Mark(0, 4, "NAME"),),
+        pred=(Mark(0, 4, "NAME", "context_cue", CUE),
+              Mark(10, 14, "NAME", "gazetteer", CUE)),
+    )
+    with pytest.raises(ScorerError, match="two different layers"):
+        score([pair])
+
+
+def test_rule_id_messages_carry_no_surface():
+    """A rule name can contain corpus text, so no rejection message quotes one.
+
+    This is the same rule as `test_error_messages_carry_no_surface` applied to the
+    field most likely to hold a memorised span: an agent writes these ids.
+    """
+    secret = "es:jperez_1978"
+    cases = [
+        lambda: Mark(0, 4, "NAME", "tagger", secret),
+        lambda: Mark(0, 4, "NAME", "context_cue", secret.removeprefix("es:")),
+        lambda: score([DocPair(
+            "d", (Mark(0, 4, "NAME"),),
+            (Mark(0, 4, "NAME", "context_cue", secret),
+             Mark(10, 14, "NAME", "gazetteer", secret)))]),
+    ]
+    for call in cases:
+        with pytest.raises(ScorerError) as exc:
+            call()
+        msg = str(exc.value)
+        assert "jperez" not in msg and secret not in msg, msg
+
+
+def test_two_rules_emitting_one_span_are_both_credited():
+    """The collapse is about the span's credit, not about which rule gets named.
+
+    Hand computation: gold [0,5) NAME, two rules emitting the byte-identical [0,5).
+    `dedupe` collapses one, so the assignment sees one prediction and gives tp 1,
+    fp 0, `duplicate_predictions` 1. Both rules fired and both found it, so each gets
+    tp 1 — and the `by_rule` tp total is 2 against the mode's 1.
+
+    The alternative is to credit whichever copy survived deduplication, and that makes
+    the table depend on the order the detector emitted spans in: the same two rules
+    would swap credit between runs with nothing in the output moving. The cost of
+    avoiding it is the inequality above, which is why it is documented rather than
+    asserted away.
+    """
+    pair = DocPair(
+        "two-rules-one-span", gold=(Mark(0, 5, "NAME"),),
+        pred=(Mark(0, 5, "NAME", "context_cue", CUE),
+              Mark(0, 5, "NAME", "gazetteer", GAZ)),
+    )
+    block = score([pair])["modes"][RELAXED]
+    assert block["overall"]["tp"] == 1 and block["overall"]["fp"] == 0
+    assert block["duplicate_predictions"] == 1
+    assert block["by_rule"] == {
+        CUE: {"layer": "context_cue", "fires": 1, "tp": 1, "fp": 0},
+        GAZ: {"layer": "gazetteer", "fires": 1, "tp": 1, "fp": 0},
+    }
+    # Order-independent, which is the property the double credit buys.
+    flipped = DocPair("two-rules-one-span", pair.gold, pair.pred[::-1])
+    assert score([flipped])["modes"][RELAXED]["by_rule"] == block["by_rule"]
+
+
+def test_by_rule_is_absent_for_a_rule_that_fired_nothing():
+    """The scorer never read the rule file, so it cannot list a silent rule.
+
+    Stated as a test because the alternative reading — "the rule does not exist" — is
+    the one an author would draw from an absent row, and the RuleAuthor holds the file
+    and can tell the two apart itself.
+    """
+    assert score([D1])["modes"][RELAXED]["by_rule"] == {}      # tagger only
 
 
 # ─── headline and determinism ───────────────────────────────────────────────
@@ -709,7 +984,7 @@ def test_ties_are_broken_by_the_total_order():
     """
     gold = (Mark(5, 10, "NAME"),)
     a = Mark(0, 10, "NAME", "tagger")
-    b = Mark(5, 15, "NAME", "context_cue")
+    b = Mark(5, 15, "NAME", "context_cue", CUE)
     assert assign(gold, (a, b), RELAXED)[0] == {0: 0}
     assert assign(gold, (b, a), RELAXED)[0] == {0: 1}    # same Mark, index 1
 

@@ -640,6 +640,37 @@ MUTATIONS = [
         ),
         min_kills=1,
     ),
+    Mutation(
+        name="by_rule_fp_from_coverage",
+        path=SCORER,
+        anchor=(
+            "        matched_keys = frozenset(\n"
+            "            (distinct[pi].start, distinct[pi].end, distinct[pi].phi_type)\n"
+            "            for pi in matched.values()\n"
+            "        )"
+        ),
+        replacement=(
+            "        matched_keys = frozenset(\n"
+            "            (p.start, p.end, p.phi_type) for p in distinct\n"
+            "            if any(g.phi_type == p.phi_type and _overlap(g, p) > 0\n"
+            "                   for g in pair.gold)\n"
+            "        )"
+        ),
+        breaks=(
+            "Per-rule false positives are computed from coverage instead of from the "
+            "assignment: a rule's span counts as a hit whenever it overlaps a gold "
+            "span of the right type, whether or not the assignment gave it the credit. "
+            "The rule this hides is the one an author most needs to see — a rule whose "
+            "spans always lose the assignment to a better-overlapping prediction "
+            "contributes nothing but noise, and under coverage-based attribution it "
+            "reads as harmless. Since `by_rule` exists so that a rule file can shrink "
+            "rather than only grow (docs/prompts/rule_author.md §1.3), this mutation "
+            "removes the one signal that licenses a deletion, while every aggregate in "
+            "the file stays correct. Caught by D2, where the cue rule's span helps hide "
+            "the identifier and still loses the credit."
+        ),
+        min_kills=1,
+    ),
 ]
 
 COUNT_RE = re.compile(r"(\d+) (passed|failed|error|errors)")

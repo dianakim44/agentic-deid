@@ -991,6 +991,65 @@ asking, so nothing about provenance is lost. The collapsed volume is reported as
 otherwise have been counted against precision, and an unreported collapse is
 indistinguishable in the output from a detector whose layers never duplicated anything.
 
+#### Per-rule attribution is computed inside the scorer, not joined on afterwards
+
+The RuleAuthor needs to know which of *its own* rules misfired, not only that the arm's
+precision fell. An agent shown aggregates alone can add rules; only an agent shown the
+per-rule counts can delete one, and a rule file that grows monotonically is the
+characteristic failure of the `port-loop` arm. So each mode block carries **`by_rule`**:
+per `rule_id`, its declared layer, how many spans it emitted (`fires`), and its `tp` and
+`fp`.
+
+**The false positives come from the assignment matching's unmatched predictions.** Not
+from coverage, and the difference is the whole point of the block. A rule's span that
+overlaps a gold span of the right type but loses the assignment to a
+better-overlapping prediction is a false positive *for that rule*: the credit went
+elsewhere and cannot be given twice. Under coverage-based attribution that span reads
+as a hit, and the rule that never wins anything — the one an author should delete —
+reads as harmless. §9.3's two questions separate here for the same reason they separate
+for the corpus, and attribution is the credit question, not the disclosure question.
+
+The alternative was to compute these counts outside the scorer, joining `spans.jsonl`
+against the assignment result. **Rejected, because that puts the matching logic in two
+places.** The join would need its own notion of which prediction won which gold span —
+the same greedy pass, the same eligibility rule, the same total-order tie-break — and
+the moment the two implementations disagree there are two answers to "which rule fired
+here" with nothing in either output to say which is right. The disagreement would not
+announce itself either: both files would be internally consistent, and the per-rule
+table is exactly the artifact nobody cross-checks against the aggregate. Keeping the
+attribution inside the loop that already has `matched` and `fp` in hand means there is
+one matching in the system, and the per-rule numbers are a projection of it rather than
+a reconstruction.
+
+Two consequences of that placement, stated because they are the kind of thing that
+gets summed by accident:
+
+- **`by_rule` totals need not equal the mode's `overall` counts.** Tagger spans carry no
+  `rule_id` and are absent from the table, which makes the rule total smaller; a
+  byte-identical span emitted by two rules is credited to both while the assignment
+  sees it once, which makes it larger. The reliable bound is
+  `overall + duplicate_predictions`. Crediting only the copy that survived
+  deduplication was the alternative, and it would make the table depend on the order
+  the detector emitted spans in — two rules swapping credit between runs with nothing
+  else in the output moving.
+- **A rule that fired nothing has no row.** The scorer never reads the rule file, so it
+  cannot tell a rule that matched nothing from a rule that does not exist. The
+  RuleAuthor holds the file and can see which of its ids are missing.
+
+`rule_id` carries the language prefix of the file that produced it (`es:doctor_prefix`),
+and the scorer requires it: `es-carmen` loads two rule files (§5.2), and an unprefixed
+`doctor_prefix` in each would share one row with the two rules' counts added together.
+A rules-family span must carry an id and a tagger span must not — the first would drop
+out of the attribution silently, and the second would put a checkpoint name in a table
+whose rows are supposed to be deletable rules.
+
+One privacy consequence, since `by_rule` puts rule names in a published file: a
+`rule_id` is text an agent chose, it reaches `metrics.json`, and `metrics.json` is
+committed to a public repository. The prohibition on surface forms therefore binds
+`rule_id` as strictly as it binds a comment (`docs/prompts/rule_author.md`
+Prohibition 2), and it is screened where the id is created. The scorer's own error
+messages never quote an id for the same reason they never quote a span.
+
 #### Which figure is the headline is a per-metric decision
 
 - **Leak rate: `fully_covered`.** The `relaxed` figure is reported beside it as a

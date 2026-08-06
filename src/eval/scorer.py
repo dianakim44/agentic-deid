@@ -23,6 +23,11 @@ prediction covers it. Both directions invent leaks that do not exist.
 **It does not choose the headline.** Both modes are computed symmetrically; which
 figure leads is recorded in the `headline` block and decided by the reporting layer.
 
+Per-rule attribution (`by_rule`) is computed here rather than joined on afterwards,
+for the reason DESIGN §9.3 records: a join outside the scorer needs its own copy of
+the matching, and the moment the two copies disagree there are two answers to "which
+rule fired" with nothing to say which is right.
+
 Usage:
 
     pairs, excluded = from_documents(docs, predictions)
@@ -41,7 +46,9 @@ from ..corpora.base import ROOT, axis, family_of, layer_families, naming
 #: Bumped when the meaning of an output field changes, so a results directory holding
 #: two versions is detectable rather than silently mixed.
 SCORER_VERSION = 1
-SCHEMA_VERSION = 1
+#: 2 adds `by_rule` to each mode block. The shape changed and no field changed
+#: meaning, so this moves and SCORER_VERSION does not.
+SCHEMA_VERSION = 2
 
 FULLY_COVERED = "fully_covered"
 RELAXED = "relaxed"
@@ -94,12 +101,20 @@ class Mark:
 
     `layer` is None on gold and a value of naming.yaml's `layer` axis on a
     prediction. It is never inferred from anything (DESIGN §3).
+
+    `rule_id` is None on gold and on tagger spans, and the emitting rule's
+    prefixed id (`es:doctor_prefix`) on a rule-layer span. The prefix is required
+    and checked against the `lang` axis, because `es-carmen` loads two rule files
+    (DESIGN §5.2) and an unprefixed `doctor_prefix` from each would land in one
+    `by_rule` bucket — two rules' counts added together with nothing in the output
+    saying so.
     """
 
     start: int
     end: int
     phi_type: str
     layer: str | None = None
+    rule_id: str | None = None
 
     def __post_init__(self) -> None:
         if self.end <= self.start:
@@ -116,6 +131,42 @@ class Mark:
             raise ScorerError(
                 f"{self.layer!r} is not a layer in config/naming.yaml "
                 f"(have: {sorted(axis('layer'))})"
+            )
+        self._check_rule_id()
+
+    def _check_rule_id(self) -> None:
+        """`rule_id` is present exactly on rules-family spans, and prefixed.
+
+        None of these messages quote the id. A rule name can contain corpus text —
+        that is what `rules/*.yaml`'s screening exists for — and an exception
+        message goes to terminals, CI logs and stack traces, which
+        `tools/release_screen.py` does not reach (CLAUDE.md).
+        """
+        family = family_of(self.layer) if self.layer is not None else None
+        if family == "rules":
+            if self.rule_id is None:
+                raise ScorerError(
+                    f"a {self.layer!r} span carries no rule_id. The per-rule "
+                    "attribution block is what makes a rule file shrinkable rather "
+                    "than only growable, and a rules-family span with no id would "
+                    "drop out of it silently — the fire counts would stop summing "
+                    "to the prediction count with nothing in the output saying so."
+                )
+            prefix, _, rest = self.rule_id.partition(":")
+            if not rest or prefix not in axis("lang"):
+                raise ScorerError(
+                    "a rule_id must be prefixed with the language of the rule file "
+                    f"that produced it (one of {sorted(axis('lang'))}, DESIGN §5.2). "
+                    "The id is not quoted here because a rule name can contain "
+                    "corpus text. One corpus loads several rule files, so two files' "
+                    "same-named rules would otherwise share one attribution bucket."
+                )
+        elif self.rule_id is not None:
+            raise ScorerError(
+                f"a span with layer {self.layer!r} carries a rule_id, but only "
+                "rules-family layers come from rules/*.yaml. A learned span has no "
+                "rule that fired, and putting a model or checkpoint name in this "
+                "field would make the per-rule table mix two kinds of thing."
             )
 
     @property
@@ -150,6 +201,7 @@ def _mark(obj) -> Mark:
         return Mark(
             start=obj.start, end=obj.end, phi_type=obj.phi_type,
             layer=getattr(obj, "layer", None),
+            rule_id=getattr(obj, "rule_id", None),
         )
     except AttributeError as exc:
         raise ScorerError(
@@ -323,6 +375,76 @@ def assign(
 # ─── scoring ────────────────────────────────────────────────────────────────
 
 
+def _rule_tally(
+    pred: Sequence[Mark],
+    matched_keys: frozenset[tuple[int, int, str]],
+    fp_keys: frozenset[tuple[int, int, str]],
+    into: dict[str, dict],
+) -> None:
+    """Accumulate one document's per-rule tp / fp / fires into `into`.
+
+    **False positives come from the assignment matching's unmatched predictions**
+    (`fp_keys`), never from coverage. A rule's span that overlaps a gold span of the
+    right type but lost the assignment to a better-overlapping prediction is a false
+    positive for that rule — the credit was given elsewhere and cannot be given twice.
+    Computed from coverage instead, that span would look like a hit, and a rule with no
+    unique contribution would read as harmless: precisely the rule an author should
+    delete. The two questions §9.3 separates for the corpus separate here too, and
+    attribution is the credit question.
+
+    `fires` counts emissions; `tp` and `fp` count *distinct* spans. Per rule,
+    `tp + fp` is the number of distinct spans it emitted, and `fires` exceeds that when
+    the rule matched one span more than once. Both are kept because they answer
+    different questions: fires is what the rule did, tp + fp is what it was scored on.
+
+    Duplicates *across* rules are counted for both rules. Two rules emitting the
+    byte-identical span both found it, and the assignment's one-to-one collapse
+    (`dedupe`) is about the span's credit, not about which rule gets named. Attributing
+    to whichever copy survived deduplication would make the table depend on the order
+    the detector emitted spans in. The consequence, stated because it is the kind of
+    thing that gets summed by accident: **`by_rule` totals need not equal the mode's
+    `overall` counts**, and the difference is bounded by `duplicate_predictions`.
+    """
+    per_rule_keys: dict[str, set[tuple[int, int, str]]] = {}
+    for p in pred:
+        if p.rule_id is None:
+            continue
+        entry = into.setdefault(
+            p.rule_id, {"layer": p.layer, "fires": 0, "tp": 0, "fp": 0}
+        )
+        if entry["layer"] != p.layer:
+            raise ScorerError(
+                "one rule_id emitted spans under two different layers "
+                f"({entry['layer']!r} and {p.layer!r}). A rule declares its layer in "
+                "rules/*.yaml (DESIGN §3), so this is either two rules sharing an id "
+                "or a rule whose layer changed mid-run; either way the per-layer "
+                "results of §7 would be attributed to the wrong mechanism. The id is "
+                "not quoted here because a rule name can contain corpus text."
+            )
+        entry["fires"] += 1
+        per_rule_keys.setdefault(p.rule_id, set()).add(
+            (p.start, p.end, p.phi_type)
+        )
+
+    for rule_id, keys in per_rule_keys.items():
+        entry = into[rule_id]
+        for key in keys:
+            if key in matched_keys:
+                entry["tp"] += 1
+            elif key in fp_keys:
+                entry["fp"] += 1
+            else:
+                # Unreachable while `dedupe` keys on the same triple as this tally.
+                # Kept because the two are separate functions: if one starts keying
+                # on something else, the counts would silently stop summing.
+                raise ScorerError(
+                    "a predicted span is neither matched nor unmatched in this "
+                    f"document's assignment (span [{key[0]}, {key[1]})). The two sets "
+                    "partition the deduplicated predictions by construction, so this "
+                    "means `dedupe` and `assign` disagree about the key of a span."
+                )
+
+
 @dataclass(frozen=True, slots=True)
 class _GoldRecord:
     """One gold span's verdict under one mode. The unit everything aggregates from."""
@@ -352,12 +474,13 @@ def _prf(tp: int, fp: int, fn: int) -> dict:
 
 def _records(
     pairs: Sequence[DocPair], mode: str
-) -> tuple[list[_GoldRecord], dict, int]:
-    """Per-gold verdicts, per-type false positives, and duplicate count, for one mode."""
+) -> tuple[list[_GoldRecord], dict, int, dict]:
+    """Per-gold verdicts, per-type FPs, duplicate count and per-rule tally, one mode."""
     families = layer_families()
     records: list[_GoldRecord] = []
     fp_by_type: dict[str, int] = {}
     duplicates = 0
+    by_rule: dict[str, dict] = {}
 
     for pair in pairs:
         cov = coverage(pair.gold, pair.pred, mode)
@@ -370,6 +493,18 @@ def _records(
         for pi in fp:
             key = distinct[pi].phi_type
             fp_by_type[key] = fp_by_type.get(key, 0) + 1
+
+        # Per-rule attribution rides on the same assignment result — it is not a
+        # second matching and there is no join outside this loop (DESIGN §9.3).
+        fp_keys = frozenset(
+            (distinct[pi].start, distinct[pi].end, distinct[pi].phi_type)
+            for pi in fp
+        )
+        matched_keys = frozenset(
+            (distinct[pi].start, distinct[pi].end, distinct[pi].phi_type)
+            for pi in matched.values()
+        )
+        _rule_tally(pair.pred, matched_keys, fp_keys, by_rule)
 
         by_family = {
             fam: [p for p in pair.pred if family_of(p.layer) == fam]
@@ -396,7 +531,7 @@ def _records(
                 covered=cov[gi], matched=gi in matched,
                 families=fams, layers=layers,
             ))
-    return records, fp_by_type, duplicates
+    return records, fp_by_type, duplicates, by_rule
 
 
 def _complementarity(records: Sequence[_GoldRecord]) -> dict:
@@ -467,7 +602,8 @@ def _complementarity(records: Sequence[_GoldRecord]) -> dict:
 
 
 def _mode_block(records: Sequence[_GoldRecord], fp_by_type: dict,
-                pairs: Sequence[DocPair], duplicates: int) -> dict:
+                pairs: Sequence[DocPair], duplicates: int,
+                by_rule: dict) -> dict:
     leaked = [r for r in records if not r.covered]
     denominator = len(records)
 
@@ -540,6 +676,19 @@ def _mode_block(records: Sequence[_GoldRecord], fp_by_type: dict,
             "gold": sum(by_type[t]["gold"] for t in scored_types
                         if by_type[t]["sparse"]),
         },
+        # Per-rule attribution (DESIGN §9.3). Sorted for a stable file. Rules that
+        # fired nothing are absent — the scorer never read the rule file and cannot
+        # tell a rule that matched nothing from a rule that does not exist; the
+        # RuleAuthor holds the file and can see which of its ids are missing.
+        "by_rule": {
+            rule_id: {
+                "layer": entry["layer"],
+                "fires": entry["fires"],
+                "tp": entry["tp"],
+                "fp": entry["fp"],
+            }
+            for rule_id, entry in sorted(by_rule.items())
+        },
         # Predictions collapsed as identical before assignment (see `dedupe`).
         # Reported because it is the volume of layer agreement that would otherwise
         # have been counted as false positives, and a silent collapse is
@@ -576,8 +725,8 @@ def score(pairs: Sequence[DocPair], *, excluded_gold: int = 0) -> dict:
 
     modes = {}
     for mode in MODES:
-        records, fp_by_type, duplicates = _records(pairs, mode)
-        modes[mode] = _mode_block(records, fp_by_type, pairs, duplicates)
+        records, fp_by_type, duplicates, by_rule = _records(pairs, mode)
+        modes[mode] = _mode_block(records, fp_by_type, pairs, duplicates, by_rule)
 
     gold_total = sum(len(p.gold) for p in pairs)
     no_gold = [p for p in pairs if not p.gold]

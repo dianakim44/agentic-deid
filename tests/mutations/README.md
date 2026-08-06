@@ -19,7 +19,7 @@ is tested by `tests/test_mutation_harness.py`, which pytest does collect.
 
 Each one corresponds to a decision in DESIGN.md that a plausible "simplification"
 would silently undo. What they have in common is the property that makes them
-dangerous: **twenty of the twenty-nine change no total.** The corpus still loads,
+dangerous: **twenty-one of the thirty change no total.** The corpus still loads,
 the document count is still 750, the span count is still 17,134 — and every
 downstream number is wrong. Those are the errors a reviewer cannot catch and an
 aggregate cannot reveal, which is why they get a harness rather than trust.
@@ -143,8 +143,9 @@ inspection — a leak rate of 3.1% looks exactly as reasonable as a wrong one.
 |---|---|---|---|
 | `greedy_allows_reuse` | `assign()` drops `pi in used` from the skip condition | the matching stops being one-to-one, so one wide prediction collects credit for several gold spans. Recall rises for emitting one coarse span instead of two correct ones — the detector is paid for being vaguer about boundaries | **8** |
 | `fully_covered_is_relaxed` | `_covers()` tests `> 0` instead of `== mark.length` under `fully_covered` | the headline mode collapses into the lower bound while keeping its name; a gold span with one character covered counts as hidden | **10** |
-| `leak_rate_from_assignment` | the `leak.leaked` figure is taken from the assignment's false negatives | the error DESIGN §9.3 exists to prevent: a leak reported on an identifier whose every character is hidden | **8** |
+| `leak_rate_from_assignment` | the `leak.leaked` figure is taken from the assignment's false negatives | the error DESIGN §9.3 exists to prevent: a leak reported on an identifier whose every character is hidden | **9** |
 | `greedy_tiebreak_dropped` | the sort key becomes `(-overlap, pi, gi)` | ties fall through to emission order, so the metrics move when the same spans arrive shuffled | **1** |
+| `by_rule_fp_from_coverage` | `by_rule`'s hits are taken from type-matched overlap instead of from the assignment | a rule whose spans always lose the assignment to a better one reads as harmless, and the only signal that licenses deleting a rule disappears while every aggregate stays correct | **5** |
 
 The first three are ordinary wrong-number mutations and the counts are comfortable.
 `greedy_tiebreak_dropped` is the interesting one, and it is caught by exactly one
@@ -169,10 +170,20 @@ could reconstruct. The gap has its own name in the output — `assignment_slack`
 that it is a reported quantity instead of an unexplained discrepancy between the leak
 rate and recall.
 
+`by_rule_fp_from_coverage` is the same argument one level down, and it is worth stating
+separately because the coverage basis is *more* natural here than it was there. A rule's
+span that overlaps a gold identifier did help hide it, and calling that a hit sounds
+generous rather than wrong. But per-rule attribution exists so the RuleAuthor can
+*delete* a rule (DESIGN §9.3, `docs/prompts/rule_author.md` §1.3), and the rule worth
+deleting is precisely the one whose spans are always beaten to the credit by a better
+prediction. Under the coverage basis that rule shows a healthy hit count, the file grows
+monotonically, and no aggregate in `metrics.json` is wrong — the arm simply never
+shrinks its rule set and nobody can say why.
+
 Counts are the number of tests that fail or error, from
 `tests/test_meddocan_loader.py`, `tests/test_split_file.py`, `tests/test_seal.py`,
 `tests/test_release_screen.py`, `tests/test_layer_families.py` and
-`tests/test_scorer.py` (233 tests). Errors
+`tests/test_scorer.py` (247 tests). Errors
 count as kills: a mutation that breaks the module-scoped fixture takes whole tests
 out, and those are caught, not uncounted.
 
@@ -254,7 +265,7 @@ applies to the code. Two safeguards follow from that:
   Three checks, described in the next section. Skipping them lets the harness count
   its own breakage as a kill.
 
-The maintenance cost is real but bounded: twenty-nine anchors, each a line or two,
+The maintenance cost is real but bounded: thirty anchors, each a line or two,
 and a refactor that breaks one gets a `STALE` message naming the file. That is
 cheaper than the failure mode it prevents.
 
