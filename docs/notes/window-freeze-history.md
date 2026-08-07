@@ -42,9 +42,9 @@ condition the operator controlled, so the correctness of every re-freeze rested 
 operator's own judgement about whether §7 applied — which is what the record was supposed
 to remove from the operator's hands.
 
-## The five revisions
+## The six revisions
 
-All five are before iteration 1's rule work. At every one of them:
+All six are before iteration 1's rule work — which, after revision 6, is where they will stay. At every one of them:
 
 - `rules/es.yaml` did not exist — no rule had been written for this arm,
 - `human_log.jsonl` held exactly one line, `event: read_sample`,
@@ -67,8 +67,10 @@ still did not, for the reason given below.
 | 4 | `bc83e2c` era (`fix: make the window freeze actually immutable`) | `bc83e2c7126b…` | §7 gained the paragraph describing the corrected guard, and the freeze-last lesson |
 | 5 | this commit | `5786260c6d93…` | `config/sampling.yaml` gained `practice_iteration_min: 900` and §2 of the prompt gained the two regex-free matcher forms — **both** hashes moved, the first time either has moved together with the other |
 
-`sampling_sha256` = `fbfbbe107e2e…` at revisions 1–4 and `4c0e2cc725d3…` at revision 5.
-Revision 5 has no commit hash of its own here because it is the commit that adds this row;
+| 6 | this commit (`docs: retire port-human, adopt port-oneshot as the baseline`) | `558bfe3fe86f…` | the arm was **retired**; §§7–8 of the prompt gained dormancy banners and the header was rewritten |
+
+`sampling_sha256` = `fbfbbe107e2e…` at revisions 1–4 and `4c0e2cc725d3…` at revisions 5–6.
+Revision 6 has no commit hash of its own here because it is the commit that adds this row;
 it is the one whose two hashes match the record on disk.
 
 Revision 3 is the one with no excuse. Revisions 1→2 added a clause the arm needed and
@@ -150,6 +152,36 @@ was consulted both times and returned `None` both times — but the first re-fre
 wasted work that a moment's thought about what else the practice session still needed would
 have avoided. The freeze is a record of a settled state, so writing it while the state is
 still moving records a state that never mattered.
+
+### Revision 6, and why a retired arm was re-frozen at all
+
+`port-human` was withdrawn on 2026-08-07 for want of a human author (DESIGN §11, §4.1).
+The prompt is one of the two hashed files, and retiring the arm meant editing it — a new
+header, dormancy banners on §§7–8 — so `prompt_sha256` moved one last time.
+
+**Re-freezing an arm that will not run looks like pointless bookkeeping, and the argument
+for doing it is about what a revival inherits.** The alternative was to leave the record
+showing revision 5's hash while the prompt on disk hashes to something else. `arm_has_started()`
+is still `False`, so `window_drift()` would report `['prompt_sha256']` to whoever next ran
+the tooling, and they would have to reconstruct from git whether that drift was the
+retirement edit or a real change to the window. A record that disagrees with the files is
+not a safer record for being older; it is a record that needs a person to interpret it,
+which is what §11's freeze exists to avoid.
+
+So the honest statement is: **this window has been frozen six times and never used.** The
+guard was consulted at every one and returned `None` at every one, which is correct and
+also the reason none of them cost anything — the arm never recorded a minute. What the
+six revisions actually demonstrate is the thing revision 4 got wrong when it predicted it
+was the last: **a freeze taken before the surrounding work is settled will be retaken.**
+Five of these are prompt edits during a period when the prompt was still being written,
+and the sixth is the arm being cancelled. If a human arm is revived, the lesson to carry
+is not "freeze more carefully" but "freeze when the author is about to start", because
+that is the only moment at which the freeze's claim — *this is the window the run began
+with* — is a claim about anything.
+
+The record now on disk is what a revival inherits: revision 6's two hashes, one
+`human_log.jsonl` row with a null `human_minutes`, and an iteration-1 window that has
+never been drawn for rule-writing.
 
 ## What is guaranteed now
 

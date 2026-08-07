@@ -1,5 +1,11 @@
 # port-human log
 
+> **CLOSED 2026-08-07 — the arm was retired before iteration 1** (DESIGN §11, §4.1). No
+> human author could be secured. The sessions below are real work and are kept: the corpus
+> inventory, the mapping decisions and the tooling they produced are shared by every arm,
+> and the baseline moved to `port-oneshot` rather than disappearing. What this file no
+> longer becomes is a record of human hours, which §4.1 lists as the retirement's cost.
+
 Time and judgement record for the `port-human` arm. This is the baseline the
 agent arms are compared against, so the record matters as much as the artifacts.
 

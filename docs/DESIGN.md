@@ -24,6 +24,15 @@ the measurable claim is:
 *Porting* means producing those language-specific instances. The term is used
 in the software-engineering sense.
 
+**"N hours" is now agent wall time and LLM cost, not human hours.** With `port-human`
+retired (§11, §4.1) there is no arm in which a person ports the pipeline, so the hours
+this project measures are the ones the arms actually spend: wall time, calls and tokens
+per arm, which CLAUDE.md already requires beside every quality number. The human-hours
+reading of the same sentence is argued indirectly from published annotation- and
+rule-authoring-cost literature and must be labelled as external evidence. Both readings
+are worth stating; conflating them would let a measured agent cost be read as a measured
+saving against a person, which is the one claim retirement removed.
+
 ---
 
 ## 2. The pipeline being ported
@@ -251,7 +260,8 @@ derived from configuration; ordinals (`arm1`) and status words (`best`,
 corpus       ko-surro · es-meddocan · de-grascco · es-carmen · en-n2c2
 detector     R · T · RT · RT-Arb · RT-Aud · RT-Arb-Aud
 supervision  sup-free · sup-human
-porting      port-human · port-oneshot · port-loop · port-multi · port-selfdesign
+porting      port-oneshot · port-loop · port-multi · port-selfdesign
+             port-human (RETIRED 2026-08-07 — §11, retained in naming.yaml)
 ```
 
 The path is the identifier:
@@ -260,14 +270,59 @@ The path is the identifier:
 results/{corpus}/{detector}/{supervision}/{porting}/metrics.json
 ```
 
-The porting axis is a ladder of autonomy. Two comparisons carry the paper:
+The porting axis is a ladder of autonomy. **The baseline is `port-oneshot`**, and three
+comparisons carry the paper — one per rung, each isolating a single added capability:
 
-- `port-loop` vs `port-oneshot` — does iteration justify calling this agentic?
-- `port-multi` vs `port-loop` — does role specialisation justify *multi*-agent?
-- `port-selfdesign` vs `port-multi` — can role design itself be delegated?
+| comparison | question | what it isolates |
+|---|---|---|
+| `port-loop` vs `port-oneshot` | does iteration justify calling this agentic? | feedback against dev |
+| `port-multi` vs `port-loop` | does role specialisation justify *multi*-agent? | role differentiation |
+| `port-selfdesign` vs `port-multi` | is delegating role design worth it? | who designs the roles |
 
-If `port-loop` does not beat `port-oneshot`, the agentic framing is not earned.
-That is a real possible outcome and the experiment is designed to detect it.
+Each pair differs in one capability and shares everything else — same pipeline, same dev
+fold, same rule schema, same feedback tool (`tools/check_rules.py`, §3). That is what makes
+the ladder readable as a ladder: a difference between adjacent rungs is attributable,
+whereas a difference between `port-oneshot` and `port-selfdesign` is a difference between
+two bundles.
+
+If `port-loop` does not beat `port-oneshot`, the agentic framing is not earned. That is a
+real possible outcome and the experiment is designed to detect it. The same holds one rung
+up, and CLAUDE.md's cost requirement plus §11.3's pre-registered 1.9× standard apply at
+every rung — a rung that wins only by spending more has not earned its name.
+
+### 4.1 What retiring `port-human` costs, stated as a limitation
+
+`port-human` was the baseline until 2026-08-07 and was withdrawn for resourcing: no human
+author could be secured (§11). `port-oneshot` replaces it. The substitution is sound for
+the ladder — a single LLM call with no iteration is the right floor for a claim about
+*iteration*, and it is arguably the better floor, since `port-oneshot` shares the schema,
+the prompt and the tool with the rungs above it, while a human shares only the schema. But
+two claims are lost and neither is recoverable by any analysis of the remaining arms:
+
+**1. No measured labour-cost claim.** The project can no longer say what porting this
+pipeline costs a person, and therefore cannot report the ratio a practitioner actually
+wants: agent dollars against human hours. Every comparison that survives is
+agent-versus-agent, where cost is LLM calls, tokens and wall time — commensurable, but all
+on one side of the question. **The paper argues this indirectly, by citing published
+annotation- and rule-authoring-cost literature**, and must mark it as external evidence
+rather than a measurement of this pipeline. An indirect argument from another project's
+corpus, language and annotation guideline is weaker than a measurement here, and the
+sentence that says so belongs in the limitations section rather than in a footnote.
+
+**2. No human ceiling on quality.** `port-human` was also the answer to "is the whole
+pipeline any good, or are all the arms bad together?" Agent-versus-agent comparisons are
+internally valid and jointly unanchored: `port-multi` beating `port-loop` by six points is
+the same number whether both are near a competent human's rule set or far below it. The
+partial substitutes are external — MEDDOCAN's published shared-task results for the
+Spanish arm, and the corpora's own inter-annotator agreement where reported — and both
+compare against a different system rather than against a person doing this job. What
+cannot be substituted is the counterfactual: a person given the same window, the same
+schema and the same stopping rule.
+
+The one thing retirement does **not** cost is the pre-registration. §11's protocol was
+fixed before any dev document was read for rule-writing and is retained in full, so a
+revived human arm inherits decided rules rather than re-deriving them after the agent
+results are visible.
 
 ---
 
@@ -789,9 +844,11 @@ recorded in `agent_calls.jsonl` is inside.
 
 Claude chat sessions and Bedrock Claude Code are research tools, not system
 components. They are disclosed in the AI-use statement, not in Methods. Design
-conversations that shape the role set are, however, the record of the
-`port-human` arm and the source material for `port-selfdesign` prompts — worth
-keeping.
+conversations that shape the role set are, however, the source material for
+`port-selfdesign` prompts — worth keeping. They were also the record of the
+`port-human` arm, which is retired (§11); with that arm gone they document how the
+fixed role set of `port-multi` was arrived at, which `port-selfdesign` is measured
+against.
 
 ---
 
@@ -833,7 +890,11 @@ an attribute on `NAME`, not a separate type: both corpora already distinguish
 patient from clinician names, so this is lossless for both.
 
 `mappings/{corpus}.yaml` holds the mapping and is the artifact the Mapper agent
-produces; the table above is the human-authored `port-human` version of it.
+produces; the table above is the human-authored version of it. It predates the
+retirement of `port-human` (§11) and is unaffected by it: this mapping is a design
+input shared by every arm, not one arm's output. Only `port-multi` and above have a
+Mapper, so the arms below use this table — which is why it is in DESIGN rather than
+in an arm's results directory.
 
 ### 9.1 Excluded from the canonical set
 
@@ -1343,7 +1404,43 @@ union rests on measurability rather than on the selector being bad.
 
 ---
 
-## 11. `port-human` protocol
+## 11. `port-human` protocol — **RETIRED 2026-08-07, not deleted**
+
+> **This arm was withdrawn on 2026-08-07, before iteration 1 was run.** The reason is
+> resourcing and not a finding: **no human author could be secured** for the volume of
+> rule-writing the protocol requires, and the protocol's own §11.3 stopping rule (the
+> agent loop's δ and k) makes the required effort open-ended in hours. The baseline moved
+> to `port-oneshot`; see §4 for what that costs the paper's claims.
+>
+> **The section stays because the protocol is the expensive part.** Every decision below
+> was settled before any dev document was read for rule-writing purposes, and that
+> ordering is the only thing that makes them usable — a protocol re-derived after seeing
+> results is a different object with the same text. If a human arm is revived, it starts
+> from these rules as written rather than from a fresh round of reasoning that would
+> arrive somewhere subtly more convenient. Deleting the section would throw away the
+> pre-registration and keep only the inconvenience.
+>
+> **State at retirement**, so a revival knows what it inherits:
+>
+> - `results/es-meddocan/R/sup-free/port-human/window_freeze.json` exists — the frozen
+>   window at revision 5, both hashes recorded. `human_log.jsonl` has one row with a null
+>   `human_minutes`, so `arm_has_started()` is `False` and the freeze is still revisable.
+> - The iteration-1 window was **never drawn** for rule-writing. The practice rehearsal
+>   (iteration 900, `docs/notes/port-human-practice.md`) drew from a pool with iteration
+>   1's spans subtracted, so iteration 1's forty spans remain unread.
+> - `port-human` stays in `naming.yaml`'s `porting` axis, marked retired. §4 explains why
+>   removing it would be the wrong kind of tidy.
+> - The tooling is intact and tested: `tools/show_human_window.py`, `src/porting/`,
+>   `src/rules.py`, `tools/check_rules.py`. The last two are not `port-human`-specific and
+>   every agent arm uses them.
+>
+> **What a revival must not do** is treat the retirement as licence to revise the
+> protocol. The decisions below were made without knowing any arm's results. By the time
+> a human arm is revived, `port-oneshot` and probably `port-loop` will have run, and every
+> §11 decision will have a visible consequence for how the comparison lands — which is
+> exactly the condition under which pre-registration stops being possible. Re-open a
+> decision only with the change and its date recorded here, so a reader can see which
+> rules predate the results and which do not.
 
 > **Fixed before the arm runs, and that is the point.** This arm's *procedure is its
 > data*: `port-human` is the control, and a control whose protocol was decided while

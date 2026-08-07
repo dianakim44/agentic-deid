@@ -1,10 +1,24 @@
 # RuleAuthor prompt — `rules/{lang}.yaml`
 
-> **This file fixes the human's dev window.** DESIGN §11.1 derives `port-human`'s
-> sample size `n` from what this prompt actually carries, in that order and not the
-> reverse. The consequences are spelled out in "What this file decides for
-> `port-human`" at the end, including the part where changing it invalidates a
-> completed `port-human` run. Read that section before editing anything above it.
+> **`port-human` is retired (2026-08-07, DESIGN §11) and the baseline is now
+> `port-oneshot`.** §§7–8 below bound that arm and are therefore dormant, not deleted:
+> they record what this file decided for the human window, fixed before any dev document
+> was read for rule-writing. Read them as the pre-registration a revived human arm
+> inherits, not as live constraints.
+>
+> **This file still fixes every agent arm's dev window,** which is the part that was never
+> about `port-human`. §§1.3–1.5 specify what one RuleAuthor invocation is shown, and the
+> `port-oneshot` / `port-loop` comparison is only interpretable if both arms are shown the
+> same blocks from the same code path (DESIGN §4). Changing §1 changes what the ladder is
+> measuring. The prompt is hashed into `window_freeze.json`, so an edit is visible as drift
+> rather than as nothing.
+>
+> **`port-oneshot` reads this file with §§1.3 and 1.4 empty**, because it has no previous
+> iteration to draw scores or error spans from. That is the arm, not a gap in the prompt:
+> the baseline's whole definition is one call with no feedback. What it must not do is
+> silently receive a *substitute* for those blocks — a profile summary or a type
+> inventory standing in for the score block would make the baseline something other than
+> the no-feedback floor the ladder needs.
 
 The RuleAuthor is one agent with one artifact: `rules/{lang}.yaml` (DESIGN §3). It does
 not score, does not arbitrate, does not audit, and does not decide when to stop — the
@@ -500,7 +514,13 @@ that does not generalise: the sealed fold must be on disk, and this must not.
 
 ---
 
-## 7. What this file decides for `port-human`
+## 7. What this file decides for `port-human` — **dormant, arm retired 2026-08-07**
+
+> Retained as pre-registration (DESIGN §11). The table below was checkable before any arm
+> ran, and that is what makes it worth keeping: a revived human arm starts from these rows
+> rather than re-deriving them once the agent results are visible. Nothing here binds the
+> agent arms — but the left column does describe what they are shown, so it remains the
+> record of what `port-oneshot` and `port-loop` receive.
 
 DESIGN §11.1 fixes `port-human`'s dev window by **derivation from this file**, and the
 ordering is normative: this prompt is specified first, and the human's window follows.
@@ -607,7 +627,15 @@ human arm or publishing an incomparable one.
 
 ---
 
-## 8. `port-human` may not ask a model what a rule should be
+## 8. `port-human` may not ask a model what a rule should be — **dormant, arm retired**
+
+> Retained for the same reason as §7, and it is the clause a revival would be most tempted
+> to soften. Note what its own argument now says out loud: an author who asks a model what
+> pattern fits an error "has run `port-oneshot` with a slower interface" — and
+> `port-oneshot` is now the baseline. The two arms it warns about collapsing are no longer
+> a control and a treatment; one of them is simply gone. A revived human arm faces exactly
+> the same contamination risk against a baseline that has by then been *measured*, which
+> makes the temptation stronger rather than weaker.
 
 This section binds a **person**, which is why it is not in §4. §4's prohibitions are
 given to the agent and enforced around it; this one has no enforcement mechanism at all

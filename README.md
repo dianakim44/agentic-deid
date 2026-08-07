@@ -79,7 +79,8 @@ Four independent axes, with the values defined in `config/naming.yaml`:
 corpus       ko-surro · es-meddocan · de-grascco · es-carmen · en-n2c2
 detector     R · T · RT · RT-Arb · RT-Aud · RT-Arb-Aud
 supervision  sup-free · sup-human
-porting      port-human · port-oneshot · port-loop · port-multi · port-selfdesign
+porting      port-oneshot · port-loop · port-multi · port-selfdesign
+             port-human — RETIRED 2026-08-07 (DESIGN §11, §4.1)
 ```
 
 | Detector | Meaning |

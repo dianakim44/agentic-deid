@@ -318,8 +318,22 @@ yet.
 
 ## The port-human mutations
 
-`src/porting/human_arm.py` runs the control arm: freeze the window, draw, render for the
-person, append to `human_log.jsonl`. Its guarantees are of a different kind from the
+> **The arm was retired on 2026-08-07** (DESIGN §11, §4.1) — no human author could be
+> secured. These mutations and the guards they cover are **kept and still run.** Two
+> reasons. First, most of what they protect is not `port-human`-specific: `src/sample.py`
+> is the draw both porting arms use, and the practice band, the seeded selection and the
+> surface-form rules apply to whatever arm reads a dev sample. Second, a guard whose test
+> is deleted when its arm is paused is a guard that comes back untested — and a revived
+> human arm inherits DESIGN §11's pre-registered protocol, so it inherits these
+> enforcement points too. A mutation that no longer corresponds to a running arm still
+> answers "would this defect be noticed", which is the only question this directory asks.
+>
+> The one thing to read differently: where a row says a defect makes `port-human`
+> uninterpretable, the consequence is now conditional on the arm being revived. The
+> defect is still a defect; its cost is deferred rather than removed.
+
+`src/porting/human_arm.py` runs what was the control arm: freeze the window, draw, render
+for the person, append to `human_log.jsonl`. Its guarantees are of a different kind from the
 sampler's. Most of them are not about numbers at all — one is the seal, one is what may
 be said out loud about a sample, and two are about a clause that binds a person and has
 no enforcement but a field in a log.

@@ -31,6 +31,11 @@
       "why": "Project instructions, written in Korean. Prose about the rules — including the rule against putting corpus text in files like this one. No corpus text."
     },
     {
+      "path": "config/data_paths.example.yaml",
+      "sniff": "Korean prose",
+      "why": "Korean comments explaining the corpora: and sealed: keys. This is the committed template and holds no real path; the machine's real paths live in data_paths.local.yaml, which is gitignored."
+    },
+    {
       "path": "config/naming.yaml",
       "sniff": "Korean prose",
       "why": "Korean comments documenting the identifier vocabulary. The values are experiment identifiers; the prose explains what each axis is for."
@@ -41,19 +46,9 @@
       "why": "Korean comments explaining the error-sample parameters and why changing them invalidates a port-human run. Holds four integers and two strings; no span, no offset, no corpus text."
     },
     {
-      "path": "config/data_paths.example.yaml",
+      "path": "docs/notes/baseline-model-family.md",
       "sniff": "Korean prose",
-      "why": "Korean comments explaining the corpora: and sealed: keys. This is the committed template and holds no real path; the machine's real paths live in data_paths.local.yaml, which is gitignored."
-    },
-    {
-      "path": "tools/release_screen.py",
-      "sniff": "clinical note header",
-      "why": "This is the file that searches for that header, and its own docstring and CLINICAL_HEADER pattern quote it. Self-match, present since the first version."
-    },
-    {
-      "path": "tests/test_release_screen.py",
-      "sniff": "clinical note header",
-      "why": "The NOTE constant is a synthetic MIMIC-shaped header, invented for the test that proves the sniffer catches one. It comes from no corpus, which is why it can be committed."
+      "why": "Korean prose reviewing which Bedrock model families could run the port-oneshot baseline after port-human's retirement (DESIGN 4.1). Holds model ids, a probe result table, and the trade-offs of each option. No corpus text, no spans: the only strings sent to Bedrock to produce it were 'Reply with the single word: ok'."
     },
     {
       "path": "docs/notes/port-human-practice.md",
@@ -64,6 +59,16 @@
       "path": "rules/es.yaml",
       "sniff": "Korean prose",
       "why": "Korean comments documenting the rule-file schema: one rule per layer with patterns that match nothing (ZZZNEVERMATCHZZZ) and no corpus coupling. TEMPORARY — this file is deleted when the practice session ends, because iteration 1 must start from zero rules, and this entry is deleted with it. The stale-entry test is what enforces that: leaving the entry behind after deleting the file turns the suite red, which is the intended coupling rather than a nuisance."
+    },
+    {
+      "path": "tests/test_release_screen.py",
+      "sniff": "clinical note header",
+      "why": "The NOTE constant is a synthetic MIMIC-shaped header, invented for the test that proves the sniffer catches one. It comes from no corpus, which is why it can be committed."
+    },
+    {
+      "path": "tools/release_screen.py",
+      "sniff": "clinical note header",
+      "why": "This is the file that searches for that header, and its own docstring and CLINICAL_HEADER pattern quote it. Self-match, present since the first version."
     }
   ]
 }
