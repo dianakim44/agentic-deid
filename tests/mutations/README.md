@@ -19,7 +19,7 @@ is tested by `tests/test_mutation_harness.py`, which pytest does collect.
 
 Each one corresponds to a decision in DESIGN.md that a plausible "simplification"
 would silently undo. What they have in common is the property that makes them
-dangerous: **fifty-one of the sixty-two change no total.** The corpus still loads,
+dangerous: **sixty-one of the seventy-two change no total.** The corpus still loads,
 the document count is still 750, the span count is still 17,134 — and every
 downstream number is wrong. Those are the errors a reviewer cannot catch and an
 aggregate cannot reveal, which is why they get a harness rather than trust.
@@ -366,6 +366,16 @@ no enforcement but a field in a log.
 | `a_duplicate_rule_id_is_allowed` | two rules may share an id | `by_rule` and the span's `rule_id` are the same identifier, so two rules' attribution merges into one bucket and the per-rule figure belongs to neither | **1** |
 | `a_non_target_type_may_be_a_rule_target` | a rule may target `OTHER` | it is a residual bucket a corpus ships, not a phenomenon; the recall bought is a property of that corpus's annotation practice (Prohibition 4, §9.1) | **1** |
 | `check_rules_reads_every_fold` | the feedback tool's `split == "dev"` filter is dropped | the command an author runs forty times an evening starts scoring across folds. Not a seal break by itself — `sealed/` is not returned by the loader — but it is the step before one | **1** |
+| `check_rules_detects_separately` | the feedback tool iterates rules itself instead of calling `detect_fold` | a second detection implementation, *faithful on the day it is written* — same rules, same documents, same offsets. Caught structurally, because there is nothing behavioural to see yet | **1** |
+| `run_fold_detects_separately` | the run path grows its own detection loop, which dedupes by offsets | what a hand-rolled loop turns into: two rules matching the same bytes collapse to one, so the tool shows the author two matches and the score counted one. Sets and totals both agree; only the multiset does not | **1** |
+| `detect_fold_drops_overlaps` | the shared detector resolves overlaps first-rule-wins | takes the merge decision away from the merge axis. fixed-priority, union and agent-arbiter would then score identically, having been handed a prediction set with the conflicts already settled (DESIGN §4) | **1** |
+| `spans_file_carries_the_surface` | `spans.jsonl` gains a `surface` field | matched corpus text in a published file the screener allows by pattern. This is the edit someone makes to debug a boundary, and it is the DUA violation the field whitelist in `write_spans` exists to prevent | **1** |
+| `run_fold_reads_the_sealed_fold` | the `split == "test"` refusal becomes unreachable | the loader's gate still refuses the import, so not a seal break by itself — what it removes is the layer that says *why*. What reaches the caller instead is a corpus-shaped error that sends them looking for a missing fold | **1** |
+| `run_fold_omits_the_layer` | the published `layer` is the span's `detector` | the derivation DESIGN §3 forbids, in the form it takes at the writer rather than the detector. Every `R` span would read as layer `R`, and §7's per-layer complementarity would collapse to one bucket | **1** |
+| `run_fold_writes_a_null_model_id` | `model_id` is `null` for an arm that called no model | indistinguishable from a field nobody filled in, so the record cannot say whether `R` used no model or the run forgot to write down which one it used. Absent is refused, explicitly-absent is recorded (§5.0) | **1** |
+| `run_fold_hardcodes_the_absent_value` | `"none"` is written as a literal instead of read from naming.yaml | breaks nothing today — that is why it is here. CLAUDE.md requires config-defined vocabulary in results files, and the cost is paid on the day the config moves and one of the two spellings does not | **1** |
+| `run_fold_skips_axis_validation` | `spans.jsonl` is written without `check_run` | a misspelled axis value mints a results directory no axis defines. `write_metrics` still validates, so the failure is an orphan spans file beside no metrics — the halfway state validate-before-write exists to prevent | **1** |
+| `run_fold_writes_unsorted_spans` | the sort before writing is removed | stable today, for an upstream reason rather than a stated one. Reorder the rules in the file and a committed results file gets a diff a reviewer cannot tell from a change in what was detected | **1** |
 
 `initial_pool_excludes_train_instead_of_selecting_dev` is the one to read twice. The two
 filters are the same length, the same shape, and equivalent on any corpus with two
@@ -533,6 +543,72 @@ reason.
 Five of these are caught by exactly one test, which is the honest number and a thin
 one; they are listed at 1 rather than padded.
 
+### The detection-path mutations, and the one failure shape they all produce
+
+The last eleven are on `src/eval/run_fold.py` and `tools/check_rules.py`, and four of them
+are here for a single reason: **the two tools must not be able to disagree about what was
+detected.** `check_rules.py` shows an author a sample; `run_fold.py` scores the fold and
+writes the file a paper is built from. One implementation (`detect_fold`), two views of it.
+
+The failure a second implementation produces is the worst shape available in this
+repository, which is why four mutations are spent on it. It is not a wrong number — it is
+*two* numbers with the same name. The sample says a rule fires and the fold-wide metrics
+say it does not, and **nothing in either output identifies which one is wrong.** An author
+cannot act on it: they tune against whichever number is lying to them, and the tuning
+looks like progress in the tool. A reader comparing the tool's counts to `metrics.json`
+cannot act on it either, and the natural conclusion — that the sample and the fold simply
+differ — is available, wrong, and unfalsifiable from the outside.
+
+`check_rules_detects_separately` is the one to read twice, because **it is faithful.** It
+iterates the same rules over the same documents and, on the day it is applied, produces the
+same offsets from both sides. Every behavioural test passes. That is not a weakness of the
+mutation, it is the fact being recorded: a second implementation does not arrive broken,
+it arrives correct and drifts later when one side is changed and the other is not. Nothing
+observable exists yet, so nothing behavioural can catch it, and the test that does is
+structural — `.finditer(` must not appear in the tool. Structural tests are usually the
+weaker kind; here it is the only kind available, and the mutation is what shows why.
+
+`run_fold_detects_separately` is the same edit from the other side and it *has* drifted —
+one line, a `seen` set, skipping offsets it has already emitted. That is what a hand-rolled
+loop turns into within a week, because deduplicating looks like hygiene. It is not: two
+rules matching the same bytes is a merge-policy question (DESIGN §4), and answering it
+inside the detector means the tool shows the author two matches while the score counted
+one. Catching it needed the test to compare **multisets**. Totals agree, sets agree, and
+only the count of the repeated span differs — which is also why `probe_org_dup` sits in
+`test_run_fold.py`'s rule file duplicating another rule's term. Without a guaranteed
+byte-identical collision in the fold, that test and `detect_fold_drops_overlaps` both
+depend on the corpus happening to make two rules collide, and a test that passes because
+of a property of MEDDOCAN is a test that stops holding on the next corpus.
+
+Two more are the ones that break nothing when applied, and they are grouped with
+`human_log_path_from_a_literal` in spirit. `run_fold_hardcodes_the_absent_value` writes
+`"none"` as a literal instead of reading `model_id_absent()` — character-for-character what
+the config holds, so every assertion about the written value still passes. What it removes
+is the property that one file decides the vocabulary, and the cost is paid on the day
+naming.yaml changes and one of the two spellings does not. `run_fold_writes_unsorted_spans`
+is the same shape in the output: `RuleSet.detect` iterates rules in file order, so removing
+the sort leaves the file byte-identical across reruns and
+`test_the_file_is_byte_identical_across_runs` green. It stops being stable when something
+upstream reorders, and then a committed results file has a diff nobody can distinguish
+from a change in what was detected. The test that catches it asserts the order is *sorted*
+rather than *reproducible*, and had to check that more than one document and more than one
+rule appear — with either at one, a per-rule or per-document grouping looks sorted.
+
+`spans_file_carries_the_surface` is the DUA one and it needs no argument beyond its own
+description: `spans.jsonl` is allowed by the screener by pattern, so adding a `surface`
+field publishes corpus text through a path that is *already approved*. It is also the edit
+someone genuinely makes, at two in the morning, to find out why a boundary is off by one.
+The whitelist in `write_spans` exists because that edit is reasonable and its consequence
+is not.
+
+`run_fold_reads_the_sealed_fold` is the mildest of the group and is included for what it
+says about layering. The loader's own gate still refuses, so the seal holds with this
+mutation applied — nothing leaks. What disappears is the sentence naming the rule. The
+caller gets a corpus-shaped error instead and goes looking for a missing fold, and the
+person most likely to do that is the one who typed `--split test` because they did not
+know it was sealed. A guard whose failure message teaches the rule is doing a second job,
+and the second job is the one that survives contact with a tired evening.
+
 ## What the seal cost, and what carries the difference
 
 Sealing 250 documents removed checks that cannot be replaced, and pretending
@@ -590,7 +666,7 @@ applies to the code. Two safeguards follow from that:
   Three checks, described in the next section. Skipping them lets the harness count
   its own breakage as a kill.
 
-The maintenance cost is real but bounded: sixty-two anchors, each a line or two,
+The maintenance cost is real but bounded: seventy-two anchors, each a line or two,
 and a refactor that breaks one gets a `STALE` message naming the file. That is
 cheaper than the failure mode it prevents.
 
@@ -720,6 +796,21 @@ committing it. The fix is the same as the fixture's, for the same reason — ask
 `corpus_root()`, which answers only the availability question — and the kill counts for
 two of those mutations went *up* afterwards (35 and 43), because tests that had been
 skipping now fail on a broken loader.
+
+**Then it happened twice more, and the count is the point.** `tests/test_check_rules.py`
+was written with `except Exception: pytest.skip(...)` around a `load()` — broader than the
+original, since it swallows every exception type and not just `CorpusError` — and
+`tests/test_run_fold.py` copied that fixture from it on 2026-08-07. The same four loader
+mutations went `BROKEN` again, at 521 tests against a baseline of 570, and stayed that way
+across two sessions in which this section was on screen. Fixing both to `corpus_root()`
+took the four from BROKEN to **caught by 70, 70, 78 and 73 tests** — the largest kill counts
+in the file, because the whole corpus-dependent suite had been skipping. Four occurrences of
+one defect, three of them after it was written up, is not a story about carelessness in any
+single instance: **a fixture is copied from the nearest similar file, so a defect in one
+propagates at the rate new test files are added.** The guard that catches it has to live in
+the harness rather than in a reviewer's memory, which is the only reason this was ever
+found. What would make the next copy safe is a shared fixture rather than another warning
+in this file.
 
 ### The third of the family: a sample that satisfied every property and broke a rule
 

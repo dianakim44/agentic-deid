@@ -73,13 +73,18 @@ rules:
 
 @pytest.fixture(scope="module")
 def corpus_present() -> None:
-    from src.corpora import load
+    """Skip when this machine has no corpus — from the path, never from a load.
+
+    Availability only. `except Exception` around a `load()` turns every loader bug into
+    "the corpus is not on this machine" and every test below into a skip, which is the
+    defect the loader fixture shipped and `tests/mutations/README.md` records twice.
+    `corpus_root()` answers the availability question and nothing else.
+    """
+    from src.corpora.base import CorpusError, corpus_root
     try:
-        docs = load(CORPUS)
-    except Exception as exc:                                    # pragma: no cover
-        pytest.skip(f"{CORPUS} not available: {type(exc).__name__}")
-    if not [d for d in docs if d.split == "dev"]:               # pragma: no cover
-        pytest.skip(f"{CORPUS} has no dev fold")
+        corpus_root(CORPUS)
+    except CorpusError as exc:                                  # pragma: no cover
+        pytest.skip(f"{CORPUS} not on this machine: {exc}")
 
 
 # ─── the loop closes: a rule produces numbers ────────────────────────────────
@@ -178,11 +183,19 @@ def test_there_is_no_split_flag(corpus_present):
     Checked against `--help` rather than against the source text: the source *mentions*
     `--split` in prose explaining why it does not exist, and a grep for the string cannot
     tell an explanation from an implementation.
+
+    The second assertion is on the call, and it matters more now that detection is
+    shared with `src/eval/run_fold.py`. That module takes the fold as a parameter,
+    because the orchestrator needs to name one; this tool must pass the literal. A tool
+    that forwarded an argument into that parameter would have re-introduced the flag
+    through the shared path with nothing appearing in `--help`.
     """
     for flag in ("--split", "--fold", "--test", "--sealed"):
         done = run("--corpus", CORPUS, flag, "dev", expect=2)
         assert "unrecognized arguments" in done.stderr or "invalid" in done.stderr
-    assert 'd.split == "dev"' in TOOL.read_text(encoding="utf-8")
+    src = TOOL.read_text(encoding="utf-8")
+    assert 'load_fold(args.corpus, "dev")' in src
+    assert "load_fold(args.corpus, args" not in src
 
 
 def test_the_help_text_says_dev_only(corpus_present):

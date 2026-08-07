@@ -46,6 +46,7 @@ TEST_FILES = [
     "tests/test_show_human_window.py",
     "tests/test_rules.py",
     "tests/test_check_rules.py",
+    "tests/test_run_fold.py",
 ]
 
 #: Repository directories the loader tests need. `splits/` is here because the
@@ -173,6 +174,7 @@ HUMAN_ARM = "src/porting/human_arm.py"
 SHOW_WINDOW = "tools/show_human_window.py"
 RULES = "src/rules.py"
 CHECK_RULES = "tools/check_rules.py"
+RUN_FOLD = "src/eval/run_fold.py"
 
 MUTATIONS = [
     Mutation(
@@ -1232,8 +1234,12 @@ MUTATIONS = [
     Mutation(
         name="check_rules_reads_every_fold",
         path=CHECK_RULES,
-        anchor='    docs = [d for d in load(args.corpus) if d.split == "dev"]',
-        replacement="    docs = list(load(args.corpus))",
+        anchor='        docs = load_fold(args.corpus, "dev")',
+        replacement="        docs = [d for d in load(args.corpus)]",
+        also=((CHECK_RULES,
+               "from src.corpora.base import CorpusError, rule_langs",
+               "from src.corpora import load\nfrom src.corpora.base import "
+               "CorpusError, rule_langs"),),
         breaks=(
             "Drops the dev restriction from the feedback tool, so the rule author's "
             "forty-times-an-evening command scores against every fold the loader "
@@ -1241,6 +1247,213 @@ MUTATIONS = [
             "it, so this is not by itself a seal break \u2014 it is the step before one, "
             "and it silently mixes folds in the numbers an author develops rules against "
             "(CLAUDE.md, DESIGN \u00a711.1)."
+        ),
+        min_kills=1,
+    ),
+
+    # \u2500\u2500 the two detection views cannot diverge \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+    #
+    # `tools/check_rules.py` shows a sample and `src/eval/run_fold.py` scores the fold,
+    # from one implementation (`detect_fold`). These four are the ways that stops being
+    # true. They are grouped because the failure they produce is the same one and it is
+    # the worst shape available: the sample says a rule fires, the fold-wide metrics say
+    # it does not, and nothing in either output says which is wrong. An author tunes
+    # against the number that is lying to them and a reader comparing the tool's counts
+    # to `metrics.json` has no way to notice.
+    Mutation(
+        name="check_rules_detects_separately",
+        path=CHECK_RULES,
+        anchor=(
+            "    predictions = detect_fold(docs, "
+            "RuleSet(rules=rules, versions=ruleset.versions))"
+        ),
+        replacement=(
+            "    predictions = {}\n"
+            "    for _doc in docs:\n"
+            "        _out = []\n"
+            "        for _rule in rules:\n"
+            "            for _s, _e in _rule.finditer(_doc.text):\n"
+            "                _out.append(type('P', (), {'start': _s, 'end': _e, "
+            "'rule_id': _rule.rule_id})())\n"
+            "        predictions[_doc.doc_id] = _out"
+        ),
+        breaks=(
+            "The mutation the second detection implementation actually is. This one is "
+            "*faithful* \u2014 it iterates the same rules over the same documents and, "
+            "today, finds the same offsets. That is the point: a second implementation "
+            "does not arrive broken, it arrives correct and then drifts when one side "
+            "is changed. `test_the_tool_calls_the_shared_detector` is what catches it "
+            "while it is still faithful, because a behavioural test cannot \u2014 by "
+            "construction there is nothing yet to observe."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="run_fold_detects_separately",
+        path=RUN_FOLD,
+        anchor="    predictions = detect_fold(docs, ruleset, detector=detector)",
+        replacement=(
+            "    predictions = {}\n"
+            "    for _doc in docs:\n"
+            "        _seen, _out = set(), []\n"
+            "        for _rule in ruleset.rules:\n"
+            "            for _s, _e in _rule.finditer(_doc.text):\n"
+            "                if (_s, _e) in _seen:\n"
+            "                    continue\n"
+            "                _seen.add((_s, _e))\n"
+            "                _out.append(Span(\n"
+            "                    start=_s, end=_e, surface=_doc.text[_s:_e],\n"
+            "                    subtype=_rule.rule_id, phi_type=_rule.phi_type,\n"
+            "                    layer=_rule.layer, detector=detector,\n"
+            "                    rule_id=_rule.rule_id, score=_rule.score))\n"
+            "        predictions[_doc.doc_id] = _out"
+        ),
+        also=((RUN_FOLD,
+               "    ROOT, CorpusError, Document, axis, model_id_absent, path_template,",
+               "    ROOT, CorpusError, Document, Span, axis, model_id_absent, "
+               "path_template,"),),
+        breaks=(
+            "The same divergence from the other side, and this is what a hand-rolled "
+            "detection loop actually looks like once written: correct in structure, and "
+            "it skips a span it has already seen at those offsets. The dedupe is the "
+            "drift \u2014 two rules matching the same bytes is a merge-policy question "
+            "(DESIGN \u00a74), and the run path answering it silently means the tool shows "
+            "the author two matches while the score counted one. Caught by comparing "
+            "the tool's own listing to spans.jsonl as a *multiset*: totals and sets "
+            "both agree here, and only the count of the repeated span does not."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="detect_fold_drops_overlaps",
+        path=RUN_FOLD,
+        anchor=(
+            "    return {doc.doc_id: ruleset.detect(doc.text, detector=detector) "
+            "for doc in docs}"
+        ),
+        replacement=(
+            "    out = {}\n"
+            "    for doc in docs:\n"
+            "        kept, taken = [], set()\n"
+            "        for span in ruleset.detect(doc.text, detector=detector):\n"
+            "            if any(span.start < e and span.end > s for s, e in taken):\n"
+            "                continue\n"
+            "            taken.add((span.start, span.end))\n"
+            "            kept.append(span)\n"
+            "        out[doc.doc_id] = kept\n"
+            "    return out"
+        ),
+        breaks=(
+            "Resolves overlaps inside the detector, first-rule-wins. Merge policy is a "
+            "replaceable strategy (DESIGN \u00a74) and this takes the decision away from "
+            "it: fixed-priority, union and agent-arbiter would then all score "
+            "identically, because they would be handed a prediction set with the "
+            "conflicts already settled. It also makes both tools drop the same spans, "
+            "so the agreement test stays green \u2014 the divergence here is between "
+            "the detector and the merge axis rather than between the two tools."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="spans_file_carries_the_surface",
+        path=RUN_FOLD,
+        anchor='                "phi_type": span.phi_type,',
+        replacement=(
+            '                "phi_type": span.phi_type,\n'
+            '                "surface": span.surface,'
+        ),
+        breaks=(
+            "Puts the matched text into `spans.jsonl`, which is a published file the "
+            "release screener allows by pattern. CLAUDE.md permits offsets, types and "
+            "verdicts with the text left out; this is the DUA violation the field "
+            "whitelist in `write_spans` exists to prevent, and it is exactly the edit "
+            "someone makes to debug a boundary."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="run_fold_reads_the_sealed_fold",
+        path=RUN_FOLD,
+        anchor='    if split == "test":',
+        replacement='    if split == "test" and False:',
+        breaks=(
+            "Lets `--split test` through to the loader. The loader's own gate still "
+            "refuses the import, so this is not a seal break by itself \u2014 it is the "
+            "removal of the layer that says *why* out loud. What reaches the caller "
+            "instead is a corpus-shaped error, which sends whoever hit it looking for a "
+            "missing fold rather than reading CLAUDE.md."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="run_fold_omits_the_layer",
+        path=RUN_FOLD,
+        anchor='                "layer": span.layer,',
+        replacement='                "layer": span.detector,',
+        breaks=(
+            "Derives the published layer from the detector instead of taking the one "
+            "the matching rule declared \u2014 the exact substitution DESIGN \u00a73 and "
+            "CLAUDE.md forbid. Every span from the `R` arm would then read as layer `R`, "
+            "which is not a value of the layer axis, and the complementarity "
+            "decomposition over layers would collapse to one bucket."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="run_fold_writes_a_null_model_id",
+        path=RUN_FOLD,
+        anchor='        "model_id": model_id_absent(),',
+        replacement='        "model_id": None,',
+        breaks=(
+            "Records `null` for an arm that called no model. `null` cannot be told from "
+            "a field nobody filled in, so six months later the record does not say "
+            "whether the `R` arm used no model or whether the run forgot to write down "
+            "which one it used. Same principle as the cost block's zeros: absent is "
+            "refused, explicitly-absent is recorded."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="run_fold_hardcodes_the_absent_value",
+        path=RUN_FOLD,
+        anchor='        "model_id": model_id_absent(),',
+        replacement='        "model_id": "none",',
+        breaks=(
+            "Writes the absent-model value as a literal instead of reading it from "
+            "config/naming.yaml. Behaviourally identical today, which is why it is here: "
+            "CLAUDE.md requires vocabulary that lands in a results file to be defined in "
+            "the config, and the cost of ignoring that is only paid on the day the "
+            "config changes and one of the two spellings does not."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="run_fold_skips_axis_validation",
+        path=RUN_FOLD,
+        anchor="    check_run(run)\n    template = path_template(\"spans\")",
+        replacement='    template = path_template("spans")',
+        breaks=(
+            "Writes `spans.jsonl` without validating the arm's axes, so a misspelled "
+            "`porting` value mints a results directory that no axis defines and that "
+            "reads as a fifth rung. `write_metrics` still validates, so the failure is "
+            "an orphan spans file beside no metrics \u2014 the halfway state the "
+            "validate-before-write ordering exists to make impossible."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="run_fold_writes_unsorted_spans",
+        path=RUN_FOLD,
+        anchor=(
+            '    rows.sort(key=lambda r: (r["doc_id"], r["start"], r["end"], '
+            'r["rule_id"] or ""))'
+        ),
+        replacement="    pass",
+        breaks=(
+            "Leaves the span order to `RuleSet.detect`'s rule iteration. Stable today "
+            "and stable for an upstream reason rather than a stated one, so a re-run of "
+            "identical rules can produce a diff in a committed results file, and a "
+            "reviewer cannot tell a reordering from a change in what was detected."
         ),
         min_kills=1,
     ),

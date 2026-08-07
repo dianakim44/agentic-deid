@@ -204,6 +204,29 @@ def family_of(layer: str) -> str:
     )
 
 
+def model_id_absent() -> str:
+    """The `model_id` value an arm that called no language model records.
+
+    From `config/naming.yaml`'s `model_id_absent`, not a literal here. `model_id` is
+    not an axis — it holds the exact identifier a call was made with, which is an
+    observation and not a controlled vocabulary (DESIGN §4) — but *this* value is
+    vocabulary, and CLAUDE.md's rule applies to it like any other: a value that lands
+    in a published results file is defined in the config.
+
+    A string rather than `None` for the reason the cost block writes zeros: `None`
+    cannot distinguish "not applicable" from "not recorded", and distinguishing them
+    is the entire purpose of the field. The `R` arm runs no model and says so.
+    """
+    value = naming().get("model_id_absent")
+    if not isinstance(value, str) or not value:
+        raise CorpusError(
+            "config/naming.yaml has no `model_id_absent` string. It is what an arm "
+            "that called no model records in metrics.json's run block, and it lives "
+            "in the config so that no module spells it as a literal."
+        )
+    return value
+
+
 def path_template(key: str) -> str:
     """One `paths` template from naming.yaml, e.g. `path_template("humanlog")`.
 

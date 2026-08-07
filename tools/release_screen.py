@@ -107,11 +107,22 @@ ALLOW_PATTERNS = [
     r"^results/[^/]+/[^/]+/[^/]+/[^/]+/spans\.jsonl$",
     r"^results/sealed_eval_log\.md$",
     # port-human only, and the {porting} component is the literal rather than [^/]+:
-    # DESIGN §11.2 gives these files exactly one value of that axis. A wildcard would
-    # allow the same filenames under port-loop, where nothing writes them and their
-    # presence would mean something unreviewed had.
+    # DESIGN §11.2 gives this file exactly one value of that axis. `human_minutes` and
+    # a free-text `decision` are what a person writes; no agent arm has either. A
+    # wildcard would allow the filename under port-loop, where nothing writes it and
+    # its presence would mean something unreviewed had.
     r"^results/[^/]+/[^/]+/[^/]+/port-human/human_log\.jsonl$",
-    r"^results/[^/]+/[^/]+/[^/]+/port-human/window_freeze\.json$",
+    # window_freeze.json is the opposite case and stopped being port-human's in
+    # DESIGN §6.3: *every* arm freezes its own window at first use, under its own
+    # {porting} value (config/naming.yaml `paths.armfreeze`; `paths.humanfreeze` stays
+    # pinned to port-human so a retired arm's record is unreachable from any other).
+    # Narrowing this to the literal would leave every agent arm's freeze record in no
+    # category at all, which reads as reviewed to anyone scanning the summary. The file
+    # holds two content hashes, a revision number and axis values — no corpus text — and
+    # being on this list is a statement about the path and never about the content: the
+    # sniffer runs first and a freeze record that somehow carried note text is SUSPECT
+    # before it is ever matched here.
+    r"^results/[^/]+/[^/]+/[^/]+/[^/]+/window_freeze\.json$",
 ]
 
 # Hangul run long enough to be prose rather than a label.

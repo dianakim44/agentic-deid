@@ -382,6 +382,57 @@ reason in §2.
 Per-arm cost is reported alongside quality: LLM calls, tokens, wall time.
 A quality gain that costs 2× is a different result from one that costs 1.05×.
 
+### 5.0 What closing an arm writes
+
+`src/eval/run_fold.py` is the execution path: it applies the arm's rule set over one
+unsealed fold, scores it, and writes two files into the arm's directory. `metrics.json` alone
+would leave the numbers unauditable, and `spans.jsonl` alone would leave them uncomputed.
+
+```
+results/{corpus}/{detector}/{supervision}/{porting}/spans.jsonl
+results/{corpus}/{detector}/{supervision}/{porting}/metrics.json
+```
+
+**`spans.jsonl` — one predicted span per line, with §3's provenance in full and no surface
+form.** `doc_id`, `start`, `end`, `phi_type`, then `layer` · `detector` · `rule_id` · `score`
+and the `agent_actions` list. The text is dropped deliberately: this file is publishable
+(`tools/release_screen.py` allows `results/**/spans.jsonl`) and CLAUDE.md permits offsets,
+types and verdicts with the text left out. The fields are enumerated rather than serialised
+wholesale, so a field added to `Span` does not reach a public file the day it is added.
+Lines are sorted, so re-running identical rules produces no diff and a reviewer can tell a
+reordering from a change in what was detected.
+
+**The run block records what the numbers are premised on.** The four axes plus `split`, the
+per-file `rules_version` and the rule ids that ran, the commit and working-tree state, and
+`model_id`. Every field is a premise: the axes name the cell, `split` names the fold, and
+`model_id` names what was actually called (§4 — Bedrock aliases move silently). A missing
+field is refused rather than defaulted, and **an arm that called no model records the
+explicit `none` from `config/naming.yaml` (`model_id_absent`) rather than `null`** — `null`
+cannot be told apart from a field nobody filled in, so it would leave the record unable to
+say whether the `R` arm used no model or the run forgot to write down which one it used. Same
+principle as the cost block: absent is refused, explicitly-absent is recorded. The `R` arm's
+`llm_calls`, `prompt_tokens` and `completion_tokens` are therefore zeros, which are
+measurements; `wall_seconds` is measured for real, because a rule pass does take time and a
+reader comparing arms on cost needs the compute side of `R` to be honest.
+
+**Detection lives in exactly one function, and `tools/check_rules.py` calls it.** The author's
+feedback tool is a *sample view* of this path, not a second runner. Two implementations of
+"run these rules over these documents" drift, and the drift's shape is the worst available:
+the sample says a rule fires and the fold-wide score says it does not, with nothing in either
+output identifying which is wrong. The author then tunes against whichever number is lying,
+and a reader comparing the tool's counts to `metrics.json` cannot notice. So the two differ in
+which spans they *show* and never in which spans exist.
+
+**The fold is a parameter here and a literal in the tool**, and the asymmetry is the point.
+`check_rules.py` is typed by a person forty times in an evening, so a `--split` flag on it is
+a sealing violation with a countdown; this module is called by the orchestrator and has to be
+told which fold. It defaults to dev and refuses `test` **by name**, pointing at
+`src/eval/run_sealed_eval.py` — the only importer the loader's gate accepts and the one that
+appends to `results/sealed_eval_log.md` before anything is read. Refusing rather than
+returning an empty fold matters: an empty fold reads as a corpus problem and sends whoever
+hit it looking in the wrong place, which is how someone ends up pointing a loader at
+`sealed/` to check.
+
 ### 5.1 Reporting granularity: aggregates alone cannot carry a porting claim
 
 Both headline quantities are reported **per canonical type as well as in
@@ -710,20 +761,37 @@ other instead, and disagreement is readable.
 
 Two consequences follow and are stated so they are not discovered later:
 
-- **A templated freeze path is required.** `paths.humanfreeze` is deliberately fixed to
-  `port-human` (§11.2: this file exists for exactly one value of that axis, and a template
-  would invite a second arm to write it). That reasoning was right for the file it names and
-  does not extend to a convention every arm follows, so the agent arms need a *separate*,
-  `{porting}`-templated key declared in `config/naming.yaml` — not the same key widened,
-  which would let an agent arm write to `port-human`'s path. It is declared there when the
-  first agent arm is implemented, under CLAUDE.md's rule that a new value enters the config
-  before it enters a module.
-- **`port-oneshot` has no per-line window record**, because it has no iteration log to carry
-  one — `agent_calls.jsonl` holds calls, and one call is the arm. For a single-call arm the
-  freeze record *is* the whole window claim, which removes the redundancy §11.2 relies on
-  (per-line hashes disagreeing with each other is what detects mid-run drift). Nothing to do
-  about that: a one-call arm cannot drift mid-run. It is stated because the same absence
-  would be a real gap in `port-loop`, where it must not be copied.
+- **A templated freeze path is required, and it is a second key rather than a widened one.**
+  `paths.humanfreeze` is deliberately fixed to `port-human` (§11.2: this file exists for
+  exactly one value of that axis, and a template would invite a second arm to write it). That
+  reasoning was right for the file it names and does not extend to a convention every arm
+  follows, so the agent arms get a *separate*, `{porting}`-templated key:
+  **`paths.armfreeze`, declared in `config/naming.yaml` on 2026-08-07**, alongside
+  `paths.humanfreeze` and not in place of it. Widening the existing key would have let an
+  agent arm write to `port-human`'s path, where a retired arm's record would be silently
+  overwritten by a later-starting arm — `arm_has_started()`'s defect coming back at the path
+  layer, one level below where the guard can see it. Two keys, and the retired arm's record is
+  unreachable from any arm but its own.
+- **`port-oneshot`'s freeze record carries the window claim alone**, and this is the one
+  place that is acceptable. The arm has no iteration log to put per-line hashes on —
+  `agent_calls.jsonl` holds calls, and for this rung one call *is* the arm — so the
+  redundancy §11.2 relies on is absent: there are no per-line hashes to disagree with each
+  other, and disagreeing hashes are the whole mid-run drift detector. Nothing needs doing,
+  for a reason specific to this rung and not transferable: **a one-call arm cannot drift
+  mid-run**, because there is no "mid". The window that was frozen is the window the single
+  call ran under, and one record is a complete account of it.
+
+  **In `port-loop` the same absence is a real gap, and it must not be copied from here.**
+  An iterating arm runs *n* calls across a span of wall-clock time in which
+  `docs/prompts/rule_author.md` and `config/sampling.yaml` are ordinary editable files. A
+  freeze record alone would then attest only to what was true at call 1, and an edit landing
+  between call 3 and call 4 — which is exactly what happened six times before iteration 1
+  (see 1 above) — would leave nothing on disk that contradicts it. The record would still
+  read as a valid window claim for the whole run, and be false for most of it. So every
+  iterating arm writes the pair of hashes on **every** log line, as §11.2 specifies, and the
+  freeze record is the anchor those lines are checked against rather than a substitute for
+  them. `port-oneshot` gets to skip the per-line hashes because *n*=1 makes them literally
+  the same line; nothing else does.
 
 ---
 
@@ -1537,27 +1605,48 @@ false when a number is surprising. A design decision that gets revisited because
 result came out a certain way is a decision that was made for the wrong reason, which is the
 sentence at the top of this section.
 
-**Open: how many format-compliance retries, and are they symmetric?** This has to be fixed
-before the run and is not fixed yet. `rules/{lang}.yaml` has a validated schema (§3,
-`rule_author.md` §2) — `lang` must match, `rule_id` unprefixed, exactly one matcher, `layer`
-and `phi_type` from their axes — and a model that fails validation has produced no arm
-result at all, not a bad one. The retry count is therefore load-bearing, and **the axis that
-matters is symmetry**: whatever retry budget Llama gets, Claude gets the same one, or the
-appendix measures instruction-following rather than rule-writing ability, which is not the
-quantity it is there to anchor. The candidates:
+**Format-compliance retries: zero, on both sides — decided 2026-08-07, before either arm
+was run.** `rules/{lang}.yaml` has a validated schema (§3, `rule_author.md` §2): `lang` must
+match, `rule_id` unprefixed, exactly one matcher, `layer` and `phi_type` from their axes. One
+call, one file, and whatever comes back is the result.
 
-- **Zero retries, both sides.** Cleanest to state and hardest to argue with; the risk is
-  an appendix that reports a validation failure and anchors nothing.
-- **A fixed *k* > 0, both sides, with the retry prompt carrying only the validator's error
-  and no new corpus content.** Preserves the no-feedback definition of the baseline —
-  a schema error is not dev-fold feedback — and every attempt still counts toward the cost
-  block, so a model that needs three tries is visibly more expensive.
-- **Retry until valid, both sides, bounded by budget.** Maximises the chance of a usable
-  number and makes the cost comparison do the work instead of the success/failure one; the
-  risk is an unbounded tail on a model that never emits valid YAML.
+Two reasons, and the second is the one that decides it.
 
-Whichever is chosen, it is written down here before either arm is run, and `llm_calls` in
-each arm's cost block counts every attempt rather than only the accepted one.
+**There is no basis for choosing a *k*.** A retry budget above zero has to be a number, and
+every number is arbitrary — nothing about the task, the schema, or either model makes three
+attempts the right count rather than two or ten. An arbitrary parameter set before the run is
+still arbitrary; it just looks pre-registered. Worse, it is a parameter whose value changes
+the result: at *k*=0 a model that emits invalid YAML reports a failure, at *k*=5 the same
+model probably reports a number, and the appendix's conclusion would then rest on a constant
+picked for no reason. Zero is the only value that is not a choice among alternatives.
+
+**A format failure is itself a result, and a reportable one.** Producing a valid rule file
+from the §1.4 prompt in one call is part of what the rung is being asked to do — the
+`port-oneshot` arm *is* "one call, one usable artefact", so an unusable artefact is a
+finding about capability and not an accident that happened on the way to the finding.
+Retrying hides it: the arm reports a leak rate and the reader never learns it took four
+attempts to get a parseable file, which is precisely the fact that distinguishes the two
+models. Zero retries is what makes the appendix able to say *this model could not do it*, a
+sentence a retry loop is designed to prevent anyone from having to write.
+
+**On failure, the failure is recorded.** Not an empty results directory and not a rerun with
+the prompt quietly adjusted:
+
+- The arm's `metrics.json` is **not** written — there are no detections to score, and a
+  metrics file with zeros in it would be indistinguishable from a rule set that ran and
+  caught nothing.
+- The attempt is recorded in the arm's directory with the model id, the raw response, and
+  **the validator's own error message verbatim**. The error is the evidence; a paraphrase
+  ("the file was malformed") is not something a reader can check.
+- The cost block is written regardless, since the call was made and paid for. `llm_calls`
+  counts every attempt rather than only an accepted one — a definition that now applies to
+  a count of one, and stays correct if a later arm ever does retry.
+
+**Symmetry is the point of fixing this at all.** Claude gets zero retries too, on the same
+prompt through the same validator. An asymmetric budget would make the appendix measure
+instruction-following rather than rule-writing ability, which is not the quantity it is there
+to anchor — and the asymmetry would run in the direction that flatters the model this
+project is built on, which is the one direction a reader has every reason to suspect.
 
 ---
 

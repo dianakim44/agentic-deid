@@ -12,12 +12,14 @@ both layers at once. Both layers were changed; both directions are tested.
 """
 import json
 import os
+import re
 import subprocess
 import sys
 
 import pytest
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, ROOT)
 sys.path.insert(0, os.path.join(ROOT, "tools"))
 
 import release_screen as rs  # noqa: E402
@@ -257,16 +259,62 @@ def test_the_port_human_result_files_are_allowed(tmp_path):
     assert "results/es-meddocan/R/sup-free/port-human/window_freeze.json" in allowed
 
 
-def test_the_same_filenames_under_another_arm_are_not_allowed(tmp_path):
-    """The {porting} component is the literal `port-human`, not a wildcard. Nothing
-    writes these files under another arm, so their presence there means something
-    unreviewed did."""
+def test_the_human_log_under_another_arm_is_not_allowed(tmp_path):
+    """`human_log.jsonl`'s {porting} component is the literal `port-human`, not a
+    wildcard. Nothing writes this file under another arm — `human_minutes` and a free-text
+    `decision` are a person's fields — so its presence there means something unreviewed
+    did."""
     subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
     d = tmp_path / "results" / "es-meddocan" / "R" / "sup-free" / "port-loop"
     d.mkdir(parents=True)
     (d / "human_log.jsonl").write_text('{"iteration": 1}\n', encoding="utf-8")
     _blocked, _sealed, _quar, _suspect, allowed = rs.screen_tree(str(tmp_path))
     assert "results/es-meddocan/R/sup-free/port-loop/human_log.jsonl" not in allowed
+
+
+def test_every_arms_freeze_record_is_allowed(tmp_path):
+    """`window_freeze.json` is the other way round, and DESIGN §6.3 is why.
+
+    Every arm freezes its own window at first use, under its own {porting} value
+    (`paths.armfreeze`). Pinning this pattern to `port-human` would leave each agent
+    arm's freeze record in no category at all — and an unclassified file reads as
+    reviewed to whoever scans the summary, which is the failure the allowlist exists to
+    prevent. The record holds hashes, a revision and axis values; there is no corpus
+    text in it by construction.
+    """
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    frozen = '{"corpus": "es-meddocan", "prompt_sha256": "sha256:00", "revision": 7}\n'
+    for arm in ("port-human", "port-oneshot", "port-loop", "port-multi",
+                "port-selfdesign"):
+        d = tmp_path / "results" / "es-meddocan" / "R" / "sup-free" / arm
+        d.mkdir(parents=True)
+        (d / "window_freeze.json").write_text(frozen, encoding="utf-8")
+    _blocked, _sealed, _quar, suspect, allowed = rs.screen_tree(str(tmp_path))
+    assert not suspect
+    for arm in ("port-human", "port-oneshot", "port-loop", "port-multi",
+                "port-selfdesign"):
+        assert f"results/es-meddocan/R/sup-free/{arm}/window_freeze.json" in allowed
+
+
+def test_the_allowed_freeze_path_is_the_one_naming_yaml_declares(tmp_path):
+    """The pattern and `paths.armfreeze` must describe the same file.
+
+    Two places state where a freeze record lives, and a screener allowing a path nothing
+    writes — or refusing one an arm does — is the shape of failure that only shows up on
+    the day a commit is being prepared.
+    """
+    from src.corpora.base import path_template
+    template = path_template("armfreeze")
+    rel = template.format(corpus="es-meddocan", detector="R", supervision="sup-free",
+                          porting="port-oneshot")
+    assert any(re.search(p, rel) for p in rs.ALLOW_PATTERNS), rel
+
+    human = path_template("humanfreeze").format(
+        corpus="es-meddocan", detector="R", supervision="sup-free")
+    assert any(re.search(p, human) for p in rs.ALLOW_PATTERNS), human
+    assert "port-human" in human, (
+        "humanfreeze must stay pinned to the retired arm (DESIGN §6.3): a templated "
+        "humanfreeze would let a later arm overwrite port-human's record")
 
 
 def test_a_log_line_carrying_note_text_is_still_suspect(tmp_path):

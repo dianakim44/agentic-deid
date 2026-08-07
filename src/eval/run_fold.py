@@ -1,0 +1,329 @@
+"""Run a rule set over one fold and score it — the arm's closing step.
+
+    python3 -m src.eval.run_fold --corpus es-meddocan \
+        --detector R --supervision sup-free --porting port-oneshot
+
+Writes two files under `results/{corpus}/{detector}/{supervision}/{porting}/`:
+`spans.jsonl` (the predictions, with DESIGN §3 provenance and no surface forms) and
+`metrics.json` (the scorer's output). Until this existed no arm could be closed: rules
+could be written and counted, but a dev-wide score — the number every comparison in
+DESIGN §4 is made of — had nowhere to come from.
+
+**This is the execution path, and `tools/check_rules.py` is a sample view of it.**
+The tool calls `detect_fold()` from here rather than iterating rules itself. Two
+implementations of detection drift, and the shape the drift takes is the worst
+available: *the sample says a rule fires and the fold-wide run says it does not*, or
+the reverse, with no way to tell which is right. An author cannot act on that and
+neither can a reader. So there is one detection function, one place where a `Span`
+becomes a `Mark`, and the difference between the tool and this module is which spans
+they show, never which spans exist.
+
+**The fold is an argument here and hardcoded in the tool**, and that asymmetry is
+deliberate. `check_rules.py` is typed by a person forty times in an evening, so a
+`--split` flag on it is a sealing violation with a countdown (CLAUDE.md). This module
+is called by the orchestrator, defaults to dev, and refuses `test` outright: sealed
+evaluation goes through `src.eval.run_sealed_eval`, which is the only importer the
+loader's gate accepts, and which appends a row to `results/sealed_eval_log.md` before
+anything is read. Passing `--split test` here is refused with that pointer rather
+than quietly reading whatever the loader happens to return.
+
+**`model_id` is `none` for a rule-only arm** (DESIGN §4). The `R` arm calls no
+language model, and the scorer requires the field: an absent value cannot be told
+apart from an unrecorded one, which is the same reason cost is zeros rather than
+missing. The value is read from `config/naming.yaml`, not written here as a literal.
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+import time
+from pathlib import Path
+from typing import Mapping, Sequence
+
+from ..corpora import load
+from ..corpora.base import (
+    ROOT, CorpusError, Document, axis, model_id_absent, path_template,
+)
+from ..rules import RuleError, RuleSet, load_for_corpus
+from . import sealed_log
+from .scorer import (
+    PATH_AXES, ScorerError, check_run, from_documents, score, write_metrics,
+)
+
+#: The fold this runs on unless told otherwise. Named rather than defaulted inline so
+#: the one place it is decided is visible.
+DEFAULT_SPLIT = "dev"
+
+#: Cost for an arm that calls no model. Zeros, not absent (CLAUDE.md, and the scorer
+#: refuses a partial block): a rule run genuinely made zero LLM calls, and that is a
+#: measurement about the arm rather than a gap in the record. `wall_seconds` is the
+#: exception — it is measured, because a rule pass does take time and a reader
+#: comparing arms on cost needs the compute side of `R` to be real.
+NO_LLM_COST = {"llm_calls": 0, "prompt_tokens": 0, "completion_tokens": 0}
+
+
+class FoldRunError(Exception):
+    """Anything that stops this run before it writes.
+
+    One type, for `scorer.ScorerError`'s reason: every case is "stop and tell a
+    person", and no caller has a recovery path that differs by cause. A partially
+    written results directory is worse than no results directory.
+    """
+
+
+# ─── detection ──────────────────────────────────────────────────────────────
+
+
+def detect_fold(
+    docs: Sequence[Document], ruleset: RuleSet, *, detector: str = "R"
+) -> dict[str, list]:
+    """Every rule's spans per document: `{doc_id: [Span, ...]}`.
+
+    **The single detection implementation.** `tools/check_rules.py` calls this and
+    then samples the result; this module calls it and then scores the result. The
+    alternative — each iterating `rule.finditer()` itself — produces two answers to
+    "did this rule fire" whose disagreement is undiagnosable from either side.
+
+    Overlaps are not resolved and duplicates are not collapsed. `RuleSet.detect`
+    returns every match from every rule by design (DESIGN §4, §9.3): merge policy is
+    a replaceable strategy and a detector that resolved its own overlaps would make
+    every merge policy score alike. The scorer collapses byte-identical spans for the
+    assignment matching and counts what it collapsed.
+
+    `detector` is the arm's `detector` axis value and is copied onto every span. It is
+    not derived from the ruleset, and the span's `layer` comes from the rule that
+    matched (DESIGN §3) — neither is inferred from the other.
+    """
+    return {doc.doc_id: ruleset.detect(doc.text, detector=detector) for doc in docs}
+
+
+def load_fold(corpus: str, split: str) -> list[Document]:
+    """The documents of one unsealed fold.
+
+    Refuses `test` before the loader is reached rather than after. The loader's gate
+    would refuse it anyway — the sealed fold is not under the corpus root, so there is
+    nothing there to return — but a caller that got an empty list back would read it as
+    "the fold has no documents" and go looking for a corpus problem. Naming the actual
+    rule costs one branch.
+    """
+    if split not in axis("split"):
+        raise FoldRunError(
+            f"{split!r} is not a value of the split axis in config/naming.yaml "
+            f"(have: {sorted(axis('split'))})."
+        )
+    if split == "test":
+        raise FoldRunError(
+            "the test fold is sealed and this is not the path to it. Sealed "
+            "evaluation runs through `python3 -m src.eval.run_sealed_eval`, which is "
+            "the importer the loader's gate accepts and which appends the access to "
+            "results/sealed_eval_log.md before anything is read (CLAUDE.md, "
+            "DESIGN §6.1). This module cannot reach it and does not try."
+        )
+    docs = [d for d in load(corpus) if d.split == split]
+    if not docs:
+        raise FoldRunError(
+            f"{corpus}: the {split} fold is empty. The split file assigns folds "
+            f"(splits/{corpus}.json); an empty one means the corpus on disk and the "
+            "frozen split disagree."
+        )
+    return docs
+
+
+# ─── output ─────────────────────────────────────────────────────────────────
+
+
+def spans_path(run: Mapping[str, str], root: Path | None = None) -> Path:
+    """`paths.spans` for this arm, from naming.yaml.
+
+    Beside `metrics.json` by construction: both format the same `PATH_AXES` from the
+    same validated run block, so a spans file cannot end up in a different arm's
+    directory from the metrics computed on it.
+    """
+    check_run(run)
+    template = path_template("spans")
+    return (root or ROOT) / template.format(**{k: run[k] for k in PATH_AXES})
+
+
+def write_spans(
+    predictions: Mapping[str, Sequence], run: Mapping[str, str],
+    root: Path | None = None,
+) -> Path:
+    """One JSON object per predicted span, with full provenance and no text.
+
+    **The surface is dropped here and the drop is the point.** `corpora.base.Span`
+    carries one so offsets can be re-asserted against the corpus; this file is
+    publishable (`tools/release_screen.py` allows `results/**/spans.jsonl`), and
+    CLAUDE.md permits offsets, types and verdicts with the text left out. The fields
+    are enumerated explicitly rather than serialised from `__dict__` or `asdict()`:
+    a whitelist stays correct when `Span` gains a field, and a dump of everything
+    would publish the new field the day it is added.
+
+    Provenance is DESIGN §3's four values in full — `layer`, `detector`, `rule_id`,
+    `score`. `agent_actions` is written too, empty for a rule arm, because an arm where
+    an agent did intervene records it on the span and a reader must not have to know
+    which arms have the key.
+
+    Ordering is (doc_id, start, end, rule_id) so two runs of the same rules over the
+    same fold produce byte-identical files. `RuleSet.detect` iterates rules in file
+    order, which is stable, but "stable because of an implementation detail upstream"
+    is not the same claim as "sorted here".
+    """
+    path = spans_path(run, root=root)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    rows = []
+    for doc_id in sorted(predictions):
+        for span in predictions[doc_id]:
+            rows.append({
+                "doc_id": doc_id,
+                "start": span.start,
+                "end": span.end,
+                "phi_type": span.phi_type,
+                # provenance, DESIGN §3
+                "layer": span.layer,
+                "detector": span.detector,
+                "rule_id": span.rule_id,
+                "score": span.score,
+                "agent_actions": list(span.agent_actions),
+            })
+    rows.sort(key=lambda r: (r["doc_id"], r["start"], r["end"], r["rule_id"] or ""))
+    with open(path, "w", encoding="utf-8") as fh:
+        for row in rows:
+            fh.write(json.dumps(row, ensure_ascii=False, sort_keys=False) + "\n")
+    return path
+
+
+# ─── the run ────────────────────────────────────────────────────────────────
+
+
+def run_fold(
+    *,
+    corpus: str,
+    detector: str,
+    supervision: str,
+    porting: str,
+    split: str = DEFAULT_SPLIT,
+    rules: dict[str, Path] | None = None,
+    root: Path | None = None,
+) -> tuple[Path, Path, dict]:
+    """Detect over the fold, score it, write both files. Returns (spans, metrics, scored).
+
+    The rule files come from `corpus_rule_langs` — all of them, unioned, with no
+    per-document language selection (DESIGN §5.2). `es-carmen` loads `es` and `cat`;
+    `rules` overrides individual file locations for a trial run and does not change
+    which languages are loaded.
+
+    The run block is assembled here and validated by the scorer before anything is
+    written, so an arm named wrong fails before it produces a directory. `rules_version`
+    carries `RuleSet.versions` — the per-file integer each rule file declares — because
+    CLAUDE.md requires the rule version to travel with the result and a metrics file
+    naming no rule version cannot be re-run.
+    """
+    docs = load_fold(corpus, split)
+    ruleset = load_for_corpus(corpus, paths=rules)
+
+    started = time.monotonic()
+    predictions = detect_fold(docs, ruleset, detector=detector)
+    elapsed = time.monotonic() - started
+
+    pairs, excluded = from_documents(docs, predictions)
+    scored = score(pairs, excluded_gold=excluded)
+
+    commit, tree = sealed_log.tree_state()
+    run = {
+        "corpus": corpus,
+        "detector": detector,
+        "supervision": supervision,
+        "porting": porting,
+        "split": split,
+        # DESIGN §4: required, and `none` rather than absent for an arm that calls no
+        # model. Read from naming.yaml, never spelled here.
+        "model_id": model_id_absent(),
+        "rules_version": {lang: v for lang, v in sorted(ruleset.versions.items())},
+        "rules": sorted(r.rule_id for r in ruleset.rules),
+        "commit": commit,
+        "tree": tree,
+    }
+    spans_file = write_spans(predictions, run, root=root)
+    metrics_file = write_metrics(
+        scored, run=run, cost={**NO_LLM_COST, "wall_seconds": round(elapsed, 3)},
+        root=root,
+    )
+    return spans_file, metrics_file, scored
+
+
+# ─── cli ────────────────────────────────────────────────────────────────────
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(
+        description=__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument("--corpus", required=True, help="corpus id from naming.yaml")
+    parser.add_argument("--detector", required=True,
+                        help="detector axis value; R for rules only")
+    parser.add_argument("--supervision", required=True,
+                        help="supervision axis value")
+    parser.add_argument("--porting", required=True, help="porting axis value")
+    parser.add_argument(
+        "--split", default=DEFAULT_SPLIT,
+        help=f"fold to run on (default {DEFAULT_SPLIT}). `test` is refused: sealed "
+             "evaluation runs through src.eval.run_sealed_eval, which logs the access.",
+    )
+    parser.add_argument(
+        "--rules", type=Path, default=None,
+        help="a single rule file to run instead of rules/{lang}.yaml — needs --lang "
+             "when the corpus loads more than one file",
+    )
+    parser.add_argument("--lang", default=None,
+                        help="the language --rules declares")
+    args = parser.parse_args(argv)
+
+    override: dict[str, Path] | None = None
+    if args.rules:
+        from ..corpora.base import rule_langs
+        try:
+            langs = rule_langs(args.corpus)
+        except CorpusError as exc:
+            print(f"{exc}", file=sys.stderr)
+            return 2
+        lang = args.lang or (langs[0] if len(langs) == 1 else None)
+        if lang is None:
+            print(f"--rules needs --lang: {args.corpus} loads {langs}, and the rule_id "
+                  "prefix comes from the file's language rather than the corpus's "
+                  "(DESIGN §5.2).", file=sys.stderr)
+            return 2
+        override = {lang: args.rules}
+
+    try:
+        spans_file, metrics_file, scored = run_fold(
+            corpus=args.corpus, detector=args.detector,
+            supervision=args.supervision, porting=args.porting,
+            split=args.split, rules=override,
+        )
+    except (FoldRunError, ScorerError, RuleError, CorpusError) as exc:
+        print(f"{exc}", file=sys.stderr)
+        return 2
+
+    leak = scored["headline"]["leak_rate"]
+    lower = scored["headline"]["leak_rate_lower_bound"]
+    counts = scored["counts"]
+    print(f"{args.corpus} {args.split}: {counts['documents']['total']} documents, "
+          f"{counts['gold']['in_scope']} in-scope gold spans, "
+          f"{counts['pred']} predictions")
+    # Leak rate is the headline and F1 is not (CLAUDE.md). Printing F1 here beside it
+    # would put the two on one line as though the choice were the reader's.
+    print(f"leak rate {_pct(leak['value'])} ({leak['mode']}) — headline; "
+          f"{_pct(lower['value'])} ({lower['mode']}) as the lower bound")
+    print(f"spans   {spans_file.relative_to(ROOT)}")
+    print(f"metrics {metrics_file.relative_to(ROOT)}")
+    return 0
+
+
+def _pct(value: float | None) -> str:
+    return "n/a" if value is None else f"{value * 100:.2f}%"
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

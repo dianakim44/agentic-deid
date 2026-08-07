@@ -41,14 +41,18 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, Mapping, Sequence
 
-from ..corpora.base import ROOT, axis, family_of, layer_families, naming
+from ..corpora.base import (
+    ROOT, axis, family_of, layer_families, model_id_absent, naming,
+)
 
 #: Bumped when the meaning of an output field changes, so a results directory holding
 #: two versions is detectable rather than silently mixed.
 SCORER_VERSION = 1
 #: 2 adds `by_rule` to each mode block. The shape changed and no field changed
 #: meaning, so this moves and SCORER_VERSION does not.
-SCHEMA_VERSION = 2
+#: 3 adds `model_id` to the required run block (DESIGN §4). Same reasoning: a new
+#: required field is a shape change, and no existing field means anything different.
+SCHEMA_VERSION = 3
 
 FULLY_COVERED = "fully_covered"
 RELAXED = "relaxed"
@@ -69,7 +73,36 @@ HEADLINE_MODE = {
     "f1": RELAXED,
 }
 
-REQUIRED_RUN = ("corpus", "detector", "supervision", "porting", "split")
+#: The components of `paths.metrics`, in the template's own order. Each is an axis
+#: value and each is validated against its axis, because a typo here mints a directory
+#: that looks like another arm.
+PATH_AXES = ("corpus", "detector", "supervision", "porting")
+
+#: Run fields that are axis values and are checked against their axis. `split` is here
+#: and not in `PATH_AXES`: it is drawn from a closed vocabulary but does not name a cell.
+AXIS_VALUED = PATH_AXES + ("split",)
+
+#: Required in the run block. A superset of `PATH_AXES`, and the difference is the
+#: point: `split` and `model_id` must be recorded and must *not* be in the path.
+#:
+#: `split` because a results directory holds one arm's numbers and the fold they were
+#: computed on is a property of the run, not a second arm.
+#:
+#: `model_id` because Bedrock model aliases are updated silently (DESIGN §4,
+#: `docs/notes/baseline-model-family.md`), so an unrecorded run does not reproduce six
+#: months later. It is deliberately **not** an axis and deliberately not a path
+#: component:
+#:
+#:   - Not an axis. `axis()` is a closed vocabulary and this field holds an observation
+#:     made at call time — the exact identifier the API was invoked with. A closed
+#:     vocabulary would refuse the true value and reward writing down an approximation
+#:     of it, which is the opposite of what the field is for. CLAUDE.md's rule that new
+#:     vocabulary enters naming.yaml first still binds on the one value that *is*
+#:     vocabulary: `none`, read from `naming.yaml`'s `model_id_absent`.
+#:   - Not in the path. The path names the cell of the experiment (DESIGN §4). Running
+#:     one arm on a second model is §10 A2's appendix analysis, not a new cell, and
+#:     putting the model in the path would silently make it one.
+REQUIRED_RUN = ("corpus", "detector", "supervision", "porting", "split", "model_id")
 REQUIRED_COST = ("llm_calls", "prompt_tokens", "completion_tokens", "wall_seconds")
 
 
@@ -775,27 +808,54 @@ def score(pairs: Sequence[DocPair], *, excluded_gold: int = 0) -> dict:
 # ─── output ─────────────────────────────────────────────────────────────────
 
 
-def metrics_path(run: Mapping[str, str], root: Path | None = None) -> Path:
-    """The results path for this arm, from naming.yaml's `paths.metrics`.
+def check_run(run: Mapping[str, str]) -> None:
+    """Every required run field is present, and every *axis-valued* one is a real value.
 
-    Every axis value is validated against its axis. A typo would otherwise create a
-    sibling directory that looks like a new arm, and two spellings of one arm are
-    indistinguishable from two arms once the directory exists.
+    Two checks, deliberately not one. Presence covers all of `REQUIRED_RUN`: a metrics
+    file that omits a required field is a published number with a missing premise, and
+    the omission is silent afterwards.
+
+    Axis membership covers `AXIS_VALUED` only. `model_id` is exempt because it is not a
+    closed vocabulary — see the constant's own note. Checking it against an axis would
+    raise from `base.axis()` for the absent axis, and adding one would refuse the true
+    Bedrock identifier while accepting a stand-in for it.
+
+    `model_id` still gets the one check it can have: an empty string is a missing value
+    wearing a present value's clothes, and an arm that used no model writes the explicit
+    `naming.yaml` value for that (`model_id_absent`, currently `none`) rather than "".
+    Absent is refused and explicitly-absent is recorded, which is the same rule the cost
+    block's zeros follow.
     """
     for key in REQUIRED_RUN:
         if not run.get(key):
             raise ScorerError(
-                f"run block has no {key!r}. The result path is the arm's identity "
-                "(config/naming.yaml paths.metrics); it cannot be partly specified."
+                f"run block has no {key!r}. Every field here is a premise of the "
+                "numbers beside it — the arm's four axes name the cell, `split` names "
+                "the fold, and `model_id` names what was actually called. An arm that "
+                f"used no model records {model_id_absent()!r} (config/naming.yaml "
+                "model_id_absent), because absent and not-applicable are different "
+                "facts and this refuses to conflate them."
             )
+    for key in AXIS_VALUED:
         if run[key] not in axis(key):
             raise ScorerError(
                 f"{run[key]!r} is not a value of the {key!r} axis in "
                 f"config/naming.yaml (have: {sorted(axis(key))}). Add it there "
                 "before using it, rather than writing to a path nothing defines."
             )
+
+
+def metrics_path(run: Mapping[str, str], root: Path | None = None) -> Path:
+    """The results path for this arm, from naming.yaml's `paths.metrics`.
+
+    Validates the whole run block, then formats **only** `PATH_AXES` into the template.
+    The two sets differ (`split`, `model_id`), and keeping them separate is what lets a
+    field be required without becoming part of the arm's identity: a path is the cell of
+    the experiment, so anything formatted into it mints a cell.
+    """
+    check_run(run)
     template = naming()["paths"]["metrics"]
-    return (root or ROOT) / template.format(**{k: run[k] for k in REQUIRED_RUN})
+    return (root or ROOT) / template.format(**{k: run[k] for k in PATH_AXES})
 
 
 def write_metrics(
@@ -809,6 +869,12 @@ def write_metrics(
     failure at the call site instead of an absent key in a published file. The `R`
     arm passes zeros: **zero is a measurement and absent is not**, and a default
     would make them the same thing.
+
+    `run["model_id"]` follows the same rule one field over (DESIGN §4). The `R` arm
+    calls no model and records `naming.yaml`'s `model_id_absent` rather than being
+    allowed to omit the field; an LLM arm records the exact identifier it called,
+    because Bedrock aliases move under a stable name and a run recorded by alias is a
+    run nobody can reproduce.
     """
     missing = [k for k in REQUIRED_COST if cost.get(k) is None]
     if missing:

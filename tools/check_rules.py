@@ -5,6 +5,15 @@ This is the feedback path: write one rule, run this, see how many of the window'
 it now covers and how many false positives it bought. Without it an author writes rules
 into a file and learns nothing until a scoring run, which is not a loop.
 
+**This is a sample view of `src/eval/run_fold.py`, not a second detector.** Detection
+happens in exactly one function (`run_fold.detect_fold`) and this tool calls it. The
+alternative was rejected on the shape its failure takes rather than on tidiness: two
+implementations of "run these rules over these documents" drift, and the drift shows up
+as *the sample says this rule fires and the fold-wide score says it does not*, with
+nothing to say which is right. An author cannot act on that, and a reader comparing this
+tool's counts to `metrics.json` cannot either. So the tool differs from the run path in
+which spans it *shows* and never in which spans exist.
+
 **What it prints, and why exactly this.** Two numbers per rule and two overall:
 
     caught      how many of the drawn window's spans this rule covers
@@ -41,12 +50,14 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from src.corpora import load                                         # noqa: E402
 from src.corpora.base import CorpusError, rule_langs                 # noqa: E402
+from src.eval.run_fold import (                                      # noqa: E402
+    FoldRunError, detect_fold, load_fold,
+)
 from src.porting.human_arm import (                                  # noqa: E402
     draw_iteration, initial_error_pool, practice_pool,
 )
-from src.rules import RuleError, load_for_corpus, load_rules         # noqa: E402
+from src.rules import RuleError, RuleSet, load_for_corpus, load_rules  # noqa: E402
 from src.sample import is_practice, practice_min                     # noqa: E402
 
 #: A match counts as covering a gold span when it covers every byte of it — the
@@ -82,6 +93,10 @@ def main() -> int:
                          "excluded from the pool")
     ap.add_argument("--verbose", action="store_true",
                     help="list each false positive as doc_id and offsets — no text")
+    ap.add_argument("--audit", action="store_true",
+                    help="list every match as doc_id, offsets and rule_id — no text. "
+                         "This is the tool's detection made comparable to the run "
+                         "path's spans.jsonl, line for line")
     args = ap.parse_args()
 
     if args.practice and not is_practice(args.iteration):
@@ -117,9 +132,14 @@ def main() -> int:
               "iteration 1; write one and run this again.")
         return 0
 
-    docs = [d for d in load(args.corpus) if d.split == "dev"]
-    if not docs:
-        print(f"{args.corpus}: the dev fold is empty.", file=sys.stderr)
+    # "dev" is a literal argument and there is no path by which it becomes anything
+    # else. `load_fold` refuses `test` outright, but that refusal is not what protects
+    # this tool — the absence of a flag is (see the module docstring and
+    # `test_there_is_no_split_flag`).
+    try:
+        docs = load_fold(args.corpus, "dev")
+    except (FoldRunError, CorpusError) as exc:
+        print(f"{exc}", file=sys.stderr)
         return 2
 
     pool = initial_error_pool(args.corpus)
@@ -141,24 +161,35 @@ def main() -> int:
     total_matches: dict[str, int] = defaultdict(int)
 
     subset = {r.rule_id for r in rules}
+    # One detection pass, through the run path's own function. `--rule-id` narrows the
+    # RuleSet rather than filtering the output, so what is detected here is exactly what
+    # `run_fold` would detect from a file holding those rules — an after-the-fact filter
+    # would have been a second detection semantics hiding behind the same flag.
+    predictions = detect_fold(docs, RuleSet(rules=rules, versions=ruleset.versions))
+    # Every match, in the same four fields spans.jsonl carries — so the claim that this
+    # tool and `run_fold` detect identically is checkable from the outside instead of by
+    # reading both for a shared import. Offsets and rule ids only, like every other line
+    # this tool prints.
+    audit = [(doc.doc_id, p.start, p.end, p.rule_id)
+             for doc in docs for p in predictions[doc.doc_id]]
     for doc in docs:
         gold = gold_by_doc[doc.doc_id]
-        for rule in rules:
-            for start, end in rule.finditer(doc.text):
-                total_matches[rule.rule_id] += 1
-                touched = False
-                for span in gold:
-                    if _covers((start, end), span, RELAXED):
-                        touched = True
-                        key = (doc.doc_id, span.start, span.end)
-                        if _covers((start, end), span, FULL):
-                            dev_full[rule.rule_id].add(key)
-                            if key in in_window:
-                                hit_full[rule.rule_id].add(key)
+        for pred in predictions[doc.doc_id]:
+            start, end, rid = pred.start, pred.end, pred.rule_id
+            total_matches[rid] += 1
+            touched = False
+            for span in gold:
+                if _covers((start, end), span, RELAXED):
+                    touched = True
+                    key = (doc.doc_id, span.start, span.end)
+                    if _covers((start, end), span, FULL):
+                        dev_full[rid].add(key)
                         if key in in_window:
-                            hit_relaxed[rule.rule_id].add(key)
-                if not touched:
-                    fp[rule.rule_id].append((doc.doc_id, start, end))
+                            hit_full[rid].add(key)
+                    if key in in_window:
+                        hit_relaxed[rid].add(key)
+            if not touched:
+                fp[rid].append((doc.doc_id, start, end))
 
     n_window = len(window_gold)
     n_dev = sum(len(v) for v in gold_by_doc.values())
@@ -208,6 +239,14 @@ def main() -> int:
         if len(all_fp) > 200:
             print(f"  ... and {len(all_fp) - 200} more (not truncated in the counts "
                   "above)")
+
+    if args.audit:
+        print()
+        print("# every match — doc_id, character range, rule_id. No text, and not "
+              "truncated: this listing is compared line for line against the run "
+              "path's spans.jsonl (test_run_fold.py).")
+        for doc_id, start, end, rid in audit:
+            print(f"  {doc_id}  [{start}, {end})  {rid}")
     return 0
 
 

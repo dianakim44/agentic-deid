@@ -42,10 +42,11 @@ from __future__ import annotations
 
 import json
 import random
+from pathlib import Path
 
 import pytest
 
-from src.corpora.base import Document, Span, family_of
+from src.corpora.base import ROOT, Document, Span, axis, family_of
 from src.eval import scorer
 from src.eval.scorer import (
     FULLY_COVERED,
@@ -118,8 +119,8 @@ CORPUS = [D1, D2, D3, D4, D5, D6, D7, D8]
 
 RUN = {
     "corpus": "es-meddocan", "detector": "RT", "supervision": "sup-free",
-    "porting": "port-loop", "split": "dev", "rules_version": "es@test",
-    "seed": 20260805, "commit": "0000000",
+    "porting": "port-loop", "split": "dev", "model_id": "us.anthropic.claude-opus-5",
+    "rules_version": "es@test", "seed": 20260805, "commit": "0000000",
 }
 COST = {"llm_calls": 0, "prompt_tokens": 0, "completion_tokens": 0,
         "wall_seconds": 0.0}
@@ -1114,10 +1115,76 @@ def test_metrics_path_refuses_an_undefined_axis_value(key, bad, tmp_path):
 
 
 @pytest.mark.parametrize("key", ["corpus", "detector", "supervision", "porting",
-                                 "split"])
+                                 "split", "model_id"])
 def test_metrics_path_refuses_a_partly_specified_arm(key, tmp_path):
     with pytest.raises(ScorerError, match=key):
         metrics_path({**RUN, key: ""}, root=tmp_path)
+
+
+# ─── model_id: recorded, required, and not an axis (DESIGN §4) ───────────────
+
+
+def test_model_id_is_required(scored, tmp_path):
+    """Bedrock aliases move under a stable name; an unrecorded run does not reproduce.
+
+    Refused rather than defaulted. A default would put a plausible model name in a
+    published file for a run that used a different one, which is worse than no field.
+    """
+    with pytest.raises(ScorerError, match="model_id"):
+        write_metrics(scored, run={k: v for k, v in RUN.items() if k != "model_id"},
+                      cost=COST, root=tmp_path)
+
+
+def test_model_id_is_not_an_axis_and_is_not_validated_as_one():
+    """A raw Bedrock identifier must pass. It is an observation, not a vocabulary.
+
+    This is the check that keeps the two sets apart. If `model_id` were validated like
+    the other run fields, `axis("model_id")` would raise for an axis nobody declared —
+    and declaring one would refuse the true identifier while accepting a stand-in.
+    """
+    from src.corpora.base import CorpusError, naming
+    assert "model_id" not in naming()["axes"]
+    with pytest.raises(CorpusError):
+        axis("model_id")
+    assert "model_id" not in scorer.AXIS_VALUED
+    assert "model_id" in scorer.REQUIRED_RUN
+    # An identifier no closed vocabulary would hold, accepted because it is the truth
+    # about what was called.
+    scorer.check_run({**RUN, "model_id": "us.meta.llama4-maverick-17b-instruct-v1:0"})
+
+
+def test_model_id_is_not_in_the_results_path(tmp_path):
+    """Two models on one arm is §10 A2's appendix analysis, not a second cell."""
+    a = metrics_path({**RUN, "model_id": "us.anthropic.claude-opus-5"}, root=tmp_path)
+    b = metrics_path({**RUN, "model_id": "openai.gpt-oss-120b-1:0"}, root=tmp_path)
+    assert a == b
+    assert "claude" not in str(a) and "gpt" not in str(b)
+    for part in metrics_path(RUN, root=tmp_path).relative_to(tmp_path).parts:
+        assert part in set(RUN.values()) | {"results", "metrics.json"}
+
+
+def test_a_rule_only_arm_records_the_explicit_absent_value(scored, tmp_path):
+    """The R arm calls no model and says so — the cost block's zeros, one field over."""
+    from src.corpora.base import model_id_absent
+    run = {**RUN, "detector": "R", "model_id": model_id_absent()}
+    path = write_metrics(scored, run=run, cost=COST, root=tmp_path)
+    written = json.loads(path.read_text(encoding="utf-8"))
+    assert written["run"]["model_id"] == "none"
+    # And the string is the config's, not this test's or the scorer's.
+    assert model_id_absent() not in scorer.__dict__.values()
+
+
+def test_the_absent_value_comes_from_naming_yaml():
+    """CLAUDE.md: a value that lands in a results file is defined in the config."""
+    import re
+    from src.corpora.base import model_id_absent
+    absent = model_id_absent()
+    for module in (Path("src/eval/scorer.py"), Path("src/eval/run_fold.py")):
+        source = (ROOT / module).read_text(encoding="utf-8")
+        code = re.sub(r'"""(?:.|\n)*?"""', "", source)
+        code = re.sub(r"#.*", "", code)
+        assert f'"{absent}"' not in code and f"'{absent}'" not in code, (
+            f"{module} spells the absent model value as a literal")
 
 
 def test_write_metrics_requires_cost(scored, tmp_path):

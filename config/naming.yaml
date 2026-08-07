@@ -159,6 +159,25 @@ axes:
     dev:           rule development, agent iteration, checkpoint selection
     test:          sealed. see CLAUDE.md
 
+# ─── 모델 식별자의 "적용 안 됨" 값 ──────────────────────────
+# metrics.json 의 run 블록은 model_id 를 요구한다 (DESIGN §4). Bedrock 의 모델
+# 별칭은 조용히 갱신되므로 호출 시점의 정확한 식별자를 적어야 하고, 기록 없는
+# 실행은 6개월 뒤 재현되지 않는다.
+#
+# **model_id 는 축이 아니다.** 축으로 두면 닫힌 어휘가 되고, 그러면 실제 Bedrock
+# 식별자가 검증에서 거부된다 — model_id 는 통제된 어휘가 아니라 호출 시점의
+# 관측값이다. 결과 경로에도 들어가지 않는다 (경로는 arm 을 가리키고, 같은 arm 을
+# 두 모델로 돌리는 것은 §10 A2 의 부차 분석이지 새 칸이 아니다).
+#
+# 그러나 "모델을 쓰지 않는 arm" 의 값 하나는 어휘다. R arm 은 언어모델을
+# 호출하지 않고, 그 사실을 적어야 한다. 값이 여기 있는 이유는 CLAUDE.md 의
+# 규칙 그대로다 — 결과 파일에 들어가는 값은 코드에 하드코딩하지 않는다.
+#
+# null 이 아니라 문자열인 이유는 cost 블록의 0 과 같다. null 은 "모르겠다" 와
+# "적용 안 됨" 을 구분하지 못하고, 그 둘을 구분하는 것이 이 필드의 용도다.
+# 누락은 거부되고, 명시적 부재는 허용된다.
+model_id_absent: none
+
 # ─── 층 → 계열 ───────────────────────────────────────────────
 # 상보성 분해(DESIGN.md §5)는 "rules only / tagger only / both / neither" 로
 # 보고한다. 그러려면 어느 층이 rules 계열인지 알아야 하는데, 그 지식이 코드에만
@@ -213,6 +232,17 @@ paths:
   # 각 로그 행이 그 시점의 창을 정직하게 기록하므로, 시작 시점의 창을 아는
   # 방법은 이 파일뿐이다.
   humanfreeze: "results/{corpus}/{detector}/{supervision}/port-human/window_freeze.json"
+  # 에이전트 arm 의 동결 기록. DESIGN §6.3 — 창은 처음 쓰이는 시점에 얼리고,
+  # arm 마다 자기 기록을 갖는다. port-oneshot 은 port-human 의 기록을 물려받지
+  # 않는다.
+  #
+  # **humanfreeze 를 템플릿으로 넓히지 않고 키를 따로 둔다.** 넓히면 에이전트
+  # arm 이 port-human 의 경로에 쓸 수 있게 되고, 그러면 철회된 arm 의 기록이
+  # 나중에 시작한 arm 에 의해 조용히 덮인다 — arm_has_started() 가 닫은 결함이
+  # 경로 층에서 되살아나는 것이다. 두 키가 같은 디렉토리 규칙을 공유하면서
+  # 서로의 파일에 닿지 못하는 것이 의도다. 파일명이 같은 이유는 같은 종류의
+  # 기록이기 때문이고, 그것이 두 키를 하나로 합칠 이유는 아니다.
+  armfreeze: "results/{corpus}/{detector}/{supervision}/{porting}/window_freeze.json"
   # {lang} 은 규칙 파일의 언어다 (lang 축). 코퍼스 하나가 여러 파일을 로드할 수
   # 있으므로 이 경로는 코퍼스당 1:1 이 아니다. 어느 파일들을 로드할지는
   # corpus_rule_langs 가 정한다.
