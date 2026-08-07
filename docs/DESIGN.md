@@ -5,7 +5,7 @@ proposing changes to the pipeline, the agents, or the experiment matrix.
 If a decision here turns out to be wrong, change it here first — do not
 work around it in code.
 
-Last updated: 2026-08-06
+Last updated: 2026-08-07
 
 ---
 
@@ -290,6 +290,30 @@ real possible outcome and the experiment is designed to detect it. The same hold
 up, and CLAUDE.md's cost requirement plus §11.3's pre-registered 1.9× standard apply at
 every rung — a rung that wins only by spending more has not earned its name.
 
+**Every rung runs on the same model family, and the baseline is not exempted.** This was
+decided on 2026-08-07 against the alternative of swapping `port-oneshot` to a different
+family for external validity (`docs/notes/baseline-model-family.md` records the options and
+the Bedrock families actually callable). The reason is the table above: swapping only the
+baseline makes `port-loop` vs `port-oneshot` differ on **two** axes at once — harness
+(iteration or not) and model family — and a difference between them is then no longer
+attributable to either. The ladder's whole readability rests on adjacent rungs differing in
+exactly one capability, and the rung that would break is the one the paper leads with. A
+secondary cost points the same way: a different family's compliance with the
+`rules/{lang}.yaml` schema and regex dialect is unknown, so a low score could be format
+failure rather than porting ability, and after the fact the two are hard to separate.
+
+The honest objection to holding the model fixed is that all three comparisons are then
+**self-comparisons** — one Claude call against Claude iterating against Claude with
+differentiated roles. That objection is answered by an appendix experiment rather than by
+weakening the ladder: `port-oneshot` is run once more on a different family as an external
+reference point (**§10 A2**, pre-registered there now). It is a robustness check and not a
+main result — it anchors roughly where a single LLM call sits on this task, and it partially
+fills the second thing §4.1 records as lost. It does not adjudicate any rung.
+
+`model_id` is recorded in every arm's `metrics.json` beside the cost block (§5), because
+Bedrock model aliases are updated silently and an unrecorded run does not reproduce six
+months later. That is required whether or not the appendix runs.
+
 ### 4.1 What retiring `port-human` costs, stated as a limitation
 
 `port-human` was the baseline until 2026-08-07 and was withdrawn for resourcing: no human
@@ -318,6 +342,12 @@ Spanish arm, and the corpora's own inter-annotator agreement where reported — 
 compare against a different system rather than against a person doing this job. What
 cannot be substituted is the counterfactual: a person given the same window, the same
 schema and the same stopping rule.
+
+§10 A2's cross-family `port-oneshot` run is a third partial substitute and is weaker than
+both: it holds the harness and the window fixed, which the published shared-task results do
+not, but it is another system rather than a person, so it says where a single LLM call sits
+and not where a competent human rule set sits. It narrows loss 2 and does nothing for
+loss 1.
 
 The one thing retirement does **not** cost is the pre-registration. §11's protocol was
 fixed before any dev document was read for rule-writing and is retained in full, so a
@@ -637,6 +667,63 @@ actually applied; and CARMEN-I is DUA-restricted, so
 file is committed. The generator writes into a file the release screener reports as
 allowed, which makes that the one check whose failure would be a disclosure rather
 than a bug.
+
+### 6.3 A window is frozen at the moment it is first used, and every arm freezes its own
+
+This is the general convention. §11.2 states the mechanism — content hashes of
+`docs/prompts/rule_author.md` and `config/sampling.yaml`, on every log line and once more in
+an immutable record, guarded by `arm_has_started()` — and states it for `port-human`, which
+is the arm it was built for and the arm that is now retired. Two things generalise out of it,
+and they are recorded here because `port-oneshot` is the baseline and inherits the discipline
+without inheriting the arm.
+
+**1. Freeze last: the freeze goes where the work starts, not where the planning ends.**
+`docs/notes/window-freeze-history.md` is the evidence and the reason this is a rule rather
+than a preference. That record was written **six times and used zero times**. All six were
+before iteration 1, all six were permitted by the guard and correctly so — no minute of
+attention had been spent under any of those windows — and all six were wasted, because five
+were prompt edits taken while the prompt was still being written and the sixth was the arm
+being cancelled. The generalisation the note draws is the one that belongs in a design
+document: a freeze taken before the surrounding work is settled will be retaken, and its
+claim — *this is the window the run began with* — is a claim about nothing until there is a
+run. So the freeze is written at the first invocation that consumes the window, not when the
+window is thought to be final. What made this cheap to learn is that the guard binds on
+*use* (a recorded minute) rather than on the record's existence; the same property is what
+makes it cheap to follow.
+
+**2. A freeze record belongs to an arm, and `port-oneshot` does not inherit
+`port-human`'s.** The existing record at
+`results/es-meddocan/R/sup-free/port-human/window_freeze.json` hashes revision 6 of the
+prompt and is the property of a retired arm. `port-oneshot` freezes anew, under its own
+`{porting}` value, at its first call.
+
+The tempting alternative is to treat the hashes as global — the prompt and the sampling
+config are one pair of files, so one record could stand for every arm reading them. It fails
+on what the record is *for*. The freeze answers "what was the window **this arm** committed
+to at its start", and arms start at different times: `port-oneshot` will run against a prompt
+that has moved since revision 6 (§§7–8 gained dormancy banners on retirement alone), and a
+shared record would either be that arm's window or `port-human`'s, never both. Worse, a
+shared record is rewritten by whichever arm starts second, which reintroduces exactly the
+defect `arm_has_started()` closed: an arm whose window record was silently replaced by a
+later arm's, with nothing on disk showing it happened. Per-arm records disagree with each
+other instead, and disagreement is readable.
+
+Two consequences follow and are stated so they are not discovered later:
+
+- **A templated freeze path is required.** `paths.humanfreeze` is deliberately fixed to
+  `port-human` (§11.2: this file exists for exactly one value of that axis, and a template
+  would invite a second arm to write it). That reasoning was right for the file it names and
+  does not extend to a convention every arm follows, so the agent arms need a *separate*,
+  `{porting}`-templated key declared in `config/naming.yaml` — not the same key widened,
+  which would let an agent arm write to `port-human`'s path. It is declared there when the
+  first agent arm is implemented, under CLAUDE.md's rule that a new value enters the config
+  before it enters a module.
+- **`port-oneshot` has no per-line window record**, because it has no iteration log to carry
+  one — `agent_calls.jsonl` holds calls, and one call is the arm. For a single-call arm the
+  freeze record *is* the whole window claim, which removes the redundancy §11.2 relies on
+  (per-line hashes disagreeing with each other is what detects mid-run drift). Nothing to do
+  about that: a one-call arm cannot drift mid-run. It is stated because the same absence
+  would be a real gap in `port-loop`, where it must not be copied.
 
 ---
 
@@ -1402,6 +1489,76 @@ cannot supply, and leaves that rule's error unmeasured in the detection metrics.
 High accuracy here is not evidence for routing; it just means the argument for the
 union rests on measurability rather than on the selector being bad.
 
+### A2. `port-oneshot` on a second model family — pre-registered 2026-08-07
+
+**Pre-registered before any `port-oneshot` result exists, and that timing is the point.**
+§4 holds the model family fixed across every rung so that adjacent rungs differ in one
+capability, which leaves all three comparisons internally valid and externally unanchored.
+This entry is the answer to that, and an answer added *after* seeing the numbers would be a
+post-hoc selection — the family, the count, and the standing below would all then be
+choices informed by which of them flattered the result. So they are fixed here instead,
+while nothing is known.
+
+**The model: `us.meta.llama4-maverick-17b-instruct-v1:0`.** Verified callable on Bedrock on
+2026-08-07 (`docs/notes/baseline-model-family.md` records the probe). Chosen on two
+properties that follow from what the appendix is *for*:
+
+- **Open weights.** The appendix number is reproducible outside Bedrock, by someone without
+  this account. A closed model achieves half the purpose — it shows a second family, but the
+  reader has to take the number on trust, and the whole objection being answered is one
+  about trusting a self-comparison.
+- **Published benchmarks.** The reader can judge the reference point's strength
+  independently, rather than being told it is comparable.
+
+The rejections are recorded because "we tried one other model" and "we chose this other
+model for stated reasons" are different claims, and only the second survives a reviewer
+asking why not another:
+
+- **`us.amazon.nova-premier-v1:0`** — same platform, so the family distance is weakest where
+  the appendix needs it to be widest, and the silent-alias risk is identical to Claude's.
+- **`openai.gpt-oss-120b-1:0`** — open-weight and a genuinely distant family, but not
+  frontier-class, which invites the weak-baseline objection this entry exists to close.
+- **`us.deepseek.r1-v1:0`** — reasoning-family output is verbose, and this task demands one
+  complete well-formed file, so format failure and capability failure would be mixed
+  together in exactly the way the last paragraph below is about.
+- **The OpenAI API directly (GPT-5 family)** — excluded on data governance, not capability.
+  PhysioNet's guidance prohibits sending credentialed data to the OpenAI API and names
+  Bedrock and Azure as permitted routes; §1.4 of `docs/prompts/rule_author.md` puts ±120
+  characters of corpus context into the prompt, so there is no version of this that avoids
+  the restriction. Azure OpenAI is a permitted route, but it needs a separate account, a
+  human-review opt-out, and IRB wording confirmed — and this project does not widen its
+  compliance surface for one appendix number.
+
+**Standing: robustness check, not a main result.** It overturns no rung's verdict. If it
+comes back strong enough to be interesting — a single Llama call at or above `port-loop`,
+say — that is a reportable finding in its own right and is reported as one, and it is still
+not grounds for reopening §4. §4's argument is about attributability and does not become
+false when a number is surprising. A design decision that gets revisited because an appendix
+result came out a certain way is a decision that was made for the wrong reason, which is the
+sentence at the top of this section.
+
+**Open: how many format-compliance retries, and are they symmetric?** This has to be fixed
+before the run and is not fixed yet. `rules/{lang}.yaml` has a validated schema (§3,
+`rule_author.md` §2) — `lang` must match, `rule_id` unprefixed, exactly one matcher, `layer`
+and `phi_type` from their axes — and a model that fails validation has produced no arm
+result at all, not a bad one. The retry count is therefore load-bearing, and **the axis that
+matters is symmetry**: whatever retry budget Llama gets, Claude gets the same one, or the
+appendix measures instruction-following rather than rule-writing ability, which is not the
+quantity it is there to anchor. The candidates:
+
+- **Zero retries, both sides.** Cleanest to state and hardest to argue with; the risk is
+  an appendix that reports a validation failure and anchors nothing.
+- **A fixed *k* > 0, both sides, with the retry prompt carrying only the validator's error
+  and no new corpus content.** Preserves the no-feedback definition of the baseline —
+  a schema error is not dev-fold feedback — and every attempt still counts toward the cost
+  block, so a model that needs three tries is visibly more expensive.
+- **Retry until valid, both sides, bounded by budget.** Maximises the chance of a usable
+  number and makes the cost comparison do the work instead of the success/failure one; the
+  risk is an unbounded tail on a model that never emits valid YAML.
+
+Whichever is chosen, it is written down here before either arm is run, and `llm_calls` in
+each arm's cost block counts every attempt rather than only the accepted one.
+
 ---
 
 ## 11. `port-human` protocol — **RETIRED 2026-08-07, not deleted**
@@ -1676,7 +1833,9 @@ comparison it exists for. Three decisions inside that:
   therefore not at all.
 
 **And once more in a file that cannot be rewritten** — `paths.humanfreeze`, beside the
-log, written before iteration 1 and never again. This is not the header the previous
+log, written before iteration 1 and never again. (The convention this generalises to — freeze
+at first use, one record per arm — is §6.3, and `port-oneshot` follows it under its own
+`{porting}` value rather than inheriting this record.) This is not the header the previous
 point rejects, and the difference is which question each answers. Per-line hashes answer
 *did the window move during the run*, by disagreeing with each other. They cannot answer
 *what was the window this arm committed to*, because every line is honest about its own
