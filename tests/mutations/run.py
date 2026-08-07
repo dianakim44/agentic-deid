@@ -42,6 +42,7 @@ TEST_FILES = [
     "tests/test_layer_families.py",
     "tests/test_scorer.py",
     "tests/test_sample.py",
+    "tests/test_human_arm.py",
 ]
 
 #: Repository directories the loader tests need. `splits/` is here because the
@@ -161,6 +162,7 @@ RUN_SEALED = "src/eval/run_sealed_eval.py"
 SCREEN = "tools/release_screen.py"
 SCORER = "src/eval/scorer.py"
 SAMPLE = "src/sample.py"
+HUMAN_ARM = "src/porting/human_arm.py"
 
 MUTATIONS = [
     Mutation(
@@ -783,7 +785,88 @@ MUTATIONS = [
         ),
         min_kills=1,
     ),
-
+    Mutation(
+        name="initial_pool_excludes_train_instead_of_selecting_dev",
+        path=HUMAN_ARM,
+        anchor='        if doc.split != "dev":',
+        replacement='        if doc.split == "train":',
+        breaks=(
+            "The iteration-1 error pool becomes every non-train document, so the test "
+            "fold enters the window a person writes rules from — the seal violation "
+            "CLAUDE.md says invalidates the whole experiment, arriving as a plausible "
+            "spelling of the same filter. It leaves no trace in the log: the sample is "
+            "the right size, the provenance is right, and the extra spans are "
+            "indistinguishable from dev ones in a summary reporting counts by type. In "
+            "this repository the sealed loader would refuse first, but the harness must "
+            "not be the layer that depends on that."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="human_log_allowed_under_any_arm",
+        path=SCREEN,
+        anchor=r'    r"^results/[^/]+/[^/]+/[^/]+/port-human/human_log\.jsonl$",',
+        replacement=r'    r"^results/[^/]+/[^/]+/[^/]+/[^/]+/human_log\.jsonl$",',
+        breaks=(
+            "The porting component of the allowed path becomes a wildcard, so a "
+            "`human_log.jsonl` under any arm is reported as reviewed. Nothing writes "
+            "that file anywhere but `port-human` \u2014 DESIGN \u00a711.2 gives it one "
+            "value of the axis \u2014 so its presence elsewhere means something "
+            "unreviewed produced it, and the wildcard is what turns that signal into a "
+            "line in the Explicitly allowed count. The edit reads as a harmless "
+            "generalisation and matches the shape of every other pattern in the list."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="human_log_path_from_a_literal",
+        path=HUMAN_ARM,
+        anchor="    return ROOT / path_template(key).format(",
+        replacement=('    return ROOT / ("results/{corpus}/{detector}/{supervision}/'
+                     'port-human/" + ("human_log.jsonl" if key == LOG_KEY else '
+                     '"window_freeze.json")).format('),
+        breaks=(
+            "The arm reconstructs its own output paths instead of reading "
+            "`paths.humanlog` from naming.yaml, which DESIGN \u00a711.2 requires by name. "
+            "Today the literal is identical, so nothing is wrong yet — the defect is "
+            "that there are now two copies and the day one moves is the day results are "
+            "written to one path and read from another. A reader looking for the "
+            "authority on where this arm writes finds two, with no way to tell which "
+            "the last run used."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="summary_reports_offsets",
+        path=HUMAN_ARM,
+        anchor='"documents_touched": len({e.doc_id for e in sample}),',
+        replacement=('"documents_touched": len({e.doc_id for e in sample}),\n'
+                     '        "spans": [(e.doc_id, e.start, e.end) for e in sample],'),
+        breaks=(
+            "The summary — the view built to be pasted into a terminal, a commit "
+            "message, or a conversation — starts carrying (doc_id, offset) pairs, which "
+            "are pointers into the corpus for anyone holding it. No surface form is "
+            "quoted, which is exactly why it would survive review: the addition looks "
+            "like extra rigour rather than a leak, and the same pairs are correct in "
+            "the committed log, whose audience already holds the corpus."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="render_offsets_are_document_offsets",
+        path=HUMAN_ARM,
+        anchor='f"     offsets   ({e.start - left}, {e.end - left}) within that context',
+        replacement='f"     offsets   ({e.start}, {e.end}) within that context',
+        breaks=(
+            "The rendered window labels document offsets as offsets within the "
+            "context, so an author counting characters lands on the wrong span and one "
+            "told to trust the numbers is handed a document coordinate — an invitation "
+            "to open the file and read past the \u00b1120 characters DESIGN \u00a711.1 "
+            "bounds the window at. For a span near the start of a document the two "
+            "agree, so it reads correctly on whichever example is checked first."
+        ),
+        min_kills=1,
+    ),
 ]
 
 COUNT_RE = re.compile(r"(\d+) (passed|failed|error|errors)")

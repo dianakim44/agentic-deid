@@ -161,6 +161,14 @@ paths:
   metrics:  "results/{corpus}/{detector}/{supervision}/{porting}/metrics.json"
   spans:    "results/{corpus}/{detector}/{supervision}/{porting}/spans.jsonl"
   agentlog: "results/{corpus}/{detector}/{supervision}/{porting}/agent_calls.jsonl"
+  # port-human 전용. {porting} 이 템플릿이 아니라 고정값인 유일한 경로다 —
+  # 이 파일은 그 축의 값 하나에만 존재하고, 템플릿으로 두면 다른 arm 이
+  # 여기에 쓰도록 초대하는 셈이다 (DESIGN §11.2).
+  humanlog: "results/{corpus}/{detector}/{supervision}/port-human/human_log.jsonl"
+  # 동결 기록. humanlog 와 같은 디렉토리이고, 회차 1 전에 한 번만 쓰인다.
+  # 각 로그 행이 그 시점의 창을 정직하게 기록하므로, 시작 시점의 창을 아는
+  # 방법은 이 파일뿐이다.
+  humanfreeze: "results/{corpus}/{detector}/{supervision}/port-human/window_freeze.json"
   # {lang} 은 규칙 파일의 언어다 (lang 축). 코퍼스 하나가 여러 파일을 로드할 수
   # 있으므로 이 경로는 코퍼스당 1:1 이 아니다. 어느 파일들을 로드할지는
   # corpus_rule_langs 가 정한다.

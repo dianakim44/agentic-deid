@@ -143,3 +143,115 @@ Decided by me while working (reversible, but they are choices, not facts):
 - **Did not check whether the 3,751 background documents overlap the annotated
   1,000.** Relevant to `sup-free` later.
 - **Wrote no rules and no mappings.** This session is inventory only.
+
+---
+
+## Session 2 — port-human iteration 1: window frozen, sample drawn
+
+Commit at start: `e4dc1f6`. Date: 2026-08-07 (the freeze), procedure per DESIGN
+§11.1–§11.2.
+
+This entry records the **start** of the arm, not any rule work. No rule was
+written and `rules/es.yaml` does not exist yet, which is why iteration 1 needs no
+detection run: an empty rule file detects nothing, so every in-scope dev gold span
+is a `missed` error by construction (`initial_error_pool()`).
+
+### The frozen window
+
+`results/es-meddocan/R/sup-free/port-human/window_freeze.json`:
+
+| file | sha256 |
+|---|---|
+| `docs/prompts/rule_author.md` | `5f72f7694c3e46e7fccf8ba5608e30cc5d3fa8586d94f279ff8bb567781c1fd3` |
+| `config/sampling.yaml` | `fbfbbe107e2edfa0e9330fca9b8d4c79db48501a85cacd85d58d71a50216e926` |
+
+Both hashes are also on every `human_log.jsonl` line. That is not redundancy: the
+per-line copies answer *did the window move during the run*, by disagreeing with
+each other, and cannot answer *what did this arm commit to* — every line is honest
+about its own event, so a run whose `n` was doubled midway has internally
+consistent lines throughout. `freeze_window()` refuses to overwrite for the same
+reason; a rewritable freeze record records the window a run ended with.
+
+### Iteration 1's draw
+
+Seed `1359736174166609438`, derived from
+`("agentic-deid/error-sample/v1", 20260805, "es-meddocan", 1)`. Pool 5,254 in-scope
+dev gold spans across 250 documents; 40 drawn, stratified by `phi_type`, touching
+36 documents. All 40 are `missed`, as expected for iteration 1.
+
+| type | drawn | in pool |
+|---|---|---|
+| LOCATION_AREA | 9 | 1,334 |
+| NAME | 7 | 1,000 |
+| DATE | 5 | 724 |
+| ID | 5 | 745 |
+| AGE | 4 | 521 |
+| LOCATION_STREET | 4 | 434 |
+| CONTACT | 3 | 272 |
+| ORGANISATION | 2 | 214 |
+| PROFESSION | 1 | 4 |
+| OTHER | 0 | 6 |
+
+The `PROFESSION` row is `min_per_type: 1` doing its job: 4 errors out of 5,254 is
+0.08%, and proportional allocation alone rounds it to zero. A type never shown is
+a type never fixed.
+
+**`OTHER` is 0 by construction, and the first draw got this wrong.** The initial
+run spent 1 of the 40 slots on it. naming.yaml declares `OTHER` a residual bucket
+and "not a rule-development target", and `rule_author.md` Prohibition 4 forbids
+writing a rule for it — so that slot was one the author was forbidden to act on.
+With `min_per_type: 1` guaranteeing one of every type present, this was not an
+occasional accident: it would have been one wasted slot in every iteration of every
+arm. Fixed by `sample.non_target_types()`, which reads the exclusion out of
+naming.yaml's own gloss rather than hardcoding `{"OTHER"}` — the prohibition is a
+fact the config already states, and a second copy in Python is a second thing to
+keep in sync. The freed slot went to `LOCATION_STREET` (3 → 4).
+
+Worth recording *how* it was found: by reading the distribution, not by a test.
+The bad sample was well-formed by every property the suite checks — 40 spans, every
+type present, the sparse type included — which is this project's recurring failure
+shape, a wrong number in the flattering direction with no symptom. It now has a
+mutation (`non_target_types_from_hardcoded_set`) and four tests.
+
+This exclusion is on the **sample**, not the scoring. DESIGN §9.4 keeps every type
+in the leak-rate denominator: a type nobody may write a rule for still counts
+against the arm. Excluding it from the window and excluding it from the metrics
+would be two different claims, and only the first is being made.
+
+### What is deliberately not in this note
+
+The ±120-character contexts. `render_for_author()` produced them (40 entries,
+13,120 characters) and they went to the rule author and nowhere else — not to this
+file, not to a terminal transcript, not to disk. MEDDOCAN is synthetic and those
+contexts would be harmless, but the procedure does not branch on the corpus:
+CLAUDE.md's rule is that a check safe only on the synthetic corpora is a check
+nobody can trust, and CARMEN-I is next. The table above is `summarise()`'s output,
+which is counts only — no offsets either, since a `(doc_id, offset)` pair is the
+right referent for the committed log, whose reader holds the corpus, and the wrong
+one for a summary that exists to be read aloud.
+
+### First log line
+
+Written to confirm the format before any rule work, with every judgement field
+`null`:
+
+```json
+{"iteration": 1, "event": "read_sample", "human_minutes": null, "decision": null,
+ "predicted_scope": null, "actually_reused": null, "evidence": null,
+ "rules_commit": null, "prompt_sha256": "sha256:5f72f769...", "sampling_sha256":
+ "sha256:fbfbbe10..."}
+```
+
+(Line-wrapped here; it is one line in the file, and the hashes are full-length.)
+`null` rather than omitted throughout: an absent key and a key whose value is
+unknown are different facts, and only one survives an aggregation. The two hashes
+are filled by `log_line()` rather than by the caller, so a line cannot be written
+without them.
+
+### Open, and not decided here
+
+`n = 40` and ±120 characters are still my proposal rather than anything derived.
+They are now in `config/sampling.yaml` and DESIGN §11.1, and both are hashed into
+the freeze record, so changing them from here invalidates this arm's run rather
+than merely adjusting it. That is the intended cost; it is not an argument that the
+values are right.

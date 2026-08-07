@@ -204,6 +204,30 @@ def family_of(layer: str) -> str:
     )
 
 
+def path_template(key: str) -> str:
+    """One `paths` template from naming.yaml, e.g. `path_template("humanlog")`.
+
+    Templates live in the config and not in the modules that write to them, for the
+    reason `axis()` exists: two modules holding the same literal are two literals, and
+    the day one of them changes is the day the results are in two places. Raises on an
+    unknown key rather than returning a default — a caller asking for a path the config
+    does not declare has invented an artifact.
+
+    The template is returned unformatted. Filling it is the caller's job, and the caller
+    is what knows which components need checking against which axis (a `{porting}` value
+    is an axis value, `{lang}` is not a corpus).
+    """
+    templates = naming().get("paths", {})
+    if key not in templates:
+        raise CorpusError(
+            f"config/naming.yaml has no paths.{key} (has: {sorted(templates)}). "
+            "Declare the path there rather than writing it as a literal — CLAUDE.md's "
+            "rule that a new value goes into the config first applies to output paths, "
+            "which is where the results of an arm are found."
+        )
+    return templates[key]
+
+
 def rule_langs(corpus_id: str) -> list[str]:
     """Rule-file languages this corpus loads (DESIGN §5.2).
 

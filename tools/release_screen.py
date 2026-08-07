@@ -106,6 +106,12 @@ ALLOW_PATTERNS = [
     r"^results/[^/]+/[^/]+/[^/]+/[^/]+/metrics\.json$",
     r"^results/[^/]+/[^/]+/[^/]+/[^/]+/spans\.jsonl$",
     r"^results/sealed_eval_log\.md$",
+    # port-human only, and the {porting} component is the literal rather than [^/]+:
+    # DESIGN §11.2 gives these files exactly one value of that axis. A wildcard would
+    # allow the same filenames under port-loop, where nothing writes them and their
+    # presence would mean something unreviewed had.
+    r"^results/[^/]+/[^/]+/[^/]+/port-human/human_log\.jsonl$",
+    r"^results/[^/]+/[^/]+/[^/]+/port-human/window_freeze\.json$",
 ]
 
 # Hangul run long enough to be prose rather than a label.

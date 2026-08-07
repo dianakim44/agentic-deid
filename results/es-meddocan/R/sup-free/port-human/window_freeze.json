@@ -1,0 +1,12 @@
+{
+  "corpus": "es-meddocan",
+  "detector": "R",
+  "supervision": "sup-free",
+  "porting": "port-human",
+  "files": [
+    "docs/prompts/rule_author.md",
+    "config/sampling.yaml"
+  ],
+  "prompt_sha256": "sha256:5f72f7694c3e46e7fccf8ba5608e30cc5d3fa8586d94f279ff8bb567781c1fd3",
+  "sampling_sha256": "sha256:fbfbbe107e2edfa0e9330fca9b8d4c79db48501a85cacd85d58d71a50216e926"
+}

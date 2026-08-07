@@ -1431,6 +1431,12 @@ goes into the config before it goes into a module. Note that `{porting}` is fixe
 `port-human` here rather than templated: this file exists for exactly one value of that
 axis, and a template implying otherwise would invite a second arm to write it.
 
+*Implemented.* `paths.humanlog` and `paths.humanfreeze` are declared in
+`config/naming.yaml`, read through `base.path_template()`, and filled by
+`src/porting/human_arm.py`, which checks each component against its axis before building
+a path — a results path names the cell of the experiment a number belongs to, so an
+unknown component would mint a cell rather than fail.
+
 | field | meaning |
 |---|---|
 | `iteration` | integer, matching the agent arms' iteration counter |
@@ -1473,6 +1479,24 @@ comparison it exists for. Three decisions inside that:
   the window at iteration 9 was the window at iteration 1. A value repeated on every line
   answers that by disagreeing with itself; a header answers it by construction and
   therefore not at all.
+
+**And once more in a file that cannot be rewritten** — `paths.humanfreeze`, beside the
+log, written before iteration 1 and never again. This is not the header the previous
+point rejects, and the difference is which question each answers. Per-line hashes answer
+*did the window move during the run*, by disagreeing with each other. They cannot answer
+*what was the window this arm committed to*, because every line is honest about its own
+event: a run whose `n` was doubled at iteration 5 has internally consistent lines
+throughout, and the log alone cannot say which half was the deviation. The freeze record
+is the fixed point the lines are compared against, so `freeze_window()` returns an
+existing record rather than overwriting it — a freeze record that can be rewritten
+records the window a run *ended* with, which is the one thing nobody needs to know.
+
+`window_drift()` reports which of the two files no longer matches, and reports rather
+than raises. The honest response to drift is not always to stop: an edit to the prompt's
+prose that leaves §1.4's numbers alone is a different event from a change to `n`, and
+only a person can tell them apart. What is not optional is noticing — undetected, a
+mid-run change makes the iterations before it and the iterations after it two experiments
+reported as one.
 
 **Span IDs, never surfaces.** CLAUDE.md forbids corpus text in logs, and this file is
 committed. A decision log that records "added a cue for the phrase X" republishes X.

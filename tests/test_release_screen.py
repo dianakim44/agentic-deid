@@ -235,6 +235,56 @@ def test_a_clean_rules_file_is_allowed_not_suspect(tmp_path):
     assert "rules/es.yaml" in allowed
 
 
+def _arm_dir(tmp_path):
+    d = tmp_path / "results" / "es-meddocan" / "R" / "sup-free" / "port-human"
+    d.mkdir(parents=True)
+    return d
+
+
+def test_the_port_human_result_files_are_allowed(tmp_path):
+    """Both hold offsets, types and hashes and no corpus text (DESIGN §11.2), so the
+    screener should say so rather than leaving them in neither category — an unclassified
+    file reads as reviewed to anyone scanning the summary."""
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    d = _arm_dir(tmp_path)
+    (d / "human_log.jsonl").write_text(
+        '{"iteration": 1, "event": "read_sample", "evidence": null}\n', encoding="utf-8")
+    (d / "window_freeze.json").write_text(
+        '{"corpus": "es-meddocan", "prompt_sha256": "sha256:00"}\n', encoding="utf-8")
+    _blocked, _sealed, _quar, suspect, allowed = rs.screen_tree(str(tmp_path))
+    assert not suspect
+    assert "results/es-meddocan/R/sup-free/port-human/human_log.jsonl" in allowed
+    assert "results/es-meddocan/R/sup-free/port-human/window_freeze.json" in allowed
+
+
+def test_the_same_filenames_under_another_arm_are_not_allowed(tmp_path):
+    """The {porting} component is the literal `port-human`, not a wildcard. Nothing
+    writes these files under another arm, so their presence there means something
+    unreviewed did."""
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    d = tmp_path / "results" / "es-meddocan" / "R" / "sup-free" / "port-loop"
+    d.mkdir(parents=True)
+    (d / "human_log.jsonl").write_text('{"iteration": 1}\n', encoding="utf-8")
+    _blocked, _sealed, _quar, _suspect, allowed = rs.screen_tree(str(tmp_path))
+    assert "results/es-meddocan/R/sup-free/port-loop/human_log.jsonl" not in allowed
+
+
+def test_a_log_line_carrying_note_text_is_still_suspect(tmp_path):
+    """Being on the ALLOW list is a statement about the path, never about the content —
+    the same order the rules-file tests above establish. A `decision` field is free text
+    written by a person, which is exactly where a surface form gets pasted."""
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    d = _arm_dir(tmp_path)
+    (d / "human_log.jsonl").write_text(
+        '{"iteration": 1, "decision": "Admission Date: [**2151-7-16**] '
+        'CHIEF COMPLAINT: chest pain, HISTORY OF PRESENT illness"}\n', encoding="utf-8")
+    blocked, _sealed, _quar, suspect, allowed = rs.screen_tree(str(tmp_path))
+    assert not blocked
+    path = "results/es-meddocan/R/sup-free/port-human/human_log.jsonl"
+    assert path in {p for p, _ in suspect}
+    assert path not in allowed
+
+
 def test_the_pattern_field_is_not_screened_for_vocabulary():
     """Prohibition 2 allows cue words in a pattern; that is what the layer is.
 

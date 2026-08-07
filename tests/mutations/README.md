@@ -19,7 +19,7 @@ is tested by `tests/test_mutation_harness.py`, which pytest does collect.
 
 Each one corresponds to a decision in DESIGN.md that a plausible "simplification"
 would silently undo. What they have in common is the property that makes them
-dangerous: **twenty-six of the thirty-five change no total.** The corpus still loads,
+dangerous: **thirty-one of the forty change no total.** The corpus still loads,
 the document count is still 750, the span count is still 17,134 — and every
 downstream number is wrong. Those are the errors a reviewer cannot catch and an
 aggregate cannot reveal, which is why they get a harness rather than trust.
@@ -211,8 +211,9 @@ shrinks its rule set and nobody can say why.
 
 Counts are the number of tests that fail or error, from
 `tests/test_meddocan_loader.py`, `tests/test_split_file.py`, `tests/test_seal.py`,
-`tests/test_release_screen.py`, `tests/test_layer_families.py` and
-`tests/test_scorer.py` and `tests/test_sample.py` (336 tests). Errors
+`tests/test_release_screen.py`, `tests/test_layer_families.py`,
+`tests/test_scorer.py`, `tests/test_sample.py` and `tests/test_human_arm.py`
+(380 tests). Errors
 count as kills: a mutation that breaks the module-scoped fixture takes whole tests
 out, and those are caught, not uncounted.
 
@@ -295,6 +296,65 @@ iteration and it does not decay — `min_per_type` guarantees the slot, so it is
 wasted slot in every window of the experiment, and the author who acts on it anyway is
 breaking a prohibition the sample itself put in front of them.
 
+## The port-human mutations
+
+`src/porting/human_arm.py` runs the control arm: freeze the window, draw, render for the
+person, append to `human_log.jsonl`. Its guarantees are of a different kind from the
+sampler's. Two of them are not about numbers at all — one is the seal, and one is what
+may be said out loud about a sample.
+
+| mutation | changes | breaks | tests that catch it |
+|---|---|---|---|
+| `initial_pool_excludes_train_instead_of_selecting_dev` | `split != "dev"` becomes `split == "train"` | the test fold enters the window a person writes rules from — the seal violation that invalidates the experiment, arriving as a plausible spelling of the same filter | **1** |
+| `summary_reports_offsets` | `summarise()` gains a `spans` field of `(doc_id, start, end)` | the view built to be pasted into a terminal or a commit message starts carrying pointers into the corpus. No surface form is quoted, which is why it would survive review | **1** |
+| `render_offsets_are_document_offsets` | the rendered window labels document offsets as within-context offsets | an author counting characters lands on the wrong span, and one trusting the number is handed a document coordinate — an invitation to read past the ±120 characters | **1** |
+| `human_log_path_from_a_literal` | the arm rebuilds its output paths instead of reading `paths.humanlog` from naming.yaml | two authorities on where this arm writes, identical today; the day the config moves, results are written to one path and read from another | **1** |
+| `human_log_allowed_under_any_arm` | the screener's allowed path for `human_log.jsonl` takes `[^/]+` for the porting component instead of the literal `port-human` | a log under any other arm is counted as reviewed, and nothing writes one there — its presence is the signal, and the wildcard is what hides it | **1** |
+
+`initial_pool_excludes_train_instead_of_selecting_dev` is the one to read twice. The two
+filters are the same length, the same shape, and equivalent on any corpus with two
+folds; they differ only on the corpus this project actually has. It leaves no trace: the
+sample is the right size, the provenance record is correct, and a test-fold span is
+indistinguishable from a dev one in a summary that reports counts by type. In this
+repository the sealed loader refuses first, so the mutation is caught — but that is the
+seal defending the harness rather than the harness defending the seal, and the harness
+must not be written as though the layer beneath it will always be there.
+
+`summary_reports_offsets` is the inverse of the usual failure mode here: it makes the
+output *more* informative and that is the defect. `summarise()` exists to be quotable —
+its whole contract is that its result can go into a commit message or be read aloud —
+and the same `(doc_id, offset)` pairs it would gain are entirely correct on a
+`human_log.jsonl` line, because that file's reader already holds the corpus. The
+distinction is the audience, not the data, so nothing about the added field looks wrong
+in isolation.
+
+`human_log_path_from_a_literal` is the odd one in this table because **it breaks nothing
+at the moment it is applied.** The literal it introduces is character-for-character what
+naming.yaml holds, so every path assertion still passes and every file still lands where
+it should. What it removes is the property that there is one authority on where this arm
+writes — and the test that catches it has to be built accordingly. Asserting the path
+string cannot work: the mutation produces that string. What works is redirecting the
+config and checking that the paths follow, which is why
+`test_the_paths_follow_the_config_rather_than_a_copy_of_it` monkeypatches
+`path_template` rather than comparing to an expected path. DESIGN §11.2 asks for
+`paths.humanlog` in the config by name; this is what makes that requirement checkable
+instead of aspirational.
+
+`human_log_allowed_under_any_arm` is on the screener rather than the arm, and it is
+here because the ALLOW list is the one place in this repository where being *more*
+permissive costs nothing visible. A wildcard where the literal `port-human` belongs makes
+the summary read identically — the same file counted in `Explicitly allowed`, the same
+`BLOCKED: 0` — while a `human_log.jsonl` appearing under `port-loop` goes from a question
+to a checkmark. Nothing writes that file there, which is the whole point: the file's
+*location* is the finding, so a pattern that stops distinguishing locations stops being a
+check. Its companion test also pins the other half, that being on the ALLOW list says
+nothing about content: a log line whose free-text `decision` field holds note text is
+still SUSPECT, since `decision` is written by a person and is exactly where a surface
+form gets pasted.
+
+Each of these five is caught by exactly one test, which is the honest number and a thin
+one; they are listed at 1 rather than padded.
+
 ## What the seal cost, and what carries the difference
 
 Sealing 250 documents removed checks that cannot be replaced, and pretending
@@ -352,7 +412,7 @@ applies to the code. Two safeguards follow from that:
   Three checks, described in the next section. Skipping them lets the harness count
   its own breakage as a kill.
 
-The maintenance cost is real but bounded: thirty-five anchors, each a line or two,
+The maintenance cost is real but bounded: forty anchors, each a line or two,
 and a refactor that breaks one gets a `STALE` message naming the file. That is
 cheaper than the failure mode it prevents.
 
