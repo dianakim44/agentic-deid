@@ -27,7 +27,7 @@ from src.corpora.base import axis, canonical_types, corpus_ids   # noqa: E402
 from src.sample import (                                        # noqa: E402
     ERROR_KINDS, FALSE_POSITIVE, MISSED, ErrorSpan, SamplingError, _allocate,
     config, draw, file_hash, non_target_types, prompt_hash, provenance,
-    sample_seed, window_hashes,
+    check_iteration, is_practice, practice_min, sample_seed, window_hashes,
 )
 
 
@@ -533,3 +533,115 @@ def test_prompt_hash_is_labelled_with_its_algorithm():
 
 def test_the_prompt_template_exists_where_the_hash_looks():
     assert (ROOT / "docs" / "prompts" / "rule_author.md").is_file()
+
+
+# ─── the reserved practice band ──────────────────────────────────────────────
+# A rehearsal exists so that the rule-file schema, the three layer syntaxes and the
+# feedback command can be learned without spending iteration 1's window. The band makes
+# that possible; these tests make it enforced. The failure the band prevents is quiet:
+# the draw is seeded, so a rehearsal that drew iteration 1 printed byte-for-byte the
+# window the real run would have shown, and nothing downstream records that it was read
+# early. Nobody discovers it later — that is why the check is on the way in.
+
+def test_a_real_arm_cannot_draw_a_practice_number():
+    with pytest.raises(SamplingError) as e:
+        draw([err("d", 0)], "es-meddocan", practice_min(), practice=False)
+    assert "reserved for practice" in str(e.value)
+
+
+def test_a_real_arm_cannot_draw_any_number_in_the_band():
+    """The band is a half-line, not a single value: 900 and 9000 are both practice."""
+    for iteration in (practice_min(), practice_min() + 1, practice_min() * 10):
+        with pytest.raises(SamplingError):
+            draw([err("d", 0)], "es-meddocan", iteration, practice=False)
+
+
+def test_a_practice_caller_cannot_draw_a_real_number():
+    """The refusal runs in both directions, and this is the direction that matters.
+
+    A rehearsal aimed at iteration 1 is exactly the accident the band exists to prevent,
+    and it is the one that leaves no trace: the sample is the real sample.
+    """
+    with pytest.raises(SamplingError) as e:
+        draw([err("d", 0)], "es-meddocan", 1, practice=True)
+    assert "not in the practice band" in str(e.value)
+
+
+def test_a_practice_caller_is_refused_just_below_the_band():
+    with pytest.raises(SamplingError):
+        draw([err("d", 0)], "es-meddocan", practice_min() - 1, practice=True)
+
+
+def test_a_practice_draw_in_the_band_is_allowed():
+    got = draw([err("d", i) for i in range(5)], "es-meddocan", practice_min(),
+               practice=True, n=3)
+    assert len(got) == 3
+
+
+def test_is_practice_is_inclusive_at_the_lower_bound():
+    low = practice_min()
+    assert is_practice(low)
+    assert is_practice(low + 1)
+    assert not is_practice(low - 1)
+    assert not is_practice(1)
+
+
+def test_the_band_comes_from_the_config_and_not_from_a_literal():
+    """Reading the bound from sampling.yaml is what makes it one number, movable once.
+
+    A literal in `src/sample.py` beside a documented value in the config is two numbers
+    that agree until somebody edits one, and the disagreement's symptom is a rehearsal
+    that is allowed to draw a real iteration.
+    """
+    assert practice_min() == config()["practice_iteration_min"]
+
+
+def test_the_flag_is_passed_and_never_inferred_from_the_number():
+    """`check_iteration` has no default for `practice`, and that is the design.
+
+    Inference cannot separate the two cases: iteration 901 with the flag unset is either
+    a rehearsal whose caller forgot to say so or an arm that has run 901 iterations, and
+    guessing wrong in the first direction is silent. So the caller declares, and the
+    declaration is checked against the number.
+    """
+    with pytest.raises(TypeError):
+        check_iteration(1)                      # keyword-only, no default
+
+
+def test_provenance_records_whether_the_draw_was_practice():
+    real = provenance("es-meddocan", 1)
+    rehearsal = provenance("es-meddocan", practice_min(), practice=True)
+    assert real["practice"] is False
+    assert rehearsal["practice"] is True
+
+
+def test_provenance_refuses_the_same_combinations_the_draw_does():
+    """Both entry points check, because a caller may record without drawing."""
+    with pytest.raises(SamplingError):
+        provenance("es-meddocan", 1, practice=True)
+    with pytest.raises(SamplingError):
+        provenance("es-meddocan", practice_min(), practice=False)
+
+
+def test_a_practice_iteration_seeds_differently_from_every_real_one():
+    """Not a guard, an observation that keeps the guard from being load-bearing alone.
+
+    The band's numbers are far from any real iteration, so even a rehearsal that somehow
+    reached the draw would not reproduce a real window by collision.
+    """
+    rehearsal = sample_seed("es-meddocan", practice_min())
+    assert rehearsal not in {sample_seed("es-meddocan", i) for i in range(1, 100)}
+
+
+def test_the_refusal_message_names_the_config_file_not_the_number_alone():
+    """A bound quoted without its home sends the reader to grep for it."""
+    with pytest.raises(SamplingError) as e:
+        draw([err("d", 0)], "es-meddocan", 1, practice=True)
+    assert "config/sampling.yaml" in str(e.value)
+
+
+def test_a_non_integer_iteration_is_refused_before_the_band_is_consulted():
+    """`True` is an int in Python, and `iteration=True` would draw iteration 1."""
+    for bad in (True, 1.0, "1", None):
+        with pytest.raises(SamplingError):
+            check_iteration(bad, practice=False)

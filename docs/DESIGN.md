@@ -105,6 +105,67 @@ Python while the layer values are read from the config is the same drift the
 paragraph above forbids, moved up one level. Both facts about a layer come from the
 same file or the arrangement is only half enforced.
 
+### The rule file, and why the three layers have three syntaxes
+
+`src/rules.py` loads `rules/{lang}.yaml` and runs it. One file, one list of rules, and
+each rule **declares** its layer — the field is copied onto every span it emits and is
+never derived from the rule's name, the detector, or the pattern's shape.
+
+What differs between the layers is only how a rule says *what to match*. Everything after
+the match — the span, its provenance, the language prefix on its `rule_id` — is one code
+path, because a per-layer emit path is three places the provenance can drift apart.
+
+| layer | how a rule specifies its matcher | regex needed |
+|---|---|---|
+| `gazetteer` | `terms:` (a list of literal strings) or `lexicon: {lang}/{name}` naming a one-per-line text file | **no** |
+| `context_cue` | `cue:` + `then:`, two halves the engine joins into a pattern | **no**, for the ordinary case |
+| `regex_checksum` | `pattern:` (the `regex` module's dialect) + optional `checksum:` | yes |
+
+**Two of the three layers are authorable without regex, deliberately.** §7 predicts that
+the tagger's advantage is concentrated in `context_cue`, and that prediction is only
+testable if the layers are equally easy to write. An author who can only express
+themselves in regex writes regex-shaped rules, and then a layer looks weak for a reason
+that has nothing to do with the phenomenon being measured. Three specific consequences:
+
+- **A gazetteer term is a string, not a pattern.** `C.S. (Norte)` is an ordinary
+  institution name and a broken regex; terms are escaped, and the engine sorts them
+  longest-first because `regex`'s alternation is first-match rather than longest-match
+  (with `Hospital` before `Hospital Clínic` the longer term is unreachable and the span
+  is silently short — a `fully_covered` miss that passes `relaxed`).
+- **A cue rule's span excludes the cue.** The generated pattern puts the identifier in a
+  capture group, so `Dr.` is matched as evidence and not covered as PHI. A span that
+  swallowed the title would be scored against gold starting at the name.
+- **A checksum is named, not written.** The rule says `checksum: dni_mod23` and the
+  arithmetic lives in Python. A YAML file expressing a check digit would be a small
+  programming language with no tests, and an unimplemented name is refused at load rather
+  than raising mid-detection.
+
+**The loader refuses rather than matching nothing.** A missing lexicon, an unimplemented
+checksum, a checksum declared on a non-`regex_checksum` layer, a duplicate `rule_id`, a
+`lang:` that disagrees with the file it was loaded as, an `OTHER` target (§9.1), a flag
+outside the allowlist, or a lexicon name that could traverse out of `lexicons/` — each
+raises at load. The reason is specific to this project: a rule that loads and matches
+nothing is indistinguishable from a phenomenon that does not occur, and "the phenomenon
+does not occur" is exactly what §7 reports as a negative result.
+
+**The feedback path is `tools/check_rules.py`** — the closing step of §11.1's iteration.
+It runs a rule file over the dev fold and prints, per rule, how many of that iteration's
+drawn window the rule covers and how many false positives it bought, plus the same
+coverage dev-wide. The two are reported separately because a rule's effect on spans the
+author never saw is real but is not feedback. It prints no precision or F1: those come
+from the scorer over a merged prediction set (§9.3), and a second number with the same
+name and a different value is worse than no number. The fold is not selectable — there is
+no `--split` — because a tool invoked forty times an evening with a fold argument is a
+sealing violation with a countdown on it.
+
+**The author-facing copy of all of this is `docs/prompts/rule_author.md` §2**, which is the
+document the agent arm actually reads; this section is the rationale and that one is the
+reference. Keeping the syntax in two places would be the ordinary mistake here, so §2 states
+the forms and this section states why there are three of them. Note the ordering cost: the
+prompt is one of the two files `window_freeze.json` hashes, so extending §2 moves
+`prompt_sha256` and is only free before the arm records its first minute (§11.1,
+`docs/notes/window-freeze-history.md`).
+
 **The validation lives in `src/corpora/base.py`**, next to `axis()` — the one module
 that reads `naming.yaml`. Putting it in the scorer would be the obvious placement,
 since the scorer is the first consumer, but a family is a property of span provenance
@@ -1383,6 +1444,35 @@ discussed.
    this protocol.** Where an agent arm matches or beats `port-human`, that comparison is
    sound and if anything conservative. Where `port-human` wins, the margin includes an
    unmeasured carry-over component and cannot be reported as the cost of automation.
+
+   **A rehearsal moves this asymmetry's starting point to before iteration 1.** A
+   practice session was run on `es-meddocan` before iteration 1, in the reserved
+   iteration band (`config/sampling.yaml: practice_iteration_min`), so that the rule-file
+   schema, the three layer syntaxes and the feedback command could be learned without
+   spending iteration 1's forty spans on tool acquisition. Without it, iteration 1 would
+   measure "what a person generalises from forty errors *while learning the tools*",
+   which is not a quantity any other arm produces. The fact, the date and the iteration
+   number are in `docs/notes/port-human-practice.md`; what was seen and what was written
+   are deliberately not, since recording them would make them an input to iteration 1
+   that no agent arm receives.
+
+   Two mechanisms keep the rehearsal off iteration 1's sample. The band is refused in
+   **both** directions — an arm may not draw a practice number and a rehearsal may not
+   draw a real one — and the practice/real distinction is **declared by the caller, never
+   inferred from the number**, because inference cannot separate the two cases at all: an
+   iteration-1 call with the flag unset is either a rehearsal whose caller forgot or the
+   real thing, and since the draw is seeded, the wrong guess prints byte-for-byte the
+   window the real run would have shown while leaving nothing behind that says it was
+   read early. Separately, the practice pool has iteration 1's drawn spans *subtracted*
+   before the practice draw, because a different seed is not a guarantee of a different
+   sample and a span read in rehearsal is one iteration 1 no longer measures honestly.
+
+   **What this adds to the reading rule: the sum of `human_minutes` excludes tool
+   acquisition.** The rehearsal writes no log line — that is the protocol — so the time
+   it took is recorded nowhere, here or in the note. `port-human`'s cost figure is
+   therefore "time spent by someone who already knows the protocol", not "time to port
+   this pipeline". The second claim would require measuring the rehearsal, and this
+   experiment does not measure it.
 
 2. **n = 1 — a person cannot be re-run.** Every other arm can be replayed from
    `agent_calls.jsonl`. `port-human` has one execution, no variance estimate, and no way

@@ -69,7 +69,8 @@ def config() -> dict:
     """
     with open(CONFIG, encoding="utf-8") as fh:
         raw = yaml.safe_load(fh)
-    for key in ("n_error_spans", "context_chars", "min_per_type", "base_seed"):
+    for key in ("n_error_spans", "context_chars", "min_per_type", "base_seed",
+                "practice_iteration_min"):
         value = raw.get(key)
         if not isinstance(value, int) or isinstance(value, bool) or value < 0:
             raise SamplingError(
@@ -86,6 +87,66 @@ def config() -> dict:
             "collide with whatever scheme comes next."
         )
     return raw
+
+
+def practice_min() -> int:
+    """The lowest iteration number reserved for practice. From the config, not here.
+
+    A rehearsal is necessary — an author has to learn the rule-file schema, the layer
+    syntaxes, and the feedback command before iteration 1, and learning those on
+    iteration 1's sample spends the sample. But a rehearsal that reuses a real iteration
+    number is not a rehearsal: iteration 1 drawn "just to look" *is* iteration 1, and the
+    window is then open before the arm has started.
+
+    So the band is declared, and both directions are refused (`check_iteration`). Two
+    numbers with two meanings — a real iteration and a practice one — that a caller can
+    typo between is the kind of ambiguity this repository has already been bitten by.
+    """
+    return config()["practice_iteration_min"]
+
+
+def is_practice(iteration: int) -> bool:
+    """Whether `iteration` is in the reserved practice band."""
+    return iteration >= practice_min()
+
+
+def check_iteration(iteration: int, *, practice: bool) -> None:
+    """Refuse an iteration number that disagrees with what the caller says it is.
+
+    Both directions, and the second is the one that matters. Refusing a real arm the
+    900 band stops a rehearsal's numbers being reported as a run. Refusing a practice
+    caller a number *below* the band stops the opposite and more likely accident: a
+    rehearsal that draws iteration 1 has consumed iteration 1's sample, which is the one
+    thing a rehearsal exists not to do, and nothing downstream would show it — the draw
+    is seeded, so the sample is byte-identical to the real one and looks perfectly
+    correct.
+
+    The flag is passed by the caller rather than inferred from the number, because
+    inferring it is what makes the mistake unobservable: a function that decides "900,
+    so this must be practice" cannot tell a rehearsal from a real arm that typed 900,
+    and a function that decides "1, so this must be real" cannot tell iteration 1 from a
+    rehearsal aimed at it. The caller knows which it is; the number cannot.
+    """
+    if not isinstance(iteration, int) or isinstance(iteration, bool):
+        raise SamplingError(f"iteration must be an integer, got {iteration!r}")
+    low = practice_min()
+    if practice and iteration < low:
+        raise SamplingError(
+            f"iteration {iteration} is not in the practice band (>= {low}, "
+            "config/sampling.yaml: practice_iteration_min). A rehearsal drawing a real "
+            "iteration's number consumes that iteration's sample: the draw is seeded, "
+            "so what it prints is byte-identical to the real window and nothing "
+            "afterwards can show it was read early. Practice runs use the reserved "
+            "band."
+        )
+    if not practice and iteration >= low:
+        raise SamplingError(
+            f"iteration {iteration} is in the band reserved for practice (>= {low}, "
+            "config/sampling.yaml: practice_iteration_min), so an arm may not draw it. "
+            "A rehearsal's numbers must not be reportable as a run — DESIGN §11.1's "
+            "memory carry-over asymmetry is what a practice session adds to, and it is "
+            "recorded in docs/notes/port-human-practice.md rather than in the arm's log."
+        )
 
 
 @dataclass(frozen=True)
@@ -253,7 +314,7 @@ def non_target_types() -> frozenset[str]:
 
 
 def draw(errors: Iterable[ErrorSpan], corpus: str, iteration: int,
-         *, n: int | None = None) -> list[ErrorSpan]:
+         *, n: int | None = None, practice: bool = False) -> list[ErrorSpan]:
     """The `n` error spans shown at `iteration`. Stratified by `phi_type`, seeded.
 
     Same errors, same corpus, same iteration -> same list, in the same order, in any
@@ -270,7 +331,13 @@ def draw(errors: Iterable[ErrorSpan], corpus: str, iteration: int,
     (`non_target_types()`), so `n` slots all go to types a rule may target.
 
     Returns fewer than `n` only when there are fewer eligible errors than that.
+
+    `practice` is the caller's declaration that this is a rehearsal, and it is checked
+    against the iteration number rather than derived from it (`check_iteration`). It
+    reaches this function rather than only the caller because this is the one place both
+    arms pass through: a guard at a call site guards that call site.
     """
+    check_iteration(iteration, practice=practice)
     if n is None:
         n = config()["n_error_spans"]
     if n < 0:
@@ -304,16 +371,23 @@ def draw(errors: Iterable[ErrorSpan], corpus: str, iteration: int,
     return sorted(out, key=lambda e: e.key)
 
 
-def provenance(corpus: str, iteration: int, *, n: int | None = None) -> dict:
+def provenance(corpus: str, iteration: int, *, n: int | None = None,
+               practice: bool = False) -> dict:
     """What the run records about how the sample was drawn.
 
     Written beside the metrics so a sample can be reconstructed from the results
     alone. The seed is included as a value even though it is derivable, because
     checking a recorded number against a recomputed one is how a change of derivation
     scheme gets noticed; a record holding only the inputs agrees with any scheme.
+
+    `practice` is recorded as a field rather than left implicit in the iteration number.
+    A reader of a provenance block should not have to know the band's lower bound to
+    know what they are looking at, and the bound is a config value that can move.
     """
+    check_iteration(iteration, practice=practice)
     cfg = config()
     return {
+        "practice": practice,
         "seed_scheme": cfg["seed_scheme"],
         "base_seed": cfg["base_seed"],
         "corpus": corpus,

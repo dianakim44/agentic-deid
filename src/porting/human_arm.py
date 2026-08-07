@@ -389,14 +389,56 @@ def initial_error_pool(corpus: str) -> list[ErrorSpan]:
     return pool
 
 
-def draw_iteration(pool, corpus: str, iteration: int, *, n: int | None = None):
+def draw_iteration(pool, corpus: str, iteration: int, *, n: int | None = None,
+                   practice: bool = False):
     """The sample and its provenance record, as one pair.
 
     Returned together because they are only meaningful together: a sample without its
     provenance cannot be reproduced, and a provenance record without its sample
     describes a draw nobody performed.
+
+    `practice` is passed through to both, unchanged and un-inferred. This function is
+    where a rehearsal and a real iteration would be easiest to conflate — it is the only
+    entry point the harness offers — so it is the one place the flag must not acquire a
+    default derived from the number (see `check_iteration`).
     """
-    return draw(pool, corpus, iteration, n=n), provenance(corpus, iteration, n=n)
+    return (draw(pool, corpus, iteration, n=n, practice=practice),
+            provenance(corpus, iteration, n=n, practice=practice))
+
+
+def practice_pool(pool, corpus: str, *, n: int | None = None,
+                  reserved_for: int = 1):
+    """`pool` minus the spans iteration `reserved_for` will draw. For rehearsals only.
+
+    A rehearsal exists so that the schema, the layer syntaxes and the feedback command
+    can be learned without spending iteration 1's window, and it fails at that if the
+    two windows overlap: a span read during practice is a span iteration 1 no longer
+    measures honestly, whether or not anybody noticed the repeat.
+
+    **Subtraction, not retry.** The obvious construction is to draw a practice window,
+    compare it against iteration 1's, and draw again on a collision. That converges only
+    probabilistically, and each redraw is a new number whose only justification is the
+    collision — so the recorded provenance would no longer explain the sample. Removing
+    the reserved spans from the pool first makes the disjointness a property of the pool
+    rather than of a loop, and the draw stays the one seeded function it was.
+
+    Iteration `reserved_for`'s sample is *computed* here and returned to nobody. It is a
+    list of references — doc ids, indices, offsets, types — with no text in it by
+    construction (`ErrorSpan`), and this function does not render. What the rehearsal
+    must not see is the window, and the window is what `render_for_author` makes.
+
+    The cost is that the practice pool is smaller by up to `n` spans, so a rehearsal's
+    per-type counts differ slightly from a real iteration's. That is the right direction
+    of inaccuracy: it makes practice a little less representative and iteration 1 exactly
+    what it was frozen to be.
+    """
+    reserved = {e.key for e in draw(pool, corpus, reserved_for, n=n)}
+    # Sorted, not in input order. `draw()` sorts before drawing for its own reasons, so
+    # the order here does not reach a sample — but a function that returns a different
+    # list for the same set is one that some later caller iterates without sorting, and
+    # the repository's argument against that (src/sample.py's `key`) does not stop
+    # applying one function further out.
+    return sorted((e for e in pool if e.key not in reserved), key=lambda e: e.key)
 
 
 def summarise(sample, pool) -> dict:

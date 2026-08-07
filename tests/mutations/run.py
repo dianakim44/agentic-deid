@@ -44,6 +44,8 @@ TEST_FILES = [
     "tests/test_sample.py",
     "tests/test_human_arm.py",
     "tests/test_show_human_window.py",
+    "tests/test_rules.py",
+    "tests/test_check_rules.py",
 ]
 
 #: Repository directories the loader tests need. `splits/` is here because the
@@ -57,7 +59,11 @@ TEST_FILES = [
 #: `human_log.jsonl` to identify the window a `port-human` run was held to. Without
 #: the file the hash tests error rather than fail, and errors count as kills — so
 #: every sampling mutation would be reported as caught by three tests that never ran.
-COPIED = ("src", "tests", "config", "splits", "results", "tools", "docs")
+#: `rules/` is here for the two tests that load the committed example file. They skip
+#: when it is absent, which is the state iteration 1 starts from — so without the
+#: directory those two would skip rather than run, and a mutation to the loader would be
+#: reported as caught by a suite that never exercised it.
+COPIED = ("src", "tests", "config", "splits", "results", "tools", "docs", "rules")
 
 #: Single files copied alongside COPIED. `.gitignore` is one half of a rule the
 #: screener encodes twice (DENY_EXCEPTIONS is the other), and
@@ -165,6 +171,8 @@ SCORER = "src/eval/scorer.py"
 SAMPLE = "src/sample.py"
 HUMAN_ARM = "src/porting/human_arm.py"
 SHOW_WINDOW = "tools/show_human_window.py"
+RULES = "src/rules.py"
+CHECK_RULES = "tools/check_rules.py"
 
 MUTATIONS = [
     Mutation(
@@ -1032,6 +1040,207 @@ MUTATIONS = [
             "on any branch. Removing them from history is still possible and is exactly "
             "what this guard is for \u2014 a rewrite of a public repository's history is "
             "not a quiet act."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="a_real_arm_may_draw_a_practice_number",
+        path=SAMPLE,
+        anchor="    if not practice and iteration >= low:",
+        replacement="    if False:",
+        breaks=(
+            "Removes half the band's refusal, in the direction that lets a rehearsal's "
+            "numbers be reported as a run. The band exists so the rule-file schema, the "
+            "three layer syntaxes and the feedback command can be learned without "
+            "spending iteration 1's window; with this half gone, iteration 901 is a "
+            "legal arm iteration and its provenance record says practice: false, so "
+            "nothing distinguishes a rehearsal's output from a run's."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="a_rehearsal_may_draw_a_real_number",
+        path=SAMPLE,
+        anchor="    if practice and iteration < low:",
+        replacement="    if False:",
+        breaks=(
+            "The other half, and the one whose failure is silent. A rehearsal aimed at "
+            "iteration 1 draws iteration 1: the draw is seeded, so the window printed is "
+            "byte-for-byte the window the real run would have shown, and nothing "
+            "downstream records that it was read early. Nobody discovers it afterwards "
+            "\u2014 there is no artifact to discover \u2014 which is why the check is on "
+            "the way in and why the flag is declared by the caller rather than inferred "
+            "from the number (inference cannot separate the two cases at all)."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="the_practice_window_may_overlap_iteration_one",
+        path=HUMAN_ARM,
+        anchor="    reserved = {e.key for e in draw(pool, corpus, reserved_for, n=n)}",
+        replacement="    reserved = set()",
+        breaks=(
+            "Stops subtracting iteration 1's spans from the practice pool, so a rehearsal "
+            "can show spans iteration 1 will later measure. That defeats the point of "
+            "having a band at all: the number is different, the sample overlaps, and the "
+            "spans the author already read are the ones iteration 1 no longer measures "
+            "honestly. Subtraction rather than draw-and-retry, so disjointness is a "
+            "property of the pool and the draw stays one seeded function."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="a_rule_layer_is_derived_from_the_rule_id",
+        path=RULES,
+        anchor="                    layer=rule.layer, detector=detector,",
+        replacement='                    layer=("gazetteer" if "gaz" in rule.rule_id '
+                    'else rule.layer), detector=detector,',
+        breaks=(
+            "Derives a span's layer from its rule id instead of copying the rule's "
+            "declaration \u2014 the one thing DESIGN \u00a73 forbids, in the form it "
+            "would actually take (a substring test that looks reasonable). Every span "
+            "still carries a valid layer from naming.yaml, so nothing downstream "
+            "complains; DESIGN \u00a77's per-layer comparison would then be measuring "
+            "the substring test."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="a_gazetteer_term_is_a_regex",
+        path=RULES,
+        anchor='    return f"{left}{escaped}{right}"',
+        replacement='    return f"{left}{term}{right}"',
+        breaks=(
+            "Interpolates a gazetteer term raw instead of escaping it, which makes the "
+            "regex-free layer a regex layer without saying so. `C.S. (Norte)` is an "
+            "ordinary institution name and a broken pattern: the rule fails to load, or "
+            "\u2014 for a term whose metacharacters happen to compile \u2014 matches "
+            "something the author did not write."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="a_gazetteer_term_needs_a_word_character_at_each_edge",
+        path=RULES,
+        anchor='    left = r"(?<!\\w)" if term[:1].isalnum() or term[:1] == "_" else ""',
+        replacement='    left = r"\\b"',
+        breaks=(
+            "Restores the \\b that this module shipped with for one run and that "
+            "tests/test_rules.py caught: \\b requires a word character on the inside of "
+            "the boundary, so a term *beginning* with punctuation can never match. The "
+            "rule loads, compiles, fires nowhere, and reads as a name that does not occur "
+            "in the corpus \u2014 which is also what DESIGN \u00a77 reports as a "
+            "negative result for the layer."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="a_cue_span_swallows_the_cue",
+        path=RULES,
+        anchor="        group = 1",
+        replacement="        group = 0",
+        breaks=(
+            "Makes a context_cue span cover the cue words as well as the identifier. The "
+            "cue is the evidence, not the PHI: a span starting at `Dr.` is scored against "
+            "gold that starts at the name, so it misses under fully_covered while hitting "
+            "under relaxed \u2014 a boundary error that reads as a scoring artefact, and "
+            "one that would depress the layer DESIGN \u00a77 predicts most for."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="a_checksum_accepts_every_match",
+        path=RULES,
+        anchor="            if check is not None and not check(text[start:end]):",
+        replacement="            if False:",
+        breaks=(
+            "Turns regex_checksum into regex. The layer's entire claim is shape plus "
+            "arithmetic: without the check digit an eight-digit run followed by any "
+            "letter is an identifier, and the precision the layer is supposed to buy "
+            "disappears while its name still says it is there."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="an_unimplemented_checksum_is_ignored",
+        path=RULES,
+        anchor="        if checksum not in CHECKSUMS:",
+        replacement="        if False:",
+        breaks=(
+            "Lets a rule name a checksum nobody implemented. `CHECKSUMS[self.checksum]` "
+            "then raises at match time \u2014 mid-run, inside a detection pass, rather "
+            "than at load with the rule id in hand. A rule file is written by an agent or "
+            "by a person mid-iteration; refusing at load costs a line of output and "
+            "refusing at first match costs a scoring round."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="a_lexicon_name_may_traverse_directories",
+        path=RULES,
+        anchor='    if not regex.fullmatch(r"[a-z0-9_]+", name):',
+        replacement="    if False:",
+        breaks=(
+            "Removes the only check on the one path a rule file gets to name. "
+            "`es/../../sealed/es-meddocan/test` is a valid-looking lexicon name, and "
+            "reading it is the sealing violation that invalidates the whole experiment "
+            "(CLAUDE.md). Rule files are authored by agents; this is not a rule to "
+            "enforce by hoping nobody composes that string."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="the_declared_rule_file_language_is_trusted",
+        path=RULES,
+        anchor="    if declared != lang:",
+        replacement="    if False:",
+        breaks=(
+            "Stops checking the file's own `lang:` against the language it was loaded as. "
+            "The rule_id prefix comes from the load language, so a `cat` file loaded as "
+            "`es` gives every span an `es:` prefix and DESIGN \u00a75.2's "
+            "per-file precision attribution goes to the wrong file, consistently and "
+            "invisibly."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="a_duplicate_rule_id_is_allowed",
+        path=RULES,
+        anchor="            raise RuleError(\n                f\"{r.rule_id}: duplicate rule_id in one file. Ids must be unique and \"",
+        replacement="            pass  # noqa\n            _unused = (",
+        breaks=(
+            "Allows two rules to share an id. The by_rule counts and the rule_id on every "
+            "span are the same identifier, so two rules' attribution merges into one "
+            "bucket: an author looking at a precision figure per rule sees a number that "
+            "belongs to neither rule."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="a_non_target_type_may_be_a_rule_target",
+        path=RULES,
+        anchor="    if phi_type in non_target_types():",
+        replacement="    if False:",
+        breaks=(
+            "Lets a rule target OTHER. It is a residual bucket a corpus ships, not a "
+            "phenomenon (rule_author.md Prohibition 4): a rule matching it scores against "
+            "whatever the corpus could not classify, and the recall it buys is a property "
+            "of that corpus's annotation practice rather than of a detector."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="check_rules_reads_every_fold",
+        path=CHECK_RULES,
+        anchor='    docs = [d for d in load(args.corpus) if d.split == "dev"]',
+        replacement="    docs = list(load(args.corpus))",
+        breaks=(
+            "Drops the dev restriction from the feedback tool, so the rule author's "
+            "forty-times-an-evening command scores against every fold the loader "
+            "returns. The test fold's text is in sealed/ and the loader does not return "
+            "it, so this is not by itself a seal break \u2014 it is the step before one, "
+            "and it silently mixes folds in the numbers an author develops rules against "
+            "(CLAUDE.md, DESIGN \u00a711.1)."
         ),
         min_kills=1,
     ),

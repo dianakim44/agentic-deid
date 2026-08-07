@@ -31,8 +31,10 @@ sys.path.insert(0, str(ROOT))
 
 from src.corpora import load                                    # noqa: E402
 from src.porting.human_arm import (                             # noqa: E402
-    draw_iteration, initial_error_pool, render_for_author, summarise, window_drift,
+    draw_iteration, initial_error_pool, practice_pool, render_for_author, summarise,
+    window_drift,
 )
+from src.sample import is_practice, practice_min                # noqa: E402
 
 
 def main() -> int:
@@ -43,6 +45,9 @@ def main() -> int:
     ap.add_argument("--supervision", default="sup-free")
     ap.add_argument("--counts-only", action="store_true",
                     help="the summary without the contexts; safe to paste anywhere")
+    ap.add_argument("--practice", action="store_true",
+                    help="a rehearsal, drawing from the reserved 900+ band; refused "
+                         "for any lower iteration and required for any 900+ one")
     args = ap.parse_args()
 
     # Refuse a pipe or a redirect. The window is for a person reading a screen, and a
@@ -55,10 +60,25 @@ def main() -> int:
               "--counts-only for output that is safe to capture.", file=sys.stderr)
         return 2
 
-    if args.iteration != 1:
+    # A rehearsal draws from the reserved band and from a pool with iteration 1's spans
+    # removed; a real run is iteration 1 and nothing else, because any later pool must
+    # come from the scorer. Both cases end up at initial_error_pool(), which is why the
+    # two checks live together: the pool is derivable from the loader alone exactly when
+    # the rule file is empty, and a rehearsal keeps it empty by writing elsewhere.
+    if args.practice:
+        if not is_practice(args.iteration):
+            print(f"--practice with iteration {args.iteration}: rehearsals use the "
+                  f"reserved band (>= {practice_min()}, config/sampling.yaml). A "
+                  "rehearsal drawing a real number consumes that iteration — the draw "
+                  "is seeded, so the window it printed is the one the real run would "
+                  "have shown, and nothing downstream records that it was read early.",
+                  file=sys.stderr)
+            return 2
+    elif args.iteration != 1:
         print(f"iteration {args.iteration}: the error pool must come from the scorer, "
               "not from initial_error_pool() — only iteration 1 can be derived from "
-              "the loader alone (an empty rule file detects nothing).", file=sys.stderr)
+              "the loader alone (an empty rule file detects nothing). For a rehearsal, "
+              f"use --practice with an iteration >= {practice_min()}.", file=sys.stderr)
         return 2
 
     drift = window_drift(args.corpus, args.detector, args.supervision)
@@ -68,11 +88,15 @@ def main() -> int:
               "the iterations before it and after it two experiments.", file=sys.stderr)
 
     pool = initial_error_pool(args.corpus)
-    sample, prov = draw_iteration(pool, args.corpus, args.iteration)
+    if args.practice:
+        pool = practice_pool(pool, args.corpus)
+    sample, prov = draw_iteration(pool, args.corpus, args.iteration,
+                                  practice=args.practice)
     summary = summarise(sample, pool)
 
+    kind = "PRACTICE — iteration 1's spans excluded" if args.practice else "iteration"
     print(f"# {args.corpus} / {args.detector} / {args.supervision} / port-human "
-          f"— iteration {args.iteration}")
+          f"— {kind} {args.iteration}")
     print(f"# seed {prov['seed']}  ({prov['seed_scheme']}, base {prov['base_seed']})")
     print(f"# pool {summary['pool_size']}  drawn {summary['sample_size']}  "
           f"documents touched {summary['documents_touched']}")

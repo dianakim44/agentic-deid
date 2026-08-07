@@ -30,11 +30,11 @@ from src.corpora.base import axis                               # noqa: E402
 from src.porting.human_arm import (                            # noqa: E402
     CONSULTED_AXIS, EVENTS, FIELDS, IN_HISTORY, IN_WORKTREE, SCOPES, VIOLATION,
     PortHumanError, append, arm_has_started, draw_iteration, freeze_path, freeze_window,
-    initial_error_pool, log_line, log_path, render_for_author, started_where, summarise,
-    window_drift,
+    initial_error_pool, log_line, log_path, practice_pool, render_for_author,
+    started_where, summarise, window_drift,
 )
 from src.sample import (                                       # noqa: E402
-    MISSED, WINDOW_FILES, ErrorSpan, window_hashes,
+    MISSED, WINDOW_FILES, ErrorSpan, SamplingError, draw, practice_min, window_hashes,
 )
 
 #: Invented, not from any corpus. Long and distinctive so a test asserting its absence
@@ -849,3 +849,94 @@ def test_the_log_path_carries_the_three_axes_and_the_arm(monkeypatch, tmp_path):
     path = log_path("es-meddocan", "R", "sup-free")
     assert path.relative_to(tmp_path).as_posix() == (
         "results/es-meddocan/R/sup-free/port-human/human_log.jsonl")
+
+
+# ─── the practice pool: disjoint from iteration 1 by construction ────────────
+# A rehearsal exists so the schema, the three layer syntaxes and the feedback command
+# can be learned without spending iteration 1's window. It fails at that if the two
+# windows overlap: a span read during practice is a span iteration 1 no longer measures
+# honestly, whether or not anybody noticed the repeat.
+
+def pool_of(n: int) -> list[ErrorSpan]:
+    return [ErrorSpan(doc_id=f"d{i % 7}", span_index=i,
+                      phi_type=("NAME", "DATE", "ID")[i % 3], kind=MISSED,
+                      start=i * 30, end=i * 30 + 8) for i in range(n)]
+
+
+def test_the_practice_pool_excludes_iteration_ones_sample():
+    pool = pool_of(200)
+    reserved = {e.key for e in draw(pool, "es-meddocan", 1, n=40)}
+    assert reserved
+    practice = practice_pool(pool, "es-meddocan", n=40)
+    assert reserved.isdisjoint({e.key for e in practice})
+
+
+def test_a_practice_draw_shares_no_span_with_iteration_one():
+    """The property, stated over the two windows rather than over the pool."""
+    pool = pool_of(200)
+    real, _ = draw_iteration(pool, "es-meddocan", 1, n=40)
+    rehearsal, _ = draw_iteration(practice_pool(pool, "es-meddocan", n=40),
+                                  "es-meddocan", practice_min(), n=40,
+                                  practice=True)
+    assert rehearsal
+    assert {e.key for e in real}.isdisjoint({e.key for e in rehearsal})
+
+
+def test_the_practice_pool_keeps_everything_else():
+    pool = pool_of(200)
+    practice = practice_pool(pool, "es-meddocan", n=40)
+    assert len(practice) == len(pool) - len(draw(pool, "es-meddocan", 1, n=40))
+
+
+def test_the_practice_pool_is_deterministic():
+    pool = pool_of(120)
+    a = [e.key for e in practice_pool(pool, "es-meddocan", n=40)]
+    b = [e.key for e in practice_pool(list(reversed(pool)), "es-meddocan", n=40)]
+    assert a == b
+
+
+def test_iteration_ones_own_draw_is_unchanged_by_a_rehearsal_having_happened():
+    """The rehearsal must leave no trace in what iteration 1 will show.
+
+    `practice_pool` subtracts from a copy and the draw is a pure function of (corpus,
+    iteration, error list), so this holds — but it is the property the whole arrangement
+    is for, and a subtraction done in place would break it silently.
+    """
+    pool = pool_of(200)
+    before = [e.key for e in draw(pool, "es-meddocan", 1, n=40)]
+    practice_pool(pool, "es-meddocan", n=40)
+    assert [e.key for e in draw(pool, "es-meddocan", 1, n=40)] == before
+
+
+def test_another_iteration_can_be_reserved():
+    """`reserved_for` is a parameter because a second rehearsal may precede iteration 2."""
+    pool = pool_of(200)
+    reserved = {e.key for e in draw(pool, "es-meddocan", 2, n=40)}
+    practice = practice_pool(pool, "es-meddocan", n=40, reserved_for=2)
+    assert reserved.isdisjoint({e.key for e in practice})
+
+
+def test_draw_iteration_passes_practice_through_to_the_provenance():
+    pool = pool_of(60)
+    _, prov = draw_iteration(pool, "es-meddocan", practice_min(), n=10, practice=True)
+    assert prov["practice"] is True
+    _, prov = draw_iteration(pool, "es-meddocan", 1, n=10)
+    assert prov["practice"] is False
+
+
+def test_draw_iteration_refuses_a_rehearsal_at_a_real_iteration():
+    """The harness's single entry point is where the two are easiest to conflate."""
+    with pytest.raises(SamplingError):
+        draw_iteration(pool_of(10), "es-meddocan", 1, n=5, practice=True)
+
+
+def test_draw_iteration_refuses_an_arm_at_a_practice_iteration():
+    with pytest.raises(SamplingError):
+        draw_iteration(pool_of(10), "es-meddocan", practice_min(), n=5)
+
+
+def test_the_practice_pool_holds_no_surface_forms():
+    """It is a list of references, and this is the file where that is checked."""
+    for span in practice_pool(pool_of(60), "es-meddocan", n=10):
+        assert not hasattr(span, "text")
+        assert SURFACE not in repr(span)

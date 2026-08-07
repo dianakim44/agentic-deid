@@ -185,15 +185,21 @@ rules:
   - rule_id: doctor_prefix    # unprefixed here; loader prepends "es:" (DESIGN §3)
     layer: context_cue        # a `layer` axis value — required, never inferred
     phi_type: NAME            # a `phi_type` axis value — the span's canonical type
-    pattern: '(?<=\bDr\.\s)\p{Lu}\p{L}+'
-    flags: [unicode]          # optional; from a fixed allowlist
+    cue: ["Dr.", "Dra."]      # the matcher: cue words, then what follows them
+    then: capitalised_words   # no regex here — see the table below
     score: 0.8                # optional confidence, recorded on the span
     comment: >                # optional rationale; no corpus surface forms
       Title-prefixed clinician name. Cue is the title, not the name.
+  - rule_id: dni
+    layer: regex_checksum
+    phi_type: ID
+    pattern: '\b\d{8}[A-Z]\b'   # the regex form
+    checksum: dni_mod23       # arithmetic in the engine, named here
+    flags: [unicode]          # optional; from a fixed allowlist
 ```
 
-**Required fields per rule: `rule_id`, `layer`, `phi_type`, `pattern`.** Each is required
-for a reason that is not stylistic:
+**Required fields per rule: `rule_id`, `layer`, `phi_type`, and one matcher.** Each is
+required for a reason that is not stylistic:
 
 - **`layer`** — DESIGN §3 requires the detector that emits a span to set its layer
   explicitly, with no derivation from names, prefixes, or lookup tables. The rule
@@ -208,9 +214,76 @@ for a reason that is not stylistic:
   corpus-specific tag: mapping corpus taxonomies to canonical types is the Mapper's
   artifact, and a RuleAuthor inventing a type would put an undeclared value into a
   results field.
-- **`pattern`** — the matcher. For `gazetteer` rules this is a list reference
-  (`lexicon: es/institutions`) rather than a regex, since term lists are the
-  LexiconBuilder's artifact and duplicating them here would give two files one job.
+- **a matcher** — exactly one per rule, and *which* form depends on the layer. See the
+  table below. `pattern` is the regex form and is not required when another form is used;
+  two forms in one rule is rejected, because which one fired would go unrecorded and
+  §1.3's `by_rule` attributes to a rule rather than to a form.
+
+### The three matcher forms, and which layers need regex
+
+| layer | form | example |
+|---|---|---|
+| `gazetteer` | `terms:` — a list of **literal strings**, or `lexicon: {lang}/{name}` for a long list | `terms: ["Hospital Clínic", "C.S. Norte"]` |
+| `context_cue` | `cue:` + `then:` — the words before, and what follows | `cue: ["Dr.", "Dra."]` / `then: capitalised_words` |
+| `regex_checksum` | `pattern:` + optional `checksum:` | `pattern: '\b\d{8}[A-Z]\b'` / `checksum: dni_mod23` |
+
+**`gazetteer` needs no regex, and `context_cue` needs none for the ordinary case.** This is
+a property of the schema rather than a convenience: §7's prediction is about layers, so a
+layer that is harder to write is a layer that looks weaker for a reason unrelated to the
+phenomenon.
+
+- **`terms:` are literal.** They are escaped, so `C.S. (Norte)` — an ordinary institution
+  name and a broken regex — is a valid term. Order does not matter: the engine sorts
+  longest-first, because regex alternation is first-match and `Hospital` placed before
+  `Hospital Clínic` would make the longer term unreachable while the rule still fired
+  with a span that is silently too short. Matching is case-folded by default (that is what
+  the layer *is*, per `naming.yaml`); `case_sensitive: true` opts out.
+- **`lexicon: es/institutions`** reads `lexicons/es/institutions.txt`, one term per line,
+  `#` for comments. Use it when the list is long; it is the LexiconBuilder's artifact and
+  duplicating it inline would give two files one job. The `{lang}` in a lexicon reference
+  is the lexicon's own language and need not equal the rule file's.
+- **`cue:` + `then:`** replaces a hand-written lookbehind. The two halves are given in
+  reading order and the engine assembles them, putting the match group on `then` alone —
+  so the emitted span covers the identifier and **not** the cue. That matters for scoring:
+  a span starting at `Dr.` is compared against gold starting at the name, and misses under
+  `fully_covered` while passing `relaxed`.
+
+  `then:` takes either a shorthand or a regex. The shorthands: `capitalised_word`,
+  `capitalised_words` (one to four, for full names), `number`, `digits` (digits with
+  `.`/`-`/`/`, for dates and identifiers), `word`, `rest_of_line`. `gap:` bounds the
+  whitespace and punctuation permitted between cue and target (default 3, max 40).
+- **`checksum:`** names an algorithm; the arithmetic is in the engine, not in YAML.
+  Implemented: `dni_mod23`, `nie_mod23`, `luhn`, `mod10`. A match failing the check does
+  not become a span. Declaring a checksum on a layer other than `regex_checksum` is
+  rejected — the layer names the mechanism a span came from, so a check digit under
+  another layer would send §7's per-layer result to the wrong mechanism.
+- **`pattern:`** is the **`regex` module's** dialect, not `re`'s. `\p{Lu}`, `\p{L}` and
+  variable-length lookbehind are available. `flags:` is an allowlist — `unicode`,
+  `ignorecase`, `multiline`. There is no `dotall`: it would let `.` cross a note's line
+  boundaries and widen every rule in the file at once.
+
+**The loader refuses rather than matching nothing.** A missing lexicon, an unimplemented
+checksum, a duplicate `rule_id`, a mismatched `lang:`, an `OTHER` target, or a lexicon name
+that could leave `lexicons/` — each raises at load, with the rule id and no quoted pattern
+body. The reason is specific to this project: a rule that loads and matches nothing is
+indistinguishable from a phenomenon that does not occur, and that is exactly what §7
+reports as a negative result.
+
+### Checking a rule's effect
+
+    python tools/check_rules.py --corpus es-meddocan
+
+Per rule: how many of this iteration's drawn window it covers, how many times it matched,
+and how many of those matches hit no gold span. Then the same coverage dev-wide, reported
+separately — a rule's effect on spans the sample never showed is real but is not feedback.
+`--rule-id es:doctor_prefix` isolates one rule; `--verbose` lists each false positive as a
+document id and a character range, with no text. `--rules PATH` runs a file elsewhere,
+which is how a rule is tried without writing to `rules/{lang}.yaml`.
+
+No precision or F1 is printed. Those come from the scorer over a merged prediction set
+(DESIGN §9.3); a ratio computed here over one unmerged rule file would carry the same name
+as the real number and a different value. The fold is always dev and there is no flag to
+change it.
 
 `rule_id` must be unique within the file, and stable across iterations: the per-rule
 counts in §1.3 and the `rule_id` on every emitted span are the same identifier, so
@@ -225,7 +298,7 @@ Allowed:
 
 | tool | why |
 |---|---|
-| **run detection on dev** | DESIGN §3 names this as the RuleAuthor's tool use, and it is what distinguishes these agents from the single-shot LLM steps §3's prior-evidence note demoted. |
+| **run detection on dev** (`tools/check_rules.py`, §2) | DESIGN §3 names this as the RuleAuthor's tool use, and it is what distinguishes these agents from the single-shot LLM steps §3's prior-evidence note demoted. The same command the `port-human` author runs, so the feedback loop is one of the things held constant across the two arms rather than one of the things that differs. |
 | **read the scorer's dev output** | The same `metrics.json` block as §1.3, on demand rather than only as given. |
 | **read its own current rule file** | So a long iteration does not depend on prompt recall. |
 | **regex compile / dry-run against provided sample text** | Catches a malformed pattern before it costs a scoring round. |

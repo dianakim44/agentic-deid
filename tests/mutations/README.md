@@ -19,7 +19,7 @@ is tested by `tests/test_mutation_harness.py`, which pytest does collect.
 
 Each one corresponds to a decision in DESIGN.md that a plausible "simplification"
 would silently undo. What they have in common is the property that makes them
-dangerous: **thirty-nine of the forty-eight change no total.** The corpus still loads,
+dangerous: **fifty-one of the sixty-two change no total.** The corpus still loads,
 the document count is still 750, the span count is still 17,134 — and every
 downstream number is wrong. Those are the errors a reviewer cannot catch and an
 aggregate cannot reveal, which is why they get a harness rather than trust.
@@ -212,8 +212,9 @@ shrinks its rule set and nobody can say why.
 Counts are the number of tests that fail or error, from
 `tests/test_meddocan_loader.py`, `tests/test_split_file.py`, `tests/test_seal.py`,
 `tests/test_release_screen.py`, `tests/test_layer_families.py`,
-`tests/test_scorer.py`, `tests/test_sample.py`, `tests/test_human_arm.py` and
-`tests/test_show_human_window.py` (426 tests). Errors
+`tests/test_scorer.py`, `tests/test_sample.py`, `tests/test_human_arm.py`,
+`tests/test_show_human_window.py`, `tests/test_rules.py` and
+`tests/test_check_rules.py` (531 tests). Errors
 count as kills: a mutation that breaks the module-scoped fixture takes whole tests
 out, and those are caught, not uncounted.
 
@@ -337,6 +338,20 @@ no enforcement but a field in a log.
 | `arm_started_reads_the_last_line_only` | `arm_has_started()` inspects the final log line instead of every line | appending any null-minutes event re-opens the freeze, and appending is what this arm does constantly. A `read_sample` at iteration 7 makes six iterations of attention re-writable | **1** |
 | `zero_minutes_read_as_not_started` | `is not None` becomes a truthiness test | a logged `human_minutes: 0` reads as "nothing happened", though `log_line()` validates the field to accept 0 because an event can take under a minute | **1** |
 | `started_where_reads_the_worktree_only` | `started_where()` stops consulting git history | reverts the guard to reading `human_log.jsonl` on disk and nothing else, so `rm human_log.jsonl` re-opens the freeze — one file, one command, and the guard's own input is gone | **8** |
+| `a_real_arm_may_draw_a_practice_number` | the band's refusal drops the arm-side half | iteration 901 becomes a legal arm iteration and its provenance says `practice: false`, so a rehearsal's numbers are reportable as a run | **4** |
+| `a_rehearsal_may_draw_a_real_number` | the band's refusal drops the practice-side half | a rehearsal aimed at iteration 1 draws iteration 1. The draw is seeded, so the printed window is byte-for-byte the real one and nothing records that it was read early — there is no artifact to find afterwards | **5** |
+| `the_practice_window_may_overlap_iteration_one` | `practice_pool()` stops subtracting iteration 1's spans | a different iteration number is not a different sample; the spans read in rehearsal are the ones iteration 1 no longer measures honestly | **4** |
+| `a_rule_layer_is_derived_from_the_rule_id` | a span's `layer` comes from a substring test on its `rule_id` instead of the rule's declaration | the one derivation DESIGN §3 forbids, in the form it would actually take. Every span still carries a valid layer from naming.yaml, so §7's per-layer comparison measures the substring test | **1** |
+| `a_gazetteer_term_is_a_regex` | gazetteer terms are interpolated unescaped | makes the regex-free layer a regex layer without saying so. `C.S. (Norte)` is an ordinary institution name and a broken pattern | **2** |
+| `a_gazetteer_term_needs_a_word_character_at_each_edge` | the per-edge boundary assertion becomes `\b` | restores the defect `test_rules.py` caught on its first run: a term beginning or ending in punctuation can never match, so the rule loads, compiles, fires nowhere, and reads as a name that does not occur | **1** |
+| `a_cue_span_swallows_the_cue` | a `context_cue` span covers the cue words as well as the identifier | scored against gold that starts at the name: a `fully_covered` miss that passes `relaxed`, depressing exactly the layer §7 predicts most for and reading as a scoring artefact | **2** |
+| `a_checksum_accepts_every_match` | the check-digit test is skipped | turns `regex_checksum` into `regex`. The layer's whole claim is shape *plus* arithmetic, and its name still says the arithmetic is there | **1** |
+| `an_unimplemented_checksum_is_ignored` | an unknown `checksum:` name loads | raises at match time instead of load time — mid-detection rather than with the rule id in hand. Refusing at load costs a line of output; refusing at first match costs a scoring round | **1** |
+| `a_lexicon_name_may_traverse_directories` | the `[a-z0-9_]+` check on a lexicon name is removed | `es/../../sealed/es-meddocan/test` is a valid-looking lexicon name, and a rule file is the one place an agent-authored artifact names a path | **1** |
+| `the_declared_rule_file_language_is_trusted` | the file's `lang:` is no longer checked against the language it was loaded as | the `rule_id` prefix comes from the load language, so a `cat` file loaded as `es` sends every span's precision to the wrong file, consistently and invisibly (DESIGN §5.2) | **1** |
+| `a_duplicate_rule_id_is_allowed` | two rules may share an id | `by_rule` and the span's `rule_id` are the same identifier, so two rules' attribution merges into one bucket and the per-rule figure belongs to neither | **1** |
+| `a_non_target_type_may_be_a_rule_target` | a rule may target `OTHER` | it is a residual bucket a corpus ships, not a phenomenon; the recall bought is a property of that corpus's annotation practice (Prohibition 4, §9.1) | **1** |
+| `check_rules_reads_every_fold` | the feedback tool's `split == "dev"` filter is dropped | the command an author runs forty times an evening starts scoring across folds. Not a seal break by itself — `sealed/` is not returned by the loader — but it is the step before one | **1** |
 
 `initial_pool_excludes_train_instead_of_selecting_dev` is the one to read twice. The two
 filters are the same length, the same shape, and equivalent on any corpus with two
@@ -429,6 +444,42 @@ makes an append-only file's central property — that the evidence stays in it �
 property of whichever line came last. Since this arm appends constantly, a `read_sample`
 event at the start of iteration 7 would re-open a freeze that six iterations of a person's
 attention had fixed.
+
+### The two that fail with nothing left behind
+
+`a_rehearsal_may_draw_a_real_number` and `the_practice_window_may_overlap_iteration_one`
+belong together, and they are the sharpest instances in this file of a category the seal
+mutations opened: **a defect whose symptom is an absence.**
+
+The practice band exists because iteration 1's window opens once. If a rehearsal draws it —
+either by taking iteration 1's number, or by drawing a different number from a pool that
+still contains iteration 1's spans — the author has read the window, and there is no
+artifact anywhere that says so. The sample is the real sample, byte for byte, because the
+draw is a pure seeded function of `(corpus, iteration, error list)`. Nothing is corrupted;
+nothing is missing; the numbers reported at the end of iteration 1 are exactly the numbers
+that would have been reported. What is gone is the thing being measured.
+
+This is why the practice/real distinction is a **caller-declared flag checked against the
+number in both directions**, and not an inference from the number. Inference is not merely
+riskier here — it is impossible. An `--iteration 1` call with no flag is either a rehearsal
+whose caller forgot to say so or the real run, and the two are the same call. A default
+value for that parameter would be a default answer to a question only the caller can
+answer, which is the same shape as `self_report_defaults_to_none` further up this table.
+
+### And a boundary that was found by writing the test
+
+`a_gazetteer_term_needs_a_word_character_at_each_edge` is not a hypothetical. The gazetteer
+layer shipped with `\b` on both sides of each term, which is the obvious way to say "a
+term is a word and not a substring", and `tests/test_rules.py` failed on its first run:
+`\b` asserts a word character on the *inside* of the boundary, so a term ending in `)` or
+`.` can never match anything. `C.S. (Norte)` is an ordinary Spanish institution name.
+
+The reason it is in this table rather than only in a commit message is what the failure
+would have looked like in the results. The rule loads. It compiles. It matches nothing.
+The author sees `caught 0/40` and concludes the name does not occur in the dev fold — and
+"the phenomenon does not occur" is exactly what DESIGN §7 reports as a negative result for
+a layer. A silent zero from a gazetteer is indistinguishable from a finding about
+gazetteers.
 
 `started_where_reads_the_worktree_only` is the same defect one level out, and it was
 shipped and documented as an open hole before it was closed. The guard's first version
@@ -525,7 +576,7 @@ applies to the code. Two safeguards follow from that:
   Three checks, described in the next section. Skipping them lets the harness count
   its own breakage as a kill.
 
-The maintenance cost is real but bounded: forty-eight anchors, each a line or two,
+The maintenance cost is real but bounded: sixty-two anchors, each a line or two,
 and a refactor that breaks one gets a `STALE` message naming the file. That is
 cheaper than the failure mode it prevents.
 

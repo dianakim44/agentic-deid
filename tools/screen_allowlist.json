@@ -54,6 +54,16 @@
       "path": "tests/test_release_screen.py",
       "sniff": "clinical note header",
       "why": "The NOTE constant is a synthetic MIMIC-shaped header, invented for the test that proves the sniffer catches one. It comes from no corpus, which is why it can be committed."
+    },
+    {
+      "path": "docs/notes/port-human-practice.md",
+      "sniff": "Korean prose",
+      "why": "Korean prose recording that a practice session happened before port-human iteration 1, its date and its reserved iteration number, and what that adds to DESIGN 11.1's memory carry-over asymmetry. Deliberately holds nothing about what was seen or written during it: recording that would make it an input to iteration 1 that no agent arm receives."
+    },
+    {
+      "path": "rules/es.yaml",
+      "sniff": "Korean prose",
+      "why": "Korean comments documenting the rule-file schema: one rule per layer with patterns that match nothing (ZZZNEVERMATCHZZZ) and no corpus coupling. TEMPORARY — this file is deleted when the practice session ends, because iteration 1 must start from zero rules, and this entry is deleted with it. The stale-entry test is what enforces that: leaving the entry behind after deleting the file turns the suite red, which is the intended coupling rather than a nuisance."
     }
   ]
 }

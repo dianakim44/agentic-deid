@@ -42,9 +42,9 @@ condition the operator controlled, so the correctness of every re-freeze rested 
 operator's own judgement about whether §7 applied — which is what the record was supposed
 to remove from the operator's hands.
 
-## The four revisions
+## The five revisions
 
-All four are before iteration 1's rule work. At every one of them:
+All five are before iteration 1's rule work. At every one of them:
 
 - `rules/es.yaml` did not exist — no rule had been written for this arm,
 - `human_log.jsonl` held exactly one line, `event: read_sample`,
@@ -53,20 +53,23 @@ All four are before iteration 1's rule work. At every one of them:
 
 So no human attention had been spent under any of these windows, which is why
 `rule_author.md` §7 permits the revision and why the arm is not invalidated. `n = 40`,
-`context_chars = 120`, `min_per_type = 1`, `base_seed`, and `seed_scheme` were unchanged
-throughout — `sampling_sha256` never moved, and the drawn sample is byte-identical across
-all three.
+`context_chars = 120`, `min_per_type = 1`, `base_seed`, and `seed_scheme` are unchanged
+throughout, and **the drawn sample for iteration 1 is byte-identical across all five** —
+which is the property that matters, and it is not the same claim as "`sampling_sha256`
+never moved". At revisions 1–4 it did not move. At revision 5 it did, and the sample
+still did not, for the reason given below.
 
 | # | commit | `prompt_sha256` | what moved it |
 |---|---|---|---|
 | 1 | `173935a` | `5f72f7694c3e…` | the original freeze, before any `port-human` work |
 | 2 | `aa3b066` | `53319281f8ad…` | §8 (the arm-contamination clause) added to `rule_author.md` |
 | 3 | `f51aa9c` | `493effc2b9fc…` | a prose edit to §8.1's boundary-case table, and a paragraph added to §7 |
-| 4 | this commit (`fix: make the window freeze actually immutable`) | `bc83e2c7126b…` | §7 gained the paragraph describing the corrected guard, and the freeze-last lesson |
+| 4 | `bc83e2c` era (`fix: make the window freeze actually immutable`) | `bc83e2c7126b…` | §7 gained the paragraph describing the corrected guard, and the freeze-last lesson |
+| 5 | this commit | `5786260c6d93…` | `config/sampling.yaml` gained `practice_iteration_min: 900` and §2 of the prompt gained the two regex-free matcher forms — **both** hashes moved, the first time either has moved together with the other |
 
-`sampling_sha256` = `fbfbbe107e2e…` at all four. Revision 4 has no hash of its own here
-because it is the commit that adds this row; it is the one whose `prompt_sha256` matches
-the record on disk.
+`sampling_sha256` = `fbfbbe107e2e…` at revisions 1–4 and `4c0e2cc725d3…` at revision 5.
+Revision 5 has no commit hash of its own here because it is the commit that adds this row;
+it is the one whose two hashes match the record on disk.
 
 Revision 3 is the one with no excuse. Revisions 1→2 added a clause the arm needed and
 the arm had not started. Revision 3 was a *prose* edit to a section written minutes
@@ -80,8 +83,73 @@ the code has since taken over would be wrong about its own subject — and writi
 `prompt_sha256`. The re-freeze went through the *new* guard: `arm_has_started()` returned
 `False`, because the single log line still carries a null `human_minutes`. That is the
 design working as intended rather than being stepped around, and after iteration 1 records
-its first minute the same edit would have cost a restart. It is also the last revision
-this window can absorb for free.
+its first minute the same edit would have cost a restart.
+
+Revision 4's entry originally ended with the sentence "It is also the last revision this
+window can absorb for free." That was wrong within days, and it is corrected here rather
+than deleted, because a note about a repeated mistake that quietly edits out its own
+prediction is a worse document than one that records the prediction failing. What it got
+wrong was not the arithmetic — no minutes have been recorded, so revision 5 is as free as
+revision 4 — but the confidence. "Last" was a forecast about what else would need to
+change before iteration 1, made by the same process that had already been surprised three
+times.
+
+### Revision 5, the first one to move both hashes
+
+Two changes, one revision, because they are one uncommitted change and splitting them
+across two rows would record a revision 6 that never existed on disk.
+
+`config/sampling.yaml` gained one key, `practice_iteration_min: 900`, reserving the 900s
+for practice runs so that a rehearsal cannot draw a real iteration's sample (see
+`docs/notes/port-human-practice.md`, DESIGN §11.1). `docs/prompts/rule_author.md` §2 gained
+the two regex-free matcher forms — `terms:` and `cue:`/`then:` — which the schema had
+supported since the loader was written and the prompt had never mentioned. Both files are
+hashed by the freeze, so `window_drift()` reported first `['sampling_sha256']` and then
+`['prompt_sha256']`, and the arm was re-frozen once, at the end, with `started_where()`
+returning `None`.
+
+**The config half is different in kind from revisions 1–4 and the difference should be
+stated rather than absorbed.** Those four moved `prompt_sha256` — prose in the prompt — and
+left every number the draw depends on alone. This one also moves the *config* hash, which
+is the hash that exists to catch a change to `n`, `context_chars`, `min_per_type`,
+`base_seed` or `seed_scheme`. So the honest question is whether iteration 1's sample
+changed, and the answer is verifiable rather than argued: the new key is read only by
+`check_iteration()` / `is_practice()` / `practice_pool()`, none of which is on the path
+from `(corpus, iteration, error list)` to a sample, and `sample_seed()` hashes a fixed
+scheme string with `base_seed`, the corpus and the iteration. The drawn forty are the same
+forty.
+
+**The prompt half is a documentation gap and not a change of instruction**, which is worth
+distinguishing because a prompt revision that alters what the arm is asked to do would
+invalidate the comparison rather than cost a re-freeze. §2 previously listed `pattern` as
+the matcher for every rule and mentioned `lexicon:` for gazetteers, so an agent reading it
+would author gazetteer and context_cue rules as regexes — which they compile to anyway. The
+rules it can express are unchanged; what changed is whether it knows the shorter forms
+exist. That distinction matters specifically for §7: its prediction is per layer, and an
+author who can only express itself in regex writes regex-shaped rules, at which point a
+layer looks weak for reasons that have nothing to do with the phenomenon. Leaving §2 as it
+was would have been the more conservative act on the freeze and the less conservative one on
+the finding.
+
+That the hash cannot distinguish "the window changed" from "an unrelated key was added to
+a file the window hashes" is not a defect to fix. A per-key hash would be a record that
+agrees with any edit to a key nobody thought to enumerate, and the whole point of hashing
+the file is that it notices what nobody anticipated. The cost is exactly this: a paragraph,
+once, saying which kind of change it was. `window_drift()` is documented as reporting
+drift rather than refusing on it for this reason — "only a person can tell them apart".
+
+The practice band could have gone in a second file to keep `sampling_sha256` still. That
+would have bought a cleaner history at the price of two files defining the sampling window,
+which is the arrangement §11.1's "the values are in a config file" sentence exists to
+prevent, and the arrangement that makes a future reader ask which file was authoritative.
+
+One ordering lesson repeats here for the fourth time and is now cheap to state: **freeze
+last.** Revision 5 moved `sampling_sha256`, was re-frozen, and then moved `prompt_sha256`,
+requiring a second re-freeze in the same uncommitted change. Nothing was lost — the guard
+was consulted both times and returned `None` both times — but the first re-freeze was
+wasted work that a moment's thought about what else the practice session still needed would
+have avoided. The freeze is a record of a settled state, so writing it while the state is
+still moving records a state that never mattered.
 
 ## What is guaranteed now
 
