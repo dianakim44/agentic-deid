@@ -766,7 +766,7 @@ MUTATIONS = [
         min_kills=1,
     ),
     Mutation(
-        name="non_target_types_from_hardcoded_set",
+        name="non_target_filter_removed",
         path=SAMPLE,
         anchor=('    return frozenset(\n'
                 '        name for name, gloss in axis("phi_type").items()\n'
@@ -780,8 +780,30 @@ MUTATIONS = [
             "a rule-development target and rule_author.md Prohibition 4 forbids writing "
             "a rule for. The sample still holds n spans with every type represented, so "
             "it looks well-formed; the cost is a permanently wasted slot and an author "
-            "invited to break a prohibition. This is the defect that was found by "
-            "reading the iteration-1 distribution rather than by any test."
+            "invited to break a prohibition. This is the defect that shipped: it was "
+            "found by reading the iteration-1 distribution, not by any test."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="non_target_types_hardcoded_not_read_from_config",
+        path=SAMPLE,
+        anchor=('    return frozenset(\n'
+                '        name for name, gloss in axis("phi_type").items()\n'
+                '        if isinstance(gloss, str) and "not a rule-development target" '
+                'in gloss)'),
+        replacement='    return frozenset({"OTHER"})',
+        breaks=(
+            "The exclusion stops being read from naming.yaml and becomes a literal. "
+            "**Nothing breaks today** \u2014 `OTHER` is the only non-target type, so this "
+            "and the real implementation are indistinguishable on the current config, "
+            "and it is a shorter and more obvious-looking line. The defect is latent: "
+            "the day a corpus ships a second residual bucket, that type is declared in "
+            "naming.yaml, glossed as not a rule-development target, forbidden by "
+            "Prohibition 4 \u2014 and drawn anyway, in every iteration of every arm, with "
+            "the config and the code both looking correct in isolation. Caught only by "
+            "a test that declares a second such type, which is why "
+            "`a_second_non_target_type` exists as a fixture."
         ),
         min_kills=1,
     ),

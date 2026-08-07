@@ -23,6 +23,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
+from src.corpora.base import axis, canonical_types, corpus_ids   # noqa: E402
 from src.sample import (                                        # noqa: E402
     ERROR_KINDS, FALSE_POSITIVE, MISSED, ErrorSpan, SamplingError, _allocate,
     config, draw, file_hash, non_target_types, prompt_hash, provenance,
@@ -337,6 +338,93 @@ def test_min_per_type_does_not_smuggle_a_non_target_type():
 def test_a_pool_of_only_non_target_types_yields_nothing():
     errors = [err("d9", i, "OTHER", start=900 + i * 10) for i in range(5)]
     assert draw(errors, "es-meddocan", 1, n=40) == []
+
+
+def test_no_non_target_type_survives_any_corpus_or_iteration():
+    """The invariant, quantified over the whole space rather than sampled from it.
+
+    The tests above each fix a corpus and an iteration or two, and the defect they
+    describe was one slot in one draw — the kind of thing a single (corpus, iteration)
+    pair can miss by luck. Every corpus and twenty iterations is 100 independent draws
+    with 100 different per-stratum seeds, which is what makes "never" a checked claim
+    rather than a checked instance.
+
+    Every corpus, not just the one that has a loader: the seed takes the corpus as
+    input, so an exclusion that held on `es-meddocan` and not on `ko-surro` would be
+    exactly as invisible as the original defect and would surface only when that corpus
+    was ported.
+    """
+    blocked = non_target_types()
+    assert blocked, "the invariant is vacuous if nothing is excluded"
+    errors = pool(40, "NAME") + pool(40, "DATE", "d2") + pool(3, "PROFESSION", "d3")
+    for phi_type in sorted(blocked):
+        errors += [err("dx", i, phi_type, start=5000 + i * 10) for i in range(40)]
+
+    for corpus in corpus_ids():
+        for iteration in range(1, 21):
+            for n in (1, 5, 40):
+                sample = draw(errors, corpus, iteration, n=n)
+                leaked = sorted({e.phi_type for e in sample} & blocked)
+                assert not leaked, (corpus, iteration, n, leaked)
+
+
+@pytest.fixture
+def a_second_non_target_type(monkeypatch):
+    """Declare one more non-target type, for the duration of one test.
+
+    A fixture rather than inline setup because the teardown order matters and is easy to
+    get backwards. `non_target_types()` is `lru_cache`d, so the cache has to be cleared
+    twice: once after the axis is patched, and once *after* the patch is undone. Clearing
+    it in a `finally` inside a test body does the second one too early — monkeypatch
+    undoes its patches at teardown, which is later — so the cache would be repopulated
+    from the fake axis and every subsequent test in the session would see two non-target
+    types. That is a leak into other tests, which is worse than the test simply failing.
+    """
+    import src.sample as sample_mod
+
+    fake = dict(axis("phi_type"))
+    fake["ORGANISATION"] = ("second residual bucket, invented for this test; "
+                            "not a rule-development target")
+    monkeypatch.setattr(sample_mod, "axis",
+                        lambda name: fake if name == "phi_type" else axis(name))
+    non_target_types.cache_clear()
+    yield "ORGANISATION"
+    monkeypatch.undo()
+    non_target_types.cache_clear()
+
+
+def test_a_second_non_target_type_would_also_be_excluded(a_second_non_target_type):
+    """The drift case, and the reason the exclusion is read from naming.yaml.
+
+    A hardcoded `{"OTHER"}` passes every other test in this section — `OTHER` is the only
+    non-target type today, so the two implementations are indistinguishable until a
+    corpus ships a second residual bucket. At that point the hardcoded version leaks it
+    silently: the new type is declared in naming.yaml, glossed as not a rule-development
+    target, forbidden by Prohibition 4, and drawn anyway, in every iteration of every arm.
+
+    The axis is patched rather than extended for real: adding a type to naming.yaml would
+    be a change to the experiment's vocabulary made for a test's benefit.
+    """
+    extra = a_second_non_target_type
+    assert non_target_types() == frozenset({"OTHER", extra})
+    errors = pool(20, "NAME") + pool(20, extra, "d2")
+    for iteration in range(1, 6):
+        sample = draw(errors, "es-meddocan", iteration, n=10)
+        assert all(e.phi_type == "NAME" for e in sample), iteration
+
+
+def test_the_second_type_is_gone_again_afterwards():
+    """Guards the fixture's own teardown. A leaked cache entry would make the invariant
+    test above pass for the wrong reason, and nothing else would notice."""
+    assert non_target_types() == frozenset({"OTHER"})
+
+
+def test_the_exclusion_is_on_the_sample_and_not_on_the_type_set():
+    """DESIGN §9.4 keeps every type in the leak-rate denominator. A non-target type is
+    still a canonical type and a leak of one is still a leak — excluding it from the
+    window and excluding it from the metrics are different claims, and only the first
+    is being made."""
+    assert non_target_types() <= set(canonical_types())
 
 
 # ─── the span reference carries no text ─────────────────────────────────────

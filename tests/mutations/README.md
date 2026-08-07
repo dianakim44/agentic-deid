@@ -19,7 +19,7 @@ is tested by `tests/test_mutation_harness.py`, which pytest does collect.
 
 Each one corresponds to a decision in DESIGN.md that a plausible "simplification"
 would silently undo. What they have in common is the property that makes them
-dangerous: **thirty-one of the forty change no total.** The corpus still loads,
+dangerous: **thirty-two of the forty-one change no total.** The corpus still loads,
 the document count is still 750, the span count is still 17,134 — and every
 downstream number is wrong. Those are the errors a reviewer cannot catch and an
 aggregate cannot reveal, which is why they get a harness rather than trust.
@@ -213,7 +213,7 @@ Counts are the number of tests that fail or error, from
 `tests/test_meddocan_loader.py`, `tests/test_split_file.py`, `tests/test_seal.py`,
 `tests/test_release_screen.py`, `tests/test_layer_families.py`,
 `tests/test_scorer.py`, `tests/test_sample.py` and `tests/test_human_arm.py`
-(380 tests). Errors
+(384 tests). Errors
 count as kills: a mutation that breaks the module-scoped fixture takes whole tests
 out, and those are caught, not uncounted.
 
@@ -221,7 +221,9 @@ out, and those are caught, not uncounted.
 and not a comfortable one — the guarantee has a single point of failure. It is
 listed at 1 rather than padded, because the value of this table is that it says
 where the coverage is thin. Seven of the split-file mutations are in the same
-position.
+position. `non_target_types_hardcoded_not_read_from_config` is also at 1, but for a
+different reason: there is only one test that *could* catch it, because the defect
+concerns a config value that does not exist yet.
 
 The loader counts rose when the split tests joined the run (23→34, 11→12, 7→8): a
 corrupted load fails the recount too. The `min_kills` thresholds were left at the
@@ -251,7 +253,8 @@ two.
 |---|---|---|---|
 | `sample_seed_from_process_hash` | `sample_seed()` returns `abs(hash(material))` instead of SHA-256 | Python salts string hashing per process, so the seed is stable within a run and different in the next. The recorded seed documents a draw nobody can repeat | **2** |
 | `sample_pool_not_sorted` | the error pool keeps the caller's iteration order instead of `sorted(..., key=e.key)` | the seed pins which *indices* are drawn and the caller's ordering pins which spans those indices hit — reproducible from the log, different in fact | **2** |
-| `non_target_types_from_hardcoded_set` | `non_target_types()` returns an empty set instead of reading naming.yaml's gloss | `OTHER` takes a slot, and with `min_per_type: 1` it takes one in *every* iteration of *every* arm — a permanent slot handed to a type Prohibition 4 forbids writing a rule for | **4** |
+| `non_target_filter_removed` | `non_target_types()` returns an empty set | `OTHER` takes a slot, and with `min_per_type: 1` it takes one in *every* iteration of *every* arm — a permanent slot handed to a type Prohibition 4 forbids writing a rule for | **7** |
+| `non_target_types_hardcoded_not_read_from_config` | `non_target_types()` returns the literal `{"OTHER"}` instead of reading naming.yaml's gloss | nothing, today. The day a corpus ships a second residual bucket, that type is declared, glossed as non-target, forbidden — and drawn anyway, with config and code each looking correct alone | **1** |
 
 All three are in the same class and it is a class this table has met before: a wrong
 number in the flattering direction with no symptom. What is new is *where* the symptom
@@ -285,16 +288,32 @@ Neither of those two touches sample size, type coverage, or stratification, so t
 sample still looks entirely correct: 40 spans, every type present, the sparse type
 included.
 
-`non_target_types_from_hardcoded_set` is here because the defect it restores was real.
-The first iteration-1 draw on `es-meddocan` spent 1 of its 40 slots on `OTHER`, and the
-distribution it produced was well-formed by every property the other tests check — 40
-spans, ten types, the sparse `PROFESSION` present. It was found by reading the
-distribution, not by a test, which is the argument for the row: the guarantee is now
-stated in naming.yaml's gloss, read from there by `non_target_types()`, and checked by
-four tests rather than by whoever next looks at a sample. Its cost is small per
-iteration and it does not decay — `min_per_type` guarantees the slot, so it is one
-wasted slot in every window of the experiment, and the author who acts on it anyway is
-breaking a prohibition the sample itself put in front of them.
+The last two are a pair, and the split is deliberate: one restores a defect that
+actually shipped, the other restores a defect that has not happened yet and would not
+announce itself when it does. The incident is recorded in its own section below, with the
+two it belongs beside.
+
+`non_target_filter_removed` is the shipped one. `min_per_type` guarantees the slot, so
+this does not decay into an occasional nuisance — it is one wasted slot in every window
+of the experiment, and the author who acts on it anyway is breaking a prohibition the
+sample itself put in front of them.
+
+`non_target_types_hardcoded_not_read_from_config` is the interesting half, because
+**applying it breaks nothing at all.** `OTHER` is the only non-target type in
+naming.yaml today, so `frozenset({"OTHER"})` and the real implementation return the same
+value on the same config, and the literal is the shorter and more obvious-looking line —
+the kind of edit a reviewer waves through and a future contributor writes from scratch.
+The defect is latent and it surfaces silently: when a corpus ships a second residual
+bucket, that type is declared in naming.yaml, glossed as not a rule-development target,
+forbidden by Prohibition 4, and drawn into every window anyway, with the config and the
+code each looking correct when read alone. Nothing in the sample looks wrong, for the
+same reason nothing looked wrong the first time.
+
+This is the mutation that pins *why* the exclusion is derived rather than declared
+twice. Only one test catches it — `test_a_second_non_target_type_would_also_be_excluded`,
+which patches the axis to declare a second such type — and no property of today's
+sample can. That is the honest coverage of a guarantee about a config that does not exist
+yet.
 
 ## The port-human mutations
 
@@ -412,7 +431,7 @@ applies to the code. Two safeguards follow from that:
   Three checks, described in the next section. Skipping them lets the harness count
   its own breakage as a kill.
 
-The maintenance cost is real but bounded: forty anchors, each a line or two,
+The maintenance cost is real but bounded: forty-one anchors, each a line or two,
 and a refactor that breaks one gets a `STALE` message naming the file. That is
 cheaper than the failure mode it prevents.
 
@@ -475,6 +494,47 @@ The general form, worth checking against any future addition here: **anything th
 counts failures as evidence must first establish that the thing failed for the reason
 claimed.** A skip is not a pass, a collection error is not a kill, and a syntax error
 is not thirty-seven tests agreeing with you.
+
+### The third of the family: a sample that satisfied every property and broke a rule
+
+The `OTHER` incident belongs in this section rather than in the sampling table, because
+it is the same failure as the two above with the layer changed again.
+
+The first `port-human` iteration-1 draw on `es-meddocan` came back at 40 spans across 36
+documents, ten `phi_type` values represented, the sparse `PROFESSION` present at 1 —
+which is `min_per_type` doing exactly its job — and every one of them a `missed` error,
+as iteration 1 requires. Every property the suite checks was satisfied. Fifty-six tests
+in `test_sample.py` were green. One of the 40 slots held an `OTHER` span, and
+`config/naming.yaml` glosses `OTHER` as "residual bucket shipped by a corpus; **not a
+rule-development target**" while `docs/prompts/rule_author.md` Prohibition 4 forbids
+writing a rule for it. The window handed its author a span they were forbidden to act
+on, and `min_per_type: 1` guaranteed it would do so in every iteration of every arm on
+every corpus.
+
+**The family resemblance.** The fixture `skip` could not distinguish *the loader is
+broken* from *the corpus is absent*. The re-indented anchor could not distinguish *the
+tests caught it* from *the tests could not run*. This one is one step further out: the
+suite could not distinguish *the sample is valid* from *the sample satisfies every
+property anyone thought to write down*. In all three the mechanism resolves an ambiguity
+it cannot see, in the reassuring direction, and reports a number that looks better than
+the truth — 27 skips as a green suite, 37 errors as 37 kills, a rule-violating sample as
+a well-formed one.
+
+The difference is what closes each. The first two were closed by making the mechanism
+able to tell the cases apart. This one cannot be: no property of a sample tells you what
+a *document elsewhere in the repository* forbids. What closed it is that the constraint
+is now read from where it is stated — `non_target_types()` greps naming.yaml's own gloss
+— so the config and the sampler cannot disagree, because there is only one of them. The
+alternative, a hardcoded `{"OTHER"}`, would have been a second copy of a fact and is now
+its own mutation for exactly that reason.
+
+**How it was actually found:** by printing the distribution and reading it, because the
+sample was about to be handed to a person. Not by a test, not by a mutation, not by the
+screener. Recorded because the honest lesson is uncomfortable — the property-based tests
+here are good and they were all green, and the thing that caught it was one look at the
+output with the prohibition in mind. The tests and mutations that now cover it were
+written *after*, which is the normal and correct order but is not the same as having
+prevented it.
 
 ## What this found
 
