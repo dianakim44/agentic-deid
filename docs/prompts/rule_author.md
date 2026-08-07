@@ -506,7 +506,130 @@ starts or after it finishes on all corpora — and in the second case the `port-
 result belongs to the old prompt and is reported against it, or the arm is re-run with a
 different author, which is a different trial and labelled as one.
 
+**One thing the table does not cover, and §8 does.** Every row above is about what the
+human is *shown*. None of them says anything about where the human's answers come from,
+and the table would read exactly as it does now for an author who pasted each rendered
+span into a language model. That is a larger asymmetry than any row here — it would make
+the two columns the same arm — so it is stated separately, as §8, and reported per
+iteration in `human_log.jsonl`'s `model_consulted`.
+
 **This section is the expensive half of DESIGN §11.1's ordering.** It is written out here,
 in the file the ordering constrains, because the cost is only payable in advance — by the
 time someone wants to widen the prompt mid-experiment, the alternatives are re-running a
 human arm or publishing an incomparable one.
+
+---
+
+## 8. `port-human` may not ask a model what a rule should be
+
+This section binds a **person**, which is why it is not in §4. §4's prohibitions are
+given to the agent and enforced around it; this one has no enforcement mechanism at all
+beyond the author's own honesty and a self-report field, and saying so plainly is part of
+the clause.
+
+**The rule.** During a `port-human` iteration, the *content* of a rule is not obtained
+from a language model. Not the pattern, not the layer it belongs in, not which error to
+address, not whether a rule should be deleted. Rendering, scoring, logging, aggregation,
+file validation, and every other mechanical step may be delegated to tools — including
+tools that are themselves models — but the question **"what pattern fits this error?"** is
+answered by the person.
+
+**Why, in one sentence:** an author who shows an error span to a model and writes down its
+answer has run `port-oneshot` with a slower interface, and the `port-human` column of every
+comparison in DESIGN §11 then reports the difference between two agent arms as the
+difference between a person and an agent. The arm is the control. A contaminated control
+does not weaken the paper's claim; it makes the claim unfalsifiable, which is the failure
+mode DESIGN §11 exists to prevent and the reason its fairness principle is stated as
+"an unfair control produces an uninterpretable result, not a weaker one."
+
+Note that this cuts in the direction *against* convenience and *against* the human arm's
+measured performance. That is the point: `port-human` is specified as an upper bound on
+human performance (§11.1), and an upper bound obtained with model help is an upper bound
+on nothing.
+
+### 8.1 Where the line is, and why there
+
+The general criterion, from which every case below follows: **a model may be asked about
+the language it is written in, and not about the corpus or the errors.** Regex is a formal
+notation with a specification; the question "what does `(?<=\bDr\.\s)` match" has an
+answer that does not depend on this experiment existing. "Which pattern catches these
+spans" is a question *about the dev fold*, and answering it is the work the arm measures.
+
+A second way to state the same line, useful when the first is ambiguous: **could the
+question have been asked, word for word, before any corpus was loaded?** If yes, it is
+about the notation. If it needs a span, a per-type rate, an error listing, or a sentence
+from the sample to make sense, it is the work.
+
+| case | verdict | why |
+|---|---|---|
+| "What is the Python `re` syntax for a negative lookbehind?" | **allowed** | Notation. Askable before the corpus existed; the answer is in the language reference and does not mention the dev fold. |
+| "Why does this pattern raise `look-behind requires fixed-width pattern`?" | **allowed** | A defect in the author's own artifact, diagnosed against the language's rules. Equivalent to running the interpreter, which §3 already allows the agent. |
+| "Is `[[:alpha:]]` supported in Python `re`?" | **allowed** | Notation. |
+| "Here are eight missed `NAME` spans. What pattern catches them?" | **forbidden** | This is the arm's entire task, delegated. The clearest case, and it stays clear only if the borderline ones below are also settled. |
+| "Here is one missed span. What pattern catches it?" | **forbidden** | Eight and one differ in efficiency, not in kind. Quantity thresholds are unenforceable and invite salami-slicing — the author who asks about one span at a time has asked about all of them. |
+| "For Spanish clinical notes generally, is a `Dr.` prefix cue a good approach for clinician names?" | **forbidden** | The hard case, and it is forbidden. It reads as a question about the language, but the answer is a rule design decision — which is exactly what the arm measures — and it is being asked *because the author is looking at spans that prompted it*. Nothing in the sentence carries corpus text, so no privacy rule stops it; the arm-integrity rule does. |
+| "Which of these two patterns I wrote is faster?" | **allowed** | A property of the notation, decidable without the corpus. But if "faster" is standing in for "which one should I keep", that is a design decision and the answer is the author's. |
+| "Summarise the per-type leak rates in this `metrics.json` block." | **allowed** | Reading an artifact the scorer produced, in the form it produced it. No judgement about what to do next. Note this is a *reduction*, not an interpretation: the moment the summary is asked to say which type to work on, it has crossed. |
+| "Which `phi_type` has the worst leak rate?" | **allowed** | Arithmetic over a committed file. The answer is determined by the data, and a person with a calculator gets the same one. |
+| "Which `phi_type` should I work on next?" | **forbidden** | Not determined by the data. Prioritisation is the author's judgement, and DESIGN §11.2's `decision` field exists to record that it was theirs. |
+| "Render the sample for me / count the spans by type / append this line to the log." | **allowed** | Mechanical, deterministic, and already implemented as `src/porting/human_arm.py`. If a model does it instead of the module, the output is the same or it is a bug. |
+| "Does this rule file parse, and do the `rule_id`s pass the vocabulary check?" | **allowed** | Validation. The criterion is in §4's Prohibition 2 and in `tools/release_screen.py`; a model applying it is a slower linter. |
+| "I think the issue is dates written `12-ENE-2093`. Is that a common Spanish clinical format?" (the string is invented for this table, not quoted from any corpus) | **forbidden, with a caveat** | The caveat is that this is genuine prior knowledge the author might have, and §11.1 permits prior knowledge — from the author's own head. Sourcing it from a model at the moment a span prompted it is the model contributing rule content. The honest move is to write the rule from what you know, log `evidence: prior_knowledge`, and accept being wrong. Also: quoting that string to a model publishes corpus text, so on a DUA corpus it is a second violation. |
+
+**Two asymmetries in how the borderline cases resolve.** First, they resolve *against* the
+author, because the cost is asymmetric: an unasked question costs the author some minutes,
+and an asked one costs the experiment its control, with no analysis that repairs it
+afterwards. Second, "I only used it for X" is not available as a defence after the fact,
+since nothing in the artifact distinguishes a rule the author designed from one they
+transcribed — which is why the self-report is per iteration and written while the memory
+is fresh, rather than as a declaration at the end of the run.
+
+**What is *not* forbidden**, stated so the clause is not read as wider than it is: the
+author may read documentation, the language reference, published papers, this repository,
+prior de-identification rule sets, and their own notes; may use an editor with completion
+for the notation; and may use models freely on work that is not `port-human` — the agent
+arms are literally made of them. The clause is scoped to rule content during this arm's
+iterations, and it ends when the arm ends.
+
+### 8.2 The self-report field
+
+`human_log.jsonl` carries **`model_consulted`** on every line, from a fixed vocabulary
+(`config/naming.yaml`, axis `model_consulted`), and it is required — there is no default
+and no `null`:
+
+| value | meaning |
+|---|---|
+| `none` | No model was involved in this event at all. |
+| `mechanical` | A model performed a §8.1-allowed mechanical step: rendering, counting, reduction, validation, logging. |
+| `notation` | A model was asked about the notation — regex syntax, an error message from the regex engine, a language reference question. |
+| `rule_content` | **A violation.** A model was asked about a rule's content, or the author is unsure whether a question crossed the line. |
+
+Four values rather than a boolean, and the reason is that a boolean would be answered
+`false` honestly by an author who used a model to render the sample, which is allowed —
+so the field would stop distinguishing the case it exists for. Naming the allowed uses
+explicitly is what makes `rule_content` a deliberate entry rather than a judgement call
+about whether "using a model" happened.
+
+**`rule_content` is a value the field can hold, not an error the harness refuses.** A
+self-report field that rejects the answer it exists to capture collects only the other
+answers, and the arm's integrity is then documented by a file that could not have recorded
+its absence. A run with `rule_content` on some lines is reported with those iterations
+identified and, depending on how many, either reported as a limitation or re-run with a
+different author — and either outcome requires the log to have said so. `null` is refused
+for the same reason `human_minutes` is validated: an unfilled field is indistinguishable
+from an unproblematic one.
+
+**Unsure resolves to `rule_content`.** The value is not "I judge that I crossed the line"
+but "this event is not certainly clean", which is what a reader of the log needs. The
+bias is toward reporting contamination that may not have occurred, because the opposite
+bias is unrecoverable.
+
+**What this is worth, stated honestly.** It is a self-report, on the honour system, by the
+person whose arm the report reflects on. It cannot detect a violation its author declines
+to write down, and it should not be presented in the paper as though it could. What it
+does buy is threefold: the obligation is in front of the author at every event rather than
+once at the start; the value is committed alongside `rules_commit`, so a later claim of
+cleanliness is checkable against a contemporaneous record rather than a recollection; and
+if the arm's provenance is ever questioned, the answer is a file rather than an assurance.
+That is the same standing as `predicted_scope` (DESIGN §11.2) — a judgement whose bias
+direction is known, recorded before its own test, and reported against the arm it favours.

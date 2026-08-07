@@ -1446,6 +1446,7 @@ unknown component would mint a cell rather than fail.
 | `predicted_scope` | `global` or `corpus_specific`, recorded when the decision is made |
 | `actually_reused` | `true` / `false` / `null`, filled in from the second corpus |
 | `evidence` | what prompted it: sample span IDs (never surfaces), a per-type rate, or `prior_knowledge` |
+| `model_consulted` | `none` / `mechanical` / `notation` / `rule_content` — the §8 self-report, required on every line |
 | `rules_commit` | commit hash of `rules/{lang}.yaml` after this event |
 | `prompt_sha256` | SHA-256 of `docs/prompts/rule_author.md` — the window this event was held to |
 | `sampling_sha256` | SHA-256 of `config/sampling.yaml` — where n and the context width actually live |
@@ -1497,6 +1498,34 @@ prose that leaves §1.4's numbers alone is a different event from a change to `n
 only a person can tell them apart. What is not optional is noticing — undetected, a
 mid-run change makes the iterations before it and the iterations after it two experiments
 reported as one.
+
+**`model_consulted` is the arm's own contamination record.**
+`docs/prompts/rule_author.md` §8 forbids asking a language model what a rule should be
+during a `port-human` iteration — rendering, scoring, logging and validation may be
+delegated, but "which pattern fits this error" is answered by the person. The reason is
+that the arm is the control: an author who transcribes a model's answer has run
+`port-oneshot` through a slower interface, and every comparison in this section then
+reports the difference between two agent arms as the difference between a person and an
+agent. That does not weaken the claim, it makes it uninterpretable, which is §11's
+fairness principle applied to the arm the principle was written for.
+
+Four values rather than a boolean, because a boolean is answered `false` honestly by an
+author who used a model to render the sample — which §8.1 allows — so the field would
+stop distinguishing the case it exists for. Naming the allowed uses (`mechanical`,
+`notation`) makes `rule_content` a deliberate entry rather than a judgement about
+whether "using a model" happened. Required on every line, with no `null`: an unfilled
+field is indistinguishable from an unproblematic one, and per-event rather than
+per-run so the obligation is in front of the author each time.
+
+**And `rule_content` is accepted by the harness, not refused.** A self-report field that
+rejects the answer it exists to capture collects only the other answers, and the arm's
+integrity would then be documented by a file that could not have recorded its absence. A
+run carrying it is reported with those iterations identified — as a limitation, or re-run
+with a different author as a different trial — and either response requires the log to
+have said so. Its standing is the same as `predicted_scope`: a self-report whose bias
+direction is known, recorded contemporaneously, and reported against the arm it favours.
+It cannot detect a violation its author declines to write down and is not presented as
+though it could.
 
 **Span IDs, never surfaces.** CLAUDE.md forbids corpus text in logs, and this file is
 committed. A decision log that records "added a cue for the phrase X" republishes X.

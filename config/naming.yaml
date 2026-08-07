@@ -93,6 +93,23 @@ axes:
       the agent inspects the corpus profile and proposes its own role set
       before executing it; the roles are not fixed in advance
 
+  # ─── port-human 회차에서 언어모델을 어디에 썼는가 ──────────
+  # rule_author.md §8 의 자기보고. human_log.jsonl 의 모든 행에 들어간다.
+  #
+  # 불리언이 아니라 4값인 이유: 표본 렌더링에 모델을 쓴 저자는 불리언 질문에
+  # 정직하게 false 라고 답하고 (§8.1 이 허용한다), 그러면 이 필드가 구분하려던
+  # 유일한 경우를 더 이상 구분하지 못한다. 허용되는 용도를 이름으로 열거해야
+  # rule_content 가 판단이 아니라 의도적 기입이 된다.
+  #
+  # rule_content 는 하네스가 거부하는 오류가 아니라 이 필드가 담을 수 있는 값이다.
+  # 잡으려던 답을 거부하는 자기보고 필드는 나머지 답만 모으고, 그러면 arm 의
+  # 무결성이 부재를 기록할 수 없는 파일로 증명된다. 애매하면 rule_content 다.
+  model_consulted:
+    none:         no model was involved in this event
+    mechanical:   a model performed an allowed mechanical step (render, count, reduce, validate, log)
+    notation:     a model was asked about regex or language notation, not about the corpus
+    rule_content: a violation of rule_author.md §8, or the author is unsure whether a question crossed the line
+
   # ─── 규칙 파일의 언어 ──────────────────────────────────────
   # {lang} 은 **규칙 파일의 언어**다. 코퍼스의 언어가 아니다.
   #

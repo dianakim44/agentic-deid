@@ -54,6 +54,7 @@ FIELDS = (
     "predicted_scope",
     "actually_reused",
     "evidence",
+    "model_consulted",
     "rules_commit",
     "prompt_sha256",
     "sampling_sha256",
@@ -61,6 +62,16 @@ FIELDS = (
 
 EVENTS = ("read_sample", "decision", "rule_edit", "score_run")
 SCOPES = ("global", "corpus_specific")
+
+#: The §8 self-report's vocabulary, read from naming.yaml rather than listed here.
+#: A fourth value added to the axis has to reach this validation without an edit to
+#: this module, for the same reason `non_target_types()` greps the phi_type gloss:
+#: two copies of a vocabulary agree until the day they do not.
+CONSULTED_AXIS = "model_consulted"
+
+#: The value that means a violation. Named because it is the one value this module
+#: must *not* refuse — see `log_line`.
+VIOLATION = "rule_content"
 
 
 
@@ -251,8 +262,8 @@ def render_for_author(sample, docs_by_id, context_chars: int) -> str:
     return "\n".join(out)
 
 
-def log_line(iteration: int, event: str, *, human_minutes=None, decision=None,
-             predicted_scope=None, actually_reused=None, evidence=None,
+def log_line(iteration: int, event: str, model_consulted: str, *, human_minutes=None,
+             decision=None, predicted_scope=None, actually_reused=None, evidence=None,
              rules_commit=None) -> dict:
     """One `human_log.jsonl` record, validated and in field order.
 
@@ -260,6 +271,12 @@ def log_line(iteration: int, event: str, *, human_minutes=None, decision=None,
     be written without them. They are the record of which window this event was held
     to (DESIGN §11.2), and a caller that has to remember to add them is a caller that
     will forget on the line that matters.
+
+    `model_consulted` is positional and has no default, which is the whole mechanism of
+    `docs/prompts/rule_author.md` §8. A keyword with a default of `"none"` would record
+    "no model was consulted" for every caller that did not think about the question,
+    which is the answer the field exists to stop being free — and the clause has no
+    enforcement beyond this field, so a default here is a default for the clause.
     """
     if event not in EVENTS:
         raise PortHumanError(
@@ -276,6 +293,18 @@ def log_line(iteration: int, event: str, *, human_minutes=None, decision=None,
     if human_minutes is not None and (
             not isinstance(human_minutes, (int, float)) or human_minutes < 0):
         raise PortHumanError("human_minutes must be a non-negative number of minutes")
+    # Note what is *not* here: `rule_content` is accepted. This module refuses an
+    # unfilled field and an undeclared value, and takes the violation without
+    # complaint — a self-report that rejects the answer it exists to capture collects
+    # only the other answers (rule_author.md §8.2).
+    if model_consulted not in axis(CONSULTED_AXIS):
+        raise PortHumanError(
+            f"{model_consulted!r} is not a {CONSULTED_AXIS} value in "
+            f"config/naming.yaml (have: {sorted(axis(CONSULTED_AXIS))}). This is the "
+            "rule_author.md §8 self-report and it has no default: null would be "
+            "indistinguishable from 'none', and the clause has nothing enforcing it "
+            f"but this field. If a question may have crossed the line, {VIOLATION!r} "
+            "is the value.")
 
     record = {
         "iteration": iteration,
@@ -285,6 +314,7 @@ def log_line(iteration: int, event: str, *, human_minutes=None, decision=None,
         "predicted_scope": predicted_scope,
         "actually_reused": actually_reused,
         "evidence": evidence,
+        "model_consulted": model_consulted,
         "rules_commit": rules_commit,
         **window_hashes(),
     }

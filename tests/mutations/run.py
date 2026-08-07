@@ -889,6 +889,47 @@ MUTATIONS = [
         ),
         min_kills=1,
     ),
+    Mutation(
+        name="self_report_defaults_to_none",
+        path=HUMAN_ARM,
+        anchor=('def log_line(iteration: int, event: str, model_consulted: str, *, '
+                'human_minutes=None,'),
+        replacement=('def log_line(iteration: int, event: str, model_consulted: str '
+                     '= "none", *, human_minutes=None,'),
+        breaks=(
+            "The rule_author.md \u00a78 self-report acquires a default, and the default "
+            "is the exculpating value. Every existing caller keeps working and every "
+            "line it writes says no model was consulted \u2014 which is true of the "
+            "callers in this repository and says nothing about the ones a rule author "
+            "writes. The field then records that nobody was asked rather than that "
+            "nobody consulted a model, and the clause has no other enforcement: \u00a78 "
+            "binds a person, and this field is what makes the obligation appear at "
+            "every event instead of once at the start of the run. A default is a "
+            "default for the clause."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="self_report_refuses_the_violation",
+        path=HUMAN_ARM,
+        anchor='    if model_consulted not in axis(CONSULTED_AXIS):',
+        replacement=('    if model_consulted == VIOLATION:\n'
+                     '        raise PortHumanError("rule_author.md \u00a78 forbids this")\n'
+                     '    if model_consulted not in axis(CONSULTED_AXIS):'),
+        breaks=(
+            "The harness refuses to record a \u00a78 violation, which looks like "
+            "enforcement and is the opposite. The clause binds a person and cannot be "
+            "enforced by code at all \u2014 nothing in a rule file distinguishes a "
+            "pattern its author designed from one they transcribed \u2014 so all this "
+            "removes is the report. A field that rejects the answer it exists to "
+            "capture collects only the other answers, and every log in the experiment "
+            "then attests to a clean run by construction: the arm's integrity is "
+            "documented by a file that could not have recorded its absence. Nothing "
+            "in the output looks wrong, which is the same shape as the loader fixture's "
+            "skip."
+        ),
+        min_kills=1,
+    ),
 ]
 
 COUNT_RE = re.compile(r"(\d+) (passed|failed|error|errors)")

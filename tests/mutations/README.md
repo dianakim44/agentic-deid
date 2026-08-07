@@ -19,7 +19,7 @@ is tested by `tests/test_mutation_harness.py`, which pytest does collect.
 
 Each one corresponds to a decision in DESIGN.md that a plausible "simplification"
 would silently undo. What they have in common is the property that makes them
-dangerous: **thirty-two of the forty-one change no total.** The corpus still loads,
+dangerous: **thirty-four of the forty-three change no total.** The corpus still loads,
 the document count is still 750, the span count is still 17,134 — and every
 downstream number is wrong. Those are the errors a reviewer cannot catch and an
 aggregate cannot reveal, which is why they get a harness rather than trust.
@@ -213,7 +213,7 @@ Counts are the number of tests that fail or error, from
 `tests/test_meddocan_loader.py`, `tests/test_split_file.py`, `tests/test_seal.py`,
 `tests/test_release_screen.py`, `tests/test_layer_families.py`,
 `tests/test_scorer.py`, `tests/test_sample.py` and `tests/test_human_arm.py`
-(384 tests). Errors
+(396 tests). Errors
 count as kills: a mutation that breaks the module-scoped fixture takes whole tests
 out, and those are caught, not uncounted.
 
@@ -319,8 +319,9 @@ yet.
 
 `src/porting/human_arm.py` runs the control arm: freeze the window, draw, render for the
 person, append to `human_log.jsonl`. Its guarantees are of a different kind from the
-sampler's. Two of them are not about numbers at all — one is the seal, and one is what
-may be said out loud about a sample.
+sampler's. Most of them are not about numbers at all — one is the seal, one is what may
+be said out loud about a sample, and two are about a clause that binds a person and has
+no enforcement but a field in a log.
 
 | mutation | changes | breaks | tests that catch it |
 |---|---|---|---|
@@ -329,6 +330,8 @@ may be said out loud about a sample.
 | `render_offsets_are_document_offsets` | the rendered window labels document offsets as within-context offsets | an author counting characters lands on the wrong span, and one trusting the number is handed a document coordinate — an invitation to read past the ±120 characters | **1** |
 | `human_log_path_from_a_literal` | the arm rebuilds its output paths instead of reading `paths.humanlog` from naming.yaml | two authorities on where this arm writes, identical today; the day the config moves, results are written to one path and read from another | **1** |
 | `human_log_allowed_under_any_arm` | the screener's allowed path for `human_log.jsonl` takes `[^/]+` for the porting component instead of the literal `port-human` | a log under any other arm is counted as reviewed, and nothing writes one there — its presence is the signal, and the wildcard is what hides it | **1** |
+| `self_report_defaults_to_none` | `model_consulted` acquires a default of `"none"` | every caller keeps working and every line says no model was consulted — recording that nobody was *asked*, not that nobody consulted a model. A default on this parameter is a default for `rule_author.md` §8 | **1** |
+| `self_report_refuses_the_violation` | `log_line()` raises on `model_consulted="rule_content"` | looks like enforcement, removes the report. §8 binds a person and cannot be enforced by code; all a refusal deletes is the record, after which every log attests to a clean run by construction | **3** |
 
 `initial_pool_excludes_train_instead_of_selecting_dev` is the one to read twice. The two
 filters are the same length, the same shape, and equivalent on any corpus with two
@@ -371,7 +374,33 @@ nothing about content: a log line whose free-text `decision` field holds note te
 still SUSPECT, since `decision` is written by a person and is exactly where a surface
 form gets pasted.
 
-Each of these five is caught by exactly one test, which is the honest number and a thin
+The last two are the §8 pair, and they are here because §8 is the one guarantee in
+this repository that **code cannot enforce at all.** The clause forbids asking a language
+model what a rule should be during a `port-human` iteration; nothing in a rule file
+distinguishes a pattern its author designed from one they transcribed, and no test can
+tell them apart. What is implementable is the report — a required `model_consulted` on
+every line — so these two mutations are about the report's two failure modes, and both
+produce a log that *looks* clean.
+
+`self_report_defaults_to_none` is the quieter one. Adding `= "none"` is the change a
+contributor makes to stop a positional argument being annoying, every existing caller
+keeps working, and the field then answers a different question than it was written for:
+not "did the author consult a model" but "did the caller pass anything". The exculpating
+value is the natural default, which is the whole difficulty — a default of
+`"rule_content"` would be caught in an afternoon by everyone it inconvenienced.
+
+`self_report_refuses_the_violation` is the one worth reading twice, because it is the
+mutation that *reads as a fix*. Raising on `rule_content` looks like the harness taking
+the clause seriously, and a reviewer who has just read §8 would be inclined to approve
+it. What it actually removes is the only evidence anybody will ever have. The clause
+still binds nothing, so the violation still happens; it simply cannot be written down,
+and every `human_log.jsonl` in the experiment then reports a clean run because a dirty
+one was unrepresentable. That is the loader-fixture `skip` in a new place — a mechanism
+that turns "this did not happen" and "this could not be recorded" into the same output
+— and it is why §8.2 states that `rule_content` is a value the field can hold rather
+than an error the harness refuses.
+
+The first five are each caught by exactly one test, which is the honest number and a thin
 one; they are listed at 1 rather than padded.
 
 ## What the seal cost, and what carries the difference
@@ -431,7 +460,7 @@ applies to the code. Two safeguards follow from that:
   Three checks, described in the next section. Skipping them lets the harness count
   its own breakage as a kill.
 
-The maintenance cost is real but bounded: forty-one anchors, each a line or two,
+The maintenance cost is real but bounded: forty-three anchors, each a line or two,
 and a refactor that breaks one gets a `STALE` message naming the file. That is
 cheaper than the failure mode it prevents.
 

@@ -162,7 +162,7 @@ is a `missed` error by construction (`initial_error_pool()`).
 
 | file | sha256 |
 |---|---|
-| `docs/prompts/rule_author.md` | `5f72f7694c3e46e7fccf8ba5608e30cc5d3fa8586d94f279ff8bb567781c1fd3` |
+| `docs/prompts/rule_author.md` | `53319281f8adc87480ac7b21af276d7d1a3906edfaa6cd88d1167e90d18931d9` |
 | `config/sampling.yaml` | `fbfbbe107e2edfa0e9330fca9b8d4c79db48501a85cacd85d58d71a50216e926` |
 
 Both hashes are also on every `human_log.jsonl` line. That is not redundancy: the
@@ -211,7 +211,9 @@ Worth recording *how* it was found: by reading the distribution, not by a test.
 The bad sample was well-formed by every property the suite checks — 40 spans, every
 type present, the sparse type included — which is this project's recurring failure
 shape, a wrong number in the flattering direction with no symptom. It now has a
-mutation (`non_target_types_from_hardcoded_set`) and four tests.
+mutation for each half of it — `non_target_filter_removed` and
+`non_target_types_hardcoded_not_read_from_config` — and an invariant test over 5
+corpora x 20 iterations x three sample sizes.
 
 This exclusion is on the **sample**, not the scoring. DESIGN §9.4 keeps every type
 in the leak-rate denominator: a type nobody may write a rule for still counts
@@ -238,15 +240,44 @@ Written to confirm the format before any rule work, with every judgement field
 ```json
 {"iteration": 1, "event": "read_sample", "human_minutes": null, "decision": null,
  "predicted_scope": null, "actually_reused": null, "evidence": null,
- "rules_commit": null, "prompt_sha256": "sha256:5f72f769...", "sampling_sha256":
- "sha256:fbfbbe10..."}
+ "model_consulted": "none", "rules_commit": null,
+ "prompt_sha256": "sha256:53319281...", "sampling_sha256": "sha256:fbfbbe10..."}
 ```
 
 (Line-wrapped here; it is one line in the file, and the hashes are full-length.)
 `null` rather than omitted throughout: an absent key and a key whose value is
 unknown are different facts, and only one survives an aggregation. The two hashes
 are filled by `log_line()` rather than by the caller, so a line cannot be written
-without them.
+without them. `model_consulted` is the §8 self-report and it has no default, so
+`"none"` here is a positional argument someone had to type — which is the point of a
+field whose clause has no other enforcement.
+
+### The window was re-frozen before any rule work, and why that is allowed
+
+Adding §8 to `rule_author.md` moved `prompt_sha256` from `5f72f769...` to
+`53319281...`, and `window_drift()` reported it, which is the mechanism working. §7 of
+that prompt permits a revision **before the arm starts on a corpus** or after it
+finishes on all of them, and this is the first case: `rules/es.yaml` does not exist, no
+`human_minutes` has been recorded, and the single log line had every judgement field
+`null`. Nothing was held to the old window, so nothing is invalidated by replacing it.
+
+The re-freeze was done by deleting the record and calling `freeze_window()` again, not
+by teaching it to overwrite. That distinction is the file's whole value — a freeze record
+that can be rewritten records the window a run *ended* with — and a deliberate deletion
+leaves a diff, which an overwrite does not.
+
+**The sample did not change, and that is a property of the seed rather than luck.**
+`sample_seed()` hashes `seed_scheme`, `base_seed`, corpus and iteration, all from
+`config/sampling.yaml`, whose hash is unmoved. The prompt file is not an input to the
+draw; it is the specification of what the draw is *for*. So the distribution table above
+still describes the current sample, and the old log line was rewritten only because
+`model_consulted` is now a required field, not because a different window produced a
+different window's spans.
+
+If §8 had been added a week later, none of this would have been available: the honest
+options at that point are to report the arm against the old prompt or to re-run it with a
+different author as a separate trial, because the same person re-porting the same corpus
+is not a fresh trial (§11.1, memory carry-over).
 
 ### Open, and not decided here
 

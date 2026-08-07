@@ -25,10 +25,11 @@ sys.path.insert(0, str(ROOT))
 
 from src.corpora.base import Document, Span                     # noqa: E402
 from src.porting import human_arm                              # noqa: E402
+from src.corpora.base import axis                               # noqa: E402
 from src.porting.human_arm import (                            # noqa: E402
-    EVENTS, FIELDS, SCOPES, PortHumanError, append, draw_iteration, freeze_path,
-    freeze_window, initial_error_pool, log_line, log_path, render_for_author, summarise,
-    window_drift,
+    CONSULTED_AXIS, EVENTS, FIELDS, SCOPES, VIOLATION, PortHumanError, append,
+    draw_iteration, freeze_path, freeze_window, initial_error_pool, log_line, log_path,
+    render_for_author, summarise, window_drift,
 )
 from src.sample import (                                       # noqa: E402
     MISSED, WINDOW_FILES, ErrorSpan, window_hashes,
@@ -308,14 +309,14 @@ def test_the_render_flattens_newlines():
 # ─── the log line ───────────────────────────────────────────────────────────
 
 def test_the_line_has_every_field_in_order():
-    record = log_line(1, "read_sample")
+    record = log_line(1, "read_sample", "none")
     assert tuple(record) == FIELDS
 
 
 def test_absent_values_are_written_as_null_not_omitted():
     """An absent key and a key whose value is unknown are different facts, and only
     one of them survives into an aggregation."""
-    record = log_line(1, "read_sample")
+    record = log_line(1, "read_sample", "none")
     assert record["human_minutes"] is None
     assert record["actually_reused"] is None
     assert json.loads(json.dumps(record)).keys() == record.keys()
@@ -325,51 +326,130 @@ def test_absent_values_are_written_as_null_not_omitted():
 def test_the_window_hashes_are_filled_by_the_line_not_the_caller():
     """A caller that has to remember them is a caller that forgets on the line that
     matters."""
-    record = log_line(1, "read_sample")
+    record = log_line(1, "read_sample", "none")
     assert record["prompt_sha256"] == window_hashes()["prompt_sha256"]
     assert record["sampling_sha256"] == window_hashes()["sampling_sha256"]
     assert record["prompt_sha256"].startswith("sha256:")
 
 
 def test_the_two_hashes_are_of_different_files():
-    record = log_line(1, "read_sample")
+    record = log_line(1, "read_sample", "none")
     assert record["prompt_sha256"] != record["sampling_sha256"]
 
 
 def test_an_unknown_event_is_refused():
     with pytest.raises(PortHumanError) as e:
-        log_line(1, "read-sample")
+        log_line(1, "read-sample", "none")
     assert "DESIGN" in str(e.value)
 
 
 @pytest.mark.parametrize("event", EVENTS)
 def test_every_declared_event_is_accepted(event):
-    assert log_line(1, event)["event"] == event
+    assert log_line(1, event, "none")["event"] == event
 
 
 @pytest.mark.parametrize("scope", SCOPES)
 def test_every_declared_scope_is_accepted(scope):
-    assert log_line(1, "decision", predicted_scope=scope)["predicted_scope"] == scope
+    assert log_line(1, "decision", "none", predicted_scope=scope)["predicted_scope"] == scope
 
 
 def test_an_unknown_scope_is_refused():
     with pytest.raises(PortHumanError):
-        log_line(1, "decision", predicted_scope="general")
+        log_line(1, "decision", "none", predicted_scope="general")
 
 
 def test_actually_reused_is_three_valued():
     for value in (True, False, None):
-        assert log_line(1, "decision", actually_reused=value)[
+        assert log_line(1, "decision", "none", actually_reused=value)[
             "actually_reused"] is value
     with pytest.raises(PortHumanError) as e:
-        log_line(1, "decision", actually_reused="yes")
+        log_line(1, "decision", "none", actually_reused="yes")
     assert "second corpus" in str(e.value)
 
 
 def test_negative_minutes_are_refused():
     with pytest.raises(PortHumanError):
-        log_line(1, "rule_edit", human_minutes=-5)
-    assert log_line(1, "rule_edit", human_minutes=0)["human_minutes"] == 0
+        log_line(1, "rule_edit", "none", human_minutes=-5)
+    assert log_line(1, "rule_edit", "none", human_minutes=0)["human_minutes"] == 0
+
+
+# ─── the §8 self-report ─────────────────────────────────────────────────────
+#
+# `docs/prompts/rule_author.md` §8 forbids asking a language model what a rule should
+# be during a port-human iteration, because an author who transcribes a model's answer
+# has run port-oneshot with a slower interface and the control no longer holds. The
+# clause has no enforcement beyond this field, which is what these tests are about:
+# the field cannot be left unfilled, cannot hold an invented value, and — the one that
+# matters most — is not allowed to refuse the violation it exists to record.
+
+def test_the_self_report_is_required_and_has_no_default():
+    """A default of "none" would record "no model was consulted" for every caller who
+    did not think about the question, which is the answer the field exists to stop
+    being free."""
+    with pytest.raises(TypeError):
+        log_line(1, "read_sample")
+
+
+def test_null_is_not_an_accepted_self_report():
+    """An unfilled field is indistinguishable from an unproblematic one."""
+    with pytest.raises(PortHumanError) as e:
+        log_line(1, "read_sample", None)
+    assert "no default" in str(e.value)
+
+
+@pytest.mark.parametrize("value", sorted(axis(CONSULTED_AXIS)))
+def test_every_declared_self_report_value_is_accepted(value):
+    assert log_line(1, "decision", value)["model_consulted"] == value
+
+
+def test_the_violation_value_is_recorded_and_not_refused():
+    """The test this section exists for. A self-report field that rejects the answer it
+    exists to capture collects only the other answers, and the arm's integrity is then
+    documented by a file that could not have recorded its absence (§8.2)."""
+    record = log_line(4, "rule_edit", VIOLATION, human_minutes=12,
+                      decision="asked a model which pattern fits")
+    assert record["model_consulted"] == VIOLATION
+    assert record["iteration"] == 4
+
+
+def test_the_violation_survives_a_round_trip_to_the_log(tmp_path, monkeypatch):
+    """Refusing to *write* it would be the same defect one layer down."""
+    monkeypatch.setattr(human_arm, "ROOT", tmp_path)
+    path = append(log_line(4, "rule_edit", VIOLATION), "es-meddocan", "R", "sup-free")
+    written = json.loads(path.read_text(encoding="utf-8").splitlines()[-1])
+    assert written["model_consulted"] == VIOLATION
+
+
+def test_an_invented_self_report_value_is_refused():
+    for bad in ("no", "none_at_all", "rule-content", "clean", True, 0):
+        with pytest.raises(PortHumanError):
+            log_line(1, "read_sample", bad)
+
+
+def test_the_vocabulary_comes_from_naming_yaml_and_not_from_a_copy(monkeypatch):
+    """A fifth value added to the axis has to reach this validation without an edit to
+    the module — two copies of a vocabulary agree until the day they do not."""
+    fake = dict(axis(CONSULTED_AXIS))
+    fake["asked_a_colleague"] = "invented for this test"
+    monkeypatch.setattr(human_arm, "axis",
+                        lambda name: fake if name == CONSULTED_AXIS else axis(name))
+    assert log_line(1, "decision", "asked_a_colleague")[
+        "model_consulted"] == "asked_a_colleague"
+
+
+def test_the_self_report_is_on_every_line_not_only_on_rule_edits():
+    """The obligation is per event, so that it is in front of the author each time
+    rather than once at the start of the run."""
+    for event in EVENTS:
+        assert log_line(1, event, "none")["model_consulted"] == "none"
+
+
+def test_the_field_sits_before_the_window_hashes_in_the_record():
+    """Judgement fields first, then the mechanically filled ones — the hashes are the
+    two the caller never supplies, and keeping them last keeps that visible."""
+    order = list(FIELDS)
+    assert order.index("model_consulted") < order.index("prompt_sha256")
+    assert order[-2:] == ["prompt_sha256", "sampling_sha256"]
 
 
 # ─── appending ──────────────────────────────────────────────────────────────
@@ -378,7 +458,7 @@ def test_append_writes_one_json_line_and_keeps_the_previous_ones(tmp_path,
                                                                 monkeypatch):
     monkeypatch.setattr(human_arm, "ROOT", tmp_path)
     for i in (1, 2):
-        path = append(log_line(i, "read_sample"), "es-meddocan", "R",
+        path = append(log_line(i, "read_sample", "none"), "es-meddocan", "R",
                       "sup-free")
     lines = path.read_text(encoding="utf-8").splitlines()
     assert [json.loads(x)["iteration"] for x in lines] == [1, 2]
