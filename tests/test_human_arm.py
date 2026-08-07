@@ -15,6 +15,7 @@ its absence; it is invented, not corpus text.
 from __future__ import annotations
 
 import json
+import subprocess
 import sys
 from pathlib import Path
 
@@ -27,9 +28,10 @@ from src.corpora.base import Document, Span                     # noqa: E402
 from src.porting import human_arm                              # noqa: E402
 from src.corpora.base import axis                               # noqa: E402
 from src.porting.human_arm import (                            # noqa: E402
-    CONSULTED_AXIS, EVENTS, FIELDS, SCOPES, VIOLATION, PortHumanError, append,
-    arm_has_started, draw_iteration, freeze_path, freeze_window, initial_error_pool,
-    log_line, log_path, render_for_author, summarise, window_drift,
+    CONSULTED_AXIS, EVENTS, FIELDS, IN_HISTORY, IN_WORKTREE, SCOPES, VIOLATION,
+    PortHumanError, append, arm_has_started, draw_iteration, freeze_path, freeze_window,
+    initial_error_pool, log_line, log_path, render_for_author, started_where, summarise,
+    window_drift,
 )
 from src.sample import (                                       # noqa: E402
     MISSED, WINDOW_FILES, ErrorSpan, window_hashes,
@@ -283,6 +285,226 @@ def test_a_blank_line_in_the_log_does_not_crash_the_guard(tmp_path, monkeypatch)
     with open(path, "a", encoding="utf-8") as fh:
         fh.write("\n")
     assert arm_has_started("es-meddocan", "R", "sup-free") is True
+
+
+# ─── and the minutes survive the log's deletion, via git history ────────────
+#
+# The first version of `arm_has_started()` read the working tree only, so `rm
+# human_log.jsonl` re-opened the freeze: one file, one command, and the guard's own input
+# gone. Deleting the log is a much louder act than deleting the freeze record — it is the
+# arm's only record of what a person did — but "louder" is not "prevented", and the guard
+# was documented as having exactly that hole.
+#
+# So the second source is git history: any commit, any branch. These tests build a real
+# repository in tmp_path rather than mocking `subprocess`, because what is under test is
+# whether the `git` invocations are right, and a mock of `git show` would assert that the
+# arguments match the arguments.
+
+def a_repo(tmp_path):
+    """A git repository at tmp_path, with identity set so commits succeed anywhere."""
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "config", "user.email", "t@example.invalid"],
+                   cwd=tmp_path, check=True)
+    subprocess.run(["git", "config", "user.name", "test"], cwd=tmp_path, check=True)
+    return tmp_path
+
+
+def commit_all(tmp_path, message="wip"):
+    """Commit the arm's results tree in the fixture repository.
+
+    `results` explicitly rather than `.` or `-A`, even though this is a throwaway repo in
+    tmp_path: CLAUDE.md's staging rule exists so that a habit cannot form, and a test file
+    is where habits are copied from.
+    """
+    subprocess.run(["git", "add", "--", "results"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "commit", "-q", "-m", message], cwd=tmp_path, check=True)
+
+
+def test_minutes_in_a_commit_count_even_with_the_log_deleted(tmp_path, monkeypatch):
+    """**The hole this closes.** The record and the log both removed, and the arm still
+    reads as started, because the evidence is in a commit."""
+    monkeypatch.setattr(human_arm, "ROOT", a_repo(tmp_path))
+    freeze_window("es-meddocan", "R", "sup-free")
+    path = a_minute_was_spent()
+    commit_all(tmp_path)
+    path.unlink()
+    human_arm.freeze_path("es-meddocan", "R", "sup-free").unlink()
+    assert started_where("es-meddocan", "R", "sup-free") == IN_HISTORY
+    with pytest.raises(PortHumanError):
+        freeze_window("es-meddocan", "R", "sup-free")
+
+
+def test_the_message_says_the_log_is_in_history_but_not_in_the_worktree(tmp_path,
+                                                                       monkeypatch):
+    """A refusal that only said "this arm has started" would leave the reader with a
+    missing log and no idea it was missing. The one action that helps is naming it."""
+    monkeypatch.setattr(human_arm, "ROOT", a_repo(tmp_path))
+    freeze_window("es-meddocan", "R", "sup-free")
+    path = a_minute_was_spent()
+    commit_all(tmp_path)
+    path.unlink()
+    with pytest.raises(PortHumanError) as e:
+        freeze_window("es-meddocan", "R", "sup-free")
+    message = str(e.value)
+    assert "LOG is in git history but NOT in the working tree" in message
+    assert "restore" in message
+
+
+def test_minutes_deleted_from_a_committed_log_still_count(tmp_path, monkeypatch):
+    """The subtler edit: the file stays, the lines that fix the window are removed from
+    it. The working tree then says "not started" and the commit says otherwise."""
+    monkeypatch.setattr(human_arm, "ROOT", a_repo(tmp_path))
+    freeze_window("es-meddocan", "R", "sup-free")
+    path = a_minute_was_spent()
+    commit_all(tmp_path)
+    path.write_text(json.dumps(log_line(1, "read_sample", "none")) + "\n",
+                    encoding="utf-8")
+    assert started_where("es-meddocan", "R", "sup-free") == IN_HISTORY
+
+
+def test_the_worktree_answer_is_reported_as_the_worktree(tmp_path, monkeypatch):
+    """Both sources can be true at once, and the ordinary case must not be reported as
+    the deleted-log one — the message for `IN_HISTORY` tells the reader to restore a file
+    that is sitting right there."""
+    monkeypatch.setattr(human_arm, "ROOT", a_repo(tmp_path))
+    freeze_window("es-meddocan", "R", "sup-free")
+    a_minute_was_spent()
+    commit_all(tmp_path)
+    assert started_where("es-meddocan", "R", "sup-free") == IN_WORKTREE
+    with pytest.raises(PortHumanError) as e:
+        freeze_window("es-meddocan", "R", "sup-free")
+    assert "LOG is in git history but NOT" not in str(e.value)
+
+
+def test_minutes_on_another_branch_count(tmp_path, monkeypatch):
+    """`git log --all`, not `git log`. A branch is not a different history of what a
+    person did, and checking out an earlier state is not a way to un-spend a minute."""
+    repo = a_repo(tmp_path)
+    monkeypatch.setattr(human_arm, "ROOT", repo)
+    freeze_window("es-meddocan", "R", "sup-free")
+    commit_all(tmp_path, "freeze")
+    subprocess.run(["git", "checkout", "-q", "-b", "side"], cwd=repo, check=True)
+    path = a_minute_was_spent()
+    commit_all(tmp_path, "minutes")
+    subprocess.run(["git", "checkout", "-q", "-"], cwd=repo, check=True)
+    assert not path.exists()
+    assert started_where("es-meddocan", "R", "sup-free") == IN_HISTORY
+
+
+def test_an_older_commit_counts_not_only_the_newest(tmp_path, monkeypatch):
+    """Every commit touching the file is inspected. The newest is the one a rewrite would
+    have edited, so reading only it would answer the question a rewriter prefers."""
+    monkeypatch.setattr(human_arm, "ROOT", a_repo(tmp_path))
+    freeze_window("es-meddocan", "R", "sup-free")
+    path = a_minute_was_spent()
+    commit_all(tmp_path, "with minutes")
+    path.write_text(json.dumps(log_line(1, "read_sample", "none")) + "\n",
+                    encoding="utf-8")
+    commit_all(tmp_path, "minutes removed")
+    assert started_where("es-meddocan", "R", "sup-free") == IN_HISTORY
+
+
+def test_a_committed_log_with_no_minutes_does_not_count_as_started(tmp_path,
+                                                                  monkeypatch):
+    """The other half again, now for the history source: committing a `read_sample` line
+    is not starting the arm, and re-freezing before any minutes stays permitted."""
+    monkeypatch.setattr(human_arm, "ROOT", a_repo(tmp_path))
+    freeze_window("es-meddocan", "R", "sup-free")
+    append(log_line(1, "read_sample", "none"), "es-meddocan", "R", "sup-free")
+    commit_all(tmp_path)
+    assert started_where("es-meddocan", "R", "sup-free") is None
+    human_arm.freeze_path("es-meddocan", "R", "sup-free").unlink()
+    assert freeze_window("es-meddocan", "R", "sup-free")["corpus"] == "es-meddocan"
+
+
+def test_another_arms_committed_minutes_do_not_fix_this_arms_window(tmp_path,
+                                                                   monkeypatch):
+    """The history lookup is per path, so it is per cell of the experiment — the same
+    property the working-tree read has, and it is asserted separately because `git log`
+    takes a pathspec and a pathspec is easy to widen."""
+    monkeypatch.setattr(human_arm, "ROOT", a_repo(tmp_path))
+    a_minute_was_spent("es-meddocan", "R", "sup-free")
+    commit_all(tmp_path)
+    log_path("es-meddocan", "R", "sup-free").unlink()
+    assert started_where("es-meddocan", "RT", "sup-free") is None
+
+
+def test_a_log_never_committed_and_then_deleted_reads_as_not_started(tmp_path,
+                                                                    monkeypatch):
+    """The remaining hole, asserted rather than left implied. Nothing can recover minutes
+    that were never written anywhere durable, and a guard claiming otherwise would be
+    claiming to read a deleted file. `docs/notes/window-freeze-history.md` records it."""
+    monkeypatch.setattr(human_arm, "ROOT", a_repo(tmp_path))
+    freeze_window("es-meddocan", "R", "sup-free")
+    a_minute_was_spent().unlink()
+    assert started_where("es-meddocan", "R", "sup-free") is None
+
+
+def test_outside_a_repository_the_guard_answers_from_the_worktree_alone(tmp_path,
+                                                                       monkeypatch):
+    """No repository, no traceback. Every other test in this file runs in exactly this
+    condition — a bare tmp_path — so a `git` failure that raised would take the whole
+    file with it, and a guard that crashes where it cannot answer is a guard that gets
+    removed rather than fixed."""
+    monkeypatch.setattr(human_arm, "ROOT", tmp_path)
+    assert started_where("es-meddocan", "R", "sup-free") is None
+    a_minute_was_spent()
+    assert started_where("es-meddocan", "R", "sup-free") == IN_WORKTREE
+
+
+def test_the_guard_does_not_hang_when_git_does(tmp_path, monkeypatch):
+    """A guard with no timeout is a guard that can stop the arm indefinitely, and the
+    fix someone reaches for then is deleting the guard."""
+    monkeypatch.setattr(human_arm, "ROOT", a_repo(tmp_path))
+    path = a_minute_was_spent()
+    commit_all(tmp_path)
+    path.unlink()
+    calls = []
+
+    def slow(args, **kwargs):
+        calls.append(kwargs.get("timeout"))
+        raise subprocess.TimeoutExpired(args, kwargs.get("timeout"))
+
+    monkeypatch.setattr(human_arm.subprocess, "run", slow)
+    assert started_where("es-meddocan", "R", "sup-free") is None
+    assert calls and all(t == human_arm.GIT_TIMEOUT for t in calls)
+
+
+def test_no_test_fold_path_is_ever_passed_to_git(tmp_path, monkeypatch):
+    """The pathspec is built from `log_path()`, which is a results path. Asserted because
+    a widened pathspec is how a `git show` starts reading things it should not, and
+    `sealed/` is the thing this repository must not read (CLAUDE.md)."""
+    monkeypatch.setattr(human_arm, "ROOT", a_repo(tmp_path))
+    a_minute_was_spent()
+    commit_all(tmp_path)
+    seen = []
+    real = human_arm.subprocess.run
+
+    def record(args, **kwargs):
+        seen.append(args)
+        return real(args, **kwargs)
+
+    monkeypatch.setattr(human_arm.subprocess, "run", record)
+    log_path("es-meddocan", "R", "sup-free").unlink()
+    assert started_where("es-meddocan", "R", "sup-free") == IN_HISTORY
+    flat = " ".join(part for call in seen for part in call)
+    assert "sealed" not in flat
+    assert "human_log.jsonl" in flat
+
+
+def test_a_git_error_message_never_reaches_the_exception(tmp_path, monkeypatch):
+    """CLAUDE.md's rule about exception text does not branch on which file is safe. Log
+    lines hold no surface forms today, and a guard that pastes `git` output into a
+    message is one schema change away from that stopping being true."""
+    monkeypatch.setattr(human_arm, "ROOT", a_repo(tmp_path))
+    freeze_window("es-meddocan", "R", "sup-free")
+    path = a_minute_was_spent()
+    commit_all(tmp_path)
+    path.unlink()
+    with pytest.raises(PortHumanError) as e:
+        freeze_window("es-meddocan", "R", "sup-free")
+    assert SURFACE not in str(e.value)
+    assert "human_minutes" in str(e.value)
 
 
 def test_no_drift_on_a_freshly_frozen_window(tmp_path, monkeypatch):

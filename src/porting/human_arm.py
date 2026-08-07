@@ -24,6 +24,7 @@ building one.
 from __future__ import annotations
 
 import json
+import subprocess
 from pathlib import Path
 
 from ..corpora import load
@@ -40,6 +41,10 @@ from ..sample import (
 #: implying otherwise would invite a second arm to write them.
 LOG_KEY = "humanlog"
 FREEZE_KEY = "humanfreeze"
+
+#: Seconds any single `git` call in this module may take. A guard that can hang
+#: is a guard someone removes.
+GIT_TIMEOUT = 10
 
 #: The fields every line carries, in this order. DESIGN §11.2's table plus the two
 #: window hashes. Order is fixed so a reader diffing two lines sees field changes
@@ -117,13 +122,124 @@ def freeze_path(corpus: str, detector: str, supervision: str) -> Path:
     return _arm_path(FREEZE_KEY, corpus, detector, supervision)
 
 
+def _minutes_in_lines(lines) -> bool:
+    """Whether any line of a log holds a non-null `human_minutes`.
+
+    Takes lines rather than a path because the same scan runs over the working tree and
+    over a blob out of git history, and two copies of this loop would be two places the
+    criterion could drift. `is not None` and not truthiness: `log_line()` validates the
+    field to accept `0` because an event can take under a minute, so a logged zero is a
+    measurement and `null` is the absence of one.
+    """
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+        if json.loads(line).get("human_minutes") is not None:
+            return True
+    return False
+
+
+def _minutes_in_worktree(path: Path) -> bool:
+    """The cheap half of `arm_has_started()`: the log as it stands on disk."""
+    if not path.exists():
+        return False
+    with open(path, encoding="utf-8") as fh:
+        return _minutes_in_lines(fh)
+
+
+def _git(args: list[str], cwd: Path) -> str | None:
+    """`git` output, or `None` for anything that went wrong.
+
+    Failure is not an error here. This runs under `monkeypatch.setattr(ROOT, tmp_path)`
+    in the tests and on machines where a checkout may be an export rather than a
+    repository, so "no git, no repository, unknown revision" all have to mean "history
+    says nothing" rather than a traceback out of a guard.
+
+    That direction of failure is the unsafe one — it answers *not started* — which is why
+    it is the working tree that is consulted first and why the note in
+    `docs/notes/window-freeze-history.md` says plainly that this is a tripwire and not an
+    impossibility proof. Nothing from the output ever reaches an exception message: log
+    lines carry no surface forms, but the rule in CLAUDE.md does not branch on which file
+    happens to be safe.
+    """
+    try:
+        done = subprocess.run(["git", *args], cwd=cwd, capture_output=True,
+                              text=True, timeout=GIT_TIMEOUT)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return done.stdout if done.returncode == 0 else None
+
+
+def _minutes_in_git_history(path: Path) -> bool:
+    """Whether this arm's log ever held a non-null `human_minutes` in any commit.
+
+    `--all`, so a commit on another branch counts: the question is whether the minutes
+    were ever recorded, and a branch is not a different history of what a person did.
+
+    Every commit that touched the file is inspected rather than only the newest, because
+    the newest is the one a rewrite would have edited. A commit where the file was deleted
+    yields no blob, and `_git()` returns `None` for it, which is why the loop continues
+    instead of stopping.
+
+    Local history only, deliberately. Consulting a remote would put a network call inside
+    a guard that runs before every freeze, and would make the answer depend on
+    connectivity — which fails in the unsafe direction. Local history is enough for what
+    this is for: rewriting it to remove the minutes leaves a divergence that is visible
+    in a public repository, so the act stops being a quiet one.
+    """
+    top = _git(["rev-parse", "--show-toplevel"], ROOT)
+    if top is None:
+        return False
+    root = Path(top.strip())
+    try:
+        rel = path.resolve().relative_to(root.resolve())
+    except (ValueError, OSError):
+        return False
+    commits = _git(["log", "--all", "--format=%H", "--", str(rel)], root)
+    if not commits:
+        return False
+    for sha in commits.split():
+        blob = _git(["show", f"{sha}:{rel}"], root)
+        if blob is None:
+            continue
+        if _minutes_in_lines(blob.splitlines()):
+            return True
+    return False
+
+
+#: What `started_where()` answers with. Not booleans, because the two "yes" cases need
+#: different messages: minutes in the working tree are ordinary, and minutes that exist
+#: only in history mean the log itself was deleted.
+IN_WORKTREE = "worktree"
+IN_HISTORY = "history"
+
+
+def started_where(corpus: str, detector: str, supervision: str) -> str | None:
+    """`IN_WORKTREE`, `IN_HISTORY`, or `None` — where the minutes were found.
+
+    `arm_has_started()` is this function with the answer collapsed to a boolean, and the
+    two are kept apart because a caller that has to *explain* the refusal needs the third
+    distinction. A log present on disk with minutes in it is the ordinary case; a log whose
+    minutes exist only in a commit means the working-tree file was deleted, and telling
+    the reader to restore it is more useful than telling them the arm has started.
+
+    Working tree first: it is a file read against a `git log` walk, and it is the answer in
+    every run where nothing has been deleted.
+    """
+    path = log_path(corpus, detector, supervision)
+    if _minutes_in_worktree(path):
+        return IN_WORKTREE
+    return IN_HISTORY if _minutes_in_git_history(path) else None
+
+
 def arm_has_started(corpus: str, detector: str, supervision: str) -> bool:
     """Whether any human effort has been recorded for this arm on this corpus.
 
-    The criterion is a **non-null `human_minutes` on any log line**, which is the point
-    §11.1 names: before it, the window is a proposal and revising it costs nothing; after
-    it, a person has spent attention on a window, and no analysis re-runs that attention
-    under a different one.
+    The criterion is a **non-null `human_minutes` on any log line, in the working tree or
+    in any commit**, which is the point §11.1 names: before it, the window is a proposal
+    and revising it costs nothing; after it, a person has spent attention on a window,
+    and no analysis re-runs that attention under a different one.
 
     Deliberately *not* "does the freeze record exist" and *not* "does the log exist". The
     freeze record is a single file that can be deleted, so a guard reading it is a guard
@@ -131,23 +247,15 @@ def arm_has_started(corpus: str, detector: str, supervision: str) -> bool:
     the evidence in their own values, so this survives the freeze record's deletion —
     which is the hole this function exists to close.
 
-    A missing log means the arm has not started, since no line can have been written.
-    That is the honest reading and not an oversight: it is why the log's own directory
-    creation is the same `mkdir` the freeze uses, and why deleting the log is a far
-    louder act than deleting the freeze — the log is the arm's only record of what a
-    person did.
+    **And it survives the log's deletion too, which the first version did not.** Reading
+    only the working tree made `rm human_log.jsonl` re-open the freeze: one file, one
+    command, and the guard's own input gone. So the working tree is consulted first
+    because it is cheap and is the answer in every ordinary run, and git history second.
+    A log that was never committed and then deleted still reads as *not started*, and that
+    is the honest remaining hole rather than a case worth pretending about — as is a
+    rewritten history. The note records both.
     """
-    path = log_path(corpus, detector, supervision)
-    if not path.exists():
-        return False
-    with open(path, encoding="utf-8") as fh:
-        for line in fh:
-            line = line.strip()
-            if not line:
-                continue
-            if json.loads(line).get("human_minutes") is not None:
-                return True
-    return False
+    return started_where(corpus, detector, supervision) is not None
 
 
 def freeze_window(corpus: str, detector: str, supervision: str) -> dict:
@@ -180,7 +288,8 @@ def freeze_window(corpus: str, detector: str, supervision: str) -> dict:
     "start over" means a different author or a different corpus, and that is the price.
     """
     path = freeze_path(corpus, detector, supervision)
-    if arm_has_started(corpus, detector, supervision):
+    where = started_where(corpus, detector, supervision)
+    if where is not None:
         existing = None
         if path.exists():
             with open(path, encoding="utf-8") as fh:
@@ -193,6 +302,10 @@ def freeze_window(corpus: str, detector: str, supervision: str) -> dict:
                "arm started; restore it from git rather than re-creating it, because a "
                "re-created record would hash today's files and silently claim to be the "
                "opening window.")
+            + (" The LOG is in git history but NOT in the working tree — restore it too, "
+               "from the same commit. Its absence is why this refusal had to consult "
+               "history at all, and a re-created log would be missing exactly the lines "
+               "that fixed the window." if where == IN_HISTORY else "")
             + " Changing the window now means re-running the arm from iteration 1 with a "
             "different author (DESIGN §11.1: the same person re-porting the same corpus "
             "is not a fresh trial). See docs/prompts/rule_author.md §7."
@@ -227,7 +340,7 @@ def window_drift(corpus: str, detector: str, supervision: str) -> list[str]:
     """
     path = freeze_path(corpus, detector, supervision)
     if not path.exists():
-        started = arm_has_started(corpus, detector, supervision)
+        where = started_where(corpus, detector, supervision)
         raise PortHumanError(
             f"{corpus}: no freeze record for this arm, so there is nothing to compare "
             "against. " + (
@@ -235,9 +348,10 @@ def window_drift(corpus: str, detector: str, supervision: str) -> list[str]:
                 "gone — restore it from git. Do NOT call freeze_window() to make this "
                 "error go away: it would hash today's files and the result would claim "
                 "to be the opening window."
-                if started else
+                if where is not None else
                 "freeze_window() runs before iteration 1 (DESIGN §11.1)."
-            )
+            ) + (" The log is in git history but not in the working tree either — restore "
+                 "both from the same commit." if where == IN_HISTORY else "")
         )
     with open(path, encoding="utf-8") as fh:
         frozen = json.load(fh)

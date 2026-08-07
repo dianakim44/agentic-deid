@@ -1516,6 +1516,27 @@ record hashes today's files and then claims to be the opening window. The only r
 route to a different window is re-running the arm from iteration 1 with a different
 author, which is this section's ordering cost paid rather than avoided.
 
+**And the log is read from git history as well as from the working tree**, because the
+first version of that condition was itself conditioned on a removable file: `rm
+human_log.jsonl` re-opened the freeze. `started_where()` reads the working tree first
+(cheap, and the answer in any ordinary run), then `git log --all` over that one path and
+`git show` on each commit's blob — any commit, any branch, not only the newest, since the
+newest is the one an edit would have changed. When the minutes are in history but the log
+is not on disk the refusal says so and says restore the log too, because a refusal that
+only reported "this arm has started" would leave a missing log unnoticed. Every `git`
+failure — no repository, no git, a timeout — answers "history says nothing" rather than
+raising, which fails in the unsafe direction and is why the working tree is consulted
+first.
+
+Two holes stay open and are asserted as tests rather than argued away: a rewritten history
+defeats the guard, and minutes that were never committed cannot be recovered. Local history
+is enough because the repository is public — removing the evidence now takes a history
+rewrite, which is visible to anyone who has fetched it. **The purpose is to prevent an
+accident and to make a deliberate change conspicuous, not to make one impossible.** No
+condition inside a Python function is unremovable; the reachable goal is a condition whose
+removal leaves a trace, and `docs/notes/window-freeze-history.md` records both the three
+re-freezes and these limits.
+
 `window_drift()` reports which of the two files no longer matches, and reports rather
 than raises. The honest response to drift is not always to stop: an edit to the prompt's
 prose that leaves §1.4's numbers alone is a different event from a change to `n`, and

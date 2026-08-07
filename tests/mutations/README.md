@@ -19,7 +19,7 @@ is tested by `tests/test_mutation_harness.py`, which pytest does collect.
 
 Each one corresponds to a decision in DESIGN.md that a plausible "simplification"
 would silently undo. What they have in common is the property that makes them
-dangerous: **thirty-eight of the forty-seven change no total.** The corpus still loads,
+dangerous: **thirty-nine of the forty-eight change no total.** The corpus still loads,
 the document count is still 750, the span count is still 17,134 — and every
 downstream number is wrong. Those are the errors a reviewer cannot catch and an
 aggregate cannot reveal, which is why they get a harness rather than trust.
@@ -213,7 +213,7 @@ Counts are the number of tests that fail or error, from
 `tests/test_meddocan_loader.py`, `tests/test_split_file.py`, `tests/test_seal.py`,
 `tests/test_release_screen.py`, `tests/test_layer_families.py`,
 `tests/test_scorer.py`, `tests/test_sample.py`, `tests/test_human_arm.py` and
-`tests/test_show_human_window.py` (413 tests). Errors
+`tests/test_show_human_window.py` (426 tests). Errors
 count as kills: a mutation that breaks the module-scoped fixture takes whole tests
 out, and those are caught, not uncounted.
 
@@ -336,6 +336,7 @@ no enforcement but a field in a log.
 | `freeze_guard_only_checks_the_file` | the `arm_has_started()` condition in `freeze_window()` becomes `if False` | restores the hole this repository fell through three times: `rm window_freeze.json` then re-freeze, which `path.exists()` cannot see. The new record hashes today's files and claims to be the opening window | **4** |
 | `arm_started_reads_the_last_line_only` | `arm_has_started()` inspects the final log line instead of every line | appending any null-minutes event re-opens the freeze, and appending is what this arm does constantly. A `read_sample` at iteration 7 makes six iterations of attention re-writable | **1** |
 | `zero_minutes_read_as_not_started` | `is not None` becomes a truthiness test | a logged `human_minutes: 0` reads as "nothing happened", though `log_line()` validates the field to accept 0 because an event can take under a minute | **1** |
+| `started_where_reads_the_worktree_only` | `started_where()` stops consulting git history | reverts the guard to reading `human_log.jsonl` on disk and nothing else, so `rm human_log.jsonl` re-opens the freeze — one file, one command, and the guard's own input is gone | **8** |
 
 `initial_pool_excludes_train_instead_of_selecting_dev` is the one to read twice. The two
 filters are the same length, the same shape, and equivalent on any corpus with two
@@ -429,6 +430,20 @@ property of whichever line came last. Since this arm appends constantly, a `read
 event at the start of iteration 7 would re-open a freeze that six iterations of a person's
 attention had fixed.
 
+`started_where_reads_the_worktree_only` is the same defect one level out, and it was
+shipped and documented as an open hole before it was closed. The guard's first version
+read the working tree's log only, which meant the fix for a deletable freeze record was a
+guard whose own input was a deletable log. The note called that acceptable on the grounds
+that deleting the log is louder than deleting the freeze record — which is true, since the
+log is the arm's only record of what a person did — and "louder" is not "prevented". The
+second source is `git log --all` over that one path, every commit rather than the newest,
+because the newest is the one an edit would have changed. Two limits stay open and are
+asserted rather than implied: a rewritten history defeats it, and minutes that were never
+committed cannot be recovered
+(`test_a_log_never_committed_and_then_deleted_reads_as_not_started`). The purpose is to
+stop an accident and make a deliberate change conspicuous, not to make one impossible —
+those are different goals and only the first is reachable in code.
+
 `zero_minutes_read_as_not_started` is one character. `log_line()` accepts
 `human_minutes: 0` deliberately, because an event can take under a minute, so a
 truthiness test throws away the distinction between a measurement of zero and the absence
@@ -510,7 +525,7 @@ applies to the code. Two safeguards follow from that:
   Three checks, described in the next section. Skipping them lets the harness count
   its own breakage as a kill.
 
-The maintenance cost is real but bounded: forty-seven anchors, each a line or two,
+The maintenance cost is real but bounded: forty-eight anchors, each a line or two,
 and a refactor that breaks one gets a `STALE` message naming the file. That is
 cheaper than the failure mode it prevents.
 
@@ -603,6 +618,20 @@ The fix is a second condition on something the deletion cannot reach: a non-null
 `human_minutes` on any line of the append-only log. Generalising, for the next addition to
 this file: **a guard must not be conditioned on the artifact it protects.** Ask something
 that survives the artifact's removal, or the guard is a request.
+
+And then the same question has to be asked of the fix, which is where the fifth member came
+from within the hour: the log is also a file, so the first version of the corrected guard
+was conditioned on an artifact the operator could remove — one command, `rm
+human_log.jsonl`, and the freeze re-opened. It was written down as an accepted limit, which
+is better than not noticing but is not the same as closing it. So `started_where()` now
+reads git history as well, and the recursion stops there for a real reason rather than
+because patience ran out: history is not a file this repository's own code writes, removing
+the minutes from it takes a rewrite, and a rewrite of a public repository's history is
+visible to anyone who has fetched it. **The endpoint of "condition it on something else" is
+not an unremovable artifact — there is none — it is an artifact whose removal is
+conspicuous.** A guard's job is to stop an accident and to force a deliberate act to be
+deliberate, and the two remaining holes (a rewritten history, a log never committed) are
+asserted as tests so the boundary is stated rather than discovered.
 
 ### The same defect again, in a new file, caught the same way
 

@@ -955,8 +955,10 @@ MUTATIONS = [
     Mutation(
         name="freeze_guard_only_checks_the_file",
         path=HUMAN_ARM,
-        anchor="    if arm_has_started(corpus, detector, supervision):",
-        replacement="    if False:",
+        anchor="    where = started_where(corpus, detector, supervision)\n"
+               "    if where is not None:",
+        replacement=("    where = started_where(corpus, detector, supervision)\n"
+                     "    if False:"),
         breaks=(
             "Restores the hole this repository actually fell through, three times. What "
             "remains is the `path.exists()` branch, which refuses to *overwrite* and has "
@@ -973,19 +975,17 @@ MUTATIONS = [
     Mutation(
         name="arm_started_reads_the_last_line_only",
         path=HUMAN_ARM,
-        anchor=('    with open(path, encoding="utf-8") as fh:\n'
-                '        for line in fh:\n'
-                '            line = line.strip()\n'
-                '            if not line:\n'
-                '                continue\n'
-                '            if json.loads(line).get("human_minutes") is not None:\n'
-                '                return True\n'
+        anchor=('    for line in lines:\n'
+                '        line = line.strip()\n'
+                '        if not line:\n'
+                '            continue\n'
+                '        if json.loads(line).get("human_minutes") is not None:\n'
+                '            return True\n'
                 '    return False'),
-        replacement=('    lines = [x for x in path.read_text(encoding="utf-8")'
-                     '.splitlines() if x.strip()]\n'
-                     '    if not lines:\n'
+        replacement=('    kept = [x for x in lines if x.strip()]\n'
+                     '    if not kept:\n'
                      '        return False\n'
-                     '    return json.loads(lines[-1]).get("human_minutes") is not None'),
+                     '    return json.loads(kept[-1]).get("human_minutes") is not None'),
         breaks=(
             "The guard reads only the final log line, so the window re-opens the moment "
             "an event with a null `human_minutes` is appended \u2014 and appending a line "
@@ -1002,8 +1002,8 @@ MUTATIONS = [
     Mutation(
         name="zero_minutes_read_as_not_started",
         path=HUMAN_ARM,
-        anchor='            if json.loads(line).get("human_minutes") is not None:',
-        replacement='            if json.loads(line).get("human_minutes"):',
+        anchor='        if json.loads(line).get("human_minutes") is not None:',
+        replacement='        if json.loads(line).get("human_minutes"):',
         breaks=(
             "`0` becomes indistinguishable from `null`. A logged zero is a recorded "
             "measurement \u2014 `log_line()` validates the field to accept it precisely "
@@ -1011,6 +1011,27 @@ MUTATIONS = [
             "\"nothing happened\", leaving the freeze writable for an arm that has "
             "recorded work. One character, and it agrees with the real implementation on "
             "every log where nobody was quick."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="started_where_reads_the_worktree_only",
+        path=HUMAN_ARM,
+        anchor="    return IN_HISTORY if _minutes_in_git_history(path) else None",
+        replacement="    return None",
+        breaks=(
+            "Reverts the guard to its first version, which read the working tree and "
+            "nothing else \u2014 so `rm human_log.jsonl` re-opens the freeze. One file, "
+            "one command, and the guard's own input is gone; the arm then reads as never "
+            "started and `freeze_window()` writes a record claiming to be the opening "
+            "window. It is the louder of the two deletions, since the log is the arm's "
+            "only record of what a person did and how long it took, but louder is not "
+            "prevented, and the note documented this as an open hole before it was closed "
+            "(docs/notes/window-freeze-history.md). What closes it is that the minutes "
+            "were committed: `git log --all` over this one path finds them in any commit "
+            "on any branch. Removing them from history is still possible and is exactly "
+            "what this guard is for \u2014 a rewrite of a public repository's history is "
+            "not a quiet act."
         ),
         min_kills=1,
     ),
