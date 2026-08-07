@@ -7,6 +7,6 @@
     "docs/prompts/rule_author.md",
     "config/sampling.yaml"
   ],
-  "prompt_sha256": "sha256:493effc2b9fc0747f7b586601a57b48a11623367b0d5d7435a291c0aa7b11c77",
+  "prompt_sha256": "sha256:bc83e2c7126b829a61afe690bacbb438e18e84108ed208fddc7bcd5953524446",
   "sampling_sha256": "sha256:fbfbbe107e2edfa0e9330fca9b8d4c79db48501a85cacd85d58d71a50216e926"
 }

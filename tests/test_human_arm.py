@@ -28,8 +28,8 @@ from src.porting import human_arm                              # noqa: E402
 from src.corpora.base import axis                               # noqa: E402
 from src.porting.human_arm import (                            # noqa: E402
     CONSULTED_AXIS, EVENTS, FIELDS, SCOPES, VIOLATION, PortHumanError, append,
-    draw_iteration, freeze_path, freeze_window, initial_error_pool, log_line, log_path,
-    render_for_author, summarise, window_drift,
+    arm_has_started, draw_iteration, freeze_path, freeze_window, initial_error_pool,
+    log_line, log_path, render_for_author, summarise, window_drift,
 )
 from src.sample import (                                       # noqa: E402
     MISSED, WINDOW_FILES, ErrorSpan, window_hashes,
@@ -137,6 +137,152 @@ def test_freezing_twice_returns_the_first_record_and_does_not_rewrite(tmp_path,
     path.write_text(json.dumps(tampered), encoding="utf-8")
     again = freeze_window("es-meddocan", "R", "sup-free")
     assert again["prompt_sha256"] == "sha256:" + "0" * 64
+
+
+# ─── the freeze is immutable once the arm has started ───────────────────────
+#
+# The `path.exists()` refusal above says only "I will not overwrite". It says nothing
+# about a caller who deletes the file first, and in this repository that is exactly what
+# happened: the window was re-frozen three times before iteration 1 by `rm` followed by a
+# second call, each time outside the guard (docs/notes/window-freeze-history.md). A
+# refusal conditioned on the presence of the thing being protected is not a refusal.
+#
+# These tests are about the second condition, which is not reachable by deleting a file:
+# a non-null `human_minutes` on any line of the append-only log.
+
+def a_minute_was_spent(corpus="es-meddocan", detector="R", supervision="sup-free"):
+    """One log line recording human effort — the event that fixes the window."""
+    return append(log_line(1, "rule_edit", "none", human_minutes=15),
+                  corpus, detector, supervision)
+
+
+def test_deleting_the_record_and_re_freezing_is_refused_after_minutes_are_logged(
+        tmp_path, monkeypatch):
+    """**The hole this closes.** Not a hypothetical: this is the sequence that ran three
+    times in this repository's own history, and the guard as written had nothing to say
+    about it."""
+    monkeypatch.setattr(human_arm, "ROOT", tmp_path)
+    first = freeze_window("es-meddocan", "R", "sup-free")
+    a_minute_was_spent()
+    human_arm.freeze_path("es-meddocan", "R", "sup-free").unlink()
+    with pytest.raises(PortHumanError) as e:
+        freeze_window("es-meddocan", "R", "sup-free")
+    assert "human_minutes" in str(e.value)
+    assert first["prompt_sha256"]
+
+
+def test_the_message_for_a_deleted_record_says_restore_rather_than_re_create(
+        tmp_path, monkeypatch):
+    """A re-created record hashes today's files and then claims to be the opening
+    window, which is worse than a missing one: it is confidently wrong."""
+    monkeypatch.setattr(human_arm, "ROOT", tmp_path)
+    freeze_window("es-meddocan", "R", "sup-free")
+    a_minute_was_spent()
+    human_arm.freeze_path("es-meddocan", "R", "sup-free").unlink()
+    with pytest.raises(PortHumanError) as e:
+        freeze_window("es-meddocan", "R", "sup-free")
+    assert "MISSING" in str(e.value)
+    assert "git" in str(e.value)
+
+
+def test_re_freezing_over_an_existing_record_is_also_refused_after_minutes(
+        tmp_path, monkeypatch):
+    """Not just the delete path. Once minutes exist the function does not write at all,
+    so the two refusals are not each other's special case."""
+    monkeypatch.setattr(human_arm, "ROOT", tmp_path)
+    freeze_window("es-meddocan", "R", "sup-free")
+    a_minute_was_spent()
+    with pytest.raises(PortHumanError) as e:
+        freeze_window("es-meddocan", "R", "sup-free")
+    assert "unchanged" in str(e.value)
+
+
+def test_re_freezing_is_permitted_before_any_minutes_are_recorded(tmp_path,
+                                                                 monkeypatch):
+    """The other half, and it has to be tested or the guard is untestably strict.
+    §11.1 permits a revision before the arm starts, and a `read_sample` line with a null
+    `human_minutes` is not a start — the window is still a proposal at that point."""
+    monkeypatch.setattr(human_arm, "ROOT", tmp_path)
+    freeze_window("es-meddocan", "R", "sup-free")
+    append(log_line(1, "read_sample", "none"), "es-meddocan", "R", "sup-free")
+    human_arm.freeze_path("es-meddocan", "R", "sup-free").unlink()
+    again = freeze_window("es-meddocan", "R", "sup-free")
+    assert again["prompt_sha256"] == window_hashes()["prompt_sha256"]
+
+
+def test_zero_minutes_counts_as_started(tmp_path, monkeypatch):
+    """`0` is a recorded measurement and `null` is the absence of one. A truthiness test
+    would read a logged zero as "nothing happened", and the field is validated to accept
+    0 precisely because an event can take under a minute."""
+    monkeypatch.setattr(human_arm, "ROOT", tmp_path)
+    freeze_window("es-meddocan", "R", "sup-free")
+    append(log_line(1, "rule_edit", "none", human_minutes=0),
+           "es-meddocan", "R", "sup-free")
+    assert arm_has_started("es-meddocan", "R", "sup-free") is True
+    with pytest.raises(PortHumanError):
+        freeze_window("es-meddocan", "R", "sup-free")
+
+
+def test_minutes_on_any_line_fix_the_window_not_only_the_last(tmp_path, monkeypatch):
+    """Reading only the final line would let an appended null-minutes event re-open the
+    freeze — and appending a line is the one operation this arm does constantly."""
+    monkeypatch.setattr(human_arm, "ROOT", tmp_path)
+    freeze_window("es-meddocan", "R", "sup-free")
+    append(log_line(1, "rule_edit", "none", human_minutes=20),
+           "es-meddocan", "R", "sup-free")
+    append(log_line(2, "read_sample", "none"), "es-meddocan", "R", "sup-free")
+    assert arm_has_started("es-meddocan", "R", "sup-free") is True
+
+
+def test_an_arm_with_no_log_at_all_has_not_started(tmp_path, monkeypatch):
+    monkeypatch.setattr(human_arm, "ROOT", tmp_path)
+    assert arm_has_started("es-meddocan", "R", "sup-free") is False
+
+
+def test_the_guard_reads_the_log_and_not_the_freeze_record(tmp_path, monkeypatch):
+    """The property that makes it hold. A guard reading the freeze record is a guard
+    arguing with whoever just deleted it; the log is append-only and carries the evidence
+    in its own values, so `rm window_freeze.json` does not reach this."""
+    monkeypatch.setattr(human_arm, "ROOT", tmp_path)
+    freeze_window("es-meddocan", "R", "sup-free")
+    a_minute_was_spent()
+    human_arm.freeze_path("es-meddocan", "R", "sup-free").unlink()
+    assert arm_has_started("es-meddocan", "R", "sup-free") is True
+
+
+def test_another_arms_minutes_do_not_fix_this_arms_window(tmp_path, monkeypatch):
+    """The guard is per cell of the experiment. A shared reading would make the first
+    corpus to record a minute freeze every other arm's window."""
+    monkeypatch.setattr(human_arm, "ROOT", tmp_path)
+    freeze_window("es-meddocan", "R", "sup-free")
+    a_minute_was_spent("es-meddocan", "R", "sup-free")
+    assert arm_has_started("es-meddocan", "RT", "sup-free") is False
+    assert freeze_window("es-meddocan", "RT", "sup-free")["detector"] == "RT"
+
+
+def test_drift_on_a_deleted_record_after_minutes_says_restore(tmp_path, monkeypatch):
+    """`window_drift()` is the function an author actually runs, so it is where the
+    advice has to appear — and its old message told the reader to call freeze_window(),
+    which is now the one thing that must not be done."""
+    monkeypatch.setattr(human_arm, "ROOT", tmp_path)
+    freeze_window("es-meddocan", "R", "sup-free")
+    a_minute_was_spent()
+    human_arm.freeze_path("es-meddocan", "R", "sup-free").unlink()
+    with pytest.raises(PortHumanError) as e:
+        window_drift("es-meddocan", "R", "sup-free")
+    assert "restore it from git" in str(e.value)
+    assert "Do NOT call freeze_window()" in str(e.value)
+
+
+def test_a_blank_line_in_the_log_does_not_crash_the_guard(tmp_path, monkeypatch):
+    """The log is appended to by hand as well as by code, and a guard that raises on a
+    stray newline is a guard someone will route around."""
+    monkeypatch.setattr(human_arm, "ROOT", tmp_path)
+    freeze_window("es-meddocan", "R", "sup-free")
+    path = a_minute_was_spent()
+    with open(path, "a", encoding="utf-8") as fh:
+        fh.write("\n")
+    assert arm_has_started("es-meddocan", "R", "sup-free") is True
 
 
 def test_no_drift_on_a_freshly_frozen_window(tmp_path, monkeypatch):

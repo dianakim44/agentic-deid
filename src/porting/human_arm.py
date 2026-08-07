@@ -117,8 +117,41 @@ def freeze_path(corpus: str, detector: str, supervision: str) -> Path:
     return _arm_path(FREEZE_KEY, corpus, detector, supervision)
 
 
+def arm_has_started(corpus: str, detector: str, supervision: str) -> bool:
+    """Whether any human effort has been recorded for this arm on this corpus.
+
+    The criterion is a **non-null `human_minutes` on any log line**, which is the point
+    §11.1 names: before it, the window is a proposal and revising it costs nothing; after
+    it, a person has spent attention on a window, and no analysis re-runs that attention
+    under a different one.
+
+    Deliberately *not* "does the freeze record exist" and *not* "does the log exist". The
+    freeze record is a single file that can be deleted, so a guard reading it is a guard
+    that argues with whoever just removed it. The log is append-only and its lines carry
+    the evidence in their own values, so this survives the freeze record's deletion —
+    which is the hole this function exists to close.
+
+    A missing log means the arm has not started, since no line can have been written.
+    That is the honest reading and not an oversight: it is why the log's own directory
+    creation is the same `mkdir` the freeze uses, and why deleting the log is a far
+    louder act than deleting the freeze — the log is the arm's only record of what a
+    person did.
+    """
+    path = log_path(corpus, detector, supervision)
+    if not path.exists():
+        return False
+    with open(path, encoding="utf-8") as fh:
+        for line in fh:
+            line = line.strip()
+            if not line:
+                continue
+            if json.loads(line).get("human_minutes") is not None:
+                return True
+    return False
+
+
 def freeze_window(corpus: str, detector: str, supervision: str) -> dict:
-    """Record the frozen window. Refuses to overwrite an existing record.
+    """Record the frozen window. Refuses to overwrite, and refuses to re-create.
 
     DESIGN §11.1 freezes the prompt template and `config/sampling.yaml` before the arm
     starts on a corpus. Refusing rather than overwriting is the whole value of the file:
@@ -127,8 +160,43 @@ def freeze_window(corpus: str, detector: str, supervision: str) -> dict:
 
     Returns the record on the file — the existing one when there is one, so a caller
     that re-runs the setup step gets the opening window rather than today's.
+
+    **Two refusals, because the first one alone did not hold.** The `path.exists()`
+    branch below refuses to *overwrite*. It says nothing about a caller who deletes the
+    file first, and in this repository's own history that is exactly what happened: the
+    window was re-frozen three times before iteration 1 by `rm` followed by a second
+    call, each time reported honestly as "re-frozen" and each time entirely outside the
+    guard (see `docs/notes/window-freeze-history.md`). A refusal conditioned on the
+    presence of the thing being protected is not a refusal; it is a request addressed to
+    whoever is in a position to remove the evidence.
+
+    So the second refusal is conditioned on something the deletion cannot reach:
+    `arm_has_started()`, which reads the append-only log for a non-null `human_minutes`.
+    Before any minutes are recorded, re-freezing is permitted and the earlier record was
+    a proposal — §11.1 allows the revision precisely there. After the first minute, the
+    freeze cannot be changed by any path through this module, and the only way to change
+    the window is to start the arm over, which is §11.1's ordering cost paid rather than
+    avoided. Re-running with the same author is not a fresh trial (memory carry-over), so
+    "start over" means a different author or a different corpus, and that is the price.
     """
     path = freeze_path(corpus, detector, supervision)
+    if arm_has_started(corpus, detector, supervision):
+        existing = None
+        if path.exists():
+            with open(path, encoding="utf-8") as fh:
+                existing = json.load(fh)
+        raise PortHumanError(
+            f"{corpus}/{detector}/{supervision}: this arm has recorded human_minutes, "
+            "so its window is fixed and freeze_window() will not write one — "
+            + ("the record is present and unchanged." if existing else
+               "and the freeze record is MISSING, which means it was deleted after the "
+               "arm started; restore it from git rather than re-creating it, because a "
+               "re-created record would hash today's files and silently claim to be the "
+               "opening window.")
+            + " Changing the window now means re-running the arm from iteration 1 with a "
+            "different author (DESIGN §11.1: the same person re-porting the same corpus "
+            "is not a fresh trial). See docs/prompts/rule_author.md §7."
+        )
     if path.exists():
         with open(path, encoding="utf-8") as fh:
             return json.load(fh)
@@ -159,9 +227,17 @@ def window_drift(corpus: str, detector: str, supervision: str) -> list[str]:
     """
     path = freeze_path(corpus, detector, supervision)
     if not path.exists():
+        started = arm_has_started(corpus, detector, supervision)
         raise PortHumanError(
             f"{corpus}: no freeze record for this arm, so there is nothing to compare "
-            "against. freeze_window() runs before iteration 1 (DESIGN §11.1)."
+            "against. " + (
+                "This arm has recorded human_minutes, so the record existed and is now "
+                "gone — restore it from git. Do NOT call freeze_window() to make this "
+                "error go away: it would hash today's files and the result would claim "
+                "to be the opening window."
+                if started else
+                "freeze_window() runs before iteration 1 (DESIGN §11.1)."
+            )
         )
     with open(path, encoding="utf-8") as fh:
         frozen = json.load(fh)

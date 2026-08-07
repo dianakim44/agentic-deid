@@ -1499,6 +1499,23 @@ is the fixed point the lines are compared against, so `freeze_window()` returns 
 existing record rather than overwriting it — a freeze record that can be rewritten
 records the window a run *ended* with, which is the one thing nobody needs to know.
 
+**And the refusal is conditioned on the log, not on the record.** `freeze_window()`'s
+first version refused to write when the record existed, which is a refusal a `rm` steps
+around in one command — and did, three times before iteration 1 on `es-meddocan`
+(`docs/notes/window-freeze-history.md`). A guard conditioned on the presence of the thing
+it protects is a request addressed to whoever can remove the evidence. So the binding
+condition is `arm_has_started()`: a non-null `human_minutes` on any line of the
+append-only `human_log.jsonl`, which survives the record's deletion.
+
+That places the boundary exactly where §11.1 puts it. Before any minutes are recorded the
+window is a proposal and revising it is free, including after a deliberate delete. After
+the first minute a person has spent attention on a window, no analysis re-runs that
+attention under a different one, and `freeze_window()` raises on every path — if the
+record is missing it says *restore it from git* rather than writing, since a re-created
+record hashes today's files and then claims to be the opening window. The only remaining
+route to a different window is re-running the arm from iteration 1 with a different
+author, which is this section's ordering cost paid rather than avoided.
+
 `window_drift()` reports which of the two files no longer matches, and reports rather
 than raises. The honest response to drift is not always to stop: an edit to the prompt's
 prose that leaves §1.4's numbers alone is a different event from a change to `n`, and

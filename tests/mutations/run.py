@@ -952,6 +952,68 @@ MUTATIONS = [
         ),
         min_kills=1,
     ),
+    Mutation(
+        name="freeze_guard_only_checks_the_file",
+        path=HUMAN_ARM,
+        anchor="    if arm_has_started(corpus, detector, supervision):",
+        replacement="    if False:",
+        breaks=(
+            "Restores the hole this repository actually fell through, three times. What "
+            "remains is the `path.exists()` branch, which refuses to *overwrite* and has "
+            "nothing to say about `rm window_freeze.json` followed by a second call \u2014 "
+            "`exists()` is False after the rm, so the write branch runs, hashes today's "
+            "files, and reports a successful freeze. Nothing in the resulting file "
+            "distinguishes it from the original: it claims to be the opening window and "
+            "is not. A refusal conditioned on the presence of the thing being protected "
+            "is not a refusal but a request, addressed to whoever is in a position to "
+            "remove the evidence. See docs/notes/window-freeze-history.md."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="arm_started_reads_the_last_line_only",
+        path=HUMAN_ARM,
+        anchor=('    with open(path, encoding="utf-8") as fh:\n'
+                '        for line in fh:\n'
+                '            line = line.strip()\n'
+                '            if not line:\n'
+                '                continue\n'
+                '            if json.loads(line).get("human_minutes") is not None:\n'
+                '                return True\n'
+                '    return False'),
+        replacement=('    lines = [x for x in path.read_text(encoding="utf-8")'
+                     '.splitlines() if x.strip()]\n'
+                     '    if not lines:\n'
+                     '        return False\n'
+                     '    return json.loads(lines[-1]).get("human_minutes") is not None'),
+        breaks=(
+            "The guard reads only the final log line, so the window re-opens the moment "
+            "an event with a null `human_minutes` is appended \u2014 and appending a line "
+            "is the one thing this arm does constantly. A `read_sample` at the start of "
+            "iteration 7 would make the whole run's freeze writable again, after six "
+            "iterations of a person's attention. It looks like a cheap optimisation over "
+            "reading the file, agrees with the real implementation on any log whose last "
+            "line happens to carry minutes, and turns an append-only file's central "
+            "property \u2014 that the evidence stays in it \u2014 into a property of "
+            "whichever line came last."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="zero_minutes_read_as_not_started",
+        path=HUMAN_ARM,
+        anchor='            if json.loads(line).get("human_minutes") is not None:',
+        replacement='            if json.loads(line).get("human_minutes"):',
+        breaks=(
+            "`0` becomes indistinguishable from `null`. A logged zero is a recorded "
+            "measurement \u2014 `log_line()` validates the field to accept it precisely "
+            "because an event can take under a minute \u2014 and this reads it as "
+            "\"nothing happened\", leaving the freeze writable for an arm that has "
+            "recorded work. One character, and it agrees with the real implementation on "
+            "every log where nobody was quick."
+        ),
+        min_kills=1,
+    ),
 ]
 
 COUNT_RE = re.compile(r"(\d+) (passed|failed|error|errors)")

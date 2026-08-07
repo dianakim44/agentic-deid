@@ -513,6 +513,20 @@ span into a language model. That is a larger asymmetry than any row here — it 
 the two columns the same arm — so it is stated separately, as §8, and reported per
 iteration in `human_log.jsonl`'s `model_consulted`.
 
+**When the revision is permitted, and what enforces it.** The allowance above — before
+the arm starts on a corpus, or after it finishes on all of them — is now a condition in
+code rather than a rule the author applies to themselves. `freeze_window()` refuses to
+write once any `human_log.jsonl` line carries a non-null `human_minutes`, and it refuses
+whether or not the freeze record is still on disk, because its first version refused only
+to *overwrite* and a `rm` stepped around that three times before iteration 1 on
+`es-meddocan` (`docs/notes/window-freeze-history.md`). After the first recorded minute the
+only route to a different window is re-running the arm from iteration 1 with a different
+author — the paragraph above, with the cheap version removed.
+
+One ordering lesson from those three, since it costs nothing to follow: **freeze last.**
+Two of the three re-freezes were prose edits to sections written minutes earlier, and they
+happened because the freeze was taken while this file was still moving.
+
 **This section is the expensive half of DESIGN §11.1's ordering.** It is written out here,
 in the file the ordering constrains, because the cost is only payable in advance — by the
 time someone wants to widen the prompt mid-experiment, the alternatives are re-running a

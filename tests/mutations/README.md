@@ -19,7 +19,7 @@ is tested by `tests/test_mutation_harness.py`, which pytest does collect.
 
 Each one corresponds to a decision in DESIGN.md that a plausible "simplification"
 would silently undo. What they have in common is the property that makes them
-dangerous: **thirty-five of the forty-four change no total.** The corpus still loads,
+dangerous: **thirty-eight of the forty-seven change no total.** The corpus still loads,
 the document count is still 750, the span count is still 17,134 — and every
 downstream number is wrong. Those are the errors a reviewer cannot catch and an
 aggregate cannot reveal, which is why they get a harness rather than trust.
@@ -213,7 +213,7 @@ Counts are the number of tests that fail or error, from
 `tests/test_meddocan_loader.py`, `tests/test_split_file.py`, `tests/test_seal.py`,
 `tests/test_release_screen.py`, `tests/test_layer_families.py`,
 `tests/test_scorer.py`, `tests/test_sample.py`, `tests/test_human_arm.py` and
-`tests/test_show_human_window.py` (402 tests). Errors
+`tests/test_show_human_window.py` (413 tests). Errors
 count as kills: a mutation that breaks the module-scoped fixture takes whole tests
 out, and those are caught, not uncounted.
 
@@ -333,6 +333,9 @@ no enforcement but a field in a log.
 | `self_report_defaults_to_none` | `model_consulted` acquires a default of `"none"` | every caller keeps working and every line says no model was consulted — recording that nobody was *asked*, not that nobody consulted a model. A default on this parameter is a default for `rule_author.md` §8 | **1** |
 | `self_report_refuses_the_violation` | `log_line()` raises on `model_consulted="rule_content"` | looks like enforcement, removes the report. §8 binds a person and cannot be enforced by code; all a refusal deletes is the record, after which every log attests to a clean run by construction | **3** |
 | `rendered_window_may_be_redirected` | `show_human_window.py`'s `stdout.isatty()` check becomes `if False` | `> window.txt` succeeds and a DUA corpus's ±120-character contexts are on disk — the file §6 says must not exist. The author sees the same window, the script exits 0, and the leak is a file nobody opens again | **2** |
+| `freeze_guard_only_checks_the_file` | the `arm_has_started()` condition in `freeze_window()` becomes `if False` | restores the hole this repository fell through three times: `rm window_freeze.json` then re-freeze, which `path.exists()` cannot see. The new record hashes today's files and claims to be the opening window | **4** |
+| `arm_started_reads_the_last_line_only` | `arm_has_started()` inspects the final log line instead of every line | appending any null-minutes event re-opens the freeze, and appending is what this arm does constantly. A `read_sample` at iteration 7 makes six iterations of attention re-writable | **1** |
+| `zero_minutes_read_as_not_started` | `is not None` becomes a truthiness test | a logged `human_minutes: 0` reads as "nothing happened", though `log_line()` validates the field to accept 0 because an event can take under a minute | **1** |
 
 `initial_pool_excludes_train_instead_of_selecting_dev` is the one to read twice. The two
 filters are the same length, the same shape, and equivalent on any corpus with two
@@ -401,6 +404,36 @@ that turns "this did not happen" and "this could not be recorded" into the same 
 — and it is why §8.2 states that `rule_content` is a value the field can hold rather
 than an error the harness refuses.
 
+**The freeze trio is the one place in this table where a mutation restores a defect
+that shipped and was documented as prevented.** `freeze_window()`'s docstring said it
+"refuses to overwrite an existing record", the reasoning in that docstring was correct,
+and the implementation checked `freeze_path().exists()` — which a preceding `rm` makes
+`False`. The window was re-frozen three times before iteration 1 by exactly that
+sequence, each time reported honestly as a re-freeze and each time entirely outside the
+guard. `docs/notes/window-freeze-history.md` records the three values and the fact that
+no rule and no `human_minutes` existed at any of them, which is why the arm survives.
+
+`freeze_guard_only_checks_the_file` restores it, and the general form is worth having in
+this file: **a refusal conditioned on the presence of the thing being protected is not a
+refusal.** It is a request addressed to whoever is in a position to remove the evidence.
+The fix is that the second condition reads the *append-only log* — a non-null
+`human_minutes` on any line — which `rm window_freeze.json` cannot reach. That is also
+what makes the mutation catchable: four tests fail, where the original guard had no test
+that deleted anything.
+
+`arm_started_reads_the_last_line_only` is the subtler one and it is the reason the guard
+loops rather than tailing. Reading the final line looks like a cheap optimisation, agrees
+with the real implementation whenever the last line happens to carry minutes, and quietly
+makes an append-only file's central property — that the evidence stays in it — into a
+property of whichever line came last. Since this arm appends constantly, a `read_sample`
+event at the start of iteration 7 would re-open a freeze that six iterations of a person's
+attention had fixed.
+
+`zero_minutes_read_as_not_started` is one character. `log_line()` accepts
+`human_minutes: 0` deliberately, because an event can take under a minute, so a
+truthiness test throws away the distinction between a measurement of zero and the absence
+of a measurement — in the direction that leaves the freeze writable.
+
 `rendered_window_may_be_redirected` is on the hand-off script rather than the module,
 and it is the only mutation here whose consequence is a **file that should not exist**
 rather than a wrong number. `tools/show_human_window.py` is the one place in this
@@ -417,7 +450,7 @@ the text was in memory would be one exception away from having rendered it, and 
 that catches this mutation is deliberately not marked as needing the corpus for the same
 reason.
 
-The first five are each caught by exactly one test, which is the honest number and a thin
+Five of these are caught by exactly one test, which is the honest number and a thin
 one; they are listed at 1 rather than padded.
 
 ## What the seal cost, and what carries the difference
@@ -477,7 +510,7 @@ applies to the code. Two safeguards follow from that:
   Three checks, described in the next section. Skipping them lets the harness count
   its own breakage as a kill.
 
-The maintenance cost is real but bounded: forty-four anchors, each a line or two,
+The maintenance cost is real but bounded: forty-seven anchors, each a line or two,
 and a refactor that breaks one gets a `STALE` message naming the file. That is
 cheaper than the failure mode it prevents.
 
@@ -540,6 +573,36 @@ The general form, worth checking against any future addition here: **anything th
 counts failures as evidence must first establish that the thing failed for the reason
 claimed.** A skip is not a pass, a collection error is not a kill, and a syntax error
 is not thirty-seven tests agreeing with you.
+
+### The fourth of the family: a guard whose precondition the operator controlled
+
+`freeze_window()` was documented as refusing to overwrite an existing freeze record, and
+it did — by checking `freeze_path().exists()`. The window was then re-frozen three times
+before iteration 1 by `rm` followed by a second call, which that condition cannot see.
+Full history in `docs/notes/window-freeze-history.md`; what belongs here is the shape.
+
+`exists()` could not distinguish **no freeze has been taken yet** from **the freeze was
+deleted a second ago**, and both readings produce the same cheerful successful write. That
+is this family's signature: a mechanism resolves an ambiguity it cannot see, in the
+reassuring direction, and reports something that looks better than the truth — a skip as a
+pass, a collection error as thirty-seven kills, a rule-violating sample as well-formed, a
+re-created record as the opening window.
+
+Two things distinguish it from the other three. First, **the docstring's reasoning was
+right and its conclusion was false.** It argued correctly that a rewritable freeze record
+answers the wrong question, then implemented a check that a rewrite steps around in one
+command. Correct reasoning attached to an insufficient mechanism reads exactly like
+correct reasoning attached to a sufficient one, and the prose was what got reviewed.
+Second, **nothing was being circumvented.** Each `rm` was deliberate, reported in a commit
+message, and genuinely permitted by `rule_author.md` §7's pre-start allowance. The defect
+is that the code's only enforcement was a condition the operator controlled, so every
+re-freeze's correctness rested on the operator's judgement about whether §7 applied —
+which is precisely what the record existed to take out of the operator's hands.
+
+The fix is a second condition on something the deletion cannot reach: a non-null
+`human_minutes` on any line of the append-only log. Generalising, for the next addition to
+this file: **a guard must not be conditioned on the artifact it protects.** Ask something
+that survives the artifact's removal, or the guard is a request.
 
 ### The same defect again, in a new file, caught the same way
 
