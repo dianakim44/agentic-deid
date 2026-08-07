@@ -748,8 +748,10 @@ MUTATIONS = [
     Mutation(
         name="sample_pool_not_sorted",
         path=SAMPLE,
-        anchor="    pool = sorted(set(errors), key=lambda e: e.key)",
-        replacement="    pool = list(dict.fromkeys(errors))",
+        anchor=("    pool = sorted((e for e in set(errors) if e.phi_type not in "
+                "blocked),\n                  key=lambda e: e.key)"),
+        replacement=("    pool = [e for e in dict.fromkeys(errors) "
+                     "if e.phi_type not in blocked]"),
         breaks=(
             "The error pool keeps the caller's iteration order instead of a canonical "
             "one. The seed still pins which indices are drawn, so the sample is "
@@ -761,6 +763,27 @@ MUTATIONS = [
         ),
         min_kills=1,
     ),
+    Mutation(
+        name="non_target_types_from_hardcoded_set",
+        path=SAMPLE,
+        anchor=('    return frozenset(\n'
+                '        name for name, gloss in axis("phi_type").items()\n'
+                '        if isinstance(gloss, str) and "not a rule-development target" '
+                'in gloss)'),
+        replacement="    return frozenset()",
+        breaks=(
+            "Nothing is excluded from the draw, so `OTHER` takes a slot in the window. "
+            "With `min_per_type: 1` that is not an occasional accident but one slot in "
+            "every iteration of every arm, handed to a type naming.yaml declares is not "
+            "a rule-development target and rule_author.md Prohibition 4 forbids writing "
+            "a rule for. The sample still holds n spans with every type represented, so "
+            "it looks well-formed; the cost is a permanently wasted slot and an author "
+            "invited to break a prohibition. This is the defect that was found by "
+            "reading the iteration-1 distribution rather than by any test."
+        ),
+        min_kills=1,
+    ),
+
 ]
 
 COUNT_RE = re.compile(r"(\d+) (passed|failed|error|errors)")

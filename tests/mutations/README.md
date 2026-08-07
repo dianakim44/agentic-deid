@@ -19,7 +19,7 @@ is tested by `tests/test_mutation_harness.py`, which pytest does collect.
 
 Each one corresponds to a decision in DESIGN.md that a plausible "simplification"
 would silently undo. What they have in common is the property that makes them
-dangerous: **twenty-five of the thirty-four change no total.** The corpus still loads,
+dangerous: **twenty-six of the thirty-five change no total.** The corpus still loads,
 the document count is still 750, the span count is still 17,134 — and every
 downstream number is wrong. Those are the errors a reviewer cannot catch and an
 aggregate cannot reveal, which is why they get a harness rather than trust.
@@ -212,7 +212,7 @@ shrinks its rule set and nobody can say why.
 Counts are the number of tests that fail or error, from
 `tests/test_meddocan_loader.py`, `tests/test_split_file.py`, `tests/test_seal.py`,
 `tests/test_release_screen.py`, `tests/test_layer_families.py` and
-`tests/test_scorer.py` and `tests/test_sample.py` (329 tests). Errors
+`tests/test_scorer.py` and `tests/test_sample.py` (336 tests). Errors
 count as kills: a mutation that breaks the module-scoped fixture takes whole tests
 out, and those are caught, not uncounted.
 
@@ -250,10 +250,11 @@ two.
 |---|---|---|---|
 | `sample_seed_from_process_hash` | `sample_seed()` returns `abs(hash(material))` instead of SHA-256 | Python salts string hashing per process, so the seed is stable within a run and different in the next. The recorded seed documents a draw nobody can repeat | **2** |
 | `sample_pool_not_sorted` | the error pool keeps the caller's iteration order instead of `sorted(..., key=e.key)` | the seed pins which *indices* are drawn and the caller's ordering pins which spans those indices hit — reproducible from the log, different in fact | **2** |
+| `non_target_types_from_hardcoded_set` | `non_target_types()` returns an empty set instead of reading naming.yaml's gloss | `OTHER` takes a slot, and with `min_per_type: 1` it takes one in *every* iteration of *every* arm — a permanent slot handed to a type Prohibition 4 forbids writing a rule for | **4** |
 
-Both are in the same class and it is a class this table has met before: a wrong number
-in the flattering direction with no symptom. What is new is *where* the symptom is
-absent. These two are invisible to the obvious test.
+All three are in the same class and it is a class this table has met before: a wrong
+number in the flattering direction with no symptom. What is new is *where* the symptom
+is absent. The first two are invisible to the obvious test.
 
 `sample_seed_from_process_hash` passes every in-process check of determinism. Call the
 function twice: equal. Call it after `random.seed(999)`: equal. Compare two arms at one
@@ -279,8 +280,20 @@ errors, or upgrading Python reshuffles the sample while every recorded quantity 
 identical. Reproducible in the log and different in fact is a worse position than
 plainly irreproducible, since the log invites the reader to trust it.
 
-Neither mutation touches sample size, type coverage, or stratification, so the sample
-still looks entirely correct: 40 spans, every type present, the sparse type included.
+Neither of those two touches sample size, type coverage, or stratification, so the
+sample still looks entirely correct: 40 spans, every type present, the sparse type
+included.
+
+`non_target_types_from_hardcoded_set` is here because the defect it restores was real.
+The first iteration-1 draw on `es-meddocan` spent 1 of its 40 slots on `OTHER`, and the
+distribution it produced was well-formed by every property the other tests check — 40
+spans, ten types, the sparse `PROFESSION` present. It was found by reading the
+distribution, not by a test, which is the argument for the row: the guarantee is now
+stated in naming.yaml's gloss, read from there by `non_target_types()`, and checked by
+four tests rather than by whoever next looks at a sample. Its cost is small per
+iteration and it does not decay — `min_per_type` guarantees the slot, so it is one
+wasted slot in every window of the experiment, and the author who acts on it anyway is
+breaking a prohibition the sample itself put in front of them.
 
 ## What the seal cost, and what carries the difference
 
@@ -339,7 +352,7 @@ applies to the code. Two safeguards follow from that:
   Three checks, described in the next section. Skipping them lets the harness count
   its own breakage as a kill.
 
-The maintenance cost is real but bounded: thirty-four anchors, each a line or two,
+The maintenance cost is real but bounded: thirty-five anchors, each a line or two,
 and a refactor that breaks one gets a `STALE` message naming the file. That is
 cheaper than the failure mode it prevents.
 

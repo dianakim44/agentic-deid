@@ -25,7 +25,8 @@ sys.path.insert(0, str(ROOT))
 
 from src.sample import (                                        # noqa: E402
     ERROR_KINDS, FALSE_POSITIVE, MISSED, ErrorSpan, SamplingError, _allocate,
-    config, draw, file_hash, prompt_hash, provenance, sample_seed, window_hashes,
+    config, draw, file_hash, non_target_types, prompt_hash, provenance,
+    sample_seed, window_hashes,
 )
 
 
@@ -305,6 +306,37 @@ def test_allocation_ignores_types_with_no_errors():
 
 def test_allocation_of_nothing_is_nothing():
     assert _allocate({}, 40, 1) == {}
+
+
+# ─── types no rule may target are not sampled ──────────────────────────────
+
+def test_other_is_a_non_target_type():
+    """Read from naming.yaml's own gloss, not hardcoded here or in sample.py."""
+    assert non_target_types() == frozenset({"OTHER"})
+
+
+def test_a_non_target_type_is_never_drawn():
+    """Prohibition 4 forbids a rule for OTHER, so a slot spent on it is wasted."""
+    errors = pool(30, "NAME") + [err("d9", i, "OTHER", start=900 + i * 10)
+                                 for i in range(20)]
+    for i in range(1, 8):
+        sample = draw(errors, "es-meddocan", i, n=20)
+        assert all(e.phi_type != "OTHER" for e in sample), i
+
+
+def test_min_per_type_does_not_smuggle_a_non_target_type():
+    """The interaction that makes this load-bearing: min_per_type guarantees one of
+    every type with any error, so without the filter OTHER would appear in the window
+    of every iteration of every arm."""
+    errors = pool(30, "NAME") + [err("d9", 0, "OTHER", start=900)]
+    sample = draw(errors, "es-meddocan", 1, n=40)
+    assert len(sample) == 30
+    assert all(e.phi_type != "OTHER" for e in sample)
+
+
+def test_a_pool_of_only_non_target_types_yields_nothing():
+    errors = [err("d9", i, "OTHER", start=900 + i * 10) for i in range(5)]
+    assert draw(errors, "es-meddocan", 1, n=40) == []
 
 
 # ─── the span reference carries no text ─────────────────────────────────────

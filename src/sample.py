@@ -37,7 +37,7 @@ from typing import Iterable
 
 import yaml
 
-from .corpora.base import ROOT, CorpusError, canonical_types, corpus_ids
+from .corpora.base import ROOT, CorpusError, axis, canonical_types, corpus_ids
 
 CONFIG = ROOT / "config" / "sampling.yaml"
 
@@ -227,6 +227,31 @@ def _allocate(counts: dict[str, int], n: int, min_per_type: int) -> dict[str, in
     return {t: q for t, q in quota.items() if q > 0}
 
 
+@lru_cache(maxsize=1)
+def non_target_types() -> frozenset[str]:
+    """Types no rule may target, read from `naming.yaml`'s own gloss.
+
+    `OTHER` is declared there as "residual bucket shipped by a corpus; not a
+    rule-development target", and `docs/prompts/rule_author.md` Prohibition 4 forbids
+    writing a rule for it. A sample slot spent on such a type is a slot the author is
+    forbidden to act on — with `min_per_type` guaranteeing one, `OTHER` would appear in
+    every single iteration of every arm.
+
+    Detected from the gloss rather than hardcoded as `{"OTHER"}`, because the
+    prohibition is a fact naming.yaml already states and a second copy in Python is a
+    second thing to keep in sync. A corpus that ships another residual bucket declares
+    it the same way and is excluded without an edit here.
+
+    This filters the *sample*, not the scoring: DESIGN §9.4 keeps every type in the
+    leak-rate denominator, and a type nobody may write a rule for still counts against
+    the arm. Excluding it from the window and excluding it from the metrics would be
+    two very different claims.
+    """
+    return frozenset(
+        name for name, gloss in axis("phi_type").items()
+        if isinstance(gloss, str) and "not a rule-development target" in gloss)
+
+
 def draw(errors: Iterable[ErrorSpan], corpus: str, iteration: int,
          *, n: int | None = None) -> list[ErrorSpan]:
     """The `n` error spans shown at `iteration`. Stratified by `phi_type`, seeded.
@@ -241,13 +266,18 @@ def draw(errors: Iterable[ErrorSpan], corpus: str, iteration: int,
     agent's window is 0 on a corpus (rule_author.md §1.4); it is not a knob for a
     caller that wants a bigger sample, and the value used is recorded with the run.
 
-    Returns fewer than `n` only when there are fewer errors than that.
+    Errors on a non-rule-development type are dropped before drawing
+    (`non_target_types()`), so `n` slots all go to types a rule may target.
+
+    Returns fewer than `n` only when there are fewer eligible errors than that.
     """
     if n is None:
         n = config()["n_error_spans"]
     if n < 0:
         raise SamplingError(f"n must be non-negative, got {n}")
-    pool = sorted(set(errors), key=lambda e: e.key)
+    blocked = non_target_types()
+    pool = sorted((e for e in set(errors) if e.phi_type not in blocked),
+                  key=lambda e: e.key)
     if not pool or n == 0:
         return []
 
