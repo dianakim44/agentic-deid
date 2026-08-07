@@ -162,7 +162,7 @@ is a `missed` error by construction (`initial_error_pool()`).
 
 | file | sha256 |
 |---|---|
-| `docs/prompts/rule_author.md` | `53319281f8adc87480ac7b21af276d7d1a3906edfaa6cd88d1167e90d18931d9` |
+| `docs/prompts/rule_author.md` | `493effc2b9fc0747f7b586601a57b48a11623367b0d5d7435a291c0aa7b11c77` |
 | `config/sampling.yaml` | `fbfbbe107e2edfa0e9330fca9b8d4c79db48501a85cacd85d58d71a50216e926` |
 
 Both hashes are also on every `human_log.jsonl` line. That is not redundancy: the
@@ -241,7 +241,7 @@ Written to confirm the format before any rule work, with every judgement field
 {"iteration": 1, "event": "read_sample", "human_minutes": null, "decision": null,
  "predicted_scope": null, "actually_reused": null, "evidence": null,
  "model_consulted": "none", "rules_commit": null,
- "prompt_sha256": "sha256:53319281...", "sampling_sha256": "sha256:fbfbbe10..."}
+ "prompt_sha256": "sha256:493effc2...", "sampling_sha256": "sha256:fbfbbe10..."}
 ```
 
 (Line-wrapped here; it is one line in the file, and the hashes are full-length.)
@@ -255,7 +255,7 @@ field whose clause has no other enforcement.
 ### The window was re-frozen before any rule work, and why that is allowed
 
 Adding §8 to `rule_author.md` moved `prompt_sha256` from `5f72f769...` to
-`53319281...`, and `window_drift()` reported it, which is the mechanism working. §7 of
+`493effc2...`, and `window_drift()` reported it, which is the mechanism working. §7 of
 that prompt permits a revision **before the arm starts on a corpus** or after it
 finishes on all of them, and this is the first case: `rules/es.yaml` does not exist, no
 `human_minutes` has been recorded, and the single log line had every judgement field
@@ -286,3 +286,80 @@ They are now in `config/sampling.yaml` and DESIGN §11.1, and both are hashed in
 the freeze record, so changing them from here invalidates this arm's run rather
 than merely adjusting it. That is the intended cost; it is not an argument that the
 values are right.
+
+---
+
+## Session 3 — §8 added, window re-frozen, iteration 1 handed to the author
+
+Commit at start: `173935a`. Two commits: `6db3bfe` (the non-target filter pinned by
+test and mutation) and `aa3b066` (§8).
+
+### The clause
+
+`rule_author.md` §8 forbids obtaining rule *content* from a language model during a
+`port-human` iteration. The line drawn in §8.1: a model may be asked about the language
+it is written in, not about the corpus or the errors — equivalently, could the question
+have been asked word for word before any corpus was loaded? Thirteen boundary cases are
+tabulated there, including the two that took the most thought:
+
+- *"For Spanish clinical notes generally, is a `Dr.` prefix cue a good approach?"* —
+  **forbidden**, though it carries no corpus text and no privacy rule touches it. It is
+  a rule design decision, and it is being asked because of spans in front of the author.
+- *"Which `phi_type` has the worst leak rate?"* — **allowed**, because it is arithmetic
+  over a committed file and a person with a calculator gets the same answer. *"Which
+  should I work on next?"* is not, because it is not determined by the data.
+
+Borderline cases resolve against the author: an unasked question costs minutes, an asked
+one costs the experiment its control and no later analysis repairs it.
+
+### What is enforceable, and what is not
+
+§8 binds a person, and nothing in a rule file distinguishes a pattern its author designed
+from one they transcribed. So the implementable part is a report, not a gate:
+`model_consulted` on every `human_log.jsonl` line, from a new naming.yaml axis, four
+values (`none` / `mechanical` / `notation` / `rule_content`), positional with no default.
+
+Two decisions worth their own line. **Four values rather than a boolean**, because an
+author who used a model to render the sample answers a boolean `false` honestly — §8.1
+allows it — and the field would stop distinguishing the case it exists for. **And
+`rule_content` is accepted rather than refused**: a self-report that rejects the answer
+it exists to capture collects only the other answers, and the arm's integrity would then
+be attested by a file that could not have recorded its absence. Both failure modes are
+now mutations, and `self_report_refuses_the_violation` is the one to read — it *reads as
+a fix*, and it is the loader-fixture `skip` in a new place.
+
+The honest limit: this is a self-report by the person whose arm it reflects on, it cannot
+detect a violation its author declines to write down, and it will not be presented in the
+paper as though it could.
+
+### The window was re-frozen twice, and the second time was avoidable
+
+Editing §8 into the prompt moved `prompt_sha256`, `window_drift()` reported it, and §7
+permits the revision because the arm had not started — `rules/es.yaml` does not exist and
+the single log line had every judgement field `null`. Fine. But it happened *twice*,
+because a later prose edit to §8.1 moved the hash again after the first re-freeze. No harm
+in this instance and it is recorded rather than tidied away, because the lesson is about
+ordering: freeze last, after the prompt has stopped moving. Once an author has spent
+minutes on a window, this stops being free.
+
+The sample did not change either time. `sample_seed()` reads `config/sampling.yaml`, whose
+hash never moved; the prompt file specifies what the draw is *for* and is not an input to
+it.
+
+### The hand-off
+
+`tools/show_human_window.py` prints the window and **refuses a pipe or a redirect**. The
+rendered ±120-character contexts are the one thing in this arm that must exist only in
+transit (§6), and `> window.txt` is precisely the accident that leaves a DUA corpus's text
+on disk. The check runs before the corpus is loaded, so a check-after-render cannot be one
+exception away from having rendered it, and `rendered_window_may_be_redirected` is the
+mutation that pins it.
+
+Two consequences of that design worth stating: the window is **not in this note, this
+repository, or any conversation** — it exists in the author's terminal and nowhere else;
+and the script **writes no log line**, because `human_minutes` is the author's to report
+and a script logging every invocation would turn "how many times did the author look" into
+a count of terminal commands.
+
+Iteration 1 is now the author's. The pool is 5,254 in-scope dev gold spans across 250
+documents, 40 drawn, distribution as in Session 2 (unchanged), all `missed`.

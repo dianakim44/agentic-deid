@@ -19,7 +19,7 @@ is tested by `tests/test_mutation_harness.py`, which pytest does collect.
 
 Each one corresponds to a decision in DESIGN.md that a plausible "simplification"
 would silently undo. What they have in common is the property that makes them
-dangerous: **thirty-four of the forty-three change no total.** The corpus still loads,
+dangerous: **thirty-five of the forty-four change no total.** The corpus still loads,
 the document count is still 750, the span count is still 17,134 — and every
 downstream number is wrong. Those are the errors a reviewer cannot catch and an
 aggregate cannot reveal, which is why they get a harness rather than trust.
@@ -34,12 +34,12 @@ fact, so a harness is the only place the guarantee can live.
 
 | mutation | changes | breaks | tests that catch it |
 |---|---|---|---|
-| `utf8_sig` | `meddocan.py` reads the text with `encoding="utf-8-sig"` | BOM removed at decode time, so `strip_bom` finds nothing and applies no shift; all 761 spans in the 32 BOM files are off by one. DESIGN §9.7 | **23** |
-| `no_bom_shift` | offsets are not decremented by the BOM length | same one-character error, reached from the other direction | **23** |
+| `utf8_sig` | `meddocan.py` reads the text with `encoding="utf-8-sig"` | BOM removed at decode time, so `strip_bom` finds nothing and applies no shift; all 761 spans in the 32 BOM files are off by one. DESIGN §9.7 | **35** |
+| `no_bom_shift` | offsets are not decremented by the BOM length | same one-character error, reached from the other direction | **35** |
 | `assert_offsets_noop` | `Document.assert_offsets` returns immediately | the §9.7 assertion stops asserting; counts are unaffected, so only tests that slice spans themselves can notice | **3** |
 | `drop_excluded` | `load()` filters out `excluded` spans | §9.1 spans discarded instead of flagged; the canonical count stays a correct 20,538 while the reported exclusion volume becomes unmeasurable | **11** |
 | `familiares_as_other` | `FAMILIARES_SUJETO_ASISTENCIA` moves from `EXCLUDED_TYPES` into `TYPE_MAP` as `OTHER` | an excluded type is scored; every span still loads and the total still reconciles to 22,795, so the corruption is entirely in *which* spans count | **7** |
-| `type_in_both_lists` | the same type is added to `TYPE_MAP` while left in `EXCLUDED_TYPES` | `_check_type_map` must reject it at construction. See "What this found", below | **28** |
+| `type_in_both_lists` | the same type is added to `TYPE_MAP` while left in `EXCLUDED_TYPES` | `_check_type_map` must reject it at construction. See "What this found", below | **43** |
 | `missing_test_fold` | `SPLIT_DIRS` loses its `test` entry | before the seal: 750 documents loaded instead of 1,000. Now 750 is correct, so what remains visible is that an *authorised* sealed read would return no sealed documents while the log records a completed evaluation | **1** |
 | `bucket_unknown_types` | `classify()` returns `("OTHER", False)` instead of raising | an unmapped type is scored as a residual bucket. Invisible on today's corpus and waiting for the day a re-release adds a type | **1** |
 
@@ -73,7 +73,7 @@ listed together because neither guard is sufficient alone:
 | `log_append_disabled` | the `record_access` call is wrapped in `except Exception: pass` | an evaluation proceeds unlogged. The numbers are real and the log says the test fold was never opened. **The caller check survives**, so this needs the allowed script — the counterpart of the mutation above, and the one that leaves nothing behind | **2** |
 | `sealed_flag_not_cleared` | `_sealed_ok` is not reset after the read | one authorised evaluation leaves that loader object permanently able to reach the sealed fold; every later ordinary `load()` silently includes 250 test documents, with no second log row | **1** |
 | `sealed_root_falls_back_to_corpus` | an absent `sealed:` entry resolves to the corpus root | a "sealed evaluation" reads unsealed data and logs itself as a test run. Worse than a refusal: the row is indistinguishable from a real evaluation, so the reported count becomes wrong in the flattering direction | **1** |
-| `unsealed_load_filters_instead_of_not_reaching` | `fold_roots()` hands out the sealed path unconditionally | the sealed fold is read and then discarded downstream. Every count still comes out right; the test fold's text has been read on every ordinary load, unlogged. Defends the distinction that the seal is a path that is not known, not a filter that is applied | **37** |
+| `unsealed_load_filters_instead_of_not_reaching` | `fold_roots()` hands out the sealed path unconditionally | the sealed fold is read and then discarded downstream. Every count still comes out right; the test fold's text has been read on every ordinary load, unlogged. Defends the distinction that the seal is a path that is not known, not a filter that is applied | **38** |
 
 ## The release screener mutations
 
@@ -212,8 +212,8 @@ shrinks its rule set and nobody can say why.
 Counts are the number of tests that fail or error, from
 `tests/test_meddocan_loader.py`, `tests/test_split_file.py`, `tests/test_seal.py`,
 `tests/test_release_screen.py`, `tests/test_layer_families.py`,
-`tests/test_scorer.py`, `tests/test_sample.py` and `tests/test_human_arm.py`
-(396 tests). Errors
+`tests/test_scorer.py`, `tests/test_sample.py`, `tests/test_human_arm.py` and
+`tests/test_show_human_window.py` (402 tests). Errors
 count as kills: a mutation that breaks the module-scoped fixture takes whole tests
 out, and those are caught, not uncounted.
 
@@ -332,6 +332,7 @@ no enforcement but a field in a log.
 | `human_log_allowed_under_any_arm` | the screener's allowed path for `human_log.jsonl` takes `[^/]+` for the porting component instead of the literal `port-human` | a log under any other arm is counted as reviewed, and nothing writes one there — its presence is the signal, and the wildcard is what hides it | **1** |
 | `self_report_defaults_to_none` | `model_consulted` acquires a default of `"none"` | every caller keeps working and every line says no model was consulted — recording that nobody was *asked*, not that nobody consulted a model. A default on this parameter is a default for `rule_author.md` §8 | **1** |
 | `self_report_refuses_the_violation` | `log_line()` raises on `model_consulted="rule_content"` | looks like enforcement, removes the report. §8 binds a person and cannot be enforced by code; all a refusal deletes is the record, after which every log attests to a clean run by construction | **3** |
+| `rendered_window_may_be_redirected` | `show_human_window.py`'s `stdout.isatty()` check becomes `if False` | `> window.txt` succeeds and a DUA corpus's ±120-character contexts are on disk — the file §6 says must not exist. The author sees the same window, the script exits 0, and the leak is a file nobody opens again | **2** |
 
 `initial_pool_excludes_train_instead_of_selecting_dev` is the one to read twice. The two
 filters are the same length, the same shape, and equivalent on any corpus with two
@@ -400,6 +401,22 @@ that turns "this did not happen" and "this could not be recorded" into the same 
 — and it is why §8.2 states that `rule_content` is a value the field can hold rather
 than an error the harness refuses.
 
+`rendered_window_may_be_redirected` is on the hand-off script rather than the module,
+and it is the only mutation here whose consequence is a **file that should not exist**
+rather than a wrong number. `tools/show_human_window.py` is the one place in this
+repository that puts corpus text on a screen, so its guarantee is about where the text
+may not go: not to disk, not through a pipe, not into a transcript. Removing the check
+leaves every visible thing identical — same window, same exit code — and differs only in
+that `window.txt` is now sitting in the working tree. `release_screen.py` would have to
+catch it by content sniff at commit time, which is the layer this check exists so as not
+to depend on, and a scrollback capture or a terminal log is outside the screener
+altogether.
+
+Worth noting where the check sits: before the corpus is loaded. A refusal that ran after
+the text was in memory would be one exception away from having rendered it, and the test
+that catches this mutation is deliberately not marked as needing the corpus for the same
+reason.
+
 The first five are each caught by exactly one test, which is the honest number and a thin
 one; they are listed at 1 rather than padded.
 
@@ -460,7 +477,7 @@ applies to the code. Two safeguards follow from that:
   Three checks, described in the next section. Skipping them lets the harness count
   its own breakage as a kill.
 
-The maintenance cost is real but bounded: forty-three anchors, each a line or two,
+The maintenance cost is real but bounded: forty-four anchors, each a line or two,
 and a refactor that breaks one gets a `STALE` message naming the file. That is
 cheaper than the failure mode it prevents.
 
@@ -523,6 +540,29 @@ The general form, worth checking against any future addition here: **anything th
 counts failures as evidence must first establish that the thing failed for the reason
 claimed.** A skip is not a pass, a collection error is not a kill, and a syntax error
 is not thirty-seven tests agreeing with you.
+
+### The same defect again, in a new file, caught the same way
+
+Recorded because it happened *after* the incident below was written up, in a test file
+added the same day, by someone who had just finished writing about it.
+
+`tests/test_show_human_window.py` needs to skip when the corpus is absent from a machine,
+so it had a helper that called `load(CORPUS)` inside `except CorpusError: return False`.
+That is the loader fixture's original defect verbatim: any loader bug becomes "the corpus
+is not on this machine", the tests skip, and the suite is green. Four loader mutations —
+`utf8_sig`, `no_bom_shift`, `type_in_both_lists`,
+`unsealed_load_filters_instead_of_not_reaching` — came back **BROKEN**, not caught, with
+the harness reporting *the suite reported on 399 tests, baseline 402*. The skip changed
+how many tests existed, so no kill count from those runs meant anything.
+
+Two things are worth taking from it. The first is that the harness's total-count guard is
+what noticed, and that guard exists only because of the earlier incident — the check
+added after a mistake caught the same mistake in a place nobody was watching. The second
+is less comfortable: knowing about a failure mode in detail is not the same as not
+committing it. The fix is the same as the fixture's, for the same reason — ask
+`corpus_root()`, which answers only the availability question — and the kill counts for
+two of those mutations went *up* afterwards (35 and 43), because tests that had been
+skipping now fail on a broken loader.
 
 ### The third of the family: a sample that satisfied every property and broke a rule
 

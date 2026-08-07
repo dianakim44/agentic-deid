@@ -43,6 +43,7 @@ TEST_FILES = [
     "tests/test_scorer.py",
     "tests/test_sample.py",
     "tests/test_human_arm.py",
+    "tests/test_show_human_window.py",
 ]
 
 #: Repository directories the loader tests need. `splits/` is here because the
@@ -163,6 +164,7 @@ SCREEN = "tools/release_screen.py"
 SCORER = "src/eval/scorer.py"
 SAMPLE = "src/sample.py"
 HUMAN_ARM = "src/porting/human_arm.py"
+SHOW_WINDOW = "tools/show_human_window.py"
 
 MUTATIONS = [
     Mutation(
@@ -927,6 +929,26 @@ MUTATIONS = [
             "documented by a file that could not have recorded its absence. Nothing "
             "in the output looks wrong, which is the same shape as the loader fixture's "
             "skip."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="rendered_window_may_be_redirected",
+        path=SHOW_WINDOW,
+        anchor="    if not args.counts_only and not sys.stdout.isatty():",
+        replacement="    if False:",
+        breaks=(
+            "`python tools/show_human_window.py --corpus es-carmen > window.txt` "
+            "succeeds, and the \u00b1120-character contexts of a DUA corpus are on "
+            "disk \u2014 the file rule_author.md \u00a76 says must not exist. Nothing "
+            "about the run looks different: the author sees the same window they would "
+            "have seen, the script exits 0, and the leak is a file nobody looks at "
+            "again. release_screen.py would have to catch it by content sniff at commit "
+            "time, which is the layer this check exists to avoid depending on, and a "
+            "terminal transcript or a scrollback capture is outside the screener "
+            "entirely. The refusal is also deliberately before the corpus is loaded: a "
+            "check that runs after the text is in memory is one exception away from "
+            "having rendered it."
         ),
         min_kills=1,
     ),

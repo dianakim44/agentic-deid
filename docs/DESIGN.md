@@ -1431,6 +1431,13 @@ goes into the config before it goes into a module. Note that `{porting}` is fixe
 `port-human` here rather than templated: this file exists for exactly one value of that
 axis, and a template implying otherwise would invite a second arm to write it.
 
+*Implemented.* The window is handed over by `tools/show_human_window.py`, which prints
+it to a terminal and refuses a pipe or a redirect: the rendered contexts are the one
+thing in this arm that must exist only in transit (`rule_author.md` §6), and `> window.txt`
+is the accident that leaves a DUA corpus's text on disk. It writes no log line — the
+author reports `human_minutes`, and a script that logged on every invocation would turn "how
+many times did the author look" into a count of terminal commands.
+
 *Implemented.* `paths.humanlog` and `paths.humanfreeze` are declared in
 `config/naming.yaml`, read through `base.path_template()`, and filled by
 `src/porting/human_arm.py`, which checks each component against its axis before building
