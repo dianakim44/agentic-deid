@@ -47,6 +47,7 @@ TEST_FILES = [
     "tests/test_rules.py",
     "tests/test_check_rules.py",
     "tests/test_run_fold.py",
+    "tests/test_conftest.py",
 ]
 
 #: Repository directories the loader tests need. `splits/` is here because the
@@ -175,6 +176,8 @@ SHOW_WINDOW = "tools/show_human_window.py"
 RULES = "src/rules.py"
 CHECK_RULES = "tools/check_rules.py"
 RUN_FOLD = "src/eval/run_fold.py"
+CONFTEST = "tests/conftest.py"
+TEST_RUN_FOLD = "tests/test_run_fold.py"
 
 MUTATIONS = [
     Mutation(
@@ -1456,6 +1459,94 @@ MUTATIONS = [
             "reviewer cannot tell a reordering from a change in what was detected."
         ),
         min_kills=1,
+    ),
+    # ── the shared corpus fixture (tests/conftest.py) ────────────────────────
+    # These two mutate the *suite* rather than the code under it, which no other
+    # mutation here does. The justification is the incident record: the defect below
+    # shipped four times, was caught by this harness each time, and was caught only
+    # indirectly — by the outcome-count guard noticing that a loader mutation changed
+    # how many tests existed. That is a diagnosis after the fact. These two make the
+    # defect a direct failure, and make the guard that produces it measurable itself.
+    Mutation(
+        name="conftest_availability_from_a_load",
+        path=CONFTEST,
+        anchor=(
+            "    from src.corpora.base import CorpusError, corpus_root\n"
+            "\n"
+            "    try:\n"
+            "        corpus_root(CORPUS)"
+        ),
+        replacement=(
+            "    from src.corpora.base import CorpusError, load\n"
+            "\n"
+            "    try:\n"
+            "        load(CORPUS)"
+        ),
+        breaks=(
+            "Reverts the shared fixture to the form that shipped four times: "
+            "availability decided by loading the corpus, so every loader bug reads as "
+            "\"the corpus is not on this machine\".\n"
+            "\n"
+            "**The number, because the number is the argument.** On its own this "
+            "mutation changes nothing observable — the loader works, nothing skips, the "
+            "suite is green either way, and that is why it survived four reviews. Its "
+            "cost is only paid when a real bug arrives, so it was measured with one: "
+            "`type_in_both_lists` applied alongside it.\n"
+            "\n"
+            "  correct fixture + that loader bug   31 failed, 47 errors, 518 passed\n"
+            "  reverted fixture + that loader bug   3 failed,  0 errors, 499 passed, "
+            "93 skipped\n"
+            "\n"
+            "**93 tests silently disabled, and 78 non-passing outcomes reduced to 3.** "
+            "The 3 survivors are the tests that construct a loader directly rather than "
+            "through the fixture; every recount, every fold assertion and every offset "
+            "check is gone, and pytest reports it in the colour of success.\n"
+            "\n"
+            "Caught directly by `test_availability_fixtures_resolve_a_path_and_do_not_"
+            "load`, which reads conftest's syntax tree: an availability fixture may call "
+            "`corpus_root` or `sealed_root` and nothing else. Structural rather than "
+            "behavioural on purpose — the two forms are behaviourally identical on every "
+            "machine where anyone would look."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="test_file_shadows_the_shared_fixture",
+        path=TEST_RUN_FOLD,
+        anchor=(
+            "# `corpus_present` comes from `tests/conftest.py`, which is the only place "
+            "availability is"
+        ),
+        replacement=(
+            '@pytest.fixture(scope="module")\n'
+            "def corpus_present():\n"
+            "    from src.corpora.base import CorpusError, load\n"
+            "    try:\n"
+            "        load(CORPUS)\n"
+            "    except CorpusError as exc:\n"
+            '        pytest.skip(f"{CORPUS} not on this machine: {exc}")\n'
+            "\n"
+            "\n"
+            "# `corpus_present` comes from `tests/conftest.py`, which is the only place "
+            "availability is"
+        ),
+        breaks=(
+            "Puts a local `corpus_present` back into one test file, in the defective "
+            "form. This is the *propagation* rather than the defect: pytest resolves the "
+            "nearest definition, so the local one wins over conftest's silently and only "
+            "this file's 27 tests are affected — which is how it went unnoticed while "
+            "three files carried it.\n"
+            "\n"
+            "A single shared fixture is not by itself a control, because copying one back "
+            "is a three-line edit. What makes it a control is that the copy is refused: "
+            "caught by `test_no_test_file_skips_from_inside_a_fixture` (a skip is a "
+            "suite-wide decision, not a file's) and by "
+            "`test_no_test_file_defines_a_fixture_conftest_already_defines` (shadowing is "
+            "the mechanism). Two tests rather than one because the fourth occurrence was "
+            "a module-level function feeding `skipif`, which the fixture rule alone does "
+            "not see."
+        ),
+        min_kills=2,
     ),
 ]
 

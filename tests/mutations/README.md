@@ -19,7 +19,7 @@ is tested by `tests/test_mutation_harness.py`, which pytest does collect.
 
 Each one corresponds to a decision in DESIGN.md that a plausible "simplification"
 would silently undo. What they have in common is the property that makes them
-dangerous: **sixty-one of the seventy-two change no total.** The corpus still loads,
+dangerous: **sixty-three of the seventy-four change no total.** The corpus still loads,
 the document count is still 750, the span count is still 17,134 — and every
 downstream number is wrong. Those are the errors a reviewer cannot catch and an
 aggregate cannot reveal, which is why they get a harness rather than trust.
@@ -34,13 +34,13 @@ fact, so a harness is the only place the guarantee can live.
 
 | mutation | changes | breaks | tests that catch it |
 |---|---|---|---|
-| `utf8_sig` | `meddocan.py` reads the text with `encoding="utf-8-sig"` | BOM removed at decode time, so `strip_bom` finds nothing and applies no shift; all 761 spans in the 32 BOM files are off by one. DESIGN §9.7 | **35** |
-| `no_bom_shift` | offsets are not decremented by the BOM length | same one-character error, reached from the other direction | **35** |
+| `utf8_sig` | `meddocan.py` reads the text with `encoding="utf-8-sig"` | BOM removed at decode time, so `strip_bom` finds nothing and applies no shift; all 761 spans in the 32 BOM files are off by one. DESIGN §9.7 | **70** |
+| `no_bom_shift` | offsets are not decremented by the BOM length | same one-character error, reached from the other direction | **70** |
 | `assert_offsets_noop` | `Document.assert_offsets` returns immediately | the §9.7 assertion stops asserting; counts are unaffected, so only tests that slice spans themselves can notice | **3** |
-| `drop_excluded` | `load()` filters out `excluded` spans | §9.1 spans discarded instead of flagged; the canonical count stays a correct 20,538 while the reported exclusion volume becomes unmeasurable | **11** |
-| `familiares_as_other` | `FAMILIARES_SUJETO_ASISTENCIA` moves from `EXCLUDED_TYPES` into `TYPE_MAP` as `OTHER` | an excluded type is scored; every span still loads and the total still reconciles to 22,795, so the corruption is entirely in *which* spans count | **7** |
-| `type_in_both_lists` | the same type is added to `TYPE_MAP` while left in `EXCLUDED_TYPES` | `_check_type_map` must reject it at construction. See "What this found", below | **43** |
-| `missing_test_fold` | `SPLIT_DIRS` loses its `test` entry | before the seal: 750 documents loaded instead of 1,000. Now 750 is correct, so what remains visible is that an *authorised* sealed read would return no sealed documents while the log records a completed evaluation | **1** |
+| `drop_excluded` | `load()` filters out `excluded` spans | §9.1 spans discarded instead of flagged; the canonical count stays a correct 20,538 while the reported exclusion volume becomes unmeasurable | **12** |
+| `familiares_as_other` | `FAMILIARES_SUJETO_ASISTENCIA` moves from `EXCLUDED_TYPES` into `TYPE_MAP` as `OTHER` | an excluded type is scored; every span still loads and the total still reconciles to 22,795, so the corruption is entirely in *which* spans count | **8** |
+| `type_in_both_lists` | the same type is added to `TYPE_MAP` while left in `EXCLUDED_TYPES` | `_check_type_map` must reject it at construction. See "What this found", below | **78** |
+| `missing_test_fold` | `SPLIT_DIRS` loses its `test` entry | before the seal: 750 documents loaded instead of 1,000. Now 750 is correct, so what remains visible is that an *authorised* sealed read would return no sealed documents while the log records a completed evaluation | **2** |
 | `bucket_unknown_types` | `classify()` returns `("OTHER", False)` instead of raising | an unmapped type is scored as a residual bucket. Invisible on today's corpus and waiting for the day a re-release adds a type | **1** |
 
 ## The split-file mutations
@@ -57,7 +57,7 @@ than a comment — every one of them leaves all 22,795 spans loading correctly.
 | `split_disagreement_ignored` | the corpus-vs-file fold cross-check becomes `if False` | the file silently overrides the disk, so a re-release that moved a document out of `test` is accepted without a word | **1** |
 | `top_level_leak_allowed` | `check_schema` stops rejecting unknown top-level keys | corpus-specific fields may then sit beside the common ones. Nothing fails today; the schema stops being shared the first time GraSCCo's generator adds a key | **1** |
 | `grouping_numeric_suffix_only` | `STEM_RE` becomes the old `^(S\d{4}-\d+)-(\d+)$` | reinstates the §9.5 bug that dropped the 31 ids with a letter in the journal prefix, so the grouping audit covers 969 of 1,000 documents and calls itself complete | **1** |
-| `grouping_name_only` | §9.5 step 2 accepts a name match without a record number or date | the one stem sharing a bare given name across different surnames becomes a group, and two independent units stop being independent | **1** |
+| `grouping_name_only` | §9.5 step 2 accepts a name match without a record number or date | the one stem sharing a bare given name across different surnames becomes a group, and two independent units stop being independent | **2** |
 | `split_file_span_count` | `"n_spans": 5801` → `5800` **in the committed JSON** | a stale summary — which is what a re-released corpus actually produces. Direction reversed from every other mutation here: the artefact is the suspect and the code is the check | **3** |
 
 ## The seal mutations
@@ -73,7 +73,7 @@ listed together because neither guard is sufficient alone:
 | `log_append_disabled` | the `record_access` call is wrapped in `except Exception: pass` | an evaluation proceeds unlogged. The numbers are real and the log says the test fold was never opened. **The caller check survives**, so this needs the allowed script — the counterpart of the mutation above, and the one that leaves nothing behind | **2** |
 | `sealed_flag_not_cleared` | `_sealed_ok` is not reset after the read | one authorised evaluation leaves that loader object permanently able to reach the sealed fold; every later ordinary `load()` silently includes 250 test documents, with no second log row | **1** |
 | `sealed_root_falls_back_to_corpus` | an absent `sealed:` entry resolves to the corpus root | a "sealed evaluation" reads unsealed data and logs itself as a test run. Worse than a refusal: the row is indistinguishable from a real evaluation, so the reported count becomes wrong in the flattering direction | **1** |
-| `unsealed_load_filters_instead_of_not_reaching` | `fold_roots()` hands out the sealed path unconditionally | the sealed fold is read and then discarded downstream. Every count still comes out right; the test fold's text has been read on every ordinary load, unlogged. Defends the distinction that the seal is a path that is not known, not a filter that is applied | **38** |
+| `unsealed_load_filters_instead_of_not_reaching` | `fold_roots()` hands out the sealed path unconditionally | the sealed fold is read and then discarded downstream. Every count still comes out right; the test fold's text has been read on every ordinary load, unlogged. Defends the distinction that the seal is a path that is not known, not a filter that is applied | **73** |
 
 ## The release screener mutations
 
@@ -171,7 +171,7 @@ inspection — a leak rate of 3.1% looks exactly as reasonable as a wrong one.
 | mutation | changes | breaks | tests that catch it |
 |---|---|---|---|
 | `greedy_allows_reuse` | `assign()` drops `pi in used` from the skip condition | the matching stops being one-to-one, so one wide prediction collects credit for several gold spans. Recall rises for emitting one coarse span instead of two correct ones — the detector is paid for being vaguer about boundaries | **8** |
-| `fully_covered_is_relaxed` | `_covers()` tests `> 0` instead of `== mark.length` under `fully_covered` | the headline mode collapses into the lower bound while keeping its name; a gold span with one character covered counts as hidden | **10** |
+| `fully_covered_is_relaxed` | `_covers()` tests `> 0` instead of `== mark.length` under `fully_covered` | the headline mode collapses into the lower bound while keeping its name; a gold span with one character covered counts as hidden | **11** |
 | `leak_rate_from_assignment` | the `leak.leaked` figure is taken from the assignment's false negatives | the error DESIGN §9.3 exists to prevent: a leak reported on an identifier whose every character is hidden | **9** |
 | `greedy_tiebreak_dropped` | the sort key becomes `(-overlap, pi, gi)` | ties fall through to emission order, so the metrics move when the same spans arrive shuffled | **1** |
 | `by_rule_fp_from_coverage` | `by_rule`'s hits are taken from type-matched overlap instead of from the assignment | a rule whose spans always lose the assignment to a better one reads as harmless, and the only signal that licenses deleting a rule disappears while every aggregate stays correct | **5** |
@@ -253,7 +253,7 @@ two.
 | mutation | changes | breaks | tests that catch it |
 |---|---|---|---|
 | `sample_seed_from_process_hash` | `sample_seed()` returns `abs(hash(material))` instead of SHA-256 | Python salts string hashing per process, so the seed is stable within a run and different in the next. The recorded seed documents a draw nobody can repeat | **2** |
-| `sample_pool_not_sorted` | the error pool keeps the caller's iteration order instead of `sorted(..., key=e.key)` | the seed pins which *indices* are drawn and the caller's ordering pins which spans those indices hit — reproducible from the log, different in fact | **2** |
+| `sample_pool_not_sorted` | the error pool keeps the caller's iteration order instead of `sorted(..., key=e.key)` | the seed pins which *indices* are drawn and the caller's ordering pins which spans those indices hit — reproducible from the log, different in fact | **3** |
 | `non_target_filter_removed` | `non_target_types()` returns an empty set | `OTHER` takes a slot, and with `min_per_type: 1` it takes one in *every* iteration of *every* arm — a permanent slot handed to a type Prohibition 4 forbids writing a rule for | **7** |
 | `non_target_types_hardcoded_not_read_from_config` | `non_target_types()` returns the literal `{"OTHER"}` instead of reading naming.yaml's gloss | nothing, today. The day a corpus ships a second residual bucket, that type is declared, glossed as non-target, forbidden — and drawn anyway, with config and code each looking correct alone | **1** |
 
@@ -348,7 +348,7 @@ no enforcement but a field in a log.
 | `self_report_defaults_to_none` | `model_consulted` acquires a default of `"none"` | every caller keeps working and every line says no model was consulted — recording that nobody was *asked*, not that nobody consulted a model. A default on this parameter is a default for `rule_author.md` §8 | **1** |
 | `self_report_refuses_the_violation` | `log_line()` raises on `model_consulted="rule_content"` | looks like enforcement, removes the report. §8 binds a person and cannot be enforced by code; all a refusal deletes is the record, after which every log attests to a clean run by construction | **3** |
 | `rendered_window_may_be_redirected` | `show_human_window.py`'s `stdout.isatty()` check becomes `if False` | `> window.txt` succeeds and a DUA corpus's ±120-character contexts are on disk — the file §6 says must not exist. The author sees the same window, the script exits 0, and the leak is a file nobody opens again | **2** |
-| `freeze_guard_only_checks_the_file` | the `arm_has_started()` condition in `freeze_window()` becomes `if False` | restores the hole this repository fell through three times: `rm window_freeze.json` then re-freeze, which `path.exists()` cannot see. The new record hashes today's files and claims to be the opening window | **4** |
+| `freeze_guard_only_checks_the_file` | the `arm_has_started()` condition in `freeze_window()` becomes `if False` | restores the hole this repository fell through three times: `rm window_freeze.json` then re-freeze, which `path.exists()` cannot see. The new record hashes today's files and claims to be the opening window | **8** |
 | `arm_started_reads_the_last_line_only` | `arm_has_started()` inspects the final log line instead of every line | appending any null-minutes event re-opens the freeze, and appending is what this arm does constantly. A `read_sample` at iteration 7 makes six iterations of attention re-writable | **1** |
 | `zero_minutes_read_as_not_started` | `is not None` becomes a truthiness test | a logged `human_minutes: 0` reads as "nothing happened", though `log_line()` validates the field to accept 0 because an event can take under a minute | **1** |
 | `started_where_reads_the_worktree_only` | `started_where()` stops consulting git history | reverts the guard to reading `human_log.jsonl` on disk and nothing else, so `rm human_log.jsonl` re-opens the freeze — one file, one command, and the guard's own input is gone | **8** |
@@ -365,17 +365,19 @@ no enforcement but a field in a log.
 | `the_declared_rule_file_language_is_trusted` | the file's `lang:` is no longer checked against the language it was loaded as | the `rule_id` prefix comes from the load language, so a `cat` file loaded as `es` sends every span's precision to the wrong file, consistently and invisibly (DESIGN §5.2) | **1** |
 | `a_duplicate_rule_id_is_allowed` | two rules may share an id | `by_rule` and the span's `rule_id` are the same identifier, so two rules' attribution merges into one bucket and the per-rule figure belongs to neither | **1** |
 | `a_non_target_type_may_be_a_rule_target` | a rule may target `OTHER` | it is a residual bucket a corpus ships, not a phenomenon; the recall bought is a property of that corpus's annotation practice (Prohibition 4, §9.1) | **1** |
-| `check_rules_reads_every_fold` | the feedback tool's `split == "dev"` filter is dropped | the command an author runs forty times an evening starts scoring across folds. Not a seal break by itself — `sealed/` is not returned by the loader — but it is the step before one | **1** |
+| `check_rules_reads_every_fold` | the feedback tool's `split == "dev"` filter is dropped | the command an author runs forty times an evening starts scoring across folds. Not a seal break by itself — `sealed/` is not returned by the loader — but it is the step before one | **3** |
 | `check_rules_detects_separately` | the feedback tool iterates rules itself instead of calling `detect_fold` | a second detection implementation, *faithful on the day it is written* — same rules, same documents, same offsets. Caught structurally, because there is nothing behavioural to see yet | **1** |
-| `run_fold_detects_separately` | the run path grows its own detection loop, which dedupes by offsets | what a hand-rolled loop turns into: two rules matching the same bytes collapse to one, so the tool shows the author two matches and the score counted one. Sets and totals both agree; only the multiset does not | **1** |
-| `detect_fold_drops_overlaps` | the shared detector resolves overlaps first-rule-wins | takes the merge decision away from the merge axis. fixed-priority, union and agent-arbiter would then score identically, having been handed a prediction set with the conflicts already settled (DESIGN §4) | **1** |
-| `spans_file_carries_the_surface` | `spans.jsonl` gains a `surface` field | matched corpus text in a published file the screener allows by pattern. This is the edit someone makes to debug a boundary, and it is the DUA violation the field whitelist in `write_spans` exists to prevent | **1** |
-| `run_fold_reads_the_sealed_fold` | the `split == "test"` refusal becomes unreachable | the loader's gate still refuses the import, so not a seal break by itself — what it removes is the layer that says *why*. What reaches the caller instead is a corpus-shaped error that sends them looking for a missing fold | **1** |
-| `run_fold_omits_the_layer` | the published `layer` is the span's `detector` | the derivation DESIGN §3 forbids, in the form it takes at the writer rather than the detector. Every `R` span would read as layer `R`, and §7's per-layer complementarity would collapse to one bucket | **1** |
-| `run_fold_writes_a_null_model_id` | `model_id` is `null` for an arm that called no model | indistinguishable from a field nobody filled in, so the record cannot say whether `R` used no model or the run forgot to write down which one it used. Absent is refused, explicitly-absent is recorded (§5.0) | **1** |
+| `run_fold_detects_separately` | the run path grows its own detection loop, which dedupes by offsets | what a hand-rolled loop turns into: two rules matching the same bytes collapse to one, so the tool shows the author two matches and the score counted one. Sets and totals both agree; only the multiset does not | **2** |
+| `detect_fold_drops_overlaps` | the shared detector resolves overlaps first-rule-wins | takes the merge decision away from the merge axis. fixed-priority, union and agent-arbiter would then score identically, having been handed a prediction set with the conflicts already settled (DESIGN §4) | **2** |
+| `spans_file_carries_the_surface` | `spans.jsonl` gains a `surface` field | matched corpus text in a published file the screener allows by pattern. This is the edit someone makes to debug a boundary, and it is the DUA violation the field whitelist in `write_spans` exists to prevent | **2** |
+| `run_fold_reads_the_sealed_fold` | the `split == "test"` refusal becomes unreachable | the loader's gate still refuses the import, so not a seal break by itself — what it removes is the layer that says *why*. What reaches the caller instead is a corpus-shaped error that sends them looking for a missing fold | **2** |
+| `run_fold_omits_the_layer` | the published `layer` is the span's `detector` | the derivation DESIGN §3 forbids, in the form it takes at the writer rather than the detector. Every `R` span would read as layer `R`, and §7's per-layer complementarity would collapse to one bucket | **3** |
+| `run_fold_writes_a_null_model_id` | `model_id` is `null` for an arm that called no model | indistinguishable from a field nobody filled in, so the record cannot say whether `R` used no model or the run forgot to write down which one it used. Absent is refused, explicitly-absent is recorded (§5.0) | **21** |
 | `run_fold_hardcodes_the_absent_value` | `"none"` is written as a literal instead of read from naming.yaml | breaks nothing today — that is why it is here. CLAUDE.md requires config-defined vocabulary in results files, and the cost is paid on the day the config moves and one of the two spellings does not | **1** |
 | `run_fold_skips_axis_validation` | `spans.jsonl` is written without `check_run` | a misspelled axis value mints a results directory no axis defines. `write_metrics` still validates, so the failure is an orphan spans file beside no metrics — the halfway state validate-before-write exists to prevent | **1** |
 | `run_fold_writes_unsorted_spans` | the sort before writing is removed | stable today, for an upstream reason rather than a stated one. Reorder the rules in the file and a committed results file gets a diff a reviewer cannot tell from a change in what was detected | **1** |
+| `conftest_availability_from_a_load` | the shared availability fixture goes back to deciding availability by loading the corpus | the defect that shipped four times, reverted. Changes nothing until a real loader bug arrives, and then hides it: measured alongside `type_in_both_lists`, **93 tests skip and 78 non-passing outcomes become 3**, reported as a green suite | **1** |
+| `test_file_shadows_the_shared_fixture` | one test file defines its own `corpus_present`, in the defective form | the propagation rather than the defect: the local definition wins over conftest's silently, and only that file's tests are affected — which is how three files carried it unnoticed | **2** |
 
 `initial_pool_excludes_train_instead_of_selecting_dev` is the one to read twice. The two
 filters are the same length, the same shape, and equivalent on any corpus with two
@@ -666,7 +668,7 @@ applies to the code. Two safeguards follow from that:
   Three checks, described in the next section. Skipping them lets the harness count
   its own breakage as a kill.
 
-The maintenance cost is real but bounded: seventy-two anchors, each a line or two,
+The maintenance cost is real but bounded: seventy-four anchors, each a line or two,
 and a refactor that breaks one gets a `STALE` message naming the file. That is
 cheaper than the failure mode it prevents.
 
@@ -794,8 +796,9 @@ added after a mistake caught the same mistake in a place nobody was watching. Th
 is less comfortable: knowing about a failure mode in detail is not the same as not
 committing it. The fix is the same as the fixture's, for the same reason — ask
 `corpus_root()`, which answers only the availability question — and the kill counts for
-two of those mutations went *up* afterwards (35 and 43), because tests that had been
-skipping now fail on a broken loader.
+two of those mutations went *up* afterwards, because tests that had been skipping now
+fail on a broken loader. (The figures at the time were 35 and 43; both are larger now —
+see the next paragraph, where two more files turned out to be doing the same thing.)
 
 **Then it happened twice more, and the count is the point.** `tests/test_check_rules.py`
 was written with `except Exception: pytest.skip(...)` around a `load()` — broader than the
@@ -809,8 +812,44 @@ one defect, three of them after it was written up, is not a story about careless
 single instance: **a fixture is copied from the nearest similar file, so a defect in one
 propagates at the rate new test files are added.** The guard that catches it has to live in
 the harness rather than in a reviewer's memory, which is the only reason this was ever
-found. What would make the next copy safe is a shared fixture rather than another warning
-in this file.
+found.
+
+**The fifth was prevented, and here is the mechanism.** A warning in this file had already
+failed three times, so what changed is structural, in four parts:
+
+1. **`tests/conftest.py` holds the only definition.** `corpus_present` and `sealed_corpus`
+   answer availability from `corpus_root()` / `sealed_root()` — path resolvers, which fail
+   for one reason. `loader` and `unsplit_loader` construct, take `corpus_present` as an
+   argument, and contain **no `try` at all**: availability was already settled upstream, so
+   a failure at construction is a loader bug and reaches the test as one. That split is the
+   whole fix; every occurrence collapsed the two questions into one `except`.
+2. **Six files were converted and none kept a local copy.** `test_meddocan_loader.py`,
+   `test_split_file.py`, `test_seal.py`, `test_show_human_window.py`,
+   `test_check_rules.py`, `test_run_fold.py`. Each keeps a comment at the deleted fixture's
+   old location saying what was there and why it is gone, because the next author looks
+   where the fixture used to be.
+3. **`tests/test_conftest.py` refuses the copy**, against the syntax tree rather than
+   behaviour — the defective and correct forms behave identically on every machine where
+   anyone would look, so only structure separates them. Four rules, one per way the defect
+   actually arrived: no test file may `pytest.skip` from inside a fixture; none may name
+   `corpus_root`/`sealed_root` outside a test body (that is what catches the
+   `test_show_human_window.py` variant, a module-level function feeding `skipif`, which the
+   fixture rule alone misses); none may define a fixture conftest already defines; and
+   conftest's own availability fixtures may call nothing but the path resolvers while its
+   construction fixtures may hold no handler and no skip. One further test parses the
+   reverted form as a string and asserts the check sees it, because a structural check that
+   silently matches nothing is this same family again.
+4. **Two mutations keep all of that honest**: `conftest_availability_from_a_load` reverts
+   the fixture, `test_file_shadows_the_shared_fixture` re-adds a local copy to one file.
+
+The count that justifies the work is in `conftest_availability_from_a_load`'s own
+`breaks` text and is worth repeating here, because on a working machine the defect is
+invisible — same 596 tests, same green. Measured by applying it together with a real loader
+bug (`type_in_both_lists`): the correct fixture gives **31 failures and 47 errors**; the
+reverted one gives **3 failures, 0 errors and 93 skips**. **93 tests silently disabled, 78
+non-passing outcomes reduced to 3**, and pytest reports it in the colour of success. The
+three survivors are the tests that construct a loader themselves instead of through the
+fixture — which is also why the conversion had to reach every file rather than most of them.
 
 ### The third of the family: a sample that satisfied every property and broke a rule
 

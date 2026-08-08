@@ -71,20 +71,10 @@ rules:
 """
 
 
-@pytest.fixture(scope="module")
-def corpus_present() -> None:
-    """Skip when this machine has no corpus — from the path, never from a load.
-
-    Availability only. `except Exception` around a `load()` turns every loader bug into
-    "the corpus is not on this machine" and every test below into a skip, which is the
-    defect the loader fixture shipped and `tests/mutations/README.md` records twice.
-    `corpus_root()` answers the availability question and nothing else.
-    """
-    from src.corpora.base import CorpusError, corpus_root
-    try:
-        corpus_root(CORPUS)
-    except CorpusError as exc:                                  # pragma: no cover
-        pytest.skip(f"{CORPUS} not on this machine: {exc}")
+# `corpus_present` comes from `tests/conftest.py`. This file defined its own once, and
+# defined it wrong: `except Exception` around a `load()` turns every loader bug into "the
+# corpus is not on this machine" and every test below into a skip. That is the fourth
+# occurrence recorded in `tests/mutations/README.md`, and it got here by being copied.
 
 
 # ─── the loop closes: a rule produces numbers ────────────────────────────────

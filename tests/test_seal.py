@@ -32,16 +32,9 @@ CORPUS = "es-meddocan"
 # ─── fixtures ───────────────────────────────────────────────────────────────
 
 
-@pytest.fixture
-def sealed_corpus():
-    """Skip unless MEDDOCAN is present and its test fold is actually sealed."""
-    try:
-        base.corpus_root(CORPUS)
-    except CorpusError as exc:
-        pytest.skip(f"MEDDOCAN not available on this machine: {exc}")
-    if base.sealed_root(CORPUS) is None:
-        pytest.skip("MEDDOCAN is not sealed on this machine")
-    return CORPUS
+# `sealed_corpus` — present, and its test fold actually sealed — is in
+# `tests/conftest.py` and defined nowhere else. Both halves answer from the path:
+# nothing here opens the corpus, and nothing here opens the seal.
 
 
 @pytest.fixture

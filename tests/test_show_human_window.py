@@ -29,42 +29,26 @@ def run(*args):
                           capture_output=True, text=True, cwd=ROOT)
 
 
-def corpus_present() -> bool:
-    """Whether this machine has the corpus — resolved from the path, not from a load.
-
-    **Availability only.** An earlier version of this called `load(CORPUS)` inside
-    `except CorpusError`, which is the same defect as the loader fixture's original
-    `except CorpusError: pytest.skip(...)` (see `tests/test_meddocan_loader.py`'s
-    `loader` fixture, and the incident in `tests/mutations/README.md`): any loader bug
-    reads as "corpus not on this machine", the tests below skip, and the suite stays
-    green. The mutation harness caught it again, in this file, by noticing that four
-    loader mutations changed how many tests *exist* — 399 against a baseline of 402.
-
-    So the check is `corpus_root()`, which answers the question being asked and nothing
-    else. A broken loader now fails these tests, which is what a broken loader should do.
-    """
-    sys.path.insert(0, str(ROOT))
-    from src.corpora import base
-    from src.corpora.base import CorpusError
-    try:
-        base.corpus_root(CORPUS)
-    except CorpusError:
-        return False
-    return True
-
-
-needs_corpus = pytest.mark.skipif(
-    not corpus_present(),
-    reason=f"{CORPUS} is not on this machine; the redirect refusal is tested without it")
+# Availability is `corpus_present` from `tests/conftest.py`, requested as an argument by
+# the tests that need the corpus. This file used to compute it itself, at import time, by
+# calling `load(CORPUS)` inside `except CorpusError` — the same defect as the loader
+# fixture's original form: any loader bug read as "corpus not on this machine", these
+# tests skipped, and the suite stayed green. The mutation harness caught it here by
+# noticing that four loader mutations changed how many tests *exist* — 399 against a
+# baseline of 402. It is a fixture argument now rather than a module-level marker so that
+# there is one answer to the question in the whole suite and it is computed in one place.
+#
+# The tests without the argument are deliberate: the redirect refusal must fire before
+# the corpus is loaded, so it is checkable on a machine that has no corpus at all.
 
 
 def test_the_window_refuses_to_be_redirected():
     """`> window.txt` is exactly the file §6 says must not exist, and an author who
     wanted to keep the window for reference would create it by accident.
 
-    Not marked `needs_corpus`: the refusal happens before the corpus is loaded, which
-    is the order it has to happen in — a check that runs after the text is in memory
-    is one exception away from having rendered it.
+    Does not request `corpus_present`: the refusal happens before the corpus is loaded,
+    which is the order it has to happen in — a check that runs after the text is in
+    memory is one exception away from having rendered it.
     """
     result = run("--corpus", CORPUS, "--iteration", "1")
     assert result.returncode == 2
@@ -78,15 +62,13 @@ def test_the_refusal_names_the_mode_that_is_safe_to_capture():
     assert "--counts-only" in run("--corpus", CORPUS, "--iteration", "1").stderr
 
 
-@needs_corpus
-def test_counts_only_may_be_captured():
+def test_counts_only_may_be_captured(corpus_present):
     result = run("--corpus", CORPUS, "--iteration", "1", "--counts-only")
     assert result.returncode == 0, result.stderr
     assert "PROFESSION" in result.stdout
 
 
-@needs_corpus
-def test_counts_only_carries_no_offsets_and_no_context():
+def test_counts_only_carries_no_offsets_and_no_context(corpus_present):
     """The mode that exists to be pasted anywhere. `summarise()` already guarantees
     this; the script is a second place it could be lost, since it formats its own
     output rather than dumping the dict."""
@@ -98,8 +80,8 @@ def test_counts_only_carries_no_offsets_and_no_context():
     assert "S0" not in out and "S1" not in out
 
 
-@needs_corpus
-def test_a_later_iteration_is_refused_rather_than_derived_from_the_loader():
+def test_a_later_iteration_is_refused_rather_than_derived_from_the_loader(
+        corpus_present):
     """Only iteration 1's pool can come from the loader alone. From iteration 2 the
     pool is what the scorer found, and a script that silently rebuilt it from gold
     would hand the author the same 5,254 errors every round.

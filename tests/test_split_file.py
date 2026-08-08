@@ -58,21 +58,19 @@ def record():
 
 
 @pytest.fixture(scope="module")
-def docs():
+def docs(unsplit_loader):
     """The corpus loaded *without* the split file, so the recount is independent.
 
-    `use_split_file=False` is the point of the fixture: loading with the file and
-    then checking the file against the result would be circular.
+    `use_split_file=False` is the point, and it is why `unsplit_loader` exists in
+    `tests/conftest.py` as a second construction fixture rather than as a `try` here:
+    loading with the file and then checking the file against the result would be
+    circular. Availability was decided by `corpus_present`, upstream of both.
 
     This is train+dev — 750 documents. The sealed fold is not reachable from a test
     and no fixture here tries: what the file claims about `test` is carried by the
     fold/total reconciliation and by the freeze commit, not by a recount.
     """
-    try:
-        base.corpus_root(CORPUS)
-    except CorpusError as exc:
-        pytest.skip(f"MEDDOCAN not available on this machine: {exc}")
-    return MeddocanLoader(use_split_file=False).load()
+    return unsplit_loader.load()
 
 
 # ─── the recorded summaries are recomputable ────────────────────────────────

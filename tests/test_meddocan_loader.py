@@ -87,27 +87,15 @@ BOM = "﻿"
 # ─── fixtures ───────────────────────────────────────────────────────────────
 
 
-@pytest.fixture(scope="module")
-def loader():
-    """The loader, or a skip if this machine has no MEDDOCAN checkout.
-
-    Skipped rather than failed because the corpus is not in the repository (it is
-    fetched per `data/acquire/fetch_meddocan.sh`), and a machine without it is a
-    normal state rather than a broken one.
-
-    **Availability is resolved before the loader is constructed, and only that
-    failure skips.** An earlier version wrapped `MeddocanLoader()` in
-    `except CorpusError: pytest.skip(...)`, which also swallowed real loader
-    bugs — a type both mapped and excluded raises from `_check_type_map` at
-    construction, and the broad except reported that as "corpus not available"
-    while 27 tests skipped and the suite stayed green. The mutation harness
-    (`tests/mutations/`) is what caught it. A skip must mean one thing.
-    """
-    try:
-        base.corpus_root(MeddocanLoader.corpus_id)
-    except CorpusError as exc:
-        pytest.skip(f"MEDDOCAN not available on this machine: {exc}")
-    return MeddocanLoader()
+# `loader` — the corpus checkout, then the constructed loader — is in
+# `tests/conftest.py`, along with `corpus_present`, and is defined nowhere else.
+# It used to live here, wrapping `MeddocanLoader()` in
+# `except CorpusError: pytest.skip(...)`, which also swallowed real loader bugs: a
+# type both mapped and excluded raises from `_check_type_map` at construction, and
+# the broad except reported that as "corpus not available" while 27 tests skipped
+# and the suite stayed green. The mutation harness caught it — and then caught the
+# same defect three more times in files that had copied the fixture from here.
+# `tests/test_conftest.py` is what now stops the copy. A skip must mean one thing.
 
 
 @pytest.fixture(scope="module")

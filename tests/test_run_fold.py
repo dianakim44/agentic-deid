@@ -85,25 +85,11 @@ rules:
 """
 
 
-@pytest.fixture(scope="module")
-def corpus_present() -> None:
-    """Skip when this machine has no corpus — resolved from the path, never from a load.
-
-    **Availability only, and this is the third file to get it wrong.** Calling `load()`
-    inside `except` is the loader fixture's original defect (`tests/test_meddocan_loader.py`,
-    and the incident in `tests/mutations/README.md`): every loader bug then reads as "the
-    corpus is not on this machine", every test here skips, and the suite is green. The
-    harness catches it by noticing that the four loader mutations change how many tests
-    *exist* rather than how many pass, and it caught this file exactly that way.
-
-    `corpus_root()` answers the availability question and nothing else. A broken loader now
-    fails these tests, which is what a broken loader should do.
-    """
-    from src.corpora.base import CorpusError, corpus_root
-    try:
-        corpus_root(CORPUS)
-    except CorpusError as exc:                                   # pragma: no cover
-        pytest.skip(f"{CORPUS} not on this machine: {exc}")
+# `corpus_present` comes from `tests/conftest.py`, which is the only place availability is
+# decided. This file had its own copy for one commit — the third occurrence of the
+# `except: skip` defect (`tests/mutations/README.md`), arrived by copying it out of
+# `test_check_rules.py`, which had copied it in turn. Availability from `corpus_root()`;
+# construction bare, so a broken loader fails these tests instead of skipping them.
 
 
 @pytest.fixture(scope="module")
