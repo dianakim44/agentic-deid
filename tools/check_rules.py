@@ -35,10 +35,20 @@ is what CLAUDE.md permits and what an author needs to go and look at the note
 themselves. The one exception in this file's *inputs* is the rule file's own patterns and
 terms, which are already committed and public.
 
+**An arm's rule file is passed with `--rules`, and there is no axis flag here.** Arm rule
+files live under the arm (`paths.armrules`, DESIGN §5.3), and reaching one from this tool
+means naming the path. That is deliberate: this tool takes `--corpus` and nothing else
+about the experiment, for the same reason it has no `--split` — flags on a tool a person
+runs forty times in an evening are typo surface, and four axis flags to locate an input
+would be four chances to score one arm's rules under another's name. The orchestrator
+knows its axes and builds the path; a person points at a file.
+
 Usage:
     python tools/check_rules.py --corpus es-meddocan
     python tools/check_rules.py --corpus es-meddocan --rules /tmp/practice.yaml
     python tools/check_rules.py --corpus es-meddocan --rule-id es:doctor_prefix
+    python tools/check_rules.py --corpus es-meddocan \
+        --rules results/es-meddocan/R/sup-free/port-oneshot/rules/iter1/es.yaml
 """
 from __future__ import annotations
 
@@ -79,9 +89,9 @@ def main() -> int:
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--corpus", required=True)
     ap.add_argument("--rules", type=Path, default=None,
-                    help="a single rule file to run instead of rules/{lang}.yaml for "
-                         "the corpus's langs — this is how a practice file at "
-                         "/tmp/practice.yaml is tested without touching rules/")
+                    help="a single rule file to run instead of the bootstrap "
+                         "rules/{lang}.yaml — a practice file at /tmp/practice.yaml, or "
+                         "an arm's own file under results/.../rules/iterN/ (DESIGN §5.3)")
     ap.add_argument("--lang", default=None,
                     help="the language --rules declares; required with --rules when the "
                          "corpus loads more than one")

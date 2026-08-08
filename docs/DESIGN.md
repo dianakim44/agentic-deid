@@ -543,6 +543,77 @@ One consequence is worth measuring but is **not** part of this decision: because
 CARMEN-I ships a per-document language label, a per-document selector can be scored
 against gold without putting a selector in the pipeline. Recorded as §10 A1.
 
+### 5.3 An arm's rule files live under the arm, and `rules/{lang}.yaml` is the format example
+
+**Decided 2026-08-08, before the first agent arm was run.** `rules/{lang}.yaml` keeps
+exactly two jobs — the committed schema example, and the bootstrap state a first
+iteration starts from — and every rule file an arm actually produces is written to
+
+```
+results/{corpus}/{detector}/{supervision}/{porting}/rules/iter{iteration}/{lang}.yaml
+```
+
+declared as `paths.armrules` in `config/naming.yaml`. `paths.rules` stays, unchanged and
+un-widened, for the two jobs it already had.
+
+**The problem is that `rules/{lang}.yaml` erases four axes and the iteration number.**
+Every other artefact in this project carries the cell of the experiment it belongs to in
+its own path: `metrics.json`, `spans.jsonl`, `window_freeze.json`, `human_log.jsonl`. The
+rule file is the one that does not, and it is an *input* rather than an output, which is
+what makes the omission easy to miss — nobody looks for an arm's identity in the thing it
+reads. But `port-oneshot` and `port-loop` differ in nothing except how the rule file was
+produced. With one path they produce it into the same file, and the second arm to run
+overwrites the first.
+
+**This is `paths.armfreeze` again, one level down, and the recurrence is the argument.**
+§6.3 split `armfreeze` off from `humanfreeze` rather than widening the existing key,
+because widening it would have let an agent arm write to `port-human`'s path and silently
+overwrite a retired arm's record. The same collision is available here, and it is worse in
+one specific way: **an overwritten record is visibly gone, and an overwritten input leaves
+a plausible output behind.** After the overwrite, `port-oneshot`'s `metrics.json` still
+sits in its own directory with its own `rules_version` integer and its own sorted `rules`
+list — a complete, well-formed, internally consistent record of a run whose input no longer
+exists anywhere. Nothing in the file is wrong. Nothing in it is checkable either. The
+failure mode of the freeze-path collision was "the evidence is missing"; the failure mode
+of this one is "the evidence is intact and unverifiable", and the second is the one a
+reader cannot detect.
+
+**`port-loop` is why the iteration number is in the path and not only in a log.** An
+iterating arm rewrites its rule file every round, and *the sequence of those files is the
+experimental record* — it is what the δ/k termination criterion (§3) was computed over, and
+the only thing that can answer "which rules existed at iteration 4" after the fact. One
+path per arm would keep the last iteration and discard every earlier one, which reduces the
+arm's history to its final state. That is precisely the information §5.1 argues aggregates
+cannot carry: a porting claim is about a *process*, and a process observed only at its end
+is a number without a mechanism.
+
+Two structural details, each for a reason:
+
+- **`{iteration}` is a directory, not a filename suffix.** `es-carmen` emits `es` and `cat`
+  in one round (§5.2), and one round's rule state is both files together. Under
+  `iter3/{es,cat}.yaml` loading a round is listing a directory; under
+  `{es,cat}_iter3.yaml` it is parsing filenames, and a parser is a component whose own
+  error rate nothing here measures — the same objection §5.2 raised against a language
+  selector.
+- **The `rules/` component stays in the path.** `tools/release_screen.py` applies the
+  `rule_id` mechanism-vocabulary check to files matching `rules/*.yaml`, and that check is
+  the only enforcement `docs/prompts/rule_author.md` Prohibition 2 has — a surname in a
+  rule name reaches a public `metrics.json` through the `by_rule` block by the intended
+  path, with nothing else in the way. A path without a `rules/` component would leave every
+  agent-written file unscreened, and unscreened here does not mean rejected: it means the
+  file passes without the check ever running, which is the same "silently matches nothing"
+  defect the shared-fixture control (`tests/test_conftest.py`) was built to prevent. The
+  screener's pattern is widened to reach the arm-scoped path in the same commit that
+  declares the key.
+
+**`run_fold` is told which rule files to load and never infers them.** It takes the paths
+as an argument. This is the §5.0 fold-as-parameter asymmetry applied one field over, and for
+the same reason: a module that derived its input path from its own axis arguments would have
+one code path for "the arm I am closing" and no way to be pointed at anything else, so
+`tools/check_rules.py`'s trial runs and the bootstrap file would each need a special case.
+Inference would also make the input path a function of the run block, which is the coupling
+that lets an arm read its own results directory by accident.
+
 ---
 
 ## 6. Experimental integrity

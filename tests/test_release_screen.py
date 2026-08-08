@@ -317,6 +317,26 @@ def test_the_allowed_freeze_path_is_the_one_naming_yaml_declares(tmp_path):
         "humanfreeze would let a later arm overwrite port-human's record")
 
 
+def test_the_allowed_arm_rule_path_is_the_one_naming_yaml_declares():
+    """`paths.armrules` and the ALLOW pattern must describe the same file (DESIGN §5.3).
+
+    Same requirement as the freeze path one above, and it matters more here because two
+    separate patterns in this file have to follow `paths.armrules`: this ALLOW entry, so
+    an arm's rule file is not an uncategorised path, and `sniff()`'s rule_id check, so the
+    file is screened at all. `tests/test_arm_rules_path.py` covers the second through
+    `sniff()` on a real file; this covers the first.
+    """
+    from src.corpora.base import path_template
+    rel = path_template("armrules").format(
+        corpus="es-meddocan", detector="R", supervision="sup-free",
+        porting="port-oneshot", iteration=1, lang="es")
+    assert any(re.search(p, rel) for p in rs.ALLOW_PATTERNS), rel
+    # And the bootstrap example is allowed by the `rules/` hint rather than by this
+    # pattern — two locations, two reasons, and neither standing in for the other.
+    assert not any(re.search(p, "rules/es.yaml") for p in rs.ALLOW_PATTERNS)
+    assert any("rules/es.yaml".startswith(h) for h in rs.ALLOW_HINTS)
+
+
 def test_a_log_line_carrying_note_text_is_still_suspect(tmp_path):
     """Being on the ALLOW list is a statement about the path, never about the content —
     the same order the rules-file tests above establish. A `decision` field is free text

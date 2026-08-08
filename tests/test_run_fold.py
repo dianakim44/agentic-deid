@@ -443,6 +443,26 @@ def test_the_rule_version_travels_with_the_result(ran):
     assert run["rules"] == ["es:probe_cue", "es:probe_org", "es:probe_org_dup"]
 
 
+def test_the_rule_file_location_travels_with_the_result(ran):
+    """`rules_source` — which file, not just which revision (DESIGN §5.3).
+
+    Beside `rules_version` rather than instead of it, because the two answer different
+    questions and neither implies the other. The version is whatever the author declared,
+    so it stays plausible across an overwrite; the path names the arm and the iteration.
+    That asymmetry is the reason §5.3 moved rule files under the arm at all: an
+    overwritten *record* is visibly gone, an overwritten *input* leaves a complete and
+    consistent metrics file whose premise no longer exists.
+    """
+    _, metrics, _ = ran
+    run = json.loads(metrics.read_text(encoding="utf-8"))["run"]
+    assert set(run["rules_source"]) == {"es"}
+    # A pytest tmp_path is outside the repository, and an absolute path in a published
+    # run block names a home directory (and, where the corpus sits beside the repo, the
+    # layout of DUA data). Recorded as the filename with a marker.
+    assert run["rules_source"]["es"].startswith("<outside-repo>/")
+    assert str(ROOT) not in run["rules_source"]["es"]
+
+
 def test_the_schema_version_is_recorded(ran):
     from src.eval import scorer
     _, metrics, _ = ran

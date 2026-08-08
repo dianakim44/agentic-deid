@@ -246,7 +246,31 @@ paths:
   # {lang} 은 규칙 파일의 언어다 (lang 축). 코퍼스 하나가 여러 파일을 로드할 수
   # 있으므로 이 경로는 코퍼스당 1:1 이 아니다. 어느 파일들을 로드할지는
   # corpus_rule_langs 가 정한다.
+  #
+  # **rules 는 형식 예시와 부트스트랩 전용이다. arm 이 쓰는 규칙 파일은
+  # armrules 다** (DESIGN §5.3, 2026-08-08). 이 경로에는 축이 하나도 없다 —
+  # corpus·detector·supervision·porting 넷 다 없고 iteration 도 없다. 그러면
+  # port-oneshot 과 port-loop 가 같은 파일에 쓰고, 나중에 돌린 arm 이 먼저
+  # 돌린 arm 의 규칙을 덮는다. armfreeze 를 humanfreeze 에서 분리한 것과
+  # 같은 문제가 한 단계 아래에서 재발하는 것이다: 그때는 두 arm 이 같은
+  # *기록* 을 공유하는 문제였고, 이번엔 같은 *입력* 을 공유하는 문제다.
+  # 후자가 더 나쁘다 — 덮인 기록은 없어진 것이 보이지만, 덮인 규칙 파일은
+  # metrics.json 의 rules_version 과 rules 목록이 그대로 그럴듯하게 남는다.
   rules:    "rules/{lang}.yaml"
+  # arm 이 실제로 쓰는 규칙 파일. 축 넷에 {iteration} 을 더한다.
+  #
+  # {iteration} 이 파일명 접미사가 아니라 디렉토리인 이유: es-carmen 은 한
+  # 회차에 es 와 cat 두 파일을 낸다 (corpus_rule_langs). 한 회차의 규칙 상태는
+  # 그 파일들 전부이므로 한 디렉토리에 담기는 것이 맞다 — es_iter3.yaml 과
+  # cat_iter3.yaml 이 나란히 있으면 회차 하나를 로드하는 것이 파일명 파싱이
+  # 된다.
+  #
+  # `rules/` 성분을 남긴 이유는 release_screen.py 의 rule_id 어휘 검사가
+  # `(^|/)rules/[^/]+\.ya?ml$` 로 걸리기 때문이다. 그 검사는 rule_author.md
+  # Prohibition 2 (규칙 이름에 표면형 금지) 의 유일한 실제 집행이고, 경로에서
+  # `rules/` 를 빼면 arm 이 쓴 파일이 검사를 통과하지 않고 *지나간다*.
+  # 스크리너 쪽 정규식을 이 경로에 맞추는 변경이 함께 들어간다.
+  armrules: "results/{corpus}/{detector}/{supervision}/{porting}/rules/iter{iteration}/{lang}.yaml"
   lexicon:  "lexicons/{lang}/"
   profile:  "profiles/{corpus}.json"
   mapping:  "mappings/{corpus}.yaml"
@@ -255,3 +279,5 @@ paths:
 # ─── 예시 ────────────────────────────────────────────────────
 # results/es-meddocan/RT/sup-free/port-loop/metrics.json
 # results/ko-surro/R/sup-free/port-human/metrics.json
+# results/es-meddocan/R/sup-free/port-oneshot/rules/iter1/es.yaml
+# results/es-carmen/R/sup-free/port-loop/rules/iter3/cat.yaml

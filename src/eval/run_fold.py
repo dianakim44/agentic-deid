@@ -27,6 +27,14 @@ loader's gate accepts, and which appends a row to `results/sealed_eval_log.md` b
 anything is read. Passing `--split test` here is refused with that pointer rather
 than quietly reading whatever the loader happens to return.
 
+**Which rule files to load is an argument, never inferred** (DESIGN §5.3). An arm's rule
+files live under the arm — `paths.armrules`, with the four axes and the iteration number
+in the path — and this module is told which ones to read. `--iteration N` builds those
+paths for the corpus's languages; `rules/{lang}.yaml` is the format example and the
+bootstrap state, not a location any arm writes to. Deriving the input path from the axis
+arguments would make the input a function of the run block, which is how a run ends up
+reading its own results directory.
+
 **`model_id` is `none` for a rule-only arm** (DESIGN §4). The `R` arm calls no
 language model, and the scorer requires the field: an absent value cannot be told
 apart from an unrecorded one, which is the same reason cost is zeros rather than
@@ -208,16 +216,26 @@ def run_fold(
 ) -> tuple[Path, Path, dict]:
     """Detect over the fold, score it, write both files. Returns (spans, metrics, scored).
 
-    The rule files come from `corpus_rule_langs` — all of them, unioned, with no
-    per-document language selection (DESIGN §5.2). `es-carmen` loads `es` and `cat`;
-    `rules` overrides individual file locations for a trial run and does not change
-    which languages are loaded.
+    *Which* languages are loaded comes from `corpus_rule_langs` — all of them, unioned,
+    with no per-document selection (DESIGN §5.2). *Where* each one's file is comes from
+    `rules`, and **this function is told rather than inferring it** (DESIGN §5.3). An arm
+    passes `src.rules.arm_rules_path()` per language; a language absent from `rules` falls
+    back to `paths.rules`, the committed format example and bootstrap state.
+
+    Deriving the path from the axis arguments instead was the obvious alternative and is
+    refused. It would give this module one input location — the arm being closed — and no
+    way to be pointed at anything else, so a trial file and the bootstrap file would each
+    need a special case, and it would make the input a function of the run block, which is
+    the coupling that lets an arm read its own results directory by accident.
 
     The run block is assembled here and validated by the scorer before anything is
     written, so an arm named wrong fails before it produces a directory. `rules_version`
     carries `RuleSet.versions` — the per-file integer each rule file declares — because
     CLAUDE.md requires the rule version to travel with the result and a metrics file
-    naming no rule version cannot be re-run.
+    naming no rule version cannot be re-run. `rules_source` carries the paths, which is
+    what a version integer cannot: DESIGN §5.3's objection to a shared rule path is that
+    an overwrite leaves a plausible metrics file behind, and only the path says which
+    arm's file and which iteration the numbers were computed from.
     """
     docs = load_fold(corpus, split)
     ruleset = load_for_corpus(corpus, paths=rules)
@@ -240,6 +258,10 @@ def run_fold(
         # model. Read from naming.yaml, never spelled here.
         "model_id": model_id_absent(),
         "rules_version": {lang: v for lang, v in sorted(ruleset.versions.items())},
+        # Where each file was read from (DESIGN §5.3). Beside the version rather than
+        # instead of it: the version says which revision the author declared and the
+        # path says which arm and iteration produced it, and neither implies the other.
+        "rules_source": {lang: p for lang, p in sorted(ruleset.sources.items())},
         "rules": sorted(r.rule_id for r in ruleset.rules),
         "commit": commit,
         "tree": tree,
@@ -272,16 +294,49 @@ def main(argv: Sequence[str] | None = None) -> int:
              "evaluation runs through src.eval.run_sealed_eval, which logs the access.",
     )
     parser.add_argument(
+        "--iteration", type=int, default=None,
+        help="load this iteration's rule files from under the arm (paths.armrules, "
+             "DESIGN §5.3): results/.../{porting}/rules/iter{N}/{lang}.yaml, one per "
+             "language the corpus loads. This is what an arm's own run uses. Without it "
+             "the bootstrap rules/{lang}.yaml is read, which is the format example and "
+             "the state a first iteration starts from.",
+    )
+    parser.add_argument(
         "--rules", type=Path, default=None,
-        help="a single rule file to run instead of rules/{lang}.yaml — needs --lang "
-             "when the corpus loads more than one file",
+        help="one explicit rule file, for a trial run — needs --lang when the corpus "
+             "loads more than one file. Mutually exclusive with --iteration.",
     )
     parser.add_argument("--lang", default=None,
                         help="the language --rules declares")
     args = parser.parse_args(argv)
 
+    if args.rules and args.iteration is not None:
+        # Refused rather than given a precedence order. Both name where the rules come
+        # from, and a silent winner means a trial file scored under an arm's iteration
+        # number, or the reverse — the run block would record one path and the reader
+        # would have the other command in their shell history (DESIGN §5.3).
+        print("--rules and --iteration both say where the rule files are: pass one. "
+              "--iteration reads the arm's own files (paths.armrules); --rules reads a "
+              "single explicit file for a trial.", file=sys.stderr)
+        return 2
+
     override: dict[str, Path] | None = None
-    if args.rules:
+    if args.iteration is not None:
+        from ..corpora.base import rule_langs
+        from ..rules import arm_rules_path
+        try:
+            override = {
+                lang: arm_rules_path(
+                    corpus=args.corpus, detector=args.detector,
+                    supervision=args.supervision, porting=args.porting,
+                    iteration=args.iteration, lang=lang,
+                )
+                for lang in rule_langs(args.corpus)
+            }
+        except (CorpusError, RuleError) as exc:
+            print(f"{exc}", file=sys.stderr)
+            return 2
+    elif args.rules:
         from ..corpora.base import rule_langs
         try:
             langs = rule_langs(args.corpus)

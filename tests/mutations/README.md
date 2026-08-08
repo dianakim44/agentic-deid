@@ -19,7 +19,7 @@ is tested by `tests/test_mutation_harness.py`, which pytest does collect.
 
 Each one corresponds to a decision in DESIGN.md that a plausible "simplification"
 would silently undo. What they have in common is the property that makes them
-dangerous: **sixty-three of the seventy-four change no total.** The corpus still loads,
+dangerous: **sixty-nine of the eighty change no total.** The corpus still loads,
 the document count is still 750, the span count is still 17,134 — and every
 downstream number is wrong. Those are the errors a reviewer cannot catch and an
 aggregate cannot reveal, which is why they get a harness rather than trust.
@@ -376,6 +376,12 @@ no enforcement but a field in a log.
 | `run_fold_hardcodes_the_absent_value` | `"none"` is written as a literal instead of read from naming.yaml | breaks nothing today — that is why it is here. CLAUDE.md requires config-defined vocabulary in results files, and the cost is paid on the day the config moves and one of the two spellings does not | **1** |
 | `run_fold_skips_axis_validation` | `spans.jsonl` is written without `check_run` | a misspelled axis value mints a results directory no axis defines. `write_metrics` still validates, so the failure is an orphan spans file beside no metrics — the halfway state validate-before-write exists to prevent | **1** |
 | `run_fold_writes_unsorted_spans` | the sort before writing is removed | stable today, for an upstream reason rather than a stated one. Reorder the rules in the file and a committed results file gets a diff a reviewer cannot tell from a change in what was detected | **1** |
+| `arm_rules_path_drops_the_axes` | `paths.armrules` becomes `rules/{lang}.yaml` — the state before DESIGN §5.3 | `port-oneshot` and `port-loop` then write the same file and the second arm to run overwrites the first's rules. `str.format` ignores unused keys, so nothing raises: every arm's path collapses to one silently. Worse than the `armfreeze` collision it repeats — an overwritten record is visibly gone, an overwritten *input* leaves a complete, consistent metrics.json whose premise no longer exists | **6** |
+| `arm_rules_path_drops_the_iteration` | the four axes stay, `iter{N}/` goes | the collision stays closed and the history does not. `port-loop` rewrites its file every round, and that sequence is what δ/k was computed over and the only answer to "which rules existed at iteration 4". Keeps the last round, discards the arm's process — §5.1's objection to aggregates, applied to inputs | **4** |
+| `arm_rules_path_loses_the_rules_component` | `.../{porting}/iter3/es.yaml` instead of `.../{porting}/rules/iter3/es.yaml` | every axis is present and the overwrite argument is untouched. What breaks is invisible from the path: the screener's `rule_id` mechanism-vocabulary check matches `rules/*.yaml`, and it is Prohibition 2's only enforcement. Unmatched is not rejected — the check never runs and the file is reported clean | **3** |
+| `run_fold_infers_its_own_rule_path` | `run_fold` builds `arm_rules_path()` from its own axis arguments instead of being told | behaviourally invisible on the happy path, which is why the assertion is structural. The cost is that the module has one possible input, so a trial file and the bootstrap each need a special case, and the input becomes a function of the run block — the coupling that lets a run read its own results directory. The hardcoded `iteration=1` is the tell: an inferring version has to invent a round it was never given | **1** |
+| `rule_source_not_recorded` | `rules_source` is dropped from the run block, `rules_version` stays | the version is whatever the author declared, so it survives an overwrite looking correct; only the path names the arm and the iteration. Without it §5.3's decision is undetectable from the published record — the reader sees a well-formed metrics.json either way | **1** |
+| `rule_source_recorded_absolute` | the rule file's path is recorded absolute instead of repo-relative | names a home directory in a published run block, and on a machine where the corpus checkout sits beside the repository it names the layout of DUA data. Still a string, still identifies the file, so every present-and-non-empty assertion passes | **4** |
 | `conftest_availability_from_a_load` | the shared availability fixture goes back to deciding availability by loading the corpus | the defect that shipped four times, reverted. Changes nothing until a real loader bug arrives, and then hides it: measured alongside `type_in_both_lists`, **93 tests skip and 78 non-passing outcomes become 3**, reported as a green suite | **1** |
 | `test_file_shadows_the_shared_fixture` | one test file defines its own `corpus_present`, in the defective form | the propagation rather than the defect: the local definition wins over conftest's silently, and only that file's tests are affected — which is how three files carried it unnoticed | **2** |
 
@@ -668,7 +674,7 @@ applies to the code. Two safeguards follow from that:
   Three checks, described in the next section. Skipping them lets the harness count
   its own breakage as a kill.
 
-The maintenance cost is real but bounded: seventy-four anchors, each a line or two,
+The maintenance cost is real but bounded: eighty anchors, each a line or two,
 and a refactor that breaks one gets a `STALE` message naming the file. That is
 cheaper than the failure mode it prevents.
 

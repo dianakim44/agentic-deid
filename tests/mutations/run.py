@@ -48,6 +48,7 @@ TEST_FILES = [
     "tests/test_check_rules.py",
     "tests/test_run_fold.py",
     "tests/test_conftest.py",
+    "tests/test_arm_rules_path.py",
 ]
 
 #: Repository directories the loader tests need. `splits/` is here because the
@@ -176,6 +177,11 @@ SHOW_WINDOW = "tools/show_human_window.py"
 RULES = "src/rules.py"
 CHECK_RULES = "tools/check_rules.py"
 RUN_FOLD = "src/eval/run_fold.py"
+#: The config, mutated like any other guard. It is where output paths are declared, so a
+#: path that loses an axis is edited here and not in a module — which is the point of the
+#: rule that a new value goes into the config first: the collision is visible in one
+#: committed file rather than distributed across the callers.
+NAMING = "config/naming.yaml"
 CONFTEST = "tests/conftest.py"
 TEST_RUN_FOLD = "tests/test_run_fold.py"
 
@@ -1457,6 +1463,119 @@ MUTATIONS = [
             "and stable for an upstream reason rather than a stated one, so a re-run of "
             "identical rules can produce a diff in a committed results file, and a "
             "reviewer cannot tell a reordering from a change in what was detected."
+        ),
+        min_kills=1,
+    ),
+    # ── an arm's rule files live under the arm (DESIGN §5.3) ─────────────────
+    Mutation(
+        name="arm_rules_path_drops_the_axes",
+        path=NAMING,
+        anchor=('  armrules: "results/{corpus}/{detector}/{supervision}/{porting}/'
+                'rules/iter{iteration}/{lang}.yaml"'),
+        replacement='  armrules: "rules/{lang}.yaml"',
+        breaks=(
+            "The state before DESIGN §5.3: `armrules` names the bootstrap file, so "
+            "`port-oneshot` and `port-loop` write the same path and the second arm to "
+            "run overwrites the first's rules. `paths.armfreeze`'s collision one level "
+            "down, and worse — an overwritten record is visibly gone, while an "
+            "overwritten input leaves a complete, internally consistent metrics.json "
+            "with a plausible rules_version behind it, for a run whose premise no "
+            "longer exists. Note the template still formats: `str.format` ignores "
+            "unused keys, so nothing raises and every path collapses silently."
+        ),
+        min_kills=3,
+    ),
+    Mutation(
+        name="arm_rules_path_drops_the_iteration",
+        path=NAMING,
+        anchor="rules/iter{iteration}/{lang}.yaml",
+        replacement="rules/{lang}.yaml",
+        breaks=(
+            "Keeps the four axes and loses the round. `port-loop` rewrites its rule file "
+            "every iteration and the sequence is the experimental record — it is "
+            "what δ/k was computed over and the only thing that can answer which "
+            "rules existed at iteration 4. This keeps the last round and discards the "
+            "history, reducing the arm to its final state, which is exactly what §"
+            "5.1 argues aggregates cannot carry."
+        ),
+        min_kills=2,
+    ),
+    Mutation(
+        name="arm_rules_path_loses_the_rules_component",
+        path=NAMING,
+        anchor="{porting}/rules/iter{iteration}/{lang}.yaml",
+        replacement="{porting}/iter{iteration}/{lang}.yaml",
+        breaks=(
+            "Every axis is still there and the collision is still closed, so nothing "
+            "about the overwrite argument fails. What fails is invisible from the path: "
+            "`release_screen.py` applies its rule_id mechanism-vocabulary check to files "
+            "matching `rules/*.yaml`, and that check is the only enforcement "
+            "rule_author.md Prohibition 2 has — a surname in a rule name reaches a "
+            "public metrics.json through the by_rule block, and metrics.json is on the "
+            "screener's *allow* list. Unmatched here does not mean rejected: the check "
+            "never runs and the file is reported clean. Same class as a structural check "
+            "that silently matches nothing."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="run_fold_infers_its_own_rule_path",
+        path=RUN_FOLD,
+        anchor="    ruleset = load_for_corpus(corpus, paths=rules)",
+        replacement=(
+            "    from ..rules import arm_rules_path\n"
+            "    from ..corpora.base import rule_langs\n"
+            "    if rules is None:\n"
+            "        rules = {l: arm_rules_path(corpus=corpus, detector=detector,\n"
+            "                                   supervision=supervision,\n"
+            "                                   porting=porting, iteration=1, lang=l)\n"
+            "                 for l in rule_langs(corpus)}\n"
+            "    ruleset = load_for_corpus(corpus, paths=rules)"
+        ),
+        breaks=(
+            "`run_fold` derives its input from its own axis arguments instead of being "
+            "told (DESIGN §5.3). Behaviourally invisible on the happy path — "
+            "inferring the right path and being handed it produce identical output, "
+            "which is why the assertion is structural. What it costs is that the module "
+            "has one possible input location, so a trial file and the bootstrap file "
+            "each need a special case, and the input becomes a function of the run "
+            "block: the coupling that lets a run read its own results directory. The "
+            "hardcoded iteration=1 is the tell — an inferring version has to invent "
+            "a round number it was never given."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="rule_source_not_recorded",
+        path=RUN_FOLD,
+        anchor=(
+            '        "rules_source": {lang: p for lang, p in '
+            'sorted(ruleset.sources.items())},'
+        ),
+        replacement="",
+        breaks=(
+            "Leaves `rules_version` and drops the path. The version is whatever the "
+            "author declared, so it survives an overwrite looking correct; the path "
+            "names the arm and the iteration. Without it the published record cannot "
+            "say which file the numbers were computed from, which makes DESIGN §5.3's "
+            "whole decision undetectable from the outside — the reader sees a "
+            "well-formed metrics.json either way."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="rule_source_recorded_absolute",
+        path=RULES,
+        anchor="        return str(p.resolve().relative_to(ROOT.resolve()))",
+        replacement="        return str(p.resolve())",
+        breaks=(
+            "Records the rule file's absolute path in a published run block. Names a "
+            "person's home directory, and on a machine where the corpus checkout sits "
+            "beside the repository it names the directory layout of DUA data — the "
+            "`relative_to` call is what keeps a path from being the leak CLAUDE.md's "
+            "offsets-and-types rule exists to prevent. Note it still returns a string "
+            "and still identifies the file, so every test asserting that the field is "
+            "present and non-empty passes."
         ),
         min_kills=1,
     ),

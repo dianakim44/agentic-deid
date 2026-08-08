@@ -162,10 +162,20 @@ class RuleSet:
     A list rather than a dict keyed by id: `es-carmen` loads `es` and `cat` (DESIGN
     §5.2), and both files may define `doctor_prefix`. The prefixes make the ids unique;
     the ordering is the file order, and it does not matter because the merge is a union.
+
+    `sources` maps each lang to the file it was read from, repo-relative, and is recorded
+    in `metrics.json`'s run block beside `rules_version`. DESIGN §5.3's objection to a
+    single shared rule path is that an overwrite leaves a well-formed metrics file whose
+    input no longer exists; a version integer alone cannot notice that, because it stays
+    plausible. A path can: it names the arm and the iteration, so the record says which
+    file produced it and a reader can go and check. It is filled even when the file was
+    absent — "we looked here and found nothing" is a premise of a zero-rule run, and the
+    alternative is a run that read nothing and says nothing about where.
     """
 
     rules: list[Rule] = field(default_factory=list)
     versions: dict[str, int] = field(default_factory=dict)
+    sources: dict[str, str] = field(default_factory=dict)
 
     def detect(self, text: str, detector: str = "R") -> list[Span]:
         """Every rule's matches on `text`, as prediction spans with provenance.
@@ -446,12 +456,75 @@ def _read_lexicon(ref: str, rule_id: str) -> list[str]:
     return terms
 
 
-def load_rules(lang: str, *, path: Path | None = None) -> RuleSet:
-    """One `rules/{lang}.yaml`, validated and compiled.
+def _relative(path) -> str:
+    """A rule file's location as it goes into `metrics.json`, repo-relative when it can be.
 
-    `path` overrides the location for a practice or test file, and is the reason a
-    rehearsal never touches `rules/es.yaml` — the practice file lives outside the
-    repository and iteration 1 starts from zero rules
+    Repo-relative because the run block is published: an absolute path names a person's
+    home directory and, on a machine where the corpus checkout sits beside the repo, the
+    directory layout of DUA data. A path outside the repository — a practice file in
+    `/tmp`, a pytest `tmp_path` — is recorded as its filename alone with a marker, since
+    the point of the field is which *arm's* file was read (DESIGN §5.3) and a trial run's
+    absolute location answers a question nobody asked while leaking one nobody wanted.
+    """
+    p = Path(path)
+    try:
+        return str(p.resolve().relative_to(ROOT.resolve()))
+    except ValueError:
+        return f"<outside-repo>/{p.name}"
+
+
+def arm_rules_path(
+    *, corpus: str, detector: str, supervision: str, porting: str,
+    iteration: int, lang: str, root: Path | None = None,
+) -> Path:
+    """Where an arm's rule file for one iteration lives (`paths.armrules`, DESIGN §5.3).
+
+    `rules/{lang}.yaml` is the committed format example and the bootstrap state; this is
+    the path an arm *writes*. It carries the four axes and the iteration number, because
+    `port-oneshot` and `port-loop` differ in nothing but how the file was produced and one
+    shared path means the second arm to run overwrites the first — `paths.armfreeze`'s
+    collision one level down, and worse there than here: an overwritten record is visibly
+    gone, while an overwritten input leaves a complete and internally consistent
+    `metrics.json` behind whose premise no longer exists.
+
+    Every axis component is checked against `naming.yaml` before the path is built, for
+    `human_arm._arm_path()`'s reason — a results path names the cell of the experiment an
+    artefact belongs to, so an unknown component mints a cell rather than failing. `lang`
+    is checked too but is not an axis in the results sense: it names the file's language
+    (DESIGN §5.2) and the `rule_id` prefix is taken from it.
+    """
+    for value, ax in ((corpus, "corpus"), (detector, "detector"),
+                      (supervision, "supervision"), (porting, "porting"),
+                      (lang, "lang")):
+        if value not in axis(ax):
+            raise RuleError(
+                f"{value!r} is not a {ax} in config/naming.yaml (have: "
+                f"{sorted(axis(ax))}). An arm's rule path names the cell of the "
+                "experiment the file belongs to, so an unknown component would create "
+                "a cell rather than fail (DESIGN §5.3)."
+            )
+    if not isinstance(iteration, int) or isinstance(iteration, bool) or iteration < 1:
+        raise RuleError(
+            f"iteration must be an integer >= 1, got {iteration!r}. It is a path "
+            "component: the sequence of an iterating arm's rule files is the "
+            "experimental record, and iteration 0 or a float would put one round "
+            "somewhere nothing looks for it (DESIGN §5.3)."
+        )
+    return (root or ROOT) / path_template("armrules").format(
+        corpus=corpus, detector=detector, supervision=supervision, porting=porting,
+        iteration=iteration, lang=lang,
+    )
+
+
+def load_rules(lang: str, *, path: Path | None = None) -> RuleSet:
+    """One rule file, validated and compiled. `path` says which one.
+
+    `path` defaults to `paths.rules` — `rules/{lang}.yaml`, the committed format example
+    and the bootstrap state a first iteration starts from. **An arm's own rule files are
+    not there** (DESIGN §5.3): they live under the arm, at `arm_rules_path()`, and the
+    caller passes the path. Kept as a default rather than made required because that is
+    what the bootstrap and a practice file both need — a rehearsal never touches
+    `rules/es.yaml`, since the practice file lives outside the repository
     (`docs/notes/port-human-practice.md`).
     """
     if lang not in axis("lang"):
@@ -461,8 +534,12 @@ def load_rules(lang: str, *, path: Path | None = None) -> RuleSet:
             "of the corpus (DESIGN §5.2)."
         )
     p = path or ROOT / path_template("rules").format(lang=lang)
+    where = _relative(p)
     if not Path(p).exists():
-        return RuleSet()
+        # `sources` filled anyway: a zero-rule run has a premise too, and "we read
+        # nothing" and "we looked at this path and it was not there" are different
+        # facts (DESIGN §5.3).
+        return RuleSet(sources={lang: where})
     with open(p, encoding="utf-8") as fh:
         raw = yaml.safe_load(fh) or {}
     if not isinstance(raw, dict):
@@ -491,7 +568,7 @@ def load_rules(lang: str, *, path: Path | None = None) -> RuleSet:
                 "attribution into one bucket (rule_author.md §2)."
             )
         seen.add(r.rule_id)
-    return RuleSet(rules=rules, versions={lang: version})
+    return RuleSet(rules=rules, versions={lang: version}, sources={lang: where})
 
 
 def load_for_corpus(corpus: str, *, paths: dict[str, Path] | None = None) -> RuleSet:
@@ -500,10 +577,18 @@ def load_for_corpus(corpus: str, *, paths: dict[str, Path] | None = None) -> Rul
     All of them, unioned. No per-document language selection: a selector's own error
     rate is not measured by any metric in this project, so its mistakes would be
     reported inside detection performance (DESIGN §5.2, naming.yaml).
+
+    `paths` says where each language's file is, and `corpus_rule_langs` says which
+    languages — two separate questions, and only the second is derived from the corpus.
+    An arm passes `arm_rules_path()` per language (DESIGN §5.3); a `lang` absent from
+    `paths` falls back to `paths.rules`, which is the bootstrap state and not a location
+    any arm writes to. Nothing here infers a path from an arm's axes: `run_fold` is told,
+    which keeps one code path for an arm's file, a trial file and the example file.
     """
     combined = RuleSet()
     for lang in rule_langs(corpus):
         part = load_rules(lang, path=(paths or {}).get(lang))
         combined.rules.extend(part.rules)
         combined.versions.update(part.versions)
+        combined.sources.update(part.sources)
     return combined

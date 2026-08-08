@@ -123,6 +123,13 @@ ALLOW_PATTERNS = [
     # sniffer runs first and a freeze record that somehow carried note text is SUSPECT
     # before it is ever matched here.
     r"^results/[^/]+/[^/]+/[^/]+/[^/]+/window_freeze\.json$",
+    # An arm's own rule files (paths.armrules, DESIGN §5.3). Publishable for the same
+    # reason the committed rules/{lang}.yaml is: patterns, literal term lists and cue
+    # words, which rule_author.md Prohibition 2 restricts to clinical formulae. Being on
+    # this list is a statement about the path and never about the content — `sniff()` runs
+    # first, and it applies the rule_id vocabulary check to this path too, so a name
+    # carrying a surface form is SUSPECT before it is ever matched here.
+    r"^results/[^/]+/[^/]+/[^/]+/[^/]+/rules/iter[0-9]+/[^/]+\.ya?ml$",
 ]
 
 # Hangul run long enough to be prose rather than a label.
@@ -403,11 +410,18 @@ def sniff(path, blob=None, force=False):
     if path.endswith(".py"):
         text = strip_code_prose(text)          # 코드 설명은 검사 대상이 아니다
 
-    # rules/*.yaml only. The check is about rule *names*, and a rule_id appears in
-    # other files (spans.jsonl, metrics.json) as a value copied from here — screening
-    # the origin is what stops it, and screening the copies would report one mistake
-    # many times over.
-    if re.search(r"(^|/)rules/[^/]+\.ya?ml$", path.replace(os.sep, "/")):
+    # Rule files only. The check is about rule *names*, and a rule_id appears in other
+    # files (spans.jsonl, metrics.json) as a value copied from here — screening the origin
+    # is what stops it, and screening the copies would report one mistake many times over.
+    #
+    # The pattern matches any `rules/` directory, not the top-level one alone, because an
+    # arm's rule files are under the arm (paths.armrules, DESIGN §5.3):
+    # results/{...}/{porting}/rules/iter3/es.yaml. Anchored to the top level it would pass
+    # every agent-written file — and passing here is not rejection, it is the check never
+    # running, which is the failure mode a structural check has to be built against
+    # (tests/test_conftest.py). Keeping `rules/` in the arm path is what makes one pattern
+    # cover both, and DESIGN §5.3 records that as a reason the component stays.
+    if re.search(r"(^|/)rules/(iter[0-9]+/)?[^/]+\.ya?ml$", path.replace(os.sep, "/")):
         found = rule_id_findings(text)
         if found:
             why = found[0][1]
