@@ -50,6 +50,8 @@ TEST_FILES = [
     "tests/test_conftest.py",
     "tests/test_arm_rules_path.py",
     "tests/test_prompt.py",
+    "tests/test_bedrock.py",
+    "tests/test_check_bedrock_logging.py",
 ]
 
 #: Repository directories the loader tests need. `splits/` is here because the
@@ -186,6 +188,11 @@ NAMING = "config/naming.yaml"
 CONFTEST = "tests/conftest.py"
 TEST_RUN_FOLD = "tests/test_run_fold.py"
 PROMPT = "src/llm/prompt.py"
+BEDROCK = "src/llm/bedrock.py"
+#: The gate's producer. Mutated like any other guard, and for a sharper reason than
+#: most: this file is what writes the compliance record the paper cites, so a defect
+#: here does not lose evidence, it manufactures it.
+CHECK_LOGGING = "tools/check_bedrock_logging.py"
 
 MUTATIONS = [
     Mutation(
@@ -1739,6 +1746,182 @@ MUTATIONS = [
             "the mechanism). Two tests rather than one because the fourth occurrence was "
             "a module-level function feeding `skipif`, which the fixture rule alone does "
             "not see."
+        ),
+        min_kills=2,
+    ),
+    # ─── the Bedrock client (src/llm/bedrock.py, DESIGN §10 A2) ─────────────
+    # Five guarantees, and none of them is about correctness of output. Each one is a
+    # thing the client refuses to do, which is the hard kind to test: the mutated
+    # client returns a perfectly good `Response` in four of the five cases, and the
+    # run it belongs to produces a rule file and a metrics.json either way.
+    Mutation(
+        name="logging_gate_defaults_to_open",
+        path=BEDROCK,
+        anchor="    if not module.checked_today():",
+        replacement="    if False:",
+        breaks=(
+            "The gate stops being a gate. Every call goes through with no "
+            "model-invocation logging check on record, which is the state "
+            "`compliance.md` §3 says cannot be assumed — it is a mutable account "
+            "setting and yesterday's `None` is evidence about yesterday.\n"
+            "\n"
+            "**Nothing observable changes.** The call succeeds, the arm writes its "
+            "artefact, the scores are the same numbers. If logging happens to be "
+            "enabled, Bedrock is writing the full prompt — which carries ±120 "
+            "characters of dev-fold corpus context per span (`rule_author.md` §1.4) — "
+            "to a bucket in this account, and the only difference visible from inside "
+            "the run is that the run worked. That is why the gate is a refusal rather "
+            "than a warning, and why this mutation has to be caught by a test rather "
+            "than by anyone noticing.\n"
+            "\n"
+            "Caught by `test_the_gate_blocks_the_call_when_no_check_is_recorded` and "
+            "`test_a_record_for_another_day_does_not_open_the_gate`. The second is the "
+            "one that matters here: an open gate and a gate that accepts a stale "
+            "record are the same failure at different speeds."
+        ),
+        min_kills=2,
+    ),
+    Mutation(
+        name="absent_token_counts_default_to_zero",
+        path=BEDROCK,
+        anchor=(
+            '    prompt_tokens = usage.get("inputTokens")\n'
+            '    completion_tokens = usage.get("outputTokens")'
+        ),
+        replacement=(
+            '    prompt_tokens = usage.get("inputTokens", 0)\n'
+            '    completion_tokens = usage.get("outputTokens", 0)'
+        ),
+        breaks=(
+            "A partial `usage` block becomes a cost block reading zero tokens. Not a "
+            "missing measurement — a measurement asserting the call consumed nothing, "
+            "sitting in the same column as real counts.\n"
+            "\n"
+            "CLAUDE.md requires cost beside quality precisely so that an improvement "
+            "bought at twice the price is legible as one. A zero does not weaken that "
+            "comparison, it strengthens it in the wrong direction: the arm that lost a "
+            "`usage` field looks free. And the two-argument `.get` is the natural edit "
+            "— it removes an exception from a code path nobody has seen fire, which is "
+            "how defensive zeroes get added.\n"
+            "\n"
+            "Caught by `test_a_partial_usage_block_is_refused`."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="a_mismatched_model_is_recorded_rather_than_refused",
+        path=BEDROCK,
+        anchor=(
+            "        raise BedrockError(\n"
+            '            f"the response reports model {reported!r} for a request naming "'
+        ),
+        replacement=(
+            "        return check_model_resolution(MISMATCH)\n"
+            "        raise BedrockError(\n"
+            '            f"the response reports model {reported!r} for a request naming "'
+        ),
+        breaks=(
+            "A response naming a different model than the request is written down "
+            "instead of stopping the run. This is the mutation that looks like an "
+            "improvement: it uses the declared vocabulary, it loses no information, and "
+            "the disagreement ends up in `metrics.json` where a reader could find it. "
+            "Recording it is strictly more data than refusing.\n"
+            "\n"
+            "It is still wrong, and the reason is what `mismatch` is for. The rung's "
+            "output is attributed to a model in the paper, and a `mismatch` row means "
+            "nobody can say which model produced it — so the artefact is unusable for "
+            "the one purpose it exists for, and writing it down does not make it usable. "
+            "A refused call costs one re-run; a recorded mismatch costs a number in "
+            "§10 A2 that cannot be attributed and will not be noticed until someone "
+            "greps the resolution column. `naming.yaml` declares the value so the "
+            "refusal can name it; declaring it is not permission to emit it.\n"
+            "\n"
+            "Caught by `test_a_response_naming_a_different_model_is_refused` and "
+            "`test_a_mismatch_stops_the_invoke_rather_than_being_recorded` — two tests "
+            "because the second is the one that fails if a later caller catches the "
+            "error and carries on."
+        ),
+        min_kills=2,
+    ),
+    Mutation(
+        name="the_client_hardcodes_botocores_default_attempts",
+        path=BEDROCK,
+        anchor='        config=Config(retries={"max_attempts": MAX_ATTEMPTS, "mode": "standard"}),',
+        replacement='        config=Config(retries={"max_attempts": 3, "mode": "standard"}),',
+        breaks=(
+            "One `invoke()` becomes up to three calls to Bedrock. `MAX_ATTEMPTS = 1` and "
+            "its comment stay exactly as they are, which is the point — the constant "
+            "still documents a guarantee the code no longer keeps, and the module "
+            "docstring still says the transport is pinned.\n"
+            "\n"
+            "The damage is in the cost column and it is invisible: `Response.cost()` "
+            "reports `llm_calls: 1` because the type is one call, so a throttled run "
+            "bills three times and reports once. §10 A2 fixes format retries at zero on "
+            "both arms so that a format failure is reportable rather than retried away; "
+            "a transport that retries underneath that undoes it silently, and the arm "
+            "that got throttled is the arm that looks cheap.\n"
+            "\n"
+            "Caught by `test_the_client_builder_passes_the_pinned_attempts`, which reads "
+            "`_client`'s syntax tree and requires the name rather than the number. "
+            "Structural because the behavioural check needs a throttle to fire."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="the_reply_text_is_taken_from_the_first_block",
+        path=BEDROCK,
+        anchor='    parts = [b["text"] for b in blocks if isinstance(b, Mapping) and "text" in b]',
+        replacement=(
+            '    parts = [b["text"] for b in blocks[:1] if isinstance(b, Mapping) and "text" in b]'
+        ),
+        breaks=(
+            "Reverts the client to the shape the response *looks* like it has. This one "
+            "is not hypothetical: it is what was written first, and it failed on the "
+            "first real call. This model returns `reasoningContent` and *then* `text`, "
+            "so the first block carries no text and a good reply is reported as having "
+            "none.\n"
+            "\n"
+            "Worth keeping as a mutation rather than just as a fixed bug, because the "
+            "fix is invisible in a fixture written by whoever holds the wrong model of "
+            "the shape. A one-text-block fixture passes under both versions, and that "
+            "is the fixture anyone would write from the API docs — which is why the "
+            "fixtures in `test_bedrock.py` put a reasoning block first by default.\n"
+            "\n"
+            "Caught by `test_the_text_is_found_after_a_reasoning_block`."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="the_logging_check_reports_an_unreadable_setting_as_clean",
+        path=CHECK_LOGGING,
+        anchor="        raise LoggingCheckError(\n            f\"could not read the logging configuration in {region}: \"",
+        replacement="        return region, CLEAN\n        raise LoggingCheckError(\n            f\"could not read the logging configuration in {region}: \"",
+        breaks=(
+            "An IAM denial becomes a clean bill of health. The tool then appends a dated "
+            "record saying logging is off in a region where it could not be read, the "
+            "client's gate opens on that record, and `compliance.md` — the file the "
+            "paper's ethics section cites — carries a measurement nobody made.\n"
+            "\n"
+            "This is the single worst failure in the pair of files, because it is the one "
+            "that manufactures evidence rather than losing it. It is also the plausible "
+            "edit: the check already tolerates six regions of which three are not used, "
+            "and `AccessDeniedException` in `ap-northeast-2` reads like noise to be "
+            "skipped. `cloudtrail:DescribeTrails` already returns exactly that for this "
+            "principal (§3), so the case is live rather than imagined.\n"
+            "\n"
+            "**It SURVIVED when it was first written, and that is why it is here.** The "
+            "first `test_check_bedrock_logging.py` patched `check_all` out in every test, "
+            "so the region-level error path — the only place a denial becomes a refusal — "
+            "was never executed by anything. Twenty tests passed, the tool was green, and "
+            "the guarantee had no coverage at all. A test that patches out the function "
+            "holding the guarantee cannot test it, and nothing but a mutation says so.\n"
+            "\n"
+            "Now caught by `test_an_unreadable_region_raises_rather_than_reporting_it_"
+            "clean`, `test_an_unreadable_region_fails_the_run_and_appends_no_record` (the "
+            "run failing while the row is still written would leave the gate open anyway), "
+            "`test_a_transport_failure_is_also_not_a_clean_result` and "
+            "`test_check_all_stops_at_the_first_unreadable_region` — all four driving a "
+            "fake `boto3.client` so that the real `check_region` runs."
         ),
         min_kills=2,
     ),

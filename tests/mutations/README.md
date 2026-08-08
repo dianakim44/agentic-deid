@@ -386,6 +386,12 @@ no enforcement but a field in a log.
 | `renderer_writes_a_debug_copy` | `render_window()` also writes the rendered text to `/tmp/last_prompt.txt` | the filled prompt on disk — the file rule_author.md §6 says must not exist, ±120 characters of dev text per span. Nothing about the run changes: same prompt, same model input, every content assertion still passes. The screener blocks the committed paths an instance would land under, and `/tmp` is not one of them — which is why the convention is "never written" and not "never committed". Also the reason the renderer's *interior* is checked and not only the type: the type is intact here and protects a value that already escaped | **1** |
 | `filled_prompt_exposes_its_text` | `FilledPrompt` gains a `.text` property | an accessor not named for a destination, which is the distinction the type exists to draw. `to_terminal` checks where it is going, `for_transport` declares it; `.text` answers to a log line, a `json.dumps` of a record that happens to hold it, an f-string in an exception message. Adding it breaks nothing and is the natural edit for a caller wanting to assert on the text | **2** |
 | `terminal_exit_does_not_check_the_destination` | `to_terminal`'s `isatty` check becomes `if False` | the exit writes to whatever it is handed, so a redirected stream receives the window. `show_human_window.py`'s own check is why this is caught rather than fatal — but that one is for the error message and this one is the guarantee, and the next caller of the exit is the orchestrator, which has no check of its own | **2** |
+| `logging_gate_defaults_to_open` | the `checked_today()` condition in `_require_logging_check` becomes `if False` | every call proceeds with no Bedrock model-invocation logging check on record — the state `compliance.md` §3 says cannot be assumed, since it is a mutable account setting and yesterday's `None` is evidence about yesterday. Nothing observable changes: the call succeeds, the arm writes its artefact, the scores are the same numbers. If logging is on, Bedrock is writing the full prompt — ±120 characters of dev-fold context per span — to a bucket in this account, and the only sign from inside the run is that the run worked | **4** |
+| `absent_token_counts_default_to_zero` | `usage.get("inputTokens")` gains a default of `0` | a partial `usage` block becomes a cost block asserting the call consumed nothing, in the same column as measured counts. CLAUDE.md requires cost beside quality so a gain bought at twice the price is legible; a zero does not weaken that comparison but strengthens it wrongly — the arm that lost a field looks free. The two-argument `.get` is the natural edit, removing an exception from a path nobody has seen fire | **1** |
+| `a_mismatched_model_is_recorded_rather_than_refused` | `_resolution` returns `check_model_resolution(MISMATCH)` where it raises | the mutation that looks like an improvement: it uses the declared vocabulary, loses no information, and puts the disagreement in `metrics.json` where a reader could find it. Recording is strictly more data than refusing — and still wrong, because a `mismatch` row means nobody can say which model produced the artefact, so it is unusable for the one purpose it exists for and writing it down does not make it usable (§10 A2). naming.yaml declares the value so the refusal can name it; declaring is not permission to emit | **2** |
+| `the_client_hardcodes_botocores_default_attempts` | `Config(retries={"max_attempts": 3})` instead of `MAX_ATTEMPTS` | one `invoke()` becomes up to three calls. `MAX_ATTEMPTS = 1`, its comment, and the module docstring's claim that the transport is pinned all stay exactly as they are. The damage is invisible and lands in the cost column: `Response.cost()` reports `llm_calls: 1` because the type is one call, so a throttled run bills three times and reports once — undoing §10 A2's zero-retry symmetry underneath it, in the direction where the throttled arm looks cheap | **1** |
+| `the_reply_text_is_taken_from_the_first_block` | `_text` reads `blocks[:1]` instead of every text block | reverts the client to the shape the response *looks* like it has. Not hypothetical — it is what was written first and it failed on the first real call: this model returns `reasoningContent` and *then* `text`, so a good reply is reported as having none. Kept as a mutation because the fix is invisible in a fixture written from the API docs, which is why `test_bedrock.py`'s fixtures put a reasoning block first by default | **16** |
+| `the_logging_check_reports_an_unreadable_setting_as_clean` | `check_region` returns `(region, CLEAN)` where it raises on `ClientError` | an IAM denial becomes a clean bill of health, the tool appends a dated record for a region it could not read, the client's gate opens on it, and `compliance.md` — cited by the paper's ethics section — carries a measurement nobody made. The worst failure in the pair, because it manufactures evidence rather than losing it, and the plausible edit: `AccessDeniedException` in an unused region reads as noise, and `cloudtrail:DescribeTrails` already returns exactly that for this principal | **4** |
 | `conftest_availability_from_a_load` | the shared availability fixture goes back to deciding availability by loading the corpus | the defect that shipped four times, reverted. Changes nothing until a real loader bug arrives, and then hides it: measured alongside `type_in_both_lists`, **93 tests skip and 78 non-passing outcomes become 3**, reported as a green suite | **1** |
 | `test_file_shadows_the_shared_fixture` | one test file defines its own `corpus_present`, in the defective form | the propagation rather than the defect: the local definition wins over conftest's silently, and only that file's tests are affected — which is how three files carried it unnoticed | **2** |
 
@@ -644,6 +650,72 @@ caller gets a corpus-shaped error instead and goes looking for a missing fold, a
 person most likely to do that is the one who typed `--split test` because they did not
 know it was sealed. A guard whose failure message teaches the rule is doing a second job,
 and the second job is the one that survives contact with a tired evening.
+
+### The Bedrock mutations, and the one that survived
+
+The last six are on `src/llm/bedrock.py` and `tools/check_bedrock_logging.py`, and they
+share a property none of the earlier groups has: **five of the six leave a client that
+returns a perfectly good `Response`.** No exception, no missing field, no malformed
+artefact. The arm runs, the rules are written, `metrics.json` validates. What each one
+removes is a refusal, and a refusal that has been removed is indistinguishable from a
+refusal that was never needed.
+
+`logging_gate_defaults_to_open` and `the_logging_check_reports_an_unreadable_setting_as_clean`
+are the two halves of the same guarantee, and they fail in opposite directions. The first
+loses the evidence: no record, no check, calls proceed anyway. The second **manufactures**
+it — a dated row in `compliance.md` §3 saying logging was off in a region where nobody could
+read the setting, which the client's gate then accepts as license to call. Of the two the
+second is worse, and it is worse in a way that is easy to miss when writing the tool: losing
+a control leaves you where you were before the control existed, while fabricating one leaves
+you confidently past a line you never crossed. `compliance.md` is what the paper's ethics
+section cites. A row in it that describes an unread setting is not a weaker claim than no
+row; it is a false one.
+
+**`the_logging_check_reports_an_unreadable_setting_as_clean` SURVIVED when it was first
+run, and that is the most useful thing in this group.** `tests/test_check_bedrock_logging.py`
+had twenty passing tests at the time. Every one of them patched `check_all` — the sensible
+way to test a tool whose real behaviour needs an AWS account — and `check_region`'s
+`except (ClientError, BotoCoreError)` branch, the only place in the repository where an
+unreadable setting is turned into a refusal, was therefore executed by nothing at all. The
+tool was green, the guarantee was documented in its own docstring and in `compliance.md`,
+and it had no coverage whatsoever. **A test that patches out the function containing the
+guarantee cannot test the guarantee**, and the twenty green tests could not say so. Only
+the mutation could.
+
+The repair was not to weaken the mutation but to drive the real `check_region` through a
+fake `boto3.client`, which is a smaller patch in exactly the place that matters: the AWS
+call is faked, the error handling is not. Four tests catch it now, one of them
+(`test_check_all_stops_at_the_first_unreadable_region`) checking that the sweep *stops*
+rather than continuing — because six regions of which one is unreadable is five
+measurements and an unknown, not a clean result with a gap. Writing that test surfaced its
+own trap: raising the `ClientError` from the fake client's *constructor* let it escape
+untranslated, because construction happens outside `check_region`'s `try`. The test passed
+on the wrong exception until the error was moved onto the API call.
+
+`a_mismatched_model_is_recorded_rather_than_refused` is the one to read twice, because it
+is the only mutation in this file that is arguably an improvement. It replaces a raise with
+`check_model_resolution(MISMATCH)`: the value is declared in naming.yaml, the disagreement
+is preserved rather than discarded, and it lands in `metrics.json` where a reader could
+find it. Recording strictly dominates refusing on information content. It is still wrong,
+and the reason is what the value is for. A `mismatch` means the response named a model other
+than the one requested, so nobody can say which model produced the output — and §10 A2's
+whole purpose is attributing a number to a model family. An artefact that cannot be
+attributed is unusable for the only thing it is for, and writing down that it is unusable
+does not make it usable. A refused call costs one re-run. A recorded mismatch costs a number
+in the appendix that nobody will notice is unattributable until they think to grep the
+resolution column. **Declaring a value in naming.yaml so a refusal can name it is not
+permission to emit it**, which is a distinction the vocabulary rule does not make on its own.
+
+`the_reply_text_is_taken_from_the_first_block` is the only one of the six that was a real
+bug rather than a hypothesised one, and it is kept for what it says about fixtures. The
+obvious reading of a `converse` response — content is a list, take the text off the first
+element — is what was written, and it raised on the very first real call, because this model
+returns `reasoningContent` and then `text`. The fix is one slice. The point is that a
+fixture written from the API documentation, with one text block in it, passes under both the
+correct and the broken version: the shape that catches the bug is the shape you only know
+about after making a real call. That is why the fixtures in `test_bedrock.py` put a reasoning
+block first *by default* rather than in one dedicated test, and why the sixteen tests that
+catch this mutation are mostly not about text extraction at all.
 
 ## What the seal cost, and what carries the difference
 

@@ -141,3 +141,105 @@ Azure OpenAI 는 허용 경로다. 그러나 별도 계정, human review opt-out
 IRB 문구 확인이 필요하고, 그 세 가지는 부록 숫자 하나를 위해 규정 준수 표면을
 넓히는 일이다. 계열 거리를 조금 더 벌기 위해 데이터 거버넌스 경로를 하나 더
 여는 교환은 하지 않는다.
+
+---
+
+## `converse` 응답이 구체 모델을 노출하는가 — 측정 (2026-08-08)
+
+[2] Bedrock 클라이언트를 쓰기 전에 확인해야 했던 것. 위 §"결정에 필요한 것 하나"가
+`model_id` 를 기록해야 한다고 적었지만, **무엇을** 기록할 수 있는지는 응답이 무엇을
+말해주는지에 달려 있다. 코퍼스 텍스트가 없는 최소 프롬프트
+(`"Reply with the single word: ok"`) 로 실제 호출해 확인했다. `AWS_REGION=us-east-1`,
+boto3/botocore 1.43.54, `retries={"max_attempts": 1}`.
+
+### 측정 결과
+
+**1. `converse` 기본 응답은 모델을 전혀 말하지 않는다.** 최상위 키는
+`ResponseMetadata` · `output` · `stopReason` · `usage` · `metrics` 다. 본문에도
+HTTP 헤더에도 모델 필드가 없다. 헤더는 `Date` · `Content-Type` ·
+`Content-Length` · `Connection` · `x-amzn-RequestId` 뿐이다.
+
+**2. 그러나 요청하면 나온다.** `additionalModelResponseFieldPaths=["/model"]` 를
+넘기면 응답에 `additionalModelResponseFields: {"model": "claude-opus-5"}` 가 붙는다.
+`invoke_model` 로 Anthropic 원본 페이로드를 보내면 본문에 `"model": "claude-opus-5"`
+가 그대로 온다 — 같은 값이다. 즉 필드는 존재하고, `converse` 가 기본 응답에서
+감추고 있을 뿐이다.
+
+**3. 그 필드는 요청보다 더 구체적이지 않다.** 이것이 결정적이다. 세 개의 서로 다른
+id 로 같은 호출을 해서 비교했다:
+
+| 요청한 id | 응답이 보고한 `model` |
+|---|---|
+| `us.anthropic.claude-opus-5` | `claude-opus-5` |
+| `us.anthropic.claude-opus-4-5-20251101-v1:0` | `claude-opus-4-5-20251101` |
+| `us.anthropic.claude-opus-4-6-v1` | `claude-opus-4-6` |
+
+날짜가 있는 id 를 보내면 날짜가 보존되어 돌아온다. 그러므로 필드는 날짜를 깎아내는
+정규화기가 **아니다** — 요청이 날짜를 말했으면 응답도 말한다. 그러나 **요청이 말하지
+않은 것을 응답이 채워주는 경우는 없다.** 지역 접두어(`us.`)를 떼는 것 외에 필드는
+요청받은 id 를 되돌려준다.
+
+**4. `GetInferenceProfile` 도 해상도를 올려주지 못한다.** 별칭은
+`arn:aws:bedrock:{us-east-1,us-east-2,us-west-2}::foundation-model/anthropic.claude-opus-5`
+세 개로 풀리는데, 셋 다 같은 무날짜 id 다. `GetFoundationModel` 은
+`modelLifecycle.startOfLifeTime = 2026-07-23T17:00Z` 를 준다 — 이것은 **이 id 가 언제
+등장했는지**이고, 오늘 그 id 뒤에 어느 가중치가 있는지가 아니다.
+
+### 따라서 무엇을 기록하는가
+
+**노출하지 않는 경우로 처리한다.** 응답이 별칭을 확인해줄 뿐 해소해주지 않으므로,
+`model_id` 에 적을 수 있는 것은 요청한 별칭과, 응답이 그것을 확인했다는 사실이다.
+확인은 공짜가 아니다 — 요청 id 와 응답 id 가 어긋나면 그것은 발견이고, 필드를 안
+읽으면 그 발견이 없다. 그래서 클라이언트는 `additionalModelResponseFieldPaths=["/model"]`
+를 **항상** 붙이고 돌아온 값을 대조한다.
+
+기록 형태 (`metrics.json` 의 run 블록):
+
+```
+"model_id":            "us.anthropic.claude-opus-5"   # 요청한 것
+"model_id_reported":   "claude-opus-5"                # 응답이 확인한 것
+"model_id_resolution": "alias-unresolved"             # 아래 어휘
+```
+
+`model_id_resolution` 은 축이 아니라 3값 어휘다 (`config/naming.yaml`):
+
+- `alias-unresolved` — 요청 id 에 스냅샷 날짜가 없고 응답도 더 주지 않았다. 오늘
+  `us.anthropic.claude-opus-5` 가 이 경우다.
+- `dated` — 요청 id 가 날짜를 담고 응답이 그것을 확인했다. 재현 가능성이 가장 높은
+  상태다.
+- `mismatch` — 응답이 요청과 다른 모델을 보고했다. 호출은 성공했어도 기록은
+  신뢰할 수 없다. 클라이언트는 이 경우 **거부한다** — 어느 모델이 답했는지 모르는
+  응답으로 실험 결과를 만들 수 없다.
+
+`null` 이 아니라 문자열인 이유는 `model_id_absent` 와 같다. "모르겠다" 와 "알아봤고
+알 수 없었다" 는 다르고, 후자만이 측정 결과다.
+
+### A2 재현성이 어디까지 유지되는가 — 그리고 어디서 끊기는가
+
+**유지되는 것.** 같은 별칭으로 다시 돌리면 같은 코드·같은 프롬프트·같은 표본이
+재현된다. 별칭이 어느 계열인지도 확실하다 — Anthropic 대 Meta 라는 A2 의 축은
+별칭만으로 명확하므로, **A2 의 주장 자체는 이 한계에 영향받지 않는다.** A2 는
+"Claude 한 번 호출 대 Llama 한 번 호출" 이고 두 별칭은 서로 다른 계열을 가리킨다.
+
+**끊기는 것, 그리고 이것을 논문에 명시해야 한다.** Bedrock 이 `claude-opus-5` 뒤의
+가중치를 갱신하면 기록으로는 알 수 없다. 응답이 확인해주는 것은 별칭이고, 별칭은
+같은 채로 다른 모델을 가리킬 수 있다. 6개월 뒤 같은 명령을 돌려 다른 숫자가 나오면,
+**모델이 바뀐 것인지 우리 코드가 바뀐 것인지 이 기록으로는 구분되지 않는다.**
+`startOfLifeTime` 은 id 의 등장 시점이므로 이 질문에 답하지 않는다.
+
+부분적으로 메우는 것 둘, 그리고 각각이 못 하는 것:
+
+- **실행 날짜와 커밋 해시.** 언제·어느 코드로 돌았는지는 남는다. 그 날 그 별칭이
+  무엇이었는지는 남지 않는다.
+- **`usage` 블록의 토큰 수와 `metrics.latencyMs`.** 모델이 조용히 교체되면 토큰
+  회계가 달라질 수 있어 사후에 정황 증거가 된다. 증거이지 식별자가 아니다.
+
+메울 수 없는 것: **그 날 그 별칭 뒤에 있던 가중치.** Bedrock 은 그것을 노출하지
+않고, 우회 경로는 위 측정 4개 항목이 모두 닫혀 있음을 보인다. 논문은 "모델 별칭을
+기록했다"고 써야 하고 "모델을 기록했다"고 쓰면 안 된다. 이 문단이 그 구분의 근거다.
+
+**날짜 있는 id 로 고정하지 않는 이유.** `anthropic.claude-opus-4-5-20251101-v1:0` 은
+`dated` 를 얻지만 사다리를 한 세대 뒤진 모델로 돌리는 것이고, DESIGN §4 는 계열
+고정을 요구하되 세대를 낮추라고 요구하지 않는다. 재현성을 위해 능력을 내리는
+교환은 하지 않되, 내리지 않은 대가를 위 문단으로 적어둔다. 무날짜 별칭이
+날짜 있는 형태로 제공되기 시작하면 그 때 `dated` 로 옮긴다.

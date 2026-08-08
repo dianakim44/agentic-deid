@@ -1808,6 +1808,69 @@ instruction-following rather than rule-writing ability, which is not the quantit
 to anchor — and the asymmetry would run in the direction that flatters the model this
 project is built on, which is the one direction a reader has every reason to suspect.
 
+**How far the model is identifiable, measured 2026-08-08 — and it is only to the alias.**
+The Nova rejection above cites "the silent-alias risk," and that risk was then measured
+rather than left as a phrase. It is worse than the rejection implies, because it applies to
+the Claude side of this comparison too. `docs/notes/baseline-model-family.md` records four
+probes; the finding is that **nothing on the wire identifies the weights that answered**. A
+`converse` response names no model at all by default.
+`additionalModelResponseFieldPaths=["/model"]` does return one, but across three request ids
+it was never more specific than the request — a dated id comes back dated, an undated alias
+comes back undated. `GetInferenceProfile` resolves only to undated ids, and its
+`startOfLifeTime` answers when an id first appeared, not which weights serve it today.
+
+**The unresolved marker.** Every run records three fields rather than one, from
+`Response.model_record()`:
+
+| field | what it holds |
+|---|---|
+| `model_id` | the id requested — the one thing under this project's control |
+| `model_id_reported` | what the response said, or `null` if the field did not come back |
+| `model_id_resolution` | how far identification got: `dated`, `alias-unresolved`, or `mismatch` (`config/naming.yaml`) |
+
+Three fields because their *agreement* is the only check available and one field cannot
+express it. Both arms of A2 record `alias-unresolved` today, since neither
+`us.anthropic.claude-opus-5` nor `us.meta.llama4-maverick-17b-instruct-v1:0` carries a
+snapshot date. `mismatch` is refused rather than recorded: a call that succeeded while
+nobody can say which model answered is not a result this experiment can use.
+
+**What survives, and what does not.** The distinction matters because the limitation is
+narrower than it first sounds:
+
+- **A2's own claim survives intact.** The comparison is Anthropic versus Meta, and the two
+  aliases name distinct *families* unambiguously — no weight update turns a Claude alias
+  into a Llama one. The axis the appendix rests on is not the axis that is unresolved.
+- **Re-running this appendix later does not.** A silent weight update behind a stable alias
+  is undetectable from here. If someone re-runs `port-oneshot` in six months and gets a
+  different number, the record cannot say whether the model changed or the code did — and
+  that is exactly the attribution A1/A2 exist to make possible. **So the paper must say it
+  recorded the model *alias*, not the model.** The stronger sentence is not available.
+
+Partial mitigations, stated as partial. Neither is an identifier and neither is claimed to
+be one:
+
+- **A date and a commit hash beside the alias**, which bounds *when* that alias was resolved
+  even though it cannot say to what. As of 2026-08-08 `scorer.REQUIRED_RUN` does **not**
+  include either, so this is a requirement on the orchestrator (§8) and not yet a property of
+  any results file — recorded here as work owed rather than as a safeguard in place, because
+  a mitigation described in the design and absent from the writer is the shape §5.4 is about.
+- **The token counts**, which are circumstantial: a re-run whose `prompt_tokens` differ on a
+  byte-identical prompt met a different tokeniser and therefore probably a different model.
+  It can raise suspicion and cannot confirm identity, and equal counts prove nothing.
+
+Whether `model_id_reported` and `model_id_resolution` join `REQUIRED_RUN` alongside them is
+decided with the orchestrator, since that is what assembles the block. The argument for is
+that a field the writer may omit is a field some arms will lack, and a resolution recorded
+for only some runs cannot be compared across them.
+
+**Why not pin a dated id and be done.** A dated Bedrock id (`claude-opus-4-5-20251101`) does
+come back `dated`, so the resolution field would read better. It is not adopted: this
+project's whole toolchain — `CLAUDE_CODE_USE_BEDROCK=1` and every probe in
+`compliance.md` §2 — runs on `us.anthropic.claude-opus-5`, and pinning the appendix to a
+different snapshot than the agents actually used would trade a recorded limitation for an
+unrecorded discrepancy. A limitation stated in the paper is cheaper than a mismatch nobody
+wrote down.
+
 ---
 
 ## 11. `port-human` protocol — **RETIRED 2026-08-07, not deleted**

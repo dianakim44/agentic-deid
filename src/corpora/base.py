@@ -227,6 +227,53 @@ def model_id_absent() -> str:
     return value
 
 
+def model_id_resolution() -> dict[str, str]:
+    """The kinds of `model_id` resolution, from `config/naming.yaml`.
+
+    Three values, measured rather than assumed (`docs/notes/baseline-model-family.md`,
+    2026-08-08): a `converse` response does not name the model it was served by, and the
+    `/model` field it can be asked for is never more specific than the request. So
+    `model_id` alone cannot answer "which weights produced this number", and what has to
+    be recorded is that it cannot — `dated`, `alias-unresolved`, `mismatch`.
+
+    A **closed** vocabulary, unlike `model_id` itself. `model_id` is an observation and so
+    could not be validated against a list without rejecting real Bedrock identifiers; this
+    field is the *kind* of observation, and there are three kinds. It is not an axis for
+    `model_id`'s reason — it does not appear in a results path — which is why it is here
+    rather than under `axes`.
+    """
+    value = naming().get("model_id_resolution")
+    if not isinstance(value, dict) or not value:
+        raise CorpusError(
+            "config/naming.yaml has no `model_id_resolution` mapping. It is the closed "
+            "vocabulary for how far a recorded `model_id` was resolved, it lands in "
+            "metrics.json, and CLAUDE.md keeps such values out of the modules."
+        )
+    bad = [key for key in value if not isinstance(key, str) or not key]
+    if bad:
+        raise CorpusError(
+            f"config/naming.yaml `model_id_resolution` has {len(bad)} non-string or "
+            "empty key(s). Each key is a value written to metrics.json."
+        )
+    return dict(value)
+
+
+def check_model_resolution(value: str) -> str:
+    """Return `value` if it is a declared resolution kind; raise otherwise.
+
+    A checked accessor rather than a bare lookup, for the reason `axis()` raises on an
+    unknown name: a resolution kind invented at a call site would be written to
+    metrics.json and read by nobody, and the field's whole purpose is to be read.
+    """
+    kinds = model_id_resolution()
+    if value not in kinds:
+        raise CorpusError(
+            f"{value!r} is not a model_id resolution kind in config/naming.yaml "
+            f"(have: {sorted(kinds)}). Add it there before a module writes it."
+        )
+    return value
+
+
 def path_template(key: str) -> str:
     """One `paths` template from naming.yaml, e.g. `path_template("humanlog")`.
 

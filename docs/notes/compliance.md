@@ -115,6 +115,33 @@ credentialed text, and append the date and result to this section rather than
 overwriting the table — the paper's claim is about the state during the runs, so a
 single current value is not sufficient evidence.
 
+**As of 2026-08-08 that discipline is enforced rather than described.**
+`tools/check_bedrock_logging.py` performs the same read-only check and appends a dated
+block below, and `src/llm/bedrock.py` **refuses to call** unless a block for the current
+date is present. The instruction above was of the kind DESIGN §5.4 is about — a rule
+whoever remembers it obeys — and the failure mode was silent in both directions: a
+forgotten re-check leaves the paper claiming a measurement it does not have, and an
+enabled destination is invisible from inside a run that succeeds. Two properties of the
+enforcement are load-bearing. An **unreadable** setting (an IAM denial) fails the check
+rather than passing it, because a caller who cannot read the setting cannot report it off.
+And when logging is found **enabled**, nothing is appended — a dated row saying "enabled"
+would satisfy a gate that keys on the date, so the gate stays shut by having no record at
+all.
+
+Rows below this line are machine-appended. Each is one run of the tool; none replaces the
+2026-08-06 table above it.
+
+**Gate check 2026-08-08** (`tools/check_bedrock_logging.py`):
+
+| region | `loggingConfig` |
+|---|---|
+| us-east-1 | `None` |
+| us-east-2 | `None` |
+| us-west-2 | `None` |
+| eu-west-1 | `None` |
+| eu-central-1 | `None` |
+| ap-northeast-2 | `None` |
+
 ## 4. What still has to hold, beyond the serving path
 
 Bedrock being an acceptable path is necessary and not sufficient. The remaining
