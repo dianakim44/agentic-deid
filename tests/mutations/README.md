@@ -19,7 +19,7 @@ is tested by `tests/test_mutation_harness.py`, which pytest does collect.
 
 Each one corresponds to a decision in DESIGN.md that a plausible "simplification"
 would silently undo. What they have in common is the property that makes them
-dangerous: **seventy-two of the eighty-three change no total.** The corpus still loads,
+dangerous: **eighty-three of the ninety-four change no total.** The corpus still loads,
 the document count is still 750, the span count is still 17,134 — and every
 downstream number is wrong. Those are the errors a reviewer cannot catch and an
 aggregate cannot reveal, which is why they get a harness rather than trust.
@@ -63,9 +63,19 @@ than a comment — every one of them leaves all 22,795 spans loading correctly.
 ## The seal mutations
 
 The test fold is behind `sealed/` and reachable only through
-`src/eval/run_sealed_eval.py` (DESIGN §6). These five are what make that a
-guarantee. The first two are the pair the seal's design rests on, and they are
-listed together because neither guard is sufficient alone:
+`src/eval/run_sealed_eval.py` (DESIGN §6). These ten are what make that a
+guarantee, and they fall into two groups for a reason worth stating first: the
+five below are at the **call sites** in `src/corpora/base.py`, and for a long
+time they were the only five this section had. Every one of them asks whether the
+guard is *reached*. None of them asks what the guard *does* once it is —
+`tree_state`, `record_access` and `_verify_frozen_split` were all patched out in
+the tests that mentioned them. The second table is the answer to that, and
+`### Unreadable state, twice` below is what it found.
+
+### The call sites
+
+The first two are the pair the seal's design rests on, and they are listed
+together because neither guard is sufficient alone:
 
 | mutation | changes | breaks | tests that catch it |
 |---|---|---|---|
@@ -74,6 +84,62 @@ listed together because neither guard is sufficient alone:
 | `sealed_flag_not_cleared` | `_sealed_ok` is not reset after the read | one authorised evaluation leaves that loader object permanently able to reach the sealed fold; every later ordinary `load()` silently includes 250 test documents, with no second log row | **1** |
 | `sealed_root_falls_back_to_corpus` | an absent `sealed:` entry resolves to the corpus root | a "sealed evaluation" reads unsealed data and logs itself as a test run. Worse than a refusal: the row is indistinguishable from a real evaluation, so the reported count becomes wrong in the flattering direction | **1** |
 | `unsealed_load_filters_instead_of_not_reaching` | `fold_roots()` hands out the sealed path unconditionally | the sealed fold is read and then discarded downstream. Every count still comes out right; the test fold's text has been read on every ordinary load, unlogged. Defends the distinction that the seal is a path that is not known, not a filter that is applied | **73** |
+
+### What the guards do once reached
+
+On `src/eval/sealed_log.py` and `src/eval/run_sealed_eval.py`, added after an
+audit found neither module had a single mutation aimed at it. Their tests are in
+`tests/test_seal_internals.py`, against a real `git` repository in `tmp_path`:
+
+| mutation | changes | breaks | tests that catch it |
+|---|---|---|---|
+| `an_unreadable_tree_state_reads_as_clean` | `tree_state`'s `if commit is None or porcelain is None` becomes `if False` | git cannot be reached and the tree reports **clean** — `None` is falsy, so the reassuring branch is the one that already handles it. `load_sealed` proceeds and the log gets a row asserting a clean tree at a commit nobody could confirm. See `### Unreadable state, twice` | **5** |
+| `a_dirty_tree_reads_as_clean` | `"dirty" if porcelain else "clean"` → `"clean"` | the state is never dirty. The refusal in `load_sealed` is intact and unreachable, and every row records a commit that does not describe the code that ran. **The pre-audit suite could not catch this**: its one dirty-tree test patched `tree_state` to *return* `dirty`, proving the refusal fires when told, and unable to notice that nothing ever tells it | **7** |
+| `only_tracked_modifications_count_as_dirty` | `git status --porcelain` → `git diff --name-only` | the plausible edit, and the subtler half of the one above. `git diff` reports unstaged changes to tracked files only, so an **untracked** file and a **staged** change both read clean — leaving the one case a person checks by hand working | **2** |
+| `the_frozen_split_check_ignores_a_moved_document` | the fold comparison becomes unreachable | drift stops being detected; a sealed evaluation runs against a corpus the split file no longer describes, after which no number can be tied to a fold. **Before the audit this function was patched out in both tests that mentioned it and executed by none** | **3** |
+| `the_frozen_split_is_verified_after_the_read` | the verify/read pair is reordered | the check still runs, still raises on drift, and is worthless: the fold is open and the log has spent a row. `sealed_eval_log.md` cannot un-count a run. Ordering mutations survive behavioural suites because every assertion about the *outcome* still holds | **1** |
+
+### Unreadable state, twice
+
+`an_unreadable_tree_state_reads_as_clean` is the second appearance in this
+repository of one question: **what happens when the state cannot be read?** The
+first was `check_region`'s `except (ClientError, BotoCoreError)` in
+`tools/check_bedrock_logging.py`, where an IAM denial would otherwise become a
+dated row saying logging was off. They are worth reading as one family:
+
+| | unreadable because | would otherwise read as | consequence |
+|---|---|---|---|
+| `check_region` | the caller lacks `bedrock:GetModelInvocationLoggingConfiguration`, or the endpoint is unreachable | logging is **off** | a false row in `compliance.md` §3, which the client's gate accepts as licence to call and the paper's ethics section cites |
+| `tree_state` | `git` is absent, the directory is not a repository, or `HEAD` has no commit | the tree is **clean** | a row in `sealed_eval_log.md` asserting a clean tree at an unconfirmable commit — and the count of those rows is the paper's N |
+
+Four things they have in common, and each is the reason to write this down:
+
+- **The unreadable case and the reassuring case share a code path.** Absence and
+  "nothing configured" are both the empty answer; `None` and "no changes" are
+  both falsy. Neither failure requires anyone to write a wrong branch — it
+  requires only that they not write the extra one.
+- **The safe direction is not the quiet one.** Both guards must escalate an
+  unknown into a refusal, which means the correct behaviour is the one that
+  interrupts somebody. That is exactly the behaviour a reviewer is tempted to
+  soften, so it needs a mutation standing behind it rather than a comment.
+- **Both were written correctly and executed by nothing.** These are not bugs
+  that were fixed; they are guards that were right on the first attempt and had
+  no coverage, in files with 20 and 30-odd passing tests respectively. Which is
+  the whole argument for the harness: a suite cannot report the tests it does
+  not contain.
+- **Fabricating a control is worse than losing one.** Losing it leaves you where
+  you were before it existed. Fabricating it leaves you confidently past a line
+  you never crossed, holding a document that says you crossed it legitimately —
+  and both of those documents are committed evidence.
+
+The generalisation: patching **data or a path** is legitimate; patching **the
+function that holds the guarantee** removes the guarantee from the suite while
+leaving the count of passing tests unchanged. A structural check enforcing this
+is the next item of the audit and is not in the tree yet — said here as work
+owed, not as a safeguard in place. `tests/test_seal.py:152` already said so — "the
+substitution is deliberately placed at the *data* and never at the frame" — and
+the same file broke it three times. A principle written in a comment is not a
+check either.
 
 ## The release screener mutations
 
@@ -669,7 +735,8 @@ second is worse, and it is worse in a way that is easy to miss when writing the 
 a control leaves you where you were before the control existed, while fabricating one leaves
 you confidently past a line you never crossed. `compliance.md` is what the paper's ethics
 section cites. A row in it that describes an unread setting is not a weaker claim than no
-row; it is a false one.
+row; it is a false one. The same question came up a second time in `tree_state`, and the
+two are read together under `### Unreadable state, twice` above.
 
 **`the_logging_check_reports_an_unreadable_setting_as_clean` SURVIVED when it was first
 run, and that is the most useful thing in this group.** `tests/test_check_bedrock_logging.py`
@@ -1016,8 +1083,8 @@ different ways.
 Worth stating plainly: this was a defect in the tests, found by testing the tests.
 The loader was correct throughout.
 
-**The seal round found one of each.** Adding the five seal mutations turned up a real
-gate defect and a harness defect, in that order:
+**The seal round found one of each.** Adding the five call-site seal mutations turned up a
+real gate defect and a harness defect, in that order:
 
 - `missing_test_fold` survived at 1 kill against an expected 16, and the reason was a
   genuine hole: with `test` absent from `fold_dirs`, an *authorised* sealed read
@@ -1032,6 +1099,16 @@ gate defect and a harness defect, in that order:
 So the tally over two rounds is two defects in the tests, one in the harness, one in
 the code. The harness is not primarily finding loader bugs; it is finding places where
 a green result meant less than it appeared to. That is the thing it is for.
+
+**The Bedrock round found a third defect in the tests, and it was the largest.**
+`the_logging_check_reports_an_unreadable_setting_as_clean` survived at 0 kills against
+20 passing tests, all of which patched `check_all`. Not a wrong assertion but an
+*absent* one: the branch turning an unreadable setting into a refusal had never been
+executed. Generalising the pattern — patch the data, never the guarantee — produced the
+audit that this file's second seal table and `### Unreadable state, twice` come from,
+which found three more instances inside `tests/test_seal.py` alone. Three of the four
+test defects found so far are the same shape, and none of them is visible in a test
+count.
 
 ## Applied to every loader
 

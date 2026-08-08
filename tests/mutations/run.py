@@ -50,6 +50,7 @@ TEST_FILES = [
     "tests/test_conftest.py",
     "tests/test_arm_rules_path.py",
     "tests/test_prompt.py",
+    "tests/test_seal_internals.py",
     "tests/test_bedrock.py",
     "tests/test_check_bedrock_logging.py",
 ]
@@ -1924,6 +1925,153 @@ MUTATIONS = [
             "fake `boto3.client` so that the real `check_region` runs."
         ),
         min_kills=2,
+    ),
+    # ─── the seal's own modules (DESIGN §6) ─────────────────────────────────
+    # An audit found `sealed_log.py` and `run_sealed_eval.py` had no mutation at all:
+    # both seal mutations were in `base.py`, the call sites. So it was checked that
+    # the log is appended and that the split is verified, and never checked what
+    # either of those things does. These five aim at the functions themselves.
+    Mutation(
+        name="an_unreadable_tree_state_reads_as_clean",
+        path=SEALED_LOG,
+        anchor=(
+            "    if commit is None or porcelain is None:\n"
+            '        return commit, "unknown"'
+        ),
+        replacement=(
+            "    if False:\n"
+            '        return commit, "unknown"'
+        ),
+        breaks=(
+            "git cannot be reached and the tree is reported **clean**. `porcelain` is "
+            "`None`, `if porcelain` is false, and the falsy branch already says clean — "
+            "so removing the guard does not produce an error, it produces the most "
+            "reassuring answer available.\n"
+            "\n"
+            "**The second appearance of one question in this repository: what happens "
+            "when the state cannot be read?** The first was "
+            "`check_region`'s `except ClientError` in `tools/check_bedrock_logging.py`, "
+            "where an IAM denial became a clean bill of health. Same shape, same "
+            "direction, and both were written correctly and executed by nothing. Here "
+            "the consequence is that `load_sealed` — which refuses anything that is not "
+            "`clean` — proceeds, and `results/sealed_eval_log.md` gets a row asserting "
+            "the tree was clean at a commit nobody could confirm. The row count is the "
+            "paper's N and the tree column is what makes each row mean something.\n"
+            "\n"
+            "Caught by `test_a_directory_that_is_not_a_repository_is_unknown`, "
+            "`test_a_repository_with_no_commits_is_unknown`, "
+            "`test_git_being_absent_is_unknown_and_not_clean`, "
+            "`test_unknown_is_not_clean_and_is_therefore_refused` and "
+            "`test_an_unknown_tree_state_is_recorded_as_unknown` — none of which existed "
+            "before the audit, when this branch had zero executions."
+        ),
+        min_kills=3,
+    ),
+    Mutation(
+        name="a_dirty_tree_reads_as_clean",
+        path=SEALED_LOG,
+        anchor='    return commit, "dirty" if porcelain else "clean"',
+        replacement='    return commit, "clean"',
+        breaks=(
+            "The state is never dirty. Every run proceeds — `load_sealed`'s refusal is "
+            "intact and unreachable — and every row records `clean`, so the log says the "
+            "commit describes the code that ran when it does not.\n"
+            "\n"
+            "This is the mutation the pre-audit suite could not catch, and the reason is "
+            "worth stating: `test_a_dirty_tree_is_refused_by_default` patches "
+            "`tree_state` to return `(\"abc123\", \"dirty\")`. It proves the refusal fires "
+            "when told the tree is dirty. **It cannot notice that nothing ever tells it "
+            "so.** A guarantee split across a detector and a refusal needs both tested, "
+            "and patching one to test the other leaves the detector with no coverage at "
+            "all.\n"
+            "\n"
+            "Caught by `test_a_modified_tracked_file_makes_the_tree_dirty`, "
+            "`test_an_untracked_file_makes_the_tree_dirty`, "
+            "`test_a_staged_but_uncommitted_change_makes_the_tree_dirty`, "
+            "`test_committing_the_change_makes_it_clean_again` and "
+            "`test_the_row_records_the_repositorys_real_tree_state` — all against a real "
+            "repository in `tmp_path`, because the thing under test is what `git status` "
+            "output is turned into."
+        ),
+        min_kills=3,
+    ),
+    Mutation(
+        name="only_tracked_modifications_count_as_dirty",
+        path=SEALED_LOG,
+        anchor='    porcelain = _git("status", "--porcelain")',
+        replacement='    porcelain = _git("diff", "--name-only")',
+        breaks=(
+            "A subtler version of the one above, and the plausible edit — `git diff` is "
+            "what a person reaches for when they mean \"is anything changed\". It reports "
+            "unstaged modifications to tracked files only, so an **untracked** file and a "
+            "**staged** change both read as clean.\n"
+            "\n"
+            "Both omissions matter here. An untracked `.py` is code that would run and is "
+            "in no commit; a staged change is exactly the state of a tree mid-`git add`, "
+            "which is when someone is most likely to also run an evaluation. The mutation "
+            "leaves a `dirty` state that fires for the one case anyone would test by hand, "
+            "which is what makes it survivable.\n"
+            "\n"
+            "Caught by `test_an_untracked_file_makes_the_tree_dirty` and "
+            "`test_a_staged_but_uncommitted_change_makes_the_tree_dirty` — the two cases "
+            "written because `--porcelain` distinguishes three markers and `if porcelain:` "
+            "is a truth test over all of them."
+        ),
+        min_kills=2,
+    ),
+    Mutation(
+        name="the_frozen_split_check_ignores_a_moved_document",
+        path=RUN_SEALED,
+        anchor="        if assigned.get(doc.doc_id) != doc.split:",
+        replacement="        if assigned.get(doc.doc_id) is None and False:",
+        breaks=(
+            "Drift stops being detected. The corpus on disk may have moved a document "
+            "between folds since the freeze and the sealed evaluation runs anyway, on a "
+            "corpus the split file no longer describes — after which no published number "
+            "can be tied to a fold, and a document could have crossed the seal in either "
+            "direction.\n"
+            "\n"
+            "**Before the audit this function was patched out in both tests that "
+            "mentioned it and executed by none, and no mutation aimed at it.** It was a "
+            "guard that existed, was documented, was called in the right order, and had "
+            "never once run. That combination is the failure this whole file is written "
+            "against: the call site was tested and the callee was not.\n"
+            "\n"
+            "Caught by `test_a_document_that_moved_folds_is_refused` and "
+            "`test_a_document_absent_from_the_frozen_file_is_refused`."
+        ),
+        min_kills=2,
+    ),
+    Mutation(
+        name="the_frozen_split_is_verified_after_the_read",
+        path=RUN_SEALED,
+        anchor=(
+            "    loader = _loader_for(corpus_id)\n"
+            "    # Verified before the sealed read, not after: if the frozen split and the"
+        ),
+        replacement=(
+            "    loader = _loader_for(corpus_id)\n"
+            "    if True:\n"
+            "        docs = loader.load(sealed=True, purpose=purpose, arms=\"none\")\n"
+            "        _verify_frozen_split(loader, corpus_id)\n"
+            "        return docs\n"
+            "    # Verified before the sealed read, not after: if the frozen split and the"
+        ),
+        breaks=(
+            "The check still runs, still raises on drift, and is worthless: the fold has "
+            "already been opened and the log has already spent a row. A refusal after the "
+            "read tells you the numbers are invalid *and* that the test set was consumed "
+            "producing them, which is the one outcome the ordering exists to prevent — "
+            "`sealed_eval_log.md` cannot un-count a run.\n"
+            "\n"
+            "Ordering mutations are the kind a behavioural suite misses most easily, "
+            "because every assertion about the outcome still holds: drift still raises, "
+            "clean still passes. What changed is only *when*.\n"
+            "\n"
+            "Caught by `test_the_check_runs_before_the_sealed_read`, which records the "
+            "order the two are called in rather than their results."
+        ),
+        min_kills=1,
     ),
 ]
 
