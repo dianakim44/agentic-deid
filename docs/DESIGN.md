@@ -614,6 +614,95 @@ one code path for "the arm I am closing" and no way to be pointed at anything el
 Inference would also make the input path a function of the run block, which is the coupling
 that lets an arm read its own results directory by accident.
 
+### 5.4 A filled prompt is a type with two named exits, and there is one renderer
+
+**Decided 2026-08-08, before the first agent arm was run.** `docs/prompts/rule_author.md` §6
+already fixed the rule: only the template is committed, and a filled instance is not
+committed, not logged, and not written to disk at all. What is decided here is *how* that
+rule is held, because §6 as written is a rule each call site obeys, and this repository has
+a measurement of what that costs. The availability defect in `tests/conftest.py` shipped
+four times, three of them after it had been written up in `tests/mutations/README.md`. A
+written warning is not a control.
+
+So the filled prompt is not a `str`. `src/llm/prompt.py` defines `FilledPrompt`, which has
+no public accessor that is not named for a destination:
+
+| exit | destination | check |
+|---|---|---|
+| `to_terminal(stream)` | a person reading a screen | refuses a stream that is not a terminal |
+| `for_transport()` | the model call | none; the transport must not log, and `tools/check_bedrock_logging.py` is what checks that |
+| `reference()` | a run block or a log line | returns references, counts and hashes; no text |
+
+Everything else — `str()`, `repr()`, `json.dumps`, an f-string, a `print` of the object, a
+traceback that renders locals — reaches the reference form. That last case is the one worth
+naming, because it is nobody's decision: an exception raised while a filled prompt is in
+scope travels to a terminal, a CI log, an issue and a stack trace, and CLAUDE.md's rule
+about exception messages exists precisely because `release_screen.py` reaches none of those.
+A type whose `__repr__` carries the text makes that leak the default behaviour of an error
+path nobody wrote.
+
+**The reference form is `human_log.jsonl`'s principle applied to the artefact that cannot
+use it directly.** DESIGN §11.2 records a decision as `(doc_id, span_index)` — resolvable by
+anyone holding the corpus, inert to anyone who does not. A rule author genuinely needs the
+words, so for the prompt itself there is no safer representation available; the answer is a
+shorter lifetime instead. `reference()` records the span references, the counts, the
+`text_sha256`, the rendered length, and the hashes of both window files. It answers "was
+this the prompt that ran" without holding the prompt.
+
+**One renderer, and it lives inside the discipline rather than upstream of it.**
+`render_window()` is the only function in the project that slices document text for a
+prompt, and it returns `FilledPrompt` and never a string. It was previously
+`render_for_author()` in `src/porting/human_arm.py`, returning a `str` that
+`tools/show_human_window.py` printed; that implementation is gone rather than wrapped, and
+the merge was made now rather than left for later. Three reasons, and the first is *not* the
+detection-merge argument:
+
+- **It is not the `check_rules`/`run_fold` case.** That merge rested on undiagnosable
+  disagreement — two implementations producing comparable published claims, so drift appears
+  as "the sample says the rule fires and the fold-wide run says it does not" with nothing to
+  adjudicate. Rendered windows are never published and nobody diffs two of them. Stating
+  this is the point: the conclusion is the same and the reasoning is not, and a merge
+  justified by the wrong argument is one that gets reverted when that argument stops
+  applying.
+- **The prompt is hashed into `window_freeze.json` (§6.3), and the hash pins a
+  specification.** `rule_author.md`'s banner makes the `port-oneshot`/`port-loop` comparison
+  interpretable only if both arms are shown the same blocks from the same code path. Two
+  implementations under one hash means the freeze record attests to a template while two
+  renderers sit beneath it, which is the same "the record is intact and unverifiable" failure
+  §5.3 was decided against.
+- **The convention is per-implementation.** A renderer outside the type is a renderer where
+  the non-recording discipline has to be re-established by hand, which is the thing the type
+  was introduced to stop. Merging later would also mean merging while an arm is running.
+
+The direction of the merge is deliberate: the renderer moved into `src/llm/`, and the
+retired arm's harness became a consumer. The reverse — the live agent path importing its
+renderer from a retired arm's module — inverts the dependency, and §11's retirement banner
+would then bound live code.
+
+**The enforcement is structural, for the reason it always is here.** A renderer that also
+wrote a debug copy behaves identically to a correct one on every machine where anyone would
+be looking, so `tests/test_prompt.py` checks the syntax tree: no function in the
+module writes, logs or prints; the module imports nothing that could; `render_window`'s
+return statements construct a `FilledPrompt`; the public method set is exactly the three
+exits. The renderer's *interior* is in that set and not only its signature, because the
+mutation `renderer_writes_a_debug_copy` leaves the type entirely intact and defeats it
+completely — a type protecting a value that has already reached `/tmp` protects nothing.
+`release_screen.py` blocks the committed paths a filled instance would land under, and `/tmp`
+is not one of them, which is why the convention is "never written" rather than "never
+committed" and why a path pattern cannot be the check.
+
+**`rule_author.md` §6 is deliberately left as it was, and this section is the cross-reference
+it does not contain.** The prompt is one of the two files hashed into `window_freeze.json`
+(§6.3), so a paragraph added to §6 naming this module would move `prompt_sha256` and put the
+retired `port-human` arm's freeze record into drift — a seventh revision of a window that has
+been frozen six times and never used. `docs/notes/window-freeze-history.md` calls revision 3
+"the one with no excuse" precisely because it was a prose edit to a section that changed no
+instruction, and a cross-reference to an implementing module is that same class of edit: it
+alters nothing about what any agent is shown. The decision belongs in DESIGN, which is not
+hashed, and §6 continues to state the rule while this section states how the rule is held.
+The general form is worth keeping: **a hashed file is edited when the instruction changes, not
+when the implementation of an unchanged instruction moves.**
+
 ---
 
 ## 6. Experimental integrity

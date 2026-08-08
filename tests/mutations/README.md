@@ -19,7 +19,7 @@ is tested by `tests/test_mutation_harness.py`, which pytest does collect.
 
 Each one corresponds to a decision in DESIGN.md that a plausible "simplification"
 would silently undo. What they have in common is the property that makes them
-dangerous: **sixty-nine of the eighty change no total.** The corpus still loads,
+dangerous: **seventy-two of the eighty-three change no total.** The corpus still loads,
 the document count is still 750, the span count is still 17,134 — and every
 downstream number is wrong. Those are the errors a reviewer cannot catch and an
 aggregate cannot reveal, which is why they get a harness rather than trust.
@@ -332,9 +332,10 @@ yet.
 > uninterpretable, the consequence is now conditional on the arm being revived. The
 > defect is still a defect; its cost is deferred rather than removed.
 
-`src/porting/human_arm.py` runs what was the control arm: freeze the window, draw, render
-for the person, append to `human_log.jsonl`. Its guarantees are of a different kind from the
-sampler's. Most of them are not about numbers at all — one is the seal, one is what may
+`src/porting/human_arm.py` runs what was the control arm: freeze the window, draw, append to
+`human_log.jsonl`. It no longer renders — `render_window()` moved to `src/llm/prompt.py`
+(DESIGN §5.4), and the one mutation on the rendering moved with it. Its guarantees are of a
+different kind from the sampler's. Most of them are not about numbers at all — one is the seal, one is what may
 be said out loud about a sample, and two are about a clause that binds a person and has
 no enforcement but a field in a log.
 
@@ -342,7 +343,6 @@ no enforcement but a field in a log.
 |---|---|---|---|
 | `initial_pool_excludes_train_instead_of_selecting_dev` | `split != "dev"` becomes `split == "train"` | the test fold enters the window a person writes rules from — the seal violation that invalidates the experiment, arriving as a plausible spelling of the same filter | **1** |
 | `summary_reports_offsets` | `summarise()` gains a `spans` field of `(doc_id, start, end)` | the view built to be pasted into a terminal or a commit message starts carrying pointers into the corpus. No surface form is quoted, which is why it would survive review | **1** |
-| `render_offsets_are_document_offsets` | the rendered window labels document offsets as within-context offsets | an author counting characters lands on the wrong span, and one trusting the number is handed a document coordinate — an invitation to read past the ±120 characters | **1** |
 | `human_log_path_from_a_literal` | the arm rebuilds its output paths instead of reading `paths.humanlog` from naming.yaml | two authorities on where this arm writes, identical today; the day the config moves, results are written to one path and read from another | **1** |
 | `human_log_allowed_under_any_arm` | the screener's allowed path for `human_log.jsonl` takes `[^/]+` for the porting component instead of the literal `port-human` | a log under any other arm is counted as reviewed, and nothing writes one there — its presence is the signal, and the wildcard is what hides it | **1** |
 | `self_report_defaults_to_none` | `model_consulted` acquires a default of `"none"` | every caller keeps working and every line says no model was consulted — recording that nobody was *asked*, not that nobody consulted a model. A default on this parameter is a default for `rule_author.md` §8 | **1** |
@@ -382,6 +382,10 @@ no enforcement but a field in a log.
 | `run_fold_infers_its_own_rule_path` | `run_fold` builds `arm_rules_path()` from its own axis arguments instead of being told | behaviourally invisible on the happy path, which is why the assertion is structural. The cost is that the module has one possible input, so a trial file and the bootstrap each need a special case, and the input becomes a function of the run block — the coupling that lets a run read its own results directory. The hardcoded `iteration=1` is the tell: an inferring version has to invent a round it was never given | **1** |
 | `rule_source_not_recorded` | `rules_source` is dropped from the run block, `rules_version` stays | the version is whatever the author declared, so it survives an overwrite looking correct; only the path names the arm and the iteration. Without it §5.3's decision is undetectable from the published record — the reader sees a well-formed metrics.json either way | **1** |
 | `rule_source_recorded_absolute` | the rule file's path is recorded absolute instead of repo-relative | names a home directory in a published run block, and on a machine where the corpus checkout sits beside the repository it names the layout of DUA data. Still a string, still identifies the file, so every present-and-non-empty assertion passes | **4** |
+| `render_offsets_are_document_offsets` | the rendered window labels document offsets as within-context offsets | an author counting characters lands on the wrong span, and one trusting the number is handed a document coordinate — an invitation to read past the ±120 characters | **1** |
+| `renderer_writes_a_debug_copy` | `render_window()` also writes the rendered text to `/tmp/last_prompt.txt` | the filled prompt on disk — the file rule_author.md §6 says must not exist, ±120 characters of dev text per span. Nothing about the run changes: same prompt, same model input, every content assertion still passes. The screener blocks the committed paths an instance would land under, and `/tmp` is not one of them — which is why the convention is "never written" and not "never committed". Also the reason the renderer's *interior* is checked and not only the type: the type is intact here and protects a value that already escaped | **1** |
+| `filled_prompt_exposes_its_text` | `FilledPrompt` gains a `.text` property | an accessor not named for a destination, which is the distinction the type exists to draw. `to_terminal` checks where it is going, `for_transport` declares it; `.text` answers to a log line, a `json.dumps` of a record that happens to hold it, an f-string in an exception message. Adding it breaks nothing and is the natural edit for a caller wanting to assert on the text | **2** |
+| `terminal_exit_does_not_check_the_destination` | `to_terminal`'s `isatty` check becomes `if False` | the exit writes to whatever it is handed, so a redirected stream receives the window. `show_human_window.py`'s own check is why this is caught rather than fatal — but that one is for the error message and this one is the guarantee, and the next caller of the exit is the orchestrator, which has no check of its own | **2** |
 | `conftest_availability_from_a_load` | the shared availability fixture goes back to deciding availability by loading the corpus | the defect that shipped four times, reverted. Changes nothing until a real loader bug arrives, and then hides it: measured alongside `type_in_both_lists`, **93 tests skip and 78 non-passing outcomes become 3**, reported as a green suite | **1** |
 | `test_file_shadows_the_shared_fixture` | one test file defines its own `corpus_present`, in the defective form | the propagation rather than the defect: the local definition wins over conftest's silently, and only that file's tests are affected — which is how three files carried it unnoticed | **2** |
 
@@ -548,7 +552,31 @@ the text was in memory would be one exception away from having rendered it, and 
 that catches this mutation is deliberately not marked as needing the corpus for the same
 reason.
 
-Five of these are caught by exactly one test, which is the honest number and a thin
+`terminal_exit_does_not_check_the_destination` is the same guarantee one layer in, and the
+pair is worth reading together. The script's check produces the *message* — it runs before
+a corpus is loaded and can therefore say what to do instead. The type's check is the
+*guarantee*, and it is the one that survives a new caller: the next thing to hold a
+`FilledPrompt` is the agent orchestrator, which has no `isatty` check of its own and no
+reason to grow one. That the two are separately mutable, and separately caught, is the
+point of having both.
+
+`render_offsets_are_document_offsets` is in this table rather than the `port-human` one
+because the renderer is, and it arrived here the way a moved anchor should: the harness
+reported it **STALE** on the run after `render_for_author()` was deleted, naming a file the
+code had left. It did not pass, and it did not silently match nothing — a vanished anchor is
+an outcome, which is the property that makes moving code safe to do.
+
+The three after it break the three properties the type rests on, and each is an
+edit someone makes for a good reason. A debug copy while chasing a boundary error; a
+`.text` property so a test can assert on the text; a plain `print` because the window is
+going to a screen anyway. None of them fails on any machine where anyone is looking, which
+is the same reason `tests/test_conftest.py` checks structure rather than behaviour —
+`renderer_writes_a_debug_copy` in particular leaves the type entirely intact and defeats it
+completely, because a type protecting a value that has already been copied to disk protects
+nothing. That is what justifies checking the renderer's interior rather than only its
+signature.
+
+Six of these are caught by exactly one test, which is the honest number and a thin
 one; they are listed at 1 rather than padded.
 
 ### The detection-path mutations, and the one failure shape they all produce
@@ -674,7 +702,7 @@ applies to the code. Two safeguards follow from that:
   Three checks, described in the next section. Skipping them lets the harness count
   its own breakage as a kill.
 
-The maintenance cost is real but bounded: eighty anchors, each a line or two,
+The maintenance cost is real but bounded: eighty-three anchors, each a line or two,
 and a refactor that breaks one gets a `STALE` message naming the file. That is
 cheaper than the failure mode it prevents.
 

@@ -7,13 +7,20 @@ shape. DESIGN §11.1's ordering is what makes that the right division — the hu
 window is derived from the RuleAuthor prompt, so a person choosing what to look at
 would be choosing the control's own protocol.
 
-**Two views of the sample, and the split is the point.** `render_for_author()` produces
-what the rule author reads, including the ±120 characters of context §1.4 requires.
-`summarise()` produces what goes anywhere else — a terminal, a commit message, a
+**Two views of the sample, and the split is the point.** `src/llm/prompt.render_window()`
+produces what the rule author reads, including the ±120 characters of context §1.4
+requires. `summarise()` produces what goes anywhere else — a terminal, a commit message, a
 conversation, this repository — and it holds counts only. On MEDDOCAN the corpus is
 synthetic and the context would be harmless, but the procedure does not branch on the
 corpus: CLAUDE.md's rule is that a check safe only on the synthetic corpora is a check
 nobody can trust, and CARMEN-I is the corpus this arm runs on second.
+
+**The renderer is not here.** It was — as `render_for_author()`, returning a `str` — and it
+moved to `src/llm/prompt.py` so that one implementation serves both arms and the
+non-recording convention is carried by a type instead of by each caller. This module
+imports it and does not wrap it: a wrapper here would be the second implementation the
+merge removed. The direction was chosen so that the live agent path does not import from a
+retired arm's harness.
 
 Iteration 1 needs no detection run. With an empty rule file nothing is detected, so
 every in-scope dev gold span is a `missed` error by construction, and
@@ -425,7 +432,8 @@ def practice_pool(pool, corpus: str, *, n: int | None = None,
     Iteration `reserved_for`'s sample is *computed* here and returned to nobody. It is a
     list of references — doc ids, indices, offsets, types — with no text in it by
     construction (`ErrorSpan`), and this function does not render. What the rehearsal
-    must not see is the window, and the window is what `render_for_author` makes.
+    must not see is the window, and the window is what `src/llm/prompt.render_window`
+    makes.
 
     The cost is that the practice pool is smaller by up to `n` spans, so a rehearsal's
     per-type counts differ slightly from a real iteration's. That is the right direction
@@ -463,35 +471,6 @@ def summarise(sample, pool) -> dict:
                     for k in sorted({e.kind for e in sample})},
         "documents_touched": len({e.doc_id for e in sample}),
     }
-
-
-def render_for_author(sample, docs_by_id, context_chars: int) -> str:
-    """The block the rule author reads. **Contains corpus text.**
-
-    Never returned to a caller that logs, prints to a shared terminal, or writes to
-    disk. The prompt's §6 rule is that this text exists only in transit; the same rule
-    applies to the human arm, because a rendered window saved "for reference" is the
-    same file the screener denies for the agent arm.
-
-    The context window is clipped to the document, and the span's offsets are given
-    *within the window* rather than within the document — a rule author needs to see
-    where the span sits in what they are reading, and document offsets would invite
-    them to go and look up the surrounding text, which is the unbounded window §11.1
-    rejects.
-    """
-    out = []
-    for i, e in enumerate(sample, 1):
-        doc = docs_by_id[e.doc_id]
-        left = max(0, e.start - context_chars)
-        right = min(len(doc.text), e.end + context_chars)
-        window = doc.text[left:right].replace("\n", " ")
-        out.append(
-            f"[{i:2}] type      {e.phi_type}\n"
-            f"     error     {e.kind}\n"
-            f"     context   {window}\n"
-            f"     offsets   ({e.start - left}, {e.end - left}) within that context\n"
-        )
-    return "\n".join(out)
 
 
 def log_line(iteration: int, event: str, model_consulted: str, *, human_minutes=None,

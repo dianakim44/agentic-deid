@@ -27,10 +27,11 @@ sys.path.insert(0, str(ROOT))
 from src.corpora.base import Document, Span                     # noqa: E402
 from src.porting import human_arm                              # noqa: E402
 from src.corpora.base import axis                               # noqa: E402
+from src.llm.prompt import render_window                        # noqa: E402
 from src.porting.human_arm import (                            # noqa: E402
     CONSULTED_AXIS, EVENTS, FIELDS, IN_HISTORY, IN_WORKTREE, SCOPES, VIOLATION,
     PortHumanError, append, arm_has_started, draw_iteration, freeze_path, freeze_window,
-    initial_error_pool, log_line, log_path, practice_pool, render_for_author,
+    initial_error_pool, log_line, log_path, practice_pool,
     started_where, summarise, window_drift,
 )
 from src.sample import (                                       # noqa: E402
@@ -636,42 +637,20 @@ def test_the_summary_names_types_that_are_in_the_pool_but_undrawn():
     assert sum(v["drawn"] for v in s["by_type"].values()) == 1
 
 
-# ─── the rendered window is what the author reads ───────────────────────────
-
-def test_the_render_offsets_are_within_the_context_not_the_document():
-    d = doc("dev1", "dev")
-    block = render_for_author([err("dev1", 0, start=1000)], {"dev1": d}, 120)
-    assert "(120, 126)" in block
-    assert "(1000," not in block
-
-
-def test_the_render_clips_the_window_to_the_document():
-    text = "abcdefghij"
-    d = Document(doc_id="dev1", corpus_id="es-meddocan", text=text, split="dev",
-                 spans=[Span(start=2, end=5, surface="cde", subtype="X",
-                             phi_type="NAME")])
-    block = render_for_author([err("dev1", 0, start=2)], {"dev1": d}, 120)
-    assert "(2, 8)" in block          # left clipped at 0, so window offset == document
-
+# ─── the two views of one sample ────────────────────────────────────────────
+#
+# The renderer itself moved to src/llm/prompt.py, and its behaviour — window-relative
+# offsets, clipping, newline flattening — is tested in tests/test_prompt.py beside
+# the type that carries it. What belongs here is the *split*: this module produces the view
+# that travels, and the property under test is what that view does not contain.
 
 def test_the_render_contains_the_context_and_the_summary_does_not():
     """The two views, side by side. The rendered block is the only place the corpus
     text appears, and it is never written to disk (rule_author.md §6)."""
     d = doc("dev1", "dev")
     sample = [err("dev1", 0, start=1000)]
-    assert SURFACE in render_for_author(sample, {"dev1": d}, 120)
+    assert SURFACE in render_window(sample, {"dev1": d}, 120).for_transport()
     assert SURFACE not in json.dumps(summarise(sample, sample))
-
-
-def test_the_render_flattens_newlines():
-    """One span per block, so a context holding a newline would otherwise be
-    indistinguishable from the start of the next field."""
-    text = "aaa\nbbb\nccc"
-    d = Document(doc_id="dev1", corpus_id="es-meddocan", text=text, split="dev",
-                 spans=[Span(start=4, end=7, surface="bbb", subtype="X",
-                             phi_type="NAME")])
-    block = render_for_author([err("dev1", 0, start=4)], {"dev1": d}, 120)
-    assert "aaa bbb ccc" in block
 
 
 # ─── the log line ───────────────────────────────────────────────────────────

@@ -6,11 +6,18 @@ This is the hand-off script: it renders what the rule author reads, including th
 repository that puts corpus text on a screen. Everything about it is arranged so that
 the text goes to stdout and stops there.
 
-**Why a script rather than a paste into a conversation.** `render_for_author()`'s
-output must not reach disk, a commit, an issue, or a transcript (`rule_author.md` §6,
-CLAUDE.md's rule on logs and messages). A conversation is a transcript. So the author
-runs this themselves and the window exists only in their terminal scrollback — which
-is also the reason the script refuses to be redirected into a file.
+**Why a script rather than a paste into a conversation.** `render_window()`'s output must
+not reach disk, a commit, an issue, or a transcript (`rule_author.md` §6, CLAUDE.md's rule
+on logs and messages). A conversation is a transcript. So the author runs this themselves
+and the window exists only in their terminal scrollback — which is also the reason the
+script refuses to be redirected into a file.
+
+**The window is a `FilledPrompt` and reaches the screen through `to_terminal()`.** This
+script does not hold the rendered string and does not `print()` it: the same renderer
+serves the agent arms (`src/llm/prompt.py`), and the type is what carries the non-recording
+convention across both. The `isatty` check below is kept even though `to_terminal()`
+performs its own, because this one runs before the corpus is loaded and can therefore say
+what to do instead; the one inside the type is the guarantee.
 
 **It writes no log line.** The `read_sample` event was recorded when the window was
 frozen; a script that logged on every invocation would turn "how many times did the
@@ -30,9 +37,9 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from src.corpora import load                                    # noqa: E402
+from src.llm.prompt import render_window                        # noqa: E402
 from src.porting.human_arm import (                             # noqa: E402
-    draw_iteration, initial_error_pool, practice_pool, render_for_author, summarise,
-    window_drift,
+    draw_iteration, initial_error_pool, practice_pool, summarise, window_drift,
 )
 from src.sample import is_practice, practice_min                # noqa: E402
 
@@ -110,7 +117,11 @@ def main() -> int:
         return 0
 
     docs = {d.doc_id: d for d in load(args.corpus) if d.split == "dev"}
-    print(render_for_author(sample, docs, prov["context_chars"]))
+    # Straight from the renderer to the terminal, with no local name holding the text: a
+    # variable here is a value a later edit can print, log, or write, and the type exists
+    # so that the only way out is the one named for where it goes.
+    render_window(sample, docs, prov["context_chars"]).to_terminal(sys.stdout)
+    print()
     print("# End of window. Not written to disk, and not to be pasted into a commit,")
     print("# an issue, or a conversation with a model (rule_author.md §6, §8).")
     return 0

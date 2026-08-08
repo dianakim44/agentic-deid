@@ -49,6 +49,7 @@ TEST_FILES = [
     "tests/test_run_fold.py",
     "tests/test_conftest.py",
     "tests/test_arm_rules_path.py",
+    "tests/test_prompt.py",
 ]
 
 #: Repository directories the loader tests need. `splits/` is here because the
@@ -184,6 +185,7 @@ RUN_FOLD = "src/eval/run_fold.py"
 NAMING = "config/naming.yaml"
 CONFTEST = "tests/conftest.py"
 TEST_RUN_FOLD = "tests/test_run_fold.py"
+PROMPT = "src/llm/prompt.py"
 
 MUTATIONS = [
     Mutation(
@@ -896,21 +898,6 @@ MUTATIONS = [
         min_kills=1,
     ),
     Mutation(
-        name="render_offsets_are_document_offsets",
-        path=HUMAN_ARM,
-        anchor='f"     offsets   ({e.start - left}, {e.end - left}) within that context',
-        replacement='f"     offsets   ({e.start}, {e.end}) within that context',
-        breaks=(
-            "The rendered window labels document offsets as offsets within the "
-            "context, so an author counting characters lands on the wrong span and one "
-            "told to trust the numbers is handed a document coordinate — an invitation "
-            "to open the file and read past the \u00b1120 characters DESIGN \u00a711.1 "
-            "bounds the window at. For a span near the start of a document the two "
-            "agree, so it reads correctly on whichever example is checked first."
-        ),
-        min_kills=1,
-    ),
-    Mutation(
         name="self_report_defaults_to_none",
         path=HUMAN_ARM,
         anchor=('def log_line(iteration: int, event: str, model_consulted: str, *, '
@@ -1576,6 +1563,94 @@ MUTATIONS = [
             "offsets-and-types rule exists to prevent. Note it still returns a string "
             "and still identifies the file, so every test asserting that the field is "
             "present and non-empty passes."
+        ),
+        min_kills=1,
+    ),
+    # ── the renderer, and the type that keeps a filled prompt off disk (§6) ───
+    # `render_offsets_are_document_offsets` moved here with the renderer itself: it used
+    # to name `src/porting/human_arm.py`, and the harness reported it STALE rather than
+    # passing when the anchor left that file, which is the whole reason a vanished anchor
+    # is an outcome and not a skip.
+    #
+    # The three after it are about the type rather than the rendering. The convention is
+    # carried by a type rather than by a rule at each call site, so they break its three
+    # load-bearing properties: the renderer returns it, the text has no unnamed accessor,
+    # and the terminal exit checks its destination. Each is an edit someone makes for a
+    # good reason — a debug copy, a `.text` "for tests", a plain `print` — and none of
+    # them fails on any machine where anyone would be looking.
+    Mutation(
+        name="render_offsets_are_document_offsets",
+        path=PROMPT,
+        anchor=(
+            'f"     offsets   ({span.start - left}, {span.end - left}) within that '
+            'context'
+        ),
+        replacement='f"     offsets   ({span.start}, {span.end}) within that context',
+        breaks=(
+            "The rendered window labels document offsets as offsets within the "
+            "context, so an author counting characters lands on the wrong span and one "
+            "told to trust the numbers is handed a document coordinate — an invitation "
+            "to open the file and read past the \u00b1120 characters DESIGN \u00a711.1 "
+            "bounds the window at. For a span near the start of a document the two "
+            "agree, so it reads correctly on whichever example is checked first."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="renderer_writes_a_debug_copy",
+        path=PROMPT,
+        anchor="    text = \"\\n\".join(out)",
+        replacement=(
+            "    text = \"\\n\".join(out)\n"
+            "    open(\"/tmp/last_prompt.txt\", \"w\").write(text)   # 'just while debugging'"
+        ),
+        breaks=(
+            "The filled prompt on disk — the file rule_author.md §6 says must not exist, "
+            "carrying ±120 characters of dev text per span. Nothing about the run "
+            "changes: the prompt is identical, the model sees the same thing, every "
+            "content assertion still passes, and on a DUA corpus the leak is a file "
+            "nobody opens again. `release_screen.py` blocks the *committed* paths a "
+            "filled instance would land under, but /tmp is not one of them, which is why "
+            "the convention is 'never written' rather than 'never committed' and why the "
+            "check is structural rather than a path pattern. This is also the mutation "
+            "that justifies checking the renderer's interior and not only the type: the "
+            "type is intact here and protects a value that already escaped."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="filled_prompt_exposes_its_text",
+        path=PROMPT,
+        anchor="    __slots__ = (\"_text\", \"_reference\")",
+        replacement=(
+            "    __slots__ = (\"_text\", \"_reference\")\n\n"
+            "    @property\n"
+            "    def text(self) -> str:\n"
+            "        return self._text"
+        ),
+        breaks=(
+            "An accessor not named for a destination, which is the whole distinction the "
+            "type draws. `to_terminal` checks where it is going and `for_transport` "
+            "declares it; `.text` answers to anything — a log line, a json.dumps of a "
+            "record that happens to hold it, an f-string in an exception message. Adding "
+            "it breaks nothing and is the natural edit for a caller that wants to assert "
+            "on the text, so the closed public surface has to be the thing asserted."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="terminal_exit_does_not_check_the_destination",
+        path=PROMPT,
+        anchor="        if not hasattr(stream, \"isatty\") or not stream.isatty():",
+        replacement="        if False:",
+        breaks=(
+            "`to_terminal` writes to whatever it is handed, so a redirected stream "
+            "receives the window: `python tools/show_human_window.py > w.txt` succeeds "
+            "and the contexts are on disk. The author sees nothing different — the same "
+            "text, exit 0. `show_human_window.py` has its own isatty check, which is why "
+            "this is caught rather than fatal, but that check is for the error message "
+            "and this one is the guarantee: the next caller of the exit is the agent "
+            "orchestrator, which has no such check of its own."
         ),
         min_kills=1,
     ),
