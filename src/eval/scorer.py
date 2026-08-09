@@ -37,6 +37,7 @@ Usage:
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, Mapping, Sequence
@@ -52,7 +53,12 @@ SCORER_VERSION = 1
 #: meaning, so this moves and SCORER_VERSION does not.
 #: 3 adds `model_id` to the required run block (DESIGN §4). Same reasoning: a new
 #: required field is a shape change, and no existing field means anything different.
-SCHEMA_VERSION = 3
+#: 4 adds `generated`, `commit` and `tree`. §10 A2 named a date and a commit hash beside
+#: the alias as its partial mitigation and recorded that neither was required — a
+#: mitigation described in the design and absent from the writer. This is that mitigation
+#: becoming a property. `run_fold` already wrote `commit` and `tree`; what changes is that
+#: a run block without them is now refused rather than accepted and unnoticed.
+SCHEMA_VERSION = 4
 
 FULLY_COVERED = "fully_covered"
 RELAXED = "relaxed"
@@ -102,8 +108,58 @@ AXIS_VALUED = PATH_AXES + ("split",)
 #:   - Not in the path. The path names the cell of the experiment (DESIGN §4). Running
 #:     one arm on a second model is §10 A2's appendix analysis, not a new cell, and
 #:     putting the model in the path would silently make it one.
-REQUIRED_RUN = ("corpus", "detector", "supervision", "porting", "split", "model_id")
+#:
+#: `generated`, `commit` and `tree` are §10 A2's stated mitigation for what `model_id`
+#: cannot do. The measurement behind that (`docs/notes/baseline-model-family.md`,
+#: 2026-08-08) is that a Bedrock alias does not resolve to a snapshot: an undated alias in
+#: gives an undated alias back. So `model_id` records *what was asked for* and can never
+#: record what answered. These three bound that gap from the outside — they cannot say
+#: which weights ran, and they do fix the instant at which the alias meant whatever it
+#: meant, and which revision of this repository was asking.
+#:
+#: All three, not the hash alone. A commit hash identifies code only if the tree was
+#: clean, so `commit` without `tree` is a hash that may describe something other than what
+#: ran; and `generated` is what remains useful when `tree` says `dirty` or `unknown`,
+#: because a wall-clock instant is still comparable against the alias's own history.
+#: Requiring the hash and not the state would publish the most confident of the three on
+#: its own — the shape `### Unreadable state, twice` in `tests/mutations/README.md` is
+#: about.
+REQUIRED_RUN = ("corpus", "detector", "supervision", "porting", "split", "model_id",
+                "generated", "commit", "tree")
 REQUIRED_COST = ("llm_calls", "prompt_tokens", "completion_tokens", "wall_seconds")
+
+#: Required to be *written* and permitted to be null — the key must be in the block and
+#: its value may be `None`, under the condition `check_run` enforces.
+#:
+#: `commit` is here because `sealed_log.tree_state()` returns `(None, "unknown")` when git
+#: cannot be read, and that pair is the honest record of an unreadable revision. A
+#: validator demanding a truthy hash there leaves a writer two options: refuse to score a
+#: real run, or put something in the field. The second is what actually happens, and it is
+#: the failure this field was added to prevent — a hash that reads as identifying the code
+#: while nobody checked whether it does. So null is accepted **and only in company**: null
+#: with `tree` of `clean` or `dirty` is refused, because a tree state that was readable and
+#: a revision that was not is a contradiction rather than a missing measurement.
+#:
+#: Absent is still refused, for `model_id`'s reason: a key that may be omitted is a key
+#: some arms will lack, and a null nobody wrote cannot be told from a null that was
+#: measured.
+NULLABLE_RUN = ("commit",)
+
+#: `tree`'s vocabulary, from `sealed_log.tree_state`'s three documented values. Written
+#: out rather than imported to avoid a cycle, and asserted against that function in
+#: `tests/test_scorer.py` so the two cannot drift.
+#:
+#: Not an axis, for `model_id`'s reason turned around: this *is* a closed vocabulary, but
+#: it is an observation about the working tree rather than a coordinate of the experiment,
+#: and naming.yaml's axes are what name cells. The check lives here because this is the
+#: only writer.
+TREE_STATES = ("clean", "dirty", "unknown")
+
+#: `generated` must be an instant, not a date. A `YYYY-MM-DD` string would make two runs
+#: on one day indistinguishable in ordering, and A2's question is which of two numbers came
+#: from the earlier resolution of an alias. UTC and `Z`-suffixed, matching `src/split.py`
+#: and `src/eval/sealed_log.py` so the three records sort against each other.
+GENERATED_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
 
 
 class ScorerError(Exception):
@@ -825,16 +881,43 @@ def check_run(run: Mapping[str, str]) -> None:
     `naming.yaml` value for that (`model_id_absent`, currently `none`) rather than "".
     Absent is refused and explicitly-absent is recorded, which is the same rule the cost
     block's zeros follow.
+
+    `generated` and `tree` get the checks *they* can have, and the reason to bother is that
+    a required field with no validation is a field that gets filled with anything once. A
+    `generated` of `"today"` and a `tree` of `"probably fine"` would both satisfy presence
+    while making the run block say less than an absent field would — an absent field is at
+    least legible as missing.
+
+    `commit` is the one field whose value may be null, and never on its own: its shape
+    varies by abbreviation so there is nothing to match, and `tree_state()` genuinely
+    returns no hash when git cannot be read. What is checked instead is the *pair* — a null
+    hash is accepted only with `tree` of `unknown`, which is the state that says the
+    repository was unreadable. `clean`/`dirty` with no hash is refused, because those two
+    values report the output of a command that also produced a revision.
     """
     for key in REQUIRED_RUN:
+        if key in NULLABLE_RUN:
+            if key not in run:
+                raise ScorerError(
+                    f"run block has no {key!r} key. Its value may be null — see "
+                    "`NULLABLE_RUN` — but the key is required, because a field some arms "
+                    "omit is a field that cannot be compared across arms, and a null "
+                    "nobody wrote cannot be told apart from one that was measured "
+                    "(DESIGN §10 A2)."
+                )
+            continue
         if not run.get(key):
             raise ScorerError(
                 f"run block has no {key!r}. Every field here is a premise of the "
                 "numbers beside it — the arm's four axes name the cell, `split` names "
-                "the fold, and `model_id` names what was actually called. An arm that "
-                f"used no model records {model_id_absent()!r} (config/naming.yaml "
-                "model_id_absent), because absent and not-applicable are different "
-                "facts and this refuses to conflate them."
+                "the fold, `model_id` names what was actually called, and `generated`, "
+                "`commit` and `tree` bound when that call happened and what code made "
+                f"it. An arm that used no model records {model_id_absent()!r} "
+                "(config/naming.yaml model_id_absent), because absent and "
+                "not-applicable are different facts and this refuses to conflate them. "
+                "There is no equivalent for the other three: every run has an instant, a "
+                "revision and a tree state, so an absent one is unmeasured rather than "
+                "inapplicable (DESIGN §10 A2)."
             )
     for key in AXIS_VALUED:
         if run[key] not in axis(key):
@@ -843,6 +926,34 @@ def check_run(run: Mapping[str, str]) -> None:
                 f"config/naming.yaml (have: {sorted(axis(key))}). Add it there "
                 "before using it, rather than writing to a path nothing defines."
             )
+    if not GENERATED_RE.match(str(run["generated"])):
+        raise ScorerError(
+            f"run['generated'] is {run['generated']!r}, which is not a UTC instant of "
+            "the form 2026-08-09T14:03:22Z. A date alone cannot order two runs made on "
+            "one day, and §10 A2's question is which of two numbers came from the "
+            "earlier resolution of a model alias. src/split.py and "
+            "src/eval/sealed_log.py write this format; matching them is what lets the "
+            "three records be read against each other."
+        )
+    if run["tree"] not in TREE_STATES:
+        raise ScorerError(
+            f"run['tree'] is {run['tree']!r}, not one of {list(TREE_STATES)}. This "
+            "field is what makes `commit` mean something: on a dirty tree the hash "
+            "names a revision that is not what ran, and on an unknown one nobody could "
+            "read the repository at all. A value outside the vocabulary is a third "
+            "possibility that no reader can act on — sealed_log.tree_state() produces "
+            "exactly these three."
+        )
+    if not run["commit"] and run["tree"] != "unknown":
+        raise ScorerError(
+            f"run['commit'] is {run['commit']!r} while run['tree'] is {run['tree']!r}. A "
+            "null hash is the record of a repository that could not be read, and "
+            "`unknown` is the only tree state that says so — `clean` and `dirty` both "
+            "report the output of a git command that also produced a revision, so one "
+            "without the other is a contradiction rather than a missing measurement. "
+            "sealed_log.tree_state() returns the two together for this reason "
+            "(DESIGN §10 A2)."
+        )
 
 
 def metrics_path(run: Mapping[str, str], root: Path | None = None) -> Path:

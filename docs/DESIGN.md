@@ -1850,10 +1850,36 @@ Partial mitigations, stated as partial. Neither is an identifier and neither is 
 be one:
 
 - **A date and a commit hash beside the alias**, which bounds *when* that alias was resolved
-  even though it cannot say to what. As of 2026-08-08 `scorer.REQUIRED_RUN` does **not**
-  include either, so this is a requirement on the orchestrator (§8) and not yet a property of
-  any results file — recorded here as work owed rather than as a safeguard in place, because
-  a mitigation described in the design and absent from the writer is the shape §5.4 is about.
+  even though it cannot say to what. **In place since schema 4** (2026-08-09):
+  `scorer.REQUIRED_RUN` names `generated`, `commit` and `tree`, and `check_run` refuses a run
+  block missing any of them before a results directory exists. This replaces the work-owed
+  note that stood here while the mitigation was described in the design and absent from the
+  writer — the shape §5.4 is about. `generated` must match a UTC instant to the second
+  (`2026-08-09T14:03:22Z`), not a bare date: the question this mitigation answers is which of
+  two numbers came from the earlier resolution of an alias, and two runs made on one day
+  cannot be ordered by their date. `tree` must be one of `clean`, `dirty`, `unknown` — the
+  vocabulary `sealed_log.tree_state()` produces.
+
+  **All three rather than the hash alone**, because the hash is the field that reads as
+  sufficient and is not. A commit identifies the code that ran only if the tree was clean, so
+  `commit` without `tree` may describe something other than what executed; `unknown` is what
+  `tree` says when git could not be reached, and a run recording it has a hash whose meaning
+  is unverified rather than a hash that is wrong. `generated` is what remains useful in
+  exactly that case. Requiring the hash on its own would have published the most confident of
+  the three by itself.
+
+  **`commit` may be null, and only with `tree` of `unknown`** (`scorer.NULLABLE_RUN`). The
+  key is still required — a field some arms omit cannot be compared across arms, and a null
+  nobody wrote cannot be told from a null that was measured — but `tree_state()` returns
+  `(None, "unknown")` when git cannot be read, and a validator demanding a truthy hash there
+  leaves the writer two options: refuse to score a real run, or put something in the field.
+  The second is what happens, and a hash that reads as identifying the code while nobody
+  checked whether it does is the failure this field was added to prevent. The pairing is what
+  keeps the exemption from becoming a loophole: `clean` and `dirty` are both read from a git
+  command that also produced a revision, so either of them beside a null hash is refused as a
+  contradiction rather than accepted as a gap. The first version of this check demanded the
+  hash unconditionally, and what caught it was the mutation harness's own tree — a repository
+  with no commits, where the writer could no longer write.
 - **The token counts**, which are circumstantial: a re-run whose `prompt_tokens` differ on a
   byte-identical prompt met a different tokeniser and therefore probably a different model.
   It can raise suspicion and cannot confirm identity, and equal counts prove nothing.

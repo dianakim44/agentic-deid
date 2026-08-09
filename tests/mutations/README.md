@@ -19,7 +19,7 @@ is tested by `tests/test_mutation_harness.py`, which pytest does collect.
 
 Each one corresponds to a decision in DESIGN.md that a plausible "simplification"
 would silently undo. What they have in common is the property that makes them
-dangerous: **eighty-seven of the ninety-eight change no total.** The corpus still loads,
+dangerous: **ninety of the hundred and one change no total.** The corpus still loads,
 the document count is still 750, the span count is still 17,134 — and every
 downstream number is wrong. Those are the errors a reviewer cannot catch and an
 aggregate cannot reveal, which is why they get a harness rather than trust.
@@ -241,6 +241,9 @@ inspection — a leak rate of 3.1% looks exactly as reasonable as a wrong one.
 | `leak_rate_from_assignment` | the `leak.leaked` figure is taken from the assignment's false negatives | the error DESIGN §9.3 exists to prevent: a leak reported on an identifier whose every character is hidden | **9** |
 | `greedy_tiebreak_dropped` | the sort key becomes `(-overlap, pi, gi)` | ties fall through to emission order, so the metrics move when the same spans arrive shuffled | **1** |
 | `by_rule_fp_from_coverage` | `by_rule`'s hits are taken from type-matched overlap instead of from the assignment | a rule whose spans always lose the assignment to a better one reads as harmless, and the only signal that licenses deleting a rule disappears while every aggregate stays correct | **5** |
+| `the_provenance_fields_are_optional_again` | `REQUIRED_RUN` loses `generated`, `commit` and `tree` | §10 A2's mitigation goes back to being described in the design and absent from the writer. Every existing metrics file is unchanged, because `run_fold` still writes all three; the loss is in what a new writer may omit, and the orchestrator is the new writer | **5** |
+| `generated_accepts_a_bare_date` | `GENERATED_RE` matches `YYYY-MM-DD` and stops there | the field is still required and no longer answers its question: two runs on the day an alias moves carry the same string, and ordering them is the whole point | **3** |
+| `a_null_commit_needs_no_unknown_tree` | the paired check on `commit`/`tree` is skipped | the nullable field becomes an optional one. `{"commit": null, "tree": "clean"}` is accepted — a run that read the working tree, which means it ran a git command that also produced a revision, and recorded no revision | **1** |
 
 The first three are ordinary wrong-number mutations and the counts are comfortable.
 `greedy_tiebreak_dropped` is the interesting one, and it is caught by exactly one
@@ -274,6 +277,27 @@ deleting is precisely the one whose spans are always beaten to the credit by a b
 prediction. Under the coverage basis that rule shows a healthy hit count, the file grows
 monotonically, and no aggregate in `metrics.json` is wrong — the arm simply never
 shrinks its rule set and nobody can say why.
+
+The last three are about the run block rather than the numbers, and they are here
+because the run block is what makes the numbers re-runnable. **`a_null_commit_needs_no_unknown_tree`
+is the one worth reading, because the guard it removes was written after the strict
+version of the same guard failed.** The first draft of schema 4 required a truthy
+`commit`. That looked like the careful choice and was not: `sealed_log.tree_state()`
+returns `(None, "unknown")` when git cannot be read, so the strict check made a real
+run unscoreable — and it was found not by review but by the harness's own tree, a
+repository with no commits, where thirteen `test_run_fold.py` tests stopped being able
+to write at all.
+
+A validator that refuses the honest record leaves the writer two options: refuse to
+score, or put something in the field. The second is what happens, and a hash that
+reads as identifying the code while nobody checked whether it does is exactly what
+`tree` was added to prevent — the strict check would have manufactured the failure it
+was guarding against. So null is permitted, **and only in company**: `clean` and
+`dirty` are both read from a git command that also produced a revision, so either of
+them beside a null hash is refused. Unpaired, the exemption stops being an exemption
+and becomes the way to omit the hash on a tree that could be read perfectly well.
+That is the mutation, and its count of **1** is honest: there is one test that can
+see it, because every other check in `check_run` passes on the contradictory block.
 
 Counts are the number of tests that fail or error, from
 `tests/test_meddocan_loader.py`, `tests/test_split_file.py`, `tests/test_seal.py`,

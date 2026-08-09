@@ -120,7 +120,11 @@ CORPUS = [D1, D2, D3, D4, D5, D6, D7, D8]
 RUN = {
     "corpus": "es-meddocan", "detector": "RT", "supervision": "sup-free",
     "porting": "port-loop", "split": "dev", "model_id": "us.anthropic.claude-opus-5",
-    "rules_version": "es@test", "seed": 20260805, "commit": "0000000",
+    "rules_version": "es@test", "seed": 20260805,
+    # Required since schema 4 (DESIGN §10 A2). A fixed instant rather than `now()`:
+    # a test whose expected output depends on the clock is a test that fails at
+    # midnight, and nothing here asserts on the value beyond its shape.
+    "generated": "2026-08-09T12:00:00Z", "commit": "0000000", "tree": "clean",
 }
 COST = {"llm_calls": 0, "prompt_tokens": 0, "completion_tokens": 0,
         "wall_seconds": 0.0}
@@ -1185,6 +1189,148 @@ def test_the_absent_value_comes_from_naming_yaml():
         code = re.sub(r"#.*", "", code)
         assert f'"{absent}"' not in code and f"'{absent}'" not in code, (
             f"{module} spells the absent model value as a literal")
+
+
+# ─── the date and the commit hash: §10 A2's mitigation, as a property ────────
+#
+# A2 records that `model_id` cannot say which weights answered — an undated Bedrock alias
+# in gives an undated alias back — and names a date and a commit hash as the partial
+# mitigation. Until schema 4 that paragraph described something no writer produced and no
+# reader could rely on. These tests are what makes the difference checkable.
+
+
+@pytest.mark.parametrize("key", ["generated", "commit", "tree"])
+def test_a_run_without_the_provenance_fields_is_refused(scored, tmp_path, key):
+    """Presence first: the mitigation is worth nothing if a run block may omit it."""
+    run = {k: v for k, v in RUN.items() if k != key}
+    with pytest.raises(ScorerError, match=key):
+        write_metrics(scored, run=run, cost=COST, root=tmp_path)
+
+
+@pytest.mark.parametrize("bad", ["2026-08-09", "today", "2026-08-09 12:00:00",
+                                 "2026-08-09T12:00:00+00:00", ""])
+def test_generated_must_be_a_utc_instant(scored, tmp_path, bad):
+    """A required field with no validation gets filled with anything once.
+
+    `2026-08-09` is the interesting case and the reason for the check: it looks like an
+    answer and cannot order two runs made on one day, which is the comparison A2 wants. The
+    `+00:00` case is refused for a duller reason — one format, so the three records that
+    carry instants sort against each other as text.
+    """
+    with pytest.raises(ScorerError, match="generated|no 'generated'"):
+        write_metrics(scored, run={**RUN, "generated": bad}, cost=COST, root=tmp_path)
+
+
+def test_generated_accepts_the_format_the_other_writers_produce():
+    """Asserted against the real function rather than against a literal, so that changing
+    the format in one place fails here instead of producing two conventions."""
+    from src.eval import sealed_log
+    stamp = sealed_log.datetime.now(sealed_log.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    scorer.check_run({**RUN, "generated": stamp})
+
+
+@pytest.mark.parametrize("bad", ["probably fine", "CLEAN", "modified", "none"])
+def test_tree_must_be_one_of_the_three_documented_states(scored, tmp_path, bad):
+    """`tree` is what makes `commit` mean anything, so an unreadable value is worse than
+    an absent one — a reader cannot act on a fourth possibility."""
+    with pytest.raises(ScorerError, match="tree"):
+        write_metrics(scored, run={**RUN, "tree": bad}, cost=COST, root=tmp_path)
+
+
+def test_the_tree_vocabulary_is_the_one_tree_state_produces():
+    """`TREE_STATES` is written out in the scorer to avoid an import cycle, which means it
+    can drift from the function that produces the values. This is the check that it has
+    not: `sealed_log.tree_state`'s docstring is the contract and its three values are
+    asserted in `tests/test_seal_internals.py`."""
+    from src.eval import sealed_log
+    documented = {"clean", "dirty", "unknown"}
+    assert set(scorer.TREE_STATES) == documented
+    assert all(state in sealed_log.tree_state.__doc__ for state in scorer.TREE_STATES)
+
+
+def test_an_unreadable_repository_can_still_be_recorded(scored, tmp_path):
+    """`tree_state()` returns `(None, "unknown")` when git cannot be read, and that pair
+    has to be writable.
+
+    This is the case the first draft of the check got wrong: it demanded a truthy hash, so
+    a run in a tree without commits could not be scored at all. That leaves a writer two
+    options — refuse a real run, or put something in the field — and the second is what
+    happens. A fabricated hash is exactly what `tree` was added to make impossible, so the
+    validator must not be what forces one.
+    """
+    path = write_metrics(scored, run={**RUN, "commit": None, "tree": "unknown"},
+                         cost=COST, root=tmp_path)
+    assert json.loads(path.read_text(encoding="utf-8"))["run"]["commit"] is None
+
+
+def test_the_null_hash_is_accepted_only_with_an_unknown_tree(scored, tmp_path):
+    """Null is permitted *in company*, never on its own.
+
+    `clean` and `dirty` are both read from the output of a git command that also produced a
+    revision, so either of them beside no hash is a contradiction rather than a gap. If the
+    pairing went unchecked, the nullable field would become the way to omit the hash on a
+    tree that could be read perfectly well — which is the loophole and not the exemption.
+    """
+    for state in ("clean", "dirty"):
+        with pytest.raises(ScorerError, match="commit"):
+            write_metrics(scored, run={**RUN, "commit": None, "tree": state},
+                          cost=COST, root=tmp_path)
+
+
+def test_the_commit_key_is_required_even_though_its_value_may_be_null():
+    """Nullable is not optional. A key some arms omit cannot be compared across arms, and
+    an absent key reads the same as a measured null to every consumer downstream."""
+    assert "commit" in scorer.NULLABLE_RUN
+    with pytest.raises(ScorerError, match="commit"):
+        scorer.check_run({k: v for k, v in RUN.items() if k != "commit"})
+
+
+@pytest.mark.parametrize("key", ["generated", "tree"])
+def test_only_the_hash_is_nullable(scored, tmp_path, key):
+    """The exemption is one field wide. `generated` comes from the clock and `tree` always
+    has one of three answers — neither has a state in which it cannot be measured, so a
+    null in either is an unwritten field rather than a recorded absence."""
+    assert key not in scorer.NULLABLE_RUN
+    with pytest.raises(ScorerError, match=key):
+        write_metrics(scored, run={**RUN, key: None}, cost=COST, root=tmp_path)
+
+
+def test_all_three_are_required_and_not_just_the_hash():
+    """The hash is the most confident of the three and the least meaningful alone.
+
+    Requiring `commit` without `tree` would publish a revision that may not describe what
+    ran; requiring both without `generated` would leave nothing when `tree` is `dirty` or
+    `unknown`, which are exactly the runs where the hash says least.
+    """
+    for field in ("generated", "commit", "tree"):
+        assert field in scorer.REQUIRED_RUN
+
+
+def test_the_provenance_fields_are_not_in_the_results_path(tmp_path):
+    """Same rule as `model_id`: the path names the cell, and a re-run at a new instant is
+    not a new cell. Otherwise every run would mint its own directory and no arm would ever
+    be overwritten — which sounds safe and means results/ stops being a coordinate space."""
+    a = metrics_path(RUN, root=tmp_path)
+    b = metrics_path({**RUN, "generated": "2027-01-01T00:00:00Z", "commit": "deadbee",
+                      "tree": "dirty"}, root=tmp_path)
+    assert a == b
+
+
+def test_the_schema_version_moved_with_the_new_required_fields():
+    """Three required fields are a shape change, so `SCHEMA_VERSION` moves and
+    `SCORER_VERSION` does not — no existing field means anything different."""
+    assert scorer.SCHEMA_VERSION == 4
+    assert scorer.SCORER_VERSION == 1
+
+
+def test_run_fold_writes_all_three(tmp_path):
+    """The writer, not just the checker. `run_fold` already wrote `commit` and `tree`
+    before schema 4, which is why the interesting one here is `generated`."""
+    import re
+    source = (ROOT / "src" / "eval" / "run_fold.py").read_text(encoding="utf-8")
+    body = source[source.index("    run = {"):source.index("spans_file = write_spans")]
+    for field in ("generated", "commit", "tree"):
+        assert re.search(rf'"{field}":', body), f"run_fold's run block has no {field}"
 
 
 def test_write_metrics_requires_cost(scored, tmp_path):

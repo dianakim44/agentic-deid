@@ -2170,6 +2170,81 @@ MUTATIONS = [
         ),
         min_kills=1,
     ),
+    # DESIGN §10 A2's mitigation, as schema 4 made it a property. Three mutations: one
+    # drops the requirement, one drops the validation that keeps the requirement worth
+    # having, and one widens the null-hash exemption into a way of omitting the hash.
+    Mutation(
+        name="the_provenance_fields_are_optional_again",
+        path=SCORER,
+        anchor=('REQUIRED_RUN = ("corpus", "detector", "supervision", "porting", "split", '
+                '"model_id",\n                "generated", "commit", "tree")'),
+        replacement=('REQUIRED_RUN = ("corpus", "detector", "supervision", "porting", '
+                     '"split", "model_id")'),
+        breaks=(
+            "§10 A2 returns to the state it was written up in: the design names a date and "
+            "a commit hash as its partial mitigation for an unresolvable model alias, and "
+            "no results file has to carry either. `run_fold` still writes all three, so "
+            "every existing metrics file looks identical and nothing fails — the loss is "
+            "entirely in what a *new* writer is allowed to omit, and the orchestrator is "
+            "the new writer.\n"
+            "\n"
+            "The consequence is the one A2 states: a re-run six months later that produces "
+            "a different number cannot be attributed to the model or to the code. The "
+            "mitigation does not bound what the alias resolved to; it bounds *when* it was "
+            "resolved and by which revision, and a field the writer may omit bounds "
+            "nothing for the runs that omit it.\n"
+            "\n"
+            "Caught by `test_a_run_without_the_provenance_fields_is_refused` (three "
+            "parametrisations), `test_all_three_are_required_and_not_just_the_hash` and "
+            "`test_the_commit_key_is_required_even_though_its_value_may_be_null`."
+        ),
+        min_kills=3,
+    ),
+    Mutation(
+        name="generated_accepts_a_bare_date",
+        path=SCORER,
+        anchor=r'GENERATED_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")',
+        replacement=r'GENERATED_RE = re.compile(r"^\d{4}-\d{2}-\d{2}")',
+        breaks=(
+            "`generated` becomes a date, and a date cannot order two runs made on one day "
+            "— which is the comparison the field exists for. A2's question is which of two "
+            "numbers came from the earlier resolution of an alias, and on the day an alias "
+            "moves, both runs carry the same string.\n"
+            "\n"
+            "This is the milder shape of the same failure as the mutation above: the field "
+            "is still required, so the block still looks complete, and what is missing is "
+            "the resolution that made it answer anything. A required field whose validation "
+            "is loosened is worse than an absent one — an absent field is legible as "
+            "missing, and `2026-08-09` reads as a measurement.\n"
+            "\n"
+            "Caught by `test_generated_must_be_a_utc_instant`, whose first parametrisation "
+            "is exactly `2026-08-09`."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="a_null_commit_needs_no_unknown_tree",
+        path=SCORER,
+        anchor='    if not run["commit"] and run["tree"] != "unknown":',
+        replacement='    if False:',
+        breaks=(
+            "The null-hash exemption stops being paired, and a nullable field becomes an "
+            "optional one. `{\"commit\": null, \"tree\": \"clean\"}` is then accepted: a "
+            "run that read the working tree successfully — which means it ran a git "
+            "command that also produced a revision — and recorded no revision. That is not "
+            "a missing measurement, it is a contradiction, and it is the way to omit the "
+            "hash while satisfying every other check.\n"
+            "\n"
+            "The exemption itself is right and its scope is the whole guarantee: null is "
+            "permitted because `tree_state()` genuinely returns `(None, \"unknown\")` when "
+            "git cannot be read, and a validator that refused it would force a writer to "
+            "fabricate a hash — the thing `tree` exists to prevent. Unpaired, the exemption "
+            "grants that same freedom to runs that had a hash available.\n"
+            "\n"
+            "Caught by `test_the_null_hash_is_accepted_only_with_an_unknown_tree`."
+        ),
+        min_kills=1,
+    ),
 ]
 
 COUNT_RE = re.compile(r"(\d+) (passed|failed|error|errors)")

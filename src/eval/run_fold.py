@@ -46,6 +46,7 @@ import argparse
 import json
 import sys
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Mapping, Sequence
 
@@ -263,6 +264,16 @@ def run_fold(
         # path says which arm and iteration produced it, and neither implies the other.
         "rules_source": {lang: p for lang, p in sorted(ruleset.sources.items())},
         "rules": sorted(r.rule_id for r in ruleset.rules),
+        # DESIGN §10 A2: the instant, the revision, and whether the revision describes
+        # what ran. Required by `scorer.REQUIRED_RUN` since schema 4 — `commit` and `tree`
+        # were already written here, and what changed is that omitting them is now refused
+        # instead of unnoticed. This arm calls no model, so the mitigation they provide is
+        # not needed for its own numbers; it is written anyway because a field that only
+        # some arms carry cannot be compared across arms. `commit` is passed through as
+        # `tree_state()` returned it, including `None` — the scorer accepts a null hash with
+        # `tree` of `unknown` and refuses it with any other state, so there is nothing to
+        # substitute here and substituting would be the bug (scorer.NULLABLE_RUN).
+        "generated": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "commit": commit,
         "tree": tree,
     }
