@@ -53,6 +53,7 @@ TEST_FILES = [
     "tests/test_seal_internals.py",
     "tests/test_bedrock.py",
     "tests/test_check_bedrock_logging.py",
+    "tests/test_structure.py",
 ]
 
 #: Repository directories the loader tests need. `splits/` is here because the
@@ -194,6 +195,7 @@ BEDROCK = "src/llm/bedrock.py"
 #: most: this file is what writes the compliance record the paper cites, so a defect
 #: here does not lose evidence, it manufactures it.
 CHECK_LOGGING = "tools/check_bedrock_logging.py"
+PATCH_CHECK = "tools/check_patched_guarantees.py"
 
 MUTATIONS = [
     Mutation(
@@ -2070,6 +2072,101 @@ MUTATIONS = [
             "\n"
             "Caught by `test_the_check_runs_before_the_sealed_read`, which records the "
             "order the two are called in rather than their results."
+        ),
+        min_kills=1,
+    ),
+    # ─── the structural check (tests/test_structure.py) ─────────────────────
+    # The check that a guarantee is never only patched away. Its own two weakenings:
+    # one loosens the verdict into a subset test, one removes the reason requirement
+    # from the exemption list. Both leave a check that runs, reports, and exits 0.
+    Mutation(
+        name="the_patch_check_credits_a_whole_file",
+        path=PATCH_CHECK,
+        anchor=(
+            "    return any(os.path.basename(ran_in) == base and ran == function\n"
+            "               for ran_in, ran in executed)"
+        ),
+        replacement=(
+            "    return any(os.path.basename(ran_in) == base\n"
+            "               for ran_in, ran in executed)"
+        ),
+        breaks=(
+            "The verdict becomes a subset test: **one executed function in a module "
+            "vouches for every patched function in it.** `src/eval/sealed_log.py` has "
+            "`record_access` running in a dozen tests, so `tree_state` would be credited "
+            "without ever running — which is precisely the state the audit found and this "
+            "check was written to report. The check still runs, still prints a count, and "
+            "exits 0.\n"
+            "\n"
+            "This is the weakening to expect, because it is what a false positive tempts "
+            "you into. `satisfies` already had to be loosened once for a real reason (a "
+            "test that imports a *copy* of a module), and the next loosening in the same "
+            "direction is this one. The difference is that the copy case keeps the "
+            "function identity and this discards it.\n"
+            "\n"
+            "Caught by `test_execution_of_a_different_function_does_not_satisfy_a_candidate`."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="the_patch_check_credits_a_bare_function_name",
+        path=PATCH_CHECK,
+        anchor=(
+            "    return any(os.path.basename(ran_in) == base and ran == function\n"
+            "               for ran_in, ran in executed)"
+        ),
+        replacement="    return any(ran == function for _ran_in, ran in executed)",
+        breaks=(
+            "The other subset weakening, in the other axis: the file is dropped and a "
+            "same-named function anywhere satisfies the candidate. `axis` is defined in "
+            "`src/corpora/base.py` and would be credited by any `axis` in any module, "
+            "including one a test defined itself.\n"
+            "\n"
+            "Kept as a separate mutation from the one above because the two loosenings "
+            "fail differently and a reviewer would accept them for different reasons — "
+            "this one looks like tolerance for import aliasing, that one like tolerance "
+            "for module copies.\n"
+            "\n"
+            "Caught by `test_execution_of_a_same_named_function_elsewhere_does_not_satisfy`."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="the_patch_allowlist_stops_requiring_a_reason",
+        path=PATCH_CHECK,
+        anchor='        if len(entry.get("why", "").split()) < MIN_WHY_WORDS:',
+        replacement='        if False:',
+        breaks=(
+            "An exemption no longer has to say why. `{\"file\": ..., \"function\": ...}` "
+            "becomes a valid entry, and the fastest way to close a finding stops being "
+            "*run the function* and becomes *add two lines of JSON*.\n"
+            "\n"
+            "The cost is deferred rather than immediate, which is what makes it "
+            "survivable: nothing breaks today. What breaks is the review in six months, "
+            "when nobody can tell whether an entry describes a function that genuinely "
+            "cannot be executed or one that was inconvenient on a Friday. "
+            "`tools/screen_allowlist.json` has the same requirement for the same reason, "
+            "recorded there as: an entry nobody can evaluate later is an entry that gets "
+            "renewed forever.\n"
+            "\n"
+            "Caught by `test_an_entry_must_carry_a_reason` and "
+            "`test_an_entry_with_no_reason_at_all_is_refused`."
+        ),
+        min_kills=2,
+    ),
+    Mutation(
+        name="a_stale_patch_exemption_is_ignored",
+        path=PATCH_CHECK,
+        anchor="    stale = sorted(set(allowed) - set(found))",
+        replacement="    stale = []",
+        breaks=(
+            "An exemption outlives the function it describes. Rename `tree_state` or stop "
+            "patching it, and the entry stays — pointing at nothing, and ready to cover "
+            "whatever takes the name next. An exemption granted for one function silently "
+            "becomes an exemption for its replacement, which is the failure mode of every "
+            "allowlist that is never pruned.\n"
+            "\n"
+            "Caught by `test_a_stale_entry_fails_rather_than_being_ignored`."
         ),
         min_kills=1,
     ),

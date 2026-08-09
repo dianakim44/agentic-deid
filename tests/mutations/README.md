@@ -19,7 +19,7 @@ is tested by `tests/test_mutation_harness.py`, which pytest does collect.
 
 Each one corresponds to a decision in DESIGN.md that a plausible "simplification"
 would silently undo. What they have in common is the property that makes them
-dangerous: **eighty-three of the ninety-four change no total.** The corpus still loads,
+dangerous: **eighty-seven of the ninety-eight change no total.** The corpus still loads,
 the document count is still 750, the span count is still 17,134 — and every
 downstream number is wrong. Those are the errors a reviewer cannot catch and an
 aggregate cannot reveal, which is why they get a harness rather than trust.
@@ -460,6 +460,10 @@ no enforcement but a field in a log.
 | `the_logging_check_reports_an_unreadable_setting_as_clean` | `check_region` returns `(region, CLEAN)` where it raises on `ClientError` | an IAM denial becomes a clean bill of health, the tool appends a dated record for a region it could not read, the client's gate opens on it, and `compliance.md` — cited by the paper's ethics section — carries a measurement nobody made. The worst failure in the pair, because it manufactures evidence rather than losing it, and the plausible edit: `AccessDeniedException` in an unused region reads as noise, and `cloudtrail:DescribeTrails` already returns exactly that for this principal | **4** |
 | `conftest_availability_from_a_load` | the shared availability fixture goes back to deciding availability by loading the corpus | the defect that shipped four times, reverted. Changes nothing until a real loader bug arrives, and then hides it: measured alongside `type_in_both_lists`, **93 tests skip and 78 non-passing outcomes become 3**, reported as a green suite | **1** |
 | `test_file_shadows_the_shared_fixture` | one test file defines its own `corpus_present`, in the defective form | the propagation rather than the defect: the local definition wins over conftest's silently, and only that file's tests are affected — which is how three files carried it unnoticed | **2** |
+| `the_patch_check_credits_a_whole_file` | `satisfies` drops the function name and compares only the file | the verdict becomes a subset test: **one executed function in a module vouches for every patched function in it.** `record_access` runs in a dozen tests, so `tree_state` would be credited without ever running — the exact state the audit found. The check still runs, prints a count and exits 0. The weakening to expect, because it is what a false positive tempts you into | **1** |
+| `the_patch_check_credits_a_bare_function_name` | `satisfies` drops the file and compares only the name | the same weakening in the other axis: any `axis` anywhere satisfies `src/corpora/base.py`'s, including one a test defined itself. Separate from the row above because the two are accepted for different reasons — this one looks like tolerance for import aliasing, that one for module copies | **1** |
+| `the_patch_allowlist_stops_requiring_a_reason` | the `why` word-count check becomes `if False` | an exemption no longer has to say why, and the fastest way to close a finding stops being *run the function* and becomes *add two lines of JSON*. Nothing breaks today; what breaks is the review in six months, when nobody can tell an impossible case from a Friday afternoon | **2** |
+| `a_stale_patch_exemption_is_ignored` | the stale-entry comparison becomes `[]` | an exemption outlives the function it describes and waits to cover whatever takes the name next. The failure mode of every allowlist that is never pruned | **1** |
 
 `initial_pool_excludes_train_instead_of_selecting_dev` is the one to read twice. The two
 filters are the same length, the same shape, and equivalent on any corpus with two
@@ -1109,6 +1113,65 @@ audit that this file's second seal table and `### Unreadable state, twice` come 
 which found three more instances inside `tests/test_seal.py` alone. Three of the four
 test defects found so far are the same shape, and none of them is visible in a test
 count.
+
+### The two axes: doing too much, and taking too much away
+
+Two structural checks now sit either side of the same problem, and the pairing is the
+useful part:
+
+| | `tests/test_conftest.py` | `tools/check_patched_guarantees.py` + `tests/test_structure.py` |
+|---|---|---|
+| the fault | a test **doing too much** — deciding corpus availability privately | a test **taking too much away** — replacing the function that holds a guarantee |
+| how it hides | a real bug presents itself as an absent corpus; tests skip and the suite is green | the guarantee simply leaves the suite; the tests that remain still pass |
+| what it costs | 93 tests silently disabled, 78 non-passing outcomes reported as 3 | four guards with zero coverage, in files with 20 and 30 passing tests |
+| shipped | four times | four times |
+| the evidence | the syntax tree — which calls sit inside which `except` | the interpreter — which code objects were actually entered |
+
+Neither fault is visible in a count of passing tests, and each shipped four times *after*
+being written up here. That is the argument for both checks in one sentence: prose does
+not fail. A note explains a defect to whoever reads it; a check refuses the defect from
+whoever does not.
+
+They also differ in where the evidence comes from, and that was forced rather than
+chosen. Availability is decided by *structure* — the defective and correct forms behave
+identically on every machine where anyone would notice, so only the tree separates them.
+Execution is a *runtime* fact, and the static approximation gets it wrong: asking whether
+the suite calls a function by name reports `_require_logging_check` as uncovered, when
+five tests exercise it through a module-level alias and an `invoke()` call. That is the
+normal way a gate gets tested — through the thing it guards — so a static check would
+need a list of blessed idioms, and a check with a list of blessed idioms stops applying to
+code written next month.
+
+### The fifth, and what it actually cost
+
+The point of the check is the occurrence that does not happen, which is unprovable, so
+here is what it did on its first run instead:
+
+- **It found a candidate nobody had noticed.** `src/eval/run_sealed_eval.py::_loader_for`
+  was patched in five tests and executed by none. Patching it there is right — a loader is
+  *data* to the function under test, and the real MEDDOCAN loader needs the corpus on the
+  machine — but its own refusal branch is what makes an unimplemented corpus fail before
+  the seal is touched rather than somewhere further in. Closed by writing the test, not by
+  writing an exemption, and the allowlist is still empty.
+- **It caught its own first version being too strict.** The check initially required the
+  executing file to be inside the repository, and reported `check_region` — the guarantee
+  the whole audit started from — as never executed, because `test_check_bedrock_logging.py`
+  imports a *copy* of the tool from a temporary tree. A check that fails on the honest
+  idiom the suite already uses gets loosened until it matches nothing, so `satisfies`
+  compares basenames and its docstring records what that costs.
+- **Its own weakenings have mutations.** Four of them, in the table above. Two collapse the
+  verdict into a subset test, two disarm the allowlist. All four leave a check that runs,
+  prints a reassuring count, and exits 0 — which is the family this whole file is about,
+  now applied to the check that detects the family.
+
+The last one matters most. The place a control could be defeated is exactly where this
+project has repeatedly had no coverage, so `tests/test_structure.py` also forbids what
+would defeat this one: no test may set the profiler, write to the checker or its
+allowlist, or patch the checker's own functions. No file is exempt from those rules,
+including `tests/test_structure.py` — which is why they are phrased as *writes to those
+paths* rather than *mentions of them*. The first draft used a substring ban and failed on
+the test that forbids the thing and on a docstring that explains why a test exists.
+Mentioning a control is how it stays understood; calling it is the risk.
 
 ## Applied to every loader
 

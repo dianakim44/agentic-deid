@@ -343,6 +343,31 @@ def test_the_check_runs_before_the_sealed_read(frozen, monkeypatch, tmp_path):
     assert order == ["verify", "load"]
 
 
+# ─── _loader_for, the one the structural check found ─────────────────────────
+
+
+def test_an_unknown_corpus_has_no_loader():
+    """`_loader_for` is patched in five tests above and, until this one, executed by none —
+    which is exactly what `tools/check_patched_guarantees.py` reported on its first run.
+
+    Substituting it is right in those tests: a loader is *data* to the function under test,
+    and a real MEDDOCAN loader would need the corpus on the machine. But its own refusal
+    branch is the difference between an unimplemented corpus failing here, before the seal
+    is touched, and failing somewhere further in. It needs one test that runs it, and no
+    corpus is required to reach the branch that says there is no loader.
+    """
+    with pytest.raises(CorpusError, match="has no loader yet"):
+        run_sealed_eval._loader_for("de-grascco")
+
+
+def test_the_no_loader_message_names_what_does_exist():
+    """A refusal that lists the implemented corpora answers the next question too. Corpus
+    *ids* are naming.yaml vocabulary, not corpus content."""
+    with pytest.raises(CorpusError) as e:
+        run_sealed_eval._loader_for("not-a-corpus")
+    assert "es-meddocan" in str(e.value)
+
+
 # ─── sealed_log's row construction, run rather than patched ─────────────────
 
 

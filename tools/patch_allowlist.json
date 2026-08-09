@@ -1,0 +1,32 @@
+{
+  "version": 1,
+  "note": [
+    "Functions that tests/ replaces and no test executes for real, with the reason each",
+    "is acceptable. Read by tools/check_patched_guarantees.py, whose docstring says what",
+    "the check is for and why its evidence is collected at runtime.",
+    "",
+    "An entry says: every test that mentions this function substitutes something else",
+    "for it, nothing in the suite runs it, and that is the right arrangement for this",
+    "particular function. It is not a note. It is a claim someone has to be able to",
+    "disagree with later, which is what the `why` requirement is about.",
+    "",
+    "Rules the checker enforces on this file, so they cannot be quietly relaxed:",
+    "  - `file` and `function` both. An entry keyed on a bare name would exempt every",
+    "    first-party definition of that name, including ones added after the entry. The",
+    "    lesson of data/acquire/*.sh, in tools/screen_allowlist.json: an entry keyed on",
+    "    anything broader than the thing itself stops naming what it permits.",
+    "  - A `why` of at least eight words. Crude, and it still catches 'flaky' and 'N/A'.",
+    "  - No stale entries. An entry naming something that is not a candidate — not",
+    "    patched anywhere, or no longer defined in that file — fails the run rather than",
+    "    being ignored, because an exemption that outlives its function becomes an",
+    "    exemption for whatever takes the name next.",
+    "",
+    "The list is empty, and that is the intended steady state rather than an accident.",
+    "The one candidate the check found on its first run was src/eval/run_sealed_eval.py's",
+    "_loader_for, and the answer was to write the test that exercises its refusal branch",
+    "(tests/test_seal_internals.py::test_an_unknown_corpus_has_no_loader) rather than to",
+    "write an entry here. That is the order to keep: an entry is what you add when",
+    "running the real function is genuinely impossible, not when it is inconvenient."
+  ],
+  "entries": []
+}
