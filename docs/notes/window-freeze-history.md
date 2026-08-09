@@ -42,9 +42,12 @@ condition the operator controlled, so the correctness of every re-freeze rested 
 operator's own judgement about whether §7 applied — which is what the record was supposed
 to remove from the operator's hands.
 
-## The six revisions
+## The six revisions, and the seventh that was not re-frozen
 
-All six are before iteration 1's rule work — which, after revision 6, is where they will stay. At every one of them:
+All six are before iteration 1's rule work — which, after revision 6, is where they will
+stay. Revision 7 is listed with them and is a different kind of entry: the hashed file moved
+and the record was deliberately left alone, for the reason given below. At every one of the
+six:
 
 - `rules/es.yaml` did not exist — no rule had been written for this arm,
 - `human_log.jsonl` held exactly one line, `event: read_sample`,
@@ -65,13 +68,12 @@ still did not, for the reason given below.
 | 2 | `aa3b066` | `53319281f8ad…` | §8 (the arm-contamination clause) added to `rule_author.md` |
 | 3 | `f51aa9c` | `493effc2b9fc…` | a prose edit to §8.1's boundary-case table, and a paragraph added to §7 |
 | 4 | `bc83e2c` era (`fix: make the window freeze actually immutable`) | `bc83e2c7126b…` | §7 gained the paragraph describing the corrected guard, and the freeze-last lesson |
-| 5 | this commit | `5786260c6d93…` | `config/sampling.yaml` gained `practice_iteration_min: 900` and §2 of the prompt gained the two regex-free matcher forms — **both** hashes moved, the first time either has moved together with the other |
+| 5 | `179abac` | `5786260c6d93…` | `config/sampling.yaml` gained `practice_iteration_min: 900` and §2 of the prompt gained the two regex-free matcher forms — **both** hashes moved, the first time either has moved together with the other |
+| 6 | `804e22c` | `558bfe3fe86f…` | the arm was **retired**; §§7–8 of the prompt gained dormancy banners and the header was rewritten |
+| 7 | this commit (`docs: define port-oneshot as port-loop truncated (DESIGN §4)`) | `c4d1b66c1dc3…` on disk, **`558bfe3fe86f…` still in the record** | the banner gained the ladder condition — an edit made **for the agent arms**, and the first one this record does not follow |
 
-| 6 | this commit (`docs: retire port-human, adopt port-oneshot as the baseline`) | `558bfe3fe86f…` | the arm was **retired**; §§7–8 of the prompt gained dormancy banners and the header was rewritten |
-
-`sampling_sha256` = `fbfbbe107e2e…` at revisions 1–4 and `4c0e2cc725d3…` at revisions 5–6.
-Revision 6 has no commit hash of its own here because it is the commit that adds this row;
-it is the one whose two hashes match the record on disk.
+`sampling_sha256` = `fbfbbe107e2e…` at revisions 1–4 and `4c0e2cc725d3…` from revision 5
+onward, including revision 7 — `config/sampling.yaml` is untouched by that edit.
 
 Revision 3 is the one with no excuse. Revisions 1→2 added a clause the arm needed and
 the arm had not started. Revision 3 was a *prose* edit to a section written minutes
@@ -182,6 +184,50 @@ with* — is a claim about anything.
 The record now on disk is what a revival inherits: revision 6's two hashes, one
 `human_log.jsonl` row with a null `human_minutes`, and an iteration-1 window that has
 never been drawn for rule-writing.
+
+### Revision 7, and why this one was *not* re-frozen
+
+Revision 6 said `prompt_sha256` "moved one last time." It has moved again, and this row is
+here because a note about a repeated mistake that quietly drops its own failed prediction is
+a worse document than one that records it. That is twice now — revision 4 predicted it was
+the last free revision, revision 6 predicted it was the last revision — and the pattern is
+the same both times: a forecast about what else would need to change, made while the
+surrounding work was still being written. The prompt is a shared file, so **retiring the arm
+that reads it did not stop the file from changing.** Only that arm stopped reading it.
+
+What moved it: the top banner gained a paragraph stating that `port-loop` reads iteration 1
+with §§1.3 and 1.4 empty too, because DESIGN §4 now defines `port-oneshot` as `port-loop`
+truncated after call 1 (2026-08-09). That paragraph is about the agent arms and it says
+nothing about `port-human`.
+
+**And this time the record was left as it was, which reverses revision 6's own argument.**
+Revision 6 re-froze a retired arm on the grounds that a record disagreeing with the files on
+disk needs a person to interpret it. That was right for revision 6 and it is wrong here, for
+a reason revision 6 could not see because it was the first edit after the retirement:
+
+- Revision 6's edit was **about this arm.** Retiring `port-human` meant writing dormancy
+  banners into §§7–8, so leaving the record behind would have meant a freeze record for a
+  live window and a prompt describing a dead arm — two states of the same arm, one file each.
+- Revision 7's edit is about the arms that took over. Following it would mean re-freezing
+  `port-human` every time the agent arms need a sentence in a file they share with it, and
+  the record would accumulate revisions that have nothing to do with the window it attests
+  to. Seven becomes twenty, each one a `port-loop` prompt edit, and the list stops being a
+  history of this arm's window.
+
+So the standing rule for a revival is stated once here instead of being re-derived: **the
+record holds revision 6's hash, and `window_drift()` will report `['prompt_sha256']` to
+whoever next runs `tools/show_human_window.py` on this arm.** That is not drift in the window
+this arm committed to; it is the accumulated agent-arm edits since the retirement. A revival
+re-freezes as its first act — which §11.1 requires anyway, and which revision 6's closing
+lesson already named: *freeze when the author is about to start.* The value of following the
+prompt with a re-freeze was that no interpretation was needed. Once the arm is dormant and
+the file is shared, there is no version of this record that needs no interpretation, and the
+honest choice is to say what the difference means in the one file whose purpose is to be
+that list.
+
+Nothing is at risk in either direction: `arm_has_started()` is still `False`, so a re-freeze
+would have been permitted and a revival's re-freeze will be too. This is a choice about what
+the record is a history *of*, not about what the guard allows.
 
 ## What is guaranteed now
 

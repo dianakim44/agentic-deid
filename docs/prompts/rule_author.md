@@ -19,6 +19,15 @@
 > silently receive a *substitute* for those blocks — a profile summary or a type
 > inventory standing in for the score block would make the baseline something other than
 > the no-feedback floor the ladder needs.
+>
+> **`port-loop` reads iteration 1 with §§1.3 and 1.4 empty too** (DESIGN §4, 2026-08-09).
+> `port-oneshot` *is* `port-loop` truncated after call 1, so call 1 is shown the same
+> blocks in both arms and feedback begins at iteration 2. This is a constraint on the
+> iterating arm and it is why the previous paragraph does not make the two arms differ in
+> two things at once: at iteration 1 the error spans of §1.4 come from an empty rule file,
+> which means they are dev **gold** spans rather than anything the model produced, and an
+> arm shown 40 of them has been given dev information the other has not. `port-loop` draws
+> and renders from iteration 2 onward.
 
 The RuleAuthor is one agent with one artifact: `rules/{lang}.yaml` (DESIGN §3). It does
 not score, does not arbitrate, does not audit, and does not decide when to stop — the

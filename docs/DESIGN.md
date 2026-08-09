@@ -285,6 +285,59 @@ the ladder readable as a ladder: a difference between adjacent rungs is attribut
 whereas a difference between `port-oneshot` and `port-selfdesign` is a difference between
 two bundles.
 
+#### `port-oneshot` is `port-loop` truncated after the first call — decided 2026-08-09
+
+The lead comparison needs this stated as a definition rather than left to each arm's
+implementation, because "differs in one capability" is a property of what the two arms are
+*shown*, and that is decided in code both arms will be written from.
+
+**The definition.** `port-oneshot` is `port-loop` stopped after call 1. Not a separate
+procedure that also makes one call — the same procedure, cut. Three consequences, and the
+second is the one that costs something:
+
+1. **`port-oneshot` reads `docs/prompts/rule_author.md` with §§1.3 and 1.4 empty.** No score
+   block and no error-span block, because there is no previous iteration to draw either
+   from. The banner at the top of that file already says so; this is where the reason lives.
+2. **`port-loop` reads iteration 1 with §§1.3 and 1.4 empty too.** Its feedback begins at
+   iteration 2. This is the clause that does work: it is a constraint on the *iterating* arm,
+   adopted so that call 1 of both arms is byte-identical in what it is shown.
+3. **`port-loop` uses `draw` and `render_window` from iteration 2 onward**, and that plumbing
+   is built when `port-loop` is built. `src/orchestrate.py` does not call either, and
+   `tests/test_orchestrate.py` asserts it does not — see the mutation
+   `the_baseline_draws_error_spans`.
+
+**Why, and it is the ladder's readability at the point the paper leads with.** §1.4 is 40
+dev error spans with ±120 characters of context each. At iteration 1 those errors come from
+an empty rule file, so `initial_error_pool()` derives them from the loader alone: **they are
+dev gold spans, not model output being fed back.** Give them to `port-oneshot` and the two
+arms differ in *two* things — whether 40 dev gold spans were seen, and whether the arm
+continues. When `port-loop` then wins, nothing in the record attributes the win to
+iteration rather than to the 40 spans, and "does iteration justify calling this agentic?"
+is the question the paper is built to answer. Worse, the arm that would look unfairly
+strong is the baseline, so the failure runs in the direction that flatters the rung above
+it.
+
+**The two rejected readings, recorded because each looked reasonable.**
+
+- **Draw and render for `port-oneshot`, and edit the banner (rejected).** This makes "the
+  baseline's whole definition is one call with no feedback" false as written, and the
+  falsehood does not stay in prose: `rule_author.md` is hashed into `window_freeze.json`
+  (§6.3, §11.2), so the edit moves the hash and every arm's freeze record thereafter attests
+  to a window whose defining claim about the baseline is untrue. A supplied gold sample is
+  feedback with the loop removed, not the absence of feedback.
+- **Draw and render with `n`=0 (rejected).** Mechanically identical to an empty block while
+  keeping the plumbing present, which was its appeal. It buys a degenerate path — a
+  stratified seeded draw over zero slots — that no arm uses on purpose: `port-oneshot` would
+  be its only caller and `port-loop` would never pass 0. An untaken branch that exists to
+  make a call site look uniform is a branch nobody tests and everybody trusts. The DUA case
+  in `rule_author.md` §1.4 does set `n`=0 for a real reason, and that is a corpus-level
+  decision about a running arm, not this arm's steady state.
+
+What `port-oneshot` is shown, then, is §1.1 (task frame) and §1.2 (the current rule file,
+empty at iteration 1) and nothing else. It still freezes both window files, because
+`config/sampling.yaml` holds §1.4's parameters and the freeze record has to attest to the
+window the arm committed to — including that its §1.4 block was empty. See §6.3.
+
 If `port-loop` does not beat `port-oneshot`, the agentic framing is not earned. That is a
 real possible outcome and the experiment is designed to detect it. The same holds one rung
 up, and CLAUDE.md's cost requirement plus §11.3's pre-registered 1.9× standard apply at
@@ -952,6 +1005,29 @@ Two consequences follow and are stated so they are not discovered later:
   freeze record is the anchor those lines are checked against rather than a substitute for
   them. `port-oneshot` gets to skip the per-line hashes because *n*=1 makes them literally
   the same line; nothing else does.
+
+**The writer is the orchestrator's, and the refusal is conditioned on the call log.**
+`src/porting/human_arm.freeze_window()` cannot serve: it is pinned to `paths.humanfreeze` and
+writes `"porting": "port-human"` as a literal, and widening it is what the two-key split
+above refuses. So `src/orchestrate.py` has its own `freeze_window()`, and the condition it
+refuses on is the one this section's history makes non-negotiable — **not `path.exists()`**.
+A guard conditioned on the presence of the thing it protects is a request addressed to
+whoever can delete the evidence, and `docs/notes/window-freeze-history.md` records that being
+stepped around three times with `rm` before iteration 1. `port-human`'s binding condition is
+a non-null `human_minutes` on an append-only log; the agent arm has no minutes, so the
+equivalent is **whether this arm has already made its call** — a line in
+`agent_calls.jsonl` (`paths.agentlog`). Before the call the record is a proposal and
+re-freezing is free; after it the window is what the call ran under and cannot be rewritten.
+
+**And the record says its §1.4 block was empty.** §4 defines `port-oneshot` as `port-loop`
+truncated after call 1, so this arm hashes `config/sampling.yaml` while using none of the
+parameters in it — *n*, `min_per_type` and `context_chars` all describe a block the prompt
+did not carry. A record that hashed the file silently would attest to a window nobody could
+reconstruct from it: a reader would find `sampling_sha256` and reasonably conclude 40 spans
+at ±120 characters were shown. So the record carries the fact as a field. The hash stays,
+because §1.4's parameters are still part of what the *template* specifies and a later arm's
+record has to be comparable to this one; what is added is the statement that this arm read
+that section empty.
 
 ---
 
@@ -1884,10 +1960,27 @@ be one:
   byte-identical prompt met a different tokeniser and therefore probably a different model.
   It can raise suspicion and cannot confirm identity, and equal counts prove nothing.
 
-Whether `model_id_reported` and `model_id_resolution` join `REQUIRED_RUN` alongside them is
-decided with the orchestrator, since that is what assembles the block. The argument for is
-that a field the writer may omit is a field some arms will lack, and a resolution recorded
-for only some runs cannot be compared across them.
+**`model_id_reported` and `model_id_resolution` do not join `REQUIRED_RUN` — decided
+2026-08-09, with the orchestrator.** The argument for was real and is the one this section
+makes everywhere else: a field the writer may omit is a field some arms will lack, and a
+resolution recorded for only some runs cannot be compared across them. What decides against
+it is that there is exactly one writer today and it cannot observe either field.
+`src/eval/run_fold.py` closes the `R` arm, which calls no model; required, the two fields
+would be filled with `null` and `none` on every run it makes.
+
+**A required field that one writer fills with a placeholder makes the placeholder the
+convention.** The next writer copies the block rather than the reasoning, and by the time a
+second model-calling arm exists, `"model_id_resolution": "none"` is what the schema looks
+like — a value that reads as a measurement, on runs where nothing was measured. That is the
+same failure as a fabricated commit hash one field over, and worse for being invited by the
+schema instead of chosen by a writer.
+
+So the requirement lives where the observation does: **`src/orchestrate.py` requires all
+three of `Response.model_record()` in its own run block**, and `REQUIRED_RUN` names only
+`model_id`, which every arm can answer. The two fields are raised into `REQUIRED_RUN` when a
+second model-calling writer exists — at that point two writers can be held to the same
+requirement without either inventing a value, and the argument for comparability applies to
+runs that can all answer.
 
 **Why not pin a dated id and be done.** A dated Bedrock id (`claude-opus-4-5-20251101`) does
 come back `dated`, so the resolution field would read better. It is not adopted: this
