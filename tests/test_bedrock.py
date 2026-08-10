@@ -366,6 +366,82 @@ def test_a_mismatch_stops_the_invoke_rather_than_being_recorded():
         invoke(a_prompt(), model_id=OPUS, client=FakeRuntime(reply(model="claude-haiku-4-5")))
 
 
+def test_a_response_that_adds_a_date_is_a_mismatch_and_not_a_quiet_unresolved():
+    """The direction `_resolution`'s datedness comment rests on, pinned where it is decidable.
+
+    `dated` is read off the *requested* id, which is sound only if a response cannot supply
+    a date the request lacked. That was measured on 2026-08-08 and is not a platform
+    guarantee — so what is asserted here is not the measurement (this suite cannot make a
+    real call) but the thing that makes the measurement's failure loud: an id with a
+    component the request does not have is outside the accept set, so it is refused rather
+    than recorded `alias-unresolved`.
+
+    Asserted at the boundary rather than through a fake response, because the accept set is
+    where the property lives: the four accepted forms are `requested` and three *strippings*
+    of it, and stripping cannot add. If Bedrock starts resolving aliases, this is the test
+    that says the run stops instead of quietly under-recording.
+    """
+    resolved = "claude-opus-5-20260501"
+    with pytest.raises(BedrockError) as e:
+        _resolution(OPUS, resolved)
+    assert MISMATCH in str(e.value)
+
+    # And the same in the other direction, so the assertion is about the accept set and
+    # not about this one string: a request that carries the date is fine.
+    assert _resolution(f"us.anthropic.{resolved}", resolved) == DATED
+
+
+def test_no_accepted_report_adds_a_date_the_request_did_not_have():
+    """`dated` is read off `requested` and never off `reported`, and this is the property
+    that makes that sound: over every id the accept set can hold — `requested` and its
+    prefix, provider and version-suffix strippings — no accepted report carries a date the
+    request lacked, because stripping cannot add a component.
+
+    Enumerated rather than argued. The prose version ("the response never adds one") was a
+    claim about Bedrock's envelope; this is a claim about `_resolution`, which is the part
+    this repository controls and can therefore keep true.
+
+    **One-directional, and the enumeration is what established that.** The two-way form of
+    this assertion fails: `rsplit("-v", 1)` on `claude-v2-20251101` yields `claude`, so an
+    accepted report *can* be undated while the request is dated. That direction is
+    harmless here — `dated` is read off the request, which did carry the date, so the
+    recorded value is right — but it is the reason this test asserts what it asserts and
+    not the tidier symmetric claim. It also says the accept set is looser than the
+    stripping list reads: an id whose body contains `-v` before its date accepts a report
+    truncated at that `-v`. That is a question about how permissive `mismatch` is and not
+    about datedness, and it is left as it stands.
+    """
+    def has_date(s: str) -> bool:
+        return any(p.isdigit() and len(p) == 8 for p in s.split("-"))
+
+    bodies = ["claude-opus-5", "claude-opus-4-5-20251101", "llama4-maverick-17b-instruct",
+              "x-20260101-y", "v-20260101", "claude-v2-20251101"]
+    seen = 0
+    for prefix in ("", "us.", "eu.", "apac."):
+        for provider in ("", "anthropic.", "meta."):
+            for suffix in ("", "-v1:0", "-v1", "-v2:3"):
+                for body in bodies:
+                    requested = f"{prefix}{provider}{body}{suffix}"
+                    bare = requested.split(".", 1)[1] \
+                        if requested.startswith(("us.", "eu.", "apac.")) else requested
+                    no_provider = bare.split(".", 1)[1] if "." in bare else bare
+                    no_version = no_provider.rsplit("-v", 1)[0] \
+                        if "-v" in no_provider else no_provider
+                    for reported in (requested, bare, no_provider, no_version):
+                        seen += 1
+                        got = _resolution(requested, reported)
+                        assert got == (DATED if has_date(requested) else UNRESOLVED), (
+                            f"{requested!r} reported as {reported!r} resolved {got!r}"
+                        )
+                        assert not (has_date(reported) and not has_date(requested)), (
+                            f"an accepted report {reported!r} carries a date "
+                            f"{requested!r} does not — the datedness of `requested` is "
+                            "no longer a safe proxy and this call would be recorded "
+                            "`alias-unresolved` while being resolvable"
+                        )
+    assert seen > 1000, f"the enumeration collapsed to {seen} pairs"
+
+
 def test_the_resolution_kinds_come_from_naming_yaml():
     """CLAUDE.md: a value that lands in a results file is declared in the config."""
     from src.corpora.base import model_id_resolution

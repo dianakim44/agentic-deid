@@ -1294,18 +1294,53 @@ call is indistinguishable, from inside the file, from one the code enforces.**
 #### The sweep, and what it turned up
 
 `src/` was then read for comments of the same shape — a stated property, an argument for
-why the code has it, and no mutation or test standing behind the claim. Six sites, listed
-as work owed and **not changed**; each is a candidate for a mutation rather than a known
+why the code has it, and no mutation or test standing behind the claim. Six sites. The
+first has since been closed (`#### Closing the first site`, below) and **the other five are
+listed as work owed and not changed**; each is a candidate for a mutation rather than a known
 defect, and the middle column is why each one holds today:
 
 | site | the comment claims | why it holds today | what would notice a change |
 |---|---|---|---|
-| `src/llm/bedrock.py:305` | `dated` may be tested on the requested id because "the response never adds one", so no parsing of the reported id is needed | a measured property of one vendor's envelope on 2026-08-08, recorded in `docs/notes/baseline-model-family.md` | nothing. `test_a_dated_id_is_recorded_as_dated` passes a dated *request*; no test drives a dated response against an undated request, which would be recorded `unresolved` while resolvable. The closest relative in this file is `the_reply_text_is_taken_from_the_first_block` — the other place a claim about this envelope was measured rather than derived, and the one that was wrong |
+| `src/llm/bedrock.py:305` — **closed, see below** | `dated` may be tested on the requested id because "the response never adds one", so no parsing of the reported id is needed | a measured property of one vendor's envelope on 2026-08-08, recorded in `docs/notes/baseline-model-family.md` | *was* nothing. `test_a_dated_id_is_recorded_as_dated` passes a dated *request*; no test drove a dated response against an undated request, which would be recorded `alias-unresolved` while resolvable. The closest relative in this file is `the_reply_text_is_taken_from_the_first_block` — the other place a claim about this envelope was measured rather than derived, and the one that was wrong |
 | `src/corpora/meddocan.py:81` | `SPLIT_DIRS` is an indirection so a corpus whose directories are named differently "cannot tempt anyone into renaming a fold" | every `fold_dirs` in the repository, in `src/` and in the tests, is the identity mapping | nothing. `base.py` iterates `.items()`; a reader that used the key where it means the value is invariant under identity. The same shape as `run_fold_hardcodes_the_absent_value`, which has a mutation because a second spelling of one fact is exactly this fault |
 | `src/rules.py:53` | `rule_layers()` derives the rules family so "a fourth rules-family layer added to the config must reach this module without an edit here" | there is no fourth; the derivation and any correct literal agree on today's axis | thinly. `test_the_rule_layers_are_the_rules_family_from_naming_yaml` asserts the same expression the code computes *and* the literal three, so it pins today's value from both sides and the drift claim from neither. `test_sample.py`'s `a_second_non_target_type` fixture is the pattern this is missing — it patches the axis to declare the value that does not exist yet |
 | `src/llm/prompt.py:355` | each `phi_type` gloss is quoted as it stands and "nothing is appended to it, including for an excluded type" | nothing appends one | nothing. `test_the_task_frame_names_every_canonical_type_with_its_own_gloss` asserts the gloss is a *substring* of the prompt, which a `(non-target)` marker beside it satisfies. The prohibition's own paragraph is separately tested, so the marker would be redundant rather than wrong — which is why it is the edit someone makes |
 | `src/eval/scorer.py:72` | `HEADLINE_MODE` is "recorded in the output rather than acted on: no code path here treats one mode as primary" | true — the name appears twice in the module, at its definition and in the output dict | nothing, and this one is structural by nature. A branch on it would change a reported number and every test asserting that number would move with it, so behavioural coverage cannot see the property; `test_scorer.py` reads the value out of the output and asserts the pair. CLAUDE.md puts the headline choice in the reporting layer, which makes this the scorer's half of that rule |
 | `src/eval/scorer.py:768` | `by_rule` is "sorted for a stable file" | `dict` preserves insertion order and the comprehension inserts `sorted(by_rule.items())`, so removing the sort leaves the file byte-identical whenever the accumulation order already agrees | nothing. `run_fold_writes_unsorted_spans` is this same claim one field over and it has a mutation, with a `breaks` text saying why byte-identity across reruns is the wrong assertion for it — the test has to check the order is *sorted* rather than *reproducible* |
+
+#### Closing the first site, and what closing it changed
+
+The `bedrock.py` row was taken first, on the grounds the row itself gives: the other
+measured claim about that same envelope was already wrong once, so a second claim resting on
+the same afternoon's measurement should not be stronger than the measurement. Three changes,
+and the third is the one worth reading.
+
+1. **The comment is now dated and marked unchecked.** It says the datedness rule rests on a
+   2026-08-08 measurement rather than on a property of the platform, names its sibling's
+   failure, and states what would go wrong: a response resolving an alias to a snapshot
+   would be recorded `alias-unresolved` while being resolvable.
+2. **What is checkable is checked.** No fake response can establish what Bedrock does, but
+   `_resolution`'s accept set decides what happens if the measurement stops holding —
+   `reported` is accepted only as `requested` or one of three *strippings* of it, and
+   stripping cannot add a component. So the failure is a `mismatch` and the run stops
+   rather than under-recording. `test_no_accepted_report_adds_a_date_the_request_did_not_have`
+   enumerates the accept set over 1,152 pairs and asserts that;
+   `test_a_response_that_adds_a_date_is_a_mismatch_and_not_a_quiet_unresolved` pins the one
+   case in both directions.
+3. **The enumeration falsified the tidier version of its own claim, which is why it is an
+   enumeration.** The assertion was first written symmetrically — an accepted report and its
+   request never *disagree* about datedness — and it failed immediately: `rsplit("-v", 1)`
+   on a body like `claude-v2-20251101` yields `claude`, so an accepted report can be undated
+   while the request is dated. Harmless, since the date is read off the request. But it
+   means the accept set is looser than the stripping list reads, and it means the honest
+   assertion is one-directional. **A sweep like this produces claims of exactly the kind it
+   was written to distrust**, and the only thing that separated the true half from the tidy
+   half was running it.
+
+What remains unchecked here is a *policy* and not a mechanism: on the day Bedrock does
+resolve aliases, this refuses, so a platform improvement arrives as a blocked run. Nothing
+inside the module can see that coming, which is the reason the claim is dated in the comment
+rather than argued.
 
 Two things about that list. The first is that **every one of them holds.** This is not six
 defects; it is six places where the reason a property holds and the reason a comment gives

@@ -274,8 +274,8 @@ def _resolution(requested: str, reported: str | None) -> str:
     naming a model other than the one asked for — and it is refused. A call that succeeded
     while nobody can say which model answered is not a result an experiment can use.
 
-    `dated` versus `alias-unresolved` is decided on the requested id, which is where the
-    date is or is not. There is nowhere else to look: the response never adds one.
+    `dated` versus `alias-unresolved` is decided on the requested id. See the comment at
+    the decision itself for what that rests on and what it does not.
     """
     if reported is None:
         # The field was asked for and did not come back. Recorded as unresolved rather
@@ -303,9 +303,38 @@ def _resolution(requested: str, reported: str | None) -> str:
         )
 
     # A snapshot date is what makes an id reproducible, and an eight-digit run is how a
-    # dated Bedrock id carries one. Tested on the requested id rather than on the stripped
-    # form: the date is in what was asked for, by the measurement above — the response
-    # never adds one — so this needs no parsing to be right.
+    # dated Bedrock id carries one. Read off the requested id, and the reason that is
+    # enough is **a measurement from 2026-08-08 and not a property of the platform**:
+    # three ids sent that day came back with the date preserved when it was asked for and
+    # never added when it was not (`docs/notes/baseline-model-family.md` §"측정 결과" 3).
+    # A response that resolved an alias to a snapshot would be recorded
+    # `alias-unresolved` while being resolvable, and nothing here would notice.
+    #
+    # **That measurement's sibling was already wrong once.** `_text`'s first version took
+    # the reply off `blocks[0]` on the same kind of reading of the same envelope, and it
+    # failed on the first real call because this model returns `reasoningContent` first
+    # (mutation `the_reply_text_is_taken_from_the_first_block`). So the claim is written
+    # here as dated and unchecked rather than as settled.
+    #
+    # **The measurement is not testable here; the property that makes its failure loud
+    # is, and it is tested.** No fake response can establish what Bedrock does, but the
+    # refusal three lines up decides what happens if the measurement stops holding:
+    # `reported` is accepted only when it equals `requested` or one of three *strippings*
+    # of it — prefix, provider, version suffix — and stripping cannot add a component. So
+    # a response resolving an alias to a snapshot is not a quiet `alias-unresolved`, it is
+    # a `mismatch` and the run stops. `test_no_accepted_report_adds_a_date_the_request_did_
+    # not_have` enumerates the accept set and asserts exactly that, and
+    # `test_a_response_that_adds_a_date_is_a_mismatch_and_not_a_quiet_unresolved` pins the
+    # one case.
+    #
+    # Two things that enumeration turned up, recorded because the tidier claim is wrong.
+    # The reverse direction *does* occur: `rsplit("-v", 1)` on a body like
+    # `claude-v2-20251101` yields `claude`, so an accepted report can be undated while the
+    # request is dated — harmless, since the date is read off the request, but it means
+    # the accept set is looser than the stripping list reads. And what stays unchecked is
+    # not the mechanism but the *policy*: on the day Bedrock does resolve aliases, this
+    # refuses, so a platform improvement arrives as a blocked run. Only a real call
+    # surfaces that, which is why the datedness claim is dated in this comment.
     dated = any(part.isdigit() and len(part) == 8 for part in requested.split("-"))
     return check_model_resolution(DATED if dated else UNRESOLVED)
 

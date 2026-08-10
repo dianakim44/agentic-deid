@@ -2,9 +2,24 @@
 # 형식 예시 파일. 규칙 내용이 아니라 스키마다.
 #
 # 세 층 각각 하나씩, 실제 코퍼스와 무관한 명백한 더미 값으로 되어 있다. 어느
-# 것도 아무것도 매치하지 않는다 (ZZZNEVERMATCHZZZ). 연습이 끝나면 이 파일을
-# 지우고 회차 1 은 규칙 0개에서 시작한다 — `python tools/check_rules.py
-# --corpus es-meddocan` 이 "no rules loaded" 를 출력하는 상태가 그 상태다.
+# 것도 아무것도 매치하지 않는다 (ZZZNEVERMATCHZZZ).
+#
+# **이 파일을 지우지 않는다.** 여기 있던 "연습이 끝나면 이 파일을 지우고 회차 1 은
+# 규칙 0개에서 시작한다" 는 지시는 DESIGN §5.3 (2026-08-08) 이전의 port-human
+# 워크플로를 기술한 것이고 지금은 사실이 아니다. 그때는 arm 의 규칙 파일이 이
+# 경로였으므로 형식 예시가 남아 있으면 회차 1 이 규칙 3개에서 시작했다. §5.3 이후
+# arm 의 규칙 파일은 paths.armrules —
+# `results/{corpus}/{detector}/{supervision}/{porting}/rules/iter{N}/{lang}.yaml` —
+# 이고, 이 파일은 커밋된 스키마 예시와 부트스트랩 상태 두 가지만 갖는다.
+#
+# port-oneshot 은 이 파일을 읽지도 쓰지도 않는다. `assemble_task_prompt()` 를
+# rules_path 없이 호출하므로 §1.2 는 "EMPTY. There is no current rule file" 이고
+# (bootstrap 파일을 현재 규칙집합으로 보여주는 것이 §5.3 이 이 파일에서 떼어낸
+# 일이다), 채점은 arm 이 쓴 파일 경로를 run_fold 에 명시적으로 넘겨 한다.
+#
+# 지운다면 잃는 것: 프롬프트 템플릿이 가리키는 유일한 커밋된 스키마 예시,
+# 그리고 아래 세 층의 문법 주석. 얻는 것은 없다 — 어느 arm 도 이 파일에서
+# 출발하지 않는다.
 #
 # `phi_type: OTHER` 를 쓰지 않은 이유: naming.yaml 이 OTHER 를 규칙 개발 대상이
 # 아닌 것으로 선언하고, 로더가 rule_author.md Prohibition 4 로 거부한다. 그래서
@@ -17,7 +32,8 @@
 #
 # 검증: python tools/check_rules.py --corpus es-meddocan
 #       세 규칙 모두 caught 0, matches 0, false pos 0 이 나와야 한다. 그것이
-#       "형식은 맞고 내용은 없다" 의 관측 가능한 형태다.
+#       "형식은 맞고 내용은 없다" 의 관측 가능한 형태다. (--rules 없이 부르면
+#       이 파일을 읽는다. arm 의 파일을 보려면 그 경로를 --rules 로 준다.)
 # ─────────────────────────────────────────────────────────────────────────────
 version: 1
 lang: es
