@@ -1248,6 +1248,74 @@ which found three more instances inside `tests/test_seal.py` alone. Three of the
 test defects found so far are the same shape, and none of them is visible in a test
 count.
 
+### The sixth of the family: a comment that overstated a guarantee
+
+**`the_parse_error_quotes_the_line_it_choked_on` SURVIVED at 0 kills on its first run, and
+the mutation was not what was wrong.** The comment in `src/rules.py` said that `pyyaml`'s
+`MarkedYAMLError` renders the offending source line, and that the loader therefore picks
+`problem`, `context` and `problem_mark` out by hand rather than interpolating `str(exc)`.
+The single-edit mutation restored the interpolation, no test failed, and the reason is that
+the claim was too strong: `MarkedYAMLError.__str__` prints the line only when its `Mark`
+carries a buffer, and `yaml.reader.Reader.get_mark` passes `buffer=None` for a *stream*
+while filling it for a *string*. `load_rules` hands `pyyaml` an open file, so `{exc}`
+would have leaked nothing — the message was clean because of the argument at the call site,
+not because of the fields the comment was defending.
+
+**This is a different fault from the five above, and the difference is worth a name.** In
+each of those a mechanism existed and resolved an ambiguity it could not see, in the
+reassuring direction — a skip read as a pass, a collection error as thirty-seven kills, a
+deleted record as an unopened window. Here **no mechanism resolved anything.** The property
+held, the code that was supposed to hold it was doing nothing, and the only artefact
+asserting a causal connection between the two was a comment. A comment cannot be caught
+resolving an ambiguity wrongly; it is not in the execution path at all. What it can do is
+describe a property as *decided* when the property is *incidental*, after which every
+reader — including the author, later — treats the incidental one as load-bearing and the
+load-bearing one as absent. The five above cost coverage. This one costs the map.
+
+Nothing was wrong with the code and the mutation is the only thing that could have said so.
+A passing suite cannot: the guarantee held. A reviewer cannot: the comment was specific,
+cited the right class, and described a real mechanism in `pyyaml`. Only breaking the thing
+the comment claimed to protect and watching nothing happen distinguishes **this code
+prevents the leak** from **nothing here leaks yet**. The repair was to make the comment true
+— it now says the no-leak property is safe by accident and names the stream/string
+dependency — and to make the mutation two edits, so it flips `safe_load(fh)` to
+`safe_load(fh.read())` *and* interpolates `{exc}`. At that point it kills 1 test, and the
+hand-picked fields are load-bearing rather than decorative: they are what makes the first
+edit survivable.
+
+**The generalisation, and it is the sharpest one in this file:** a comment claiming a
+property is a claim about the *code*, and the harness can check it exactly the way it checks
+any other — break the code and see whether anything notices. Where nothing does, one of two
+things is true, and they are not close: the property is enforced elsewhere and the comment
+names the wrong enforcer, or the property is not enforced at all and the comment is a
+prediction. **A guarantee asserted in a comment and held by an accident of a third-party
+call is indistinguishable, from inside the file, from one the code enforces.**
+
+#### The sweep, and what it turned up
+
+`src/` was then read for comments of the same shape — a stated property, an argument for
+why the code has it, and no mutation or test standing behind the claim. Six sites, listed
+as work owed and **not changed**; each is a candidate for a mutation rather than a known
+defect, and the middle column is why each one holds today:
+
+| site | the comment claims | why it holds today | what would notice a change |
+|---|---|---|---|
+| `src/llm/bedrock.py:305` | `dated` may be tested on the requested id because "the response never adds one", so no parsing of the reported id is needed | a measured property of one vendor's envelope on 2026-08-08, recorded in `docs/notes/baseline-model-family.md` | nothing. `test_a_dated_id_is_recorded_as_dated` passes a dated *request*; no test drives a dated response against an undated request, which would be recorded `unresolved` while resolvable. The closest relative in this file is `the_reply_text_is_taken_from_the_first_block` — the other place a claim about this envelope was measured rather than derived, and the one that was wrong |
+| `src/corpora/meddocan.py:81` | `SPLIT_DIRS` is an indirection so a corpus whose directories are named differently "cannot tempt anyone into renaming a fold" | every `fold_dirs` in the repository, in `src/` and in the tests, is the identity mapping | nothing. `base.py` iterates `.items()`; a reader that used the key where it means the value is invariant under identity. The same shape as `run_fold_hardcodes_the_absent_value`, which has a mutation because a second spelling of one fact is exactly this fault |
+| `src/rules.py:53` | `rule_layers()` derives the rules family so "a fourth rules-family layer added to the config must reach this module without an edit here" | there is no fourth; the derivation and any correct literal agree on today's axis | thinly. `test_the_rule_layers_are_the_rules_family_from_naming_yaml` asserts the same expression the code computes *and* the literal three, so it pins today's value from both sides and the drift claim from neither. `test_sample.py`'s `a_second_non_target_type` fixture is the pattern this is missing — it patches the axis to declare the value that does not exist yet |
+| `src/llm/prompt.py:355` | each `phi_type` gloss is quoted as it stands and "nothing is appended to it, including for an excluded type" | nothing appends one | nothing. `test_the_task_frame_names_every_canonical_type_with_its_own_gloss` asserts the gloss is a *substring* of the prompt, which a `(non-target)` marker beside it satisfies. The prohibition's own paragraph is separately tested, so the marker would be redundant rather than wrong — which is why it is the edit someone makes |
+| `src/eval/scorer.py:72` | `HEADLINE_MODE` is "recorded in the output rather than acted on: no code path here treats one mode as primary" | true — the name appears twice in the module, at its definition and in the output dict | nothing, and this one is structural by nature. A branch on it would change a reported number and every test asserting that number would move with it, so behavioural coverage cannot see the property; `test_scorer.py` reads the value out of the output and asserts the pair. CLAUDE.md puts the headline choice in the reporting layer, which makes this the scorer's half of that rule |
+| `src/eval/scorer.py:768` | `by_rule` is "sorted for a stable file" | `dict` preserves insertion order and the comprehension inserts `sorted(by_rule.items())`, so removing the sort leaves the file byte-identical whenever the accumulation order already agrees | nothing. `run_fold_writes_unsorted_spans` is this same claim one field over and it has a mutation, with a `breaks` text saying why byte-identity across reruns is the wrong assertion for it — the test has to check the order is *sorted* rather than *reproducible* |
+
+Two things about that list. The first is that **every one of them holds.** This is not six
+defects; it is six places where the reason a property holds and the reason a comment gives
+for it are not the same sentence, which is the state `src/rules.py` was in when the mutation
+survived. The second is that the sweep found them by reading for a *rhetorical* pattern —
+"cannot", "never", "by definition", a comment explaining why an edit is unnecessary — and
+that is a search a person does, not a check. **The sweep does not generalise into a tool and
+should not be written up as though it did.** What generalises is the harness's answer to any
+comment of this kind: apply the edit the comment says is unsafe, and read the count.
+
 ### The two axes: doing too much, and taking too much away
 
 Two structural checks now sit either side of the same problem, and the pairing is the
