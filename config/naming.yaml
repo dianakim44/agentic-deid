@@ -264,6 +264,24 @@ paths:
   # 서로의 파일에 닿지 못하는 것이 의도다. 파일명이 같은 이유는 같은 종류의
   # 기록이기 때문이고, 그것이 두 키를 하나로 합칠 이유는 아니다.
   armfreeze: "results/{corpus}/{detector}/{supervision}/{porting}/window_freeze.json"
+  # 형식 실패 기록. DESIGN §10 A2 — 형식 재시도는 0 이고, 실패는 사고가 아니라
+  # 보고 가능한 결과다. 스키마를 통과하지 못하는 파일이 돌아오면 metrics.json 은
+  # 쓰지 않고 (0 으로 채운 metrics 는 "돌았지만 아무것도 못 잡은 규칙집합" 과
+  # 구별되지 않는다) 대신 이 파일을 쓴다: model_id 세 필드, 원문 응답,
+  # 검증기의 오류 메시지 원문. cost 블록은 양쪽 다 쓴다 — 호출은 이뤄졌고
+  # 비용이 나갔다.
+  #
+  # metrics 와 같은 디렉토리에 별도 파일로 두는 이유: 한 arm 의 결과는 metrics.json
+  # 이 있거나 format_failure.json 이 있거나 둘 중 하나이고, 파일 이름이 그 답이다.
+  # metrics.json 안의 status 필드로 두면 채점기 스키마가 "점수 없는 metrics" 를
+  # 허용해야 하고, 그러면 실패가 아닌 이유로 점수가 빠진 파일도 통과한다.
+  #
+  # **원문 응답을 담으므로 스크리너 ALLOW 목록에 오른다.** 응답은 모델의 말이고
+  # 코퍼스 텍스트가 아니지만, 프롬프트를 되풀이하는 응답은 §1.4 블록을 함께
+  # 옮긴다 — 그래서 첫 호출(§§1.1-1.2)에만 이 경로가 쓰이는 것으로는 근거가
+  # 부족하고, 내용 sniffer 가 먼저 돌아 판단한다. ALLOW 는 경로에 대한 진술이고
+  # 내용에 대한 진술이 아니다 (release_screen.py).
+  formatfailure: "results/{corpus}/{detector}/{supervision}/{porting}/format_failure.json"
   # {lang} 은 규칙 파일의 언어다 (lang 축). 코퍼스 하나가 여러 파일을 로드할 수
   # 있으므로 이 경로는 코퍼스당 1:1 이 아니다. 어느 파일들을 로드할지는
   # corpus_rule_langs 가 정한다.
@@ -302,3 +320,4 @@ paths:
 # results/ko-surro/R/sup-free/port-human/metrics.json
 # results/es-meddocan/R/sup-free/port-oneshot/rules/iter1/es.yaml
 # results/es-carmen/R/sup-free/port-loop/rules/iter3/cat.yaml
+# results/es-meddocan/R/sup-free/port-oneshot/format_failure.json
