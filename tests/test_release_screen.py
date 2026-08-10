@@ -337,6 +337,65 @@ def test_the_allowed_arm_rule_path_is_the_one_naming_yaml_declares():
     assert any("rules/es.yaml".startswith(h) for h in rs.ALLOW_HINTS)
 
 
+def test_the_allowed_format_failure_path_is_the_one_naming_yaml_declares():
+    """`paths.formatfailure` and the ALLOW pattern must describe the same file.
+
+    Same requirement as the freeze and rule-path entries above. It carries an extra
+    consequence here: DESIGN §10 A2 makes a format failure the arm's *result*, so a
+    screener that left this path uncategorised would put the appendix's evidence in the
+    class that reads as reviewed to whoever scans the summary — and a failure nobody may
+    publish cannot support the sentence "this model could not do it".
+    """
+    from src.corpora.base import path_template
+    rel = path_template("formatfailure").format(
+        corpus="es-meddocan", detector="R", supervision="sup-free",
+        porting="port-oneshot")
+    assert any(re.search(p, rel) for p in rs.ALLOW_PATTERNS), rel
+    # Under every arm, for `window_freeze.json`'s reason: the file belongs to whichever
+    # {porting} value made the call, and a pattern pinned to one of them would leave the
+    # others uncategorised.
+    for arm in ("port-oneshot", "port-loop", "port-multi", "port-selfdesign"):
+        other = path_template("formatfailure").format(
+            corpus="es-meddocan", detector="R", supervision="sup-free", porting=arm)
+        assert any(re.search(p, other) for p in rs.ALLOW_PATTERNS), other
+
+
+def test_a_format_failure_record_is_allowed_end_to_end(tmp_path):
+    """Through `screen_tree`, so the pattern is exercised where it is applied."""
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    d = tmp_path / "results" / "es-meddocan" / "R" / "sup-free" / "port-oneshot"
+    d.mkdir(parents=True)
+    (d / "format_failure.json").write_text(
+        '{"model_id": "us.anthropic.claude-opus-5", "error": "es.yaml: version must be '
+        'an integer", "response": "version: three\\nlang: es\\n"}\n', encoding="utf-8")
+    _blocked, _sealed, _quar, suspect, allowed = rs.screen_tree(str(tmp_path))
+    assert not suspect
+    assert "results/es-meddocan/R/sup-free/port-oneshot/format_failure.json" in allowed
+
+
+def test_a_format_failure_carrying_note_text_is_still_suspect(tmp_path):
+    """The sniffer decides the content, and here that ordering does real work.
+
+    The other allowed results files hold offsets and hashes by construction. This one holds
+    a raw model response, and "the first call is shown §§1.1-1.2 only" is a fact about
+    today's arm rather than a property of the path — a completion that echoed a prompt
+    carrying §1.4 would carry the corpus with it. So the file is on the ALLOW list and the
+    content check still runs first.
+    """
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    d = tmp_path / "results" / "es-meddocan" / "R" / "sup-free" / "port-oneshot"
+    d.mkdir(parents=True)
+    (d / "format_failure.json").write_text(
+        '{"response": "Admission Date: [**2151-7-16**] Discharge Date: [**2151-8-4**] '
+        'CHIEF COMPLAINT: ..."}\n', encoding="utf-8")
+    _blocked, _sealed, _quar, suspect, allowed = rs.screen_tree(str(tmp_path))
+    rel = "results/es-meddocan/R/sup-free/port-oneshot/format_failure.json"
+    assert any(rel == p for p, _kind in suspect), (
+        f"the sniffer did not reach {rel}; ALLOW is a statement about the path and the "
+        "content check runs first")
+    assert rel not in allowed
+
+
 def test_a_log_line_carrying_note_text_is_still_suspect(tmp_path):
     """Being on the ALLOW list is a statement about the path, never about the content —
     the same order the rules-file tests above establish. A `decision` field is free text

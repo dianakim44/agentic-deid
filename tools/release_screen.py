@@ -130,6 +130,21 @@ ALLOW_PATTERNS = [
     # first, and it applies the rule_id vocabulary check to this path too, so a name
     # carrying a surface form is SUSPECT before it is ever matched here.
     r"^results/[^/]+/[^/]+/[^/]+/[^/]+/rules/iter[0-9]+/[^/]+\.ya?ml$",
+    # The format-failure record (paths.formatfailure, DESIGN §10 A2). Retries are zero, so
+    # a file that does not pass the schema is the arm's result and this is where it is
+    # written — the model ids, the raw response, and the validator's own error message
+    # verbatim. On the list because a failure nobody can read is not a reportable result:
+    # the appendix's sentence is "this model could not do it", and it rests on the reader
+    # being able to see what came back.
+    #
+    # It is the one allowed path whose content is a *model's* output rather than this
+    # project's, and being on this list is a statement about the path and never about the
+    # content — `sniff()` runs first. That ordering is load-bearing here in a way it is not
+    # for metrics.json: a completion that echoed its prompt would carry whatever the prompt
+    # carried, and "the first call shows §§1.1-1.2 only" is a fact about today's arm rather
+    # than a property of the path. So the sniffer is what decides, and a response that came
+    # back with corpus text in it is SUSPECT before it is ever matched here.
+    r"^results/[^/]+/[^/]+/[^/]+/[^/]+/format_failure\.json$",
 ]
 
 # Hangul run long enough to be prose rather than a label.
