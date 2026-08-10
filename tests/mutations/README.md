@@ -19,7 +19,7 @@ is tested by `tests/test_mutation_harness.py`, which pytest does collect.
 
 Each one corresponds to a decision in DESIGN.md that a plausible "simplification"
 would silently undo. What they have in common is the property that makes them
-dangerous: **ninety of the hundred and one change no total.** The corpus still loads,
+dangerous: **ninety-four of the hundred and five change no total.** The corpus still loads,
 the document count is still 750, the span count is still 17,134 — and every
 downstream number is wrong. Those are the errors a reviewer cannot catch and an
 aggregate cannot reveal, which is why they get a harness rather than trust.
@@ -488,6 +488,10 @@ no enforcement but a field in a log.
 | `the_patch_check_credits_a_bare_function_name` | `satisfies` drops the file and compares only the name | the same weakening in the other axis: any `axis` anywhere satisfies `src/corpora/base.py`'s, including one a test defined itself. Separate from the row above because the two are accepted for different reasons — this one looks like tolerance for import aliasing, that one for module copies | **1** |
 | `the_patch_allowlist_stops_requiring_a_reason` | the `why` word-count check becomes `if False` | an exemption no longer has to say why, and the fastest way to close a finding stops being *run the function* and becomes *add two lines of JSON*. Nothing breaks today; what breaks is the review in six months, when nobody can tell an impossible case from a Friday afternoon | **2** |
 | `a_stale_patch_exemption_is_ignored` | the stale-entry comparison becomes `[]` | an exemption outlives the function it describes and waits to cover whatever takes the name next. The failure mode of every allowlist that is never pruned | **1** |
+| `the_arm_freeze_guard_only_checks_the_file` | `orchestrate.freeze_window()`'s refusal becomes `freeze_path().exists()` | **the defect this repository shipped, moved to the arm that will actually run.** `rm window_freeze.json` then re-freeze writes today's hashes and reports success — the sequence `window-freeze-history.md` records running three times. Worse here than for `port-human`: `port-oneshot` writes no per-line hashes, so the record is the *only* thing attesting to the window the call ran under. It is also wrong in the other direction, refusing the pre-call re-freeze §6.3 permits, which is why the count is high | **7** |
+| `the_freeze_record_drops_the_empty_block_marking` | `sections_empty` is dropped from the record | the record stops saying which blocks the call did *not* carry, so a reader must derive it from `INPUT_BLOCKS` — and a reader who knows `INPUT_BLOCKS` is not the reader the field is for. `sampling_applied` survives, so the record still distinguishes the two cases and no longer says what the distinction is about | **2** |
+| `the_freeze_record_claims_the_sampling_parameters_applied` | `sampling_applied` becomes the constant `True` | the field it was added to prevent, restored: a `port-oneshot` record then claims *n*=40 at ±120 characters governed a call that carried no §1.4 at all. §6.3 keeps `sampling_sha256` for comparability with the arms that do use it, which is exactly why the record needs a field saying the hash did not govern this call | **3** |
+| `the_baseline_draws_error_spans` | `orchestrate.freeze_window()` calls `initial_error_pool()` | **DESIGN §4's ladder condition broken in the direction that looks like an improvement.** At iteration 1 the §1.4 pool comes from an empty rule file, so those spans are dev **gold** — the baseline shown 40 of them has dev information `port-loop` call 1 does not, and the two arms differ in two things instead of one. A `port-loop` win is then unattributable at the comparison the paper leads with, and the arm flattered is the rung above. Caught structurally: the plumbing is a two-line addition and a behavioural test notices only once it moves a number | **2** |
 
 `initial_pool_excludes_train_instead_of_selecting_dev` is the one to read twice. The two
 filters are the same length, the same shape, and equivalent on any corpus with two
@@ -747,7 +751,7 @@ and the second job is the one that survives contact with a tired evening.
 
 ### The Bedrock mutations, and the one that survived
 
-The last six are on `src/llm/bedrock.py` and `tools/check_bedrock_logging.py`, and they
+Six are on `src/llm/bedrock.py` and `tools/check_bedrock_logging.py`, and they
 share a property none of the earlier groups has: **five of the six leave a client that
 returns a perfectly good `Response`.** No exception, no missing field, no malformed
 artefact. The arm runs, the rules are written, `metrics.json` validates. What each one
@@ -811,6 +815,66 @@ correct and the broken version: the shape that catches the bug is the shape you 
 about after making a real call. That is why the fixtures in `test_bedrock.py` put a reasoning
 block first *by default* rather than in one dedicated test, and why the sixteen tests that
 catch this mutation are mostly not about text extraction at all.
+
+### The orchestrator mutations: the same guard, on the arm that runs
+
+The last four are on `src/orchestrate.py`, and the first of them is a repeat. `the_arm_freeze_guard_only_checks_the_file` is `freeze_guard_only_checks_the_file` moved from
+the arm that was retired to the arm that will actually run, and the general form above —
+**a refusal conditioned on the presence of the thing being protected is a request addressed
+to whoever can remove the evidence** — is the whole reason the orchestrator's guard reads a
+log rather than a path. What does not transfer is the *input*. `port-human`'s second
+condition is a non-null `human_minutes` on some line, because a line there can precede any
+spent attention (`event: read_sample`). `agent_calls.jsonl` has no such line: it is appended
+to when a call is made, so a line's existence *is* the event, and the guard does not parse
+the line — refusing to see a malformed one would fail in the unsafe direction.
+
+The fallback differs for a harder reason. `port-human`'s is `git log --all` over the log
+itself; `agent_calls.jsonl` is deny-listed by `tools/release_screen.py`, since an agent
+prompt quotes dev text, so **git history can never hold a copy of it.** What history holds
+is the arm's other artefacts, so the second source asks whether this arm has ever committed
+an output — a per-commit listing of its results directory, **excluding the freeze record**.
+Counting the record would be `path.exists()` arriving by the back door with a `git` walk in
+front of it to look thorough, which is why
+`test_the_committed_freeze_record_alone_is_not_evidence_of_a_call` exists and why the
+exclusion is by basename read from `paths.armfreeze` rather than a literal. The two limits
+`port-human`'s note states stay open here too and are asserted, not implied
+(`test_a_call_never_committed_and_then_deleted_reads_as_not_called`).
+
+There is one inversion worth stating, because it looks like an inconsistency. `port-human`'s
+`freeze_window()` hands back the existing record so a re-run gets the opening window;
+`port-oneshot`'s overwrites, and bumps a `revision` counter. The difference is what else
+attests to the window. `port-human` writes per-line hashes on every log line, so a stale
+record is corroborated elsewhere; §6.3 excuses `port-oneshot` from those on the grounds that
+*n*=1 makes freeze and call one moment — which leaves the record as the **only** attestation,
+and handing back a stale proposal would let the prompt move between freeze and call with
+nothing disagreeing. Both directions of the guard are therefore live, and that is why seven
+tests fail when the refusal collapses to `exists()`.
+
+`the_freeze_record_drops_the_empty_block_marking` and
+`the_freeze_record_claims_the_sampling_parameters_applied` are one guarantee split in two,
+and it is a shape none of the earlier groups has: **a record that is accurate field by field
+and false as a whole.** `port-oneshot` hashes `config/sampling.yaml` and uses none of *n*,
+`min_per_type` or `context_chars`, because DESIGN §4 truncates the ladder before §1.4 exists.
+The hash stays for comparability with the arms that do use it, so a `port-oneshot` record and
+a `port-loop` record carry the same `sampling_sha256` over calls that differed in whether
+those parameters governed anything at all. Every field is correct; read together they say the
+wrong thing. `sections_shown`, `sections_empty` and `sampling_applied` are what make the two
+distinguishable, and `test_an_applied_and_an_unapplied_window_do_not_read_alike` compares the
+two records against each other rather than asserting a field is present — because the claim is
+about a difference, and a test that checks for a field passes on two records that both lie.
+`sampling_applied` is **derived** from the sections rather than passed in, so the two cannot
+disagree; the mutation that pins it to `True` is the version where they can.
+
+`the_baseline_draws_error_spans` is the one to read twice, and it is the only mutation in this
+file that breaks a *comparison* rather than a number. DESIGN §4 fixes `port-oneshot` as
+`port-loop` truncated after call 1, which means `port-loop`'s own first call reads §§1.3–1.4
+empty. At iteration 1 the §1.4 pool comes from `initial_error_pool()` against an empty rule
+file, so those spans are dev **gold**. Showing forty of them to the baseline gives it dev
+information the rung above does not have at the same point, the two arms then differ in two
+things instead of one, and a `port-loop` win becomes unattributable at exactly the comparison
+the paper leads with — flattering the rung above. It is caught structurally, by AST, for the
+reason the row gives: the plumbing is a two-line addition, and a behavioural test notices only
+once it has already moved a number.
 
 ## What the seal cost, and what carries the difference
 

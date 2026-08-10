@@ -54,6 +54,7 @@ TEST_FILES = [
     "tests/test_bedrock.py",
     "tests/test_check_bedrock_logging.py",
     "tests/test_structure.py",
+    "tests/test_orchestrate.py",
 ]
 
 #: Repository directories the loader tests need. `splits/` is here because the
@@ -178,6 +179,7 @@ SCREEN = "tools/release_screen.py"
 SCORER = "src/eval/scorer.py"
 SAMPLE = "src/sample.py"
 HUMAN_ARM = "src/porting/human_arm.py"
+ORCHESTRATE = "src/orchestrate.py"
 SHOW_WINDOW = "tools/show_human_window.py"
 RULES = "src/rules.py"
 CHECK_RULES = "tools/check_rules.py"
@@ -2242,6 +2244,114 @@ MUTATIONS = [
             "grants that same freedom to runs that had a hash available.\n"
             "\n"
             "Caught by `test_the_null_hash_is_accepted_only_with_an_unknown_tree`."
+        ),
+        min_kills=1,
+    ),
+    # ── the agent arm's window freeze (DESIGN §6.3) ──────────────────────────
+    Mutation(
+        name="the_arm_freeze_guard_only_checks_the_file",
+        path=ORCHESTRATE,
+        anchor="    where = called_where(corpus, detector, supervision, porting)\n"
+               "    if where is not None:",
+        replacement=(
+            "    where = IN_LOG if freeze_path(\n"
+            "        corpus, detector, supervision, porting).exists() else None\n"
+            "    if where is not None:"
+        ),
+        breaks=(
+            "**The defect this repository actually shipped, moved to the arm that will "
+            "run.** The refusal stops asking whether the arm has called and asks whether "
+            "the record is present, so `rm window_freeze.json` followed by a second "
+            "freeze writes today's hashes and reports a successful freeze — the exact "
+            "sequence `docs/notes/window-freeze-history.md` records running three times "
+            "before iteration 1, each time reported honestly as a re-freeze and each time "
+            "entirely outside the guard.\n"
+            "\n"
+            "A refusal conditioned on the presence of the thing being protected is not a "
+            "refusal; it is a request addressed to whoever can remove the evidence. And "
+            "for this arm the consequence is worse than it was for `port-human`: "
+            "`port-oneshot` writes no per-line hashes (§6.3 permits that because *n*=1 "
+            "makes the freeze and the call one moment), so the record is the only thing "
+            "attesting to the window the call ran under. There is no second source to "
+            "disagree with a rewritten one.\n"
+            "\n"
+            "Note the mutation also *refuses* in the ordinary pre-call case, where §6.3 "
+            "permits a re-freeze — so it is caught from both directions, which is why the "
+            "count is high. That is the shape of the original defect too: it was wrong "
+            "about when to refuse and wrong about when to allow, and the second half was "
+            "the half nobody noticed."
+        ),
+        min_kills=3,
+    ),
+    Mutation(
+        name="the_freeze_record_drops_the_empty_block_marking",
+        path=ORCHESTRATE,
+        anchor='        "sections_shown": list(shown),\n        "sections_empty": list(empty),',
+        replacement='        "sections_shown": list(shown),',
+        breaks=(
+            "The record stops saying which blocks the call did *not* carry, so a reader "
+            "has to derive it from this module's `INPUT_BLOCKS` — and a reader who knows "
+            "`INPUT_BLOCKS` is not the reader the field is for. `sampling_applied` "
+            "survives, which is what makes this worth its own mutation rather than being "
+            "folded into the next: the record still distinguishes the two cases and it no "
+            "longer says what the distinction is about.\n"
+            "\n"
+            "The failure is a `port-oneshot` record that hashes `config/sampling.yaml` "
+            "and lists §§1.1–1.2 as shown. Nothing in it is false. What it cannot answer "
+            "is whether §§1.3–1.4 were empty by design or whether this arm simply did not "
+            "record them, and DESIGN §4 makes that the difference between the baseline and "
+            "a broken one."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="the_freeze_record_claims_the_sampling_parameters_applied",
+        path=ORCHESTRATE,
+        anchor='        "sampling_applied": SAMPLING_SECTION in shown,',
+        replacement='        "sampling_applied": True,',
+        breaks=(
+            "The field stops being derived and becomes a constant, so every arm's record "
+            "claims the sampling parameters governed its call. For `port-oneshot` that is "
+            "false: it hashes the file and uses none of *n*, `min_per_type` or "
+            "`context_chars`, because §4 truncates it before §1.4 exists.\n"
+            "\n"
+            "**This is the failure the field was added to prevent, restored.** A reader "
+            "finding `sampling_sha256` in a record would conclude 40 spans at ±120 "
+            "characters were shown — the same conclusion for the baseline and for "
+            "`port-loop`, and wrong for one of them. §6.3 keeps the hash for "
+            "comparability across arms, which is precisely why the record needs a field "
+            "that says the hash did not govern this call."
+        ),
+        min_kills=2,
+    ),
+    Mutation(
+        name="the_baseline_draws_error_spans",
+        path=ORCHESTRATE,
+        anchor="    shown = _check_sections(sections)",
+        replacement=(
+            "    from .porting.human_arm import initial_error_pool\n"
+            "    from .sample import draw\n"
+            "    _pool = initial_error_pool(corpus)\n"
+            "    shown = _check_sections(sections)"
+        ),
+        breaks=(
+            "**DESIGN §4's ladder condition broken in the direction that looks like an "
+            "improvement.** The baseline draws the §1.4 pool, which at iteration 1 comes "
+            "from an empty rule file — so `initial_error_pool()` derives it from the "
+            "loader and the spans are dev **gold**, not model output being fed back.\n"
+            "\n"
+            "An arm shown 40 of those has dev information the other does not, and "
+            "`port-loop` vs `port-oneshot` then differs in two things at once: whether "
+            "gold spans were seen, and whether the arm continues. When `port-loop` wins, "
+            "nothing in the record attributes the win to iteration — at the comparison "
+            "the paper leads with. Worse, the arm that would look unfairly strong is the "
+            "baseline, so the failure runs in the direction that flatters the rung above "
+            "it.\n"
+            "\n"
+            "Caught structurally rather than behaviourally: "
+            "`test_the_baseline_does_not_draw_or_render_error_spans` reads the module's "
+            "AST for the call, because the plumbing is a two-line addition that a "
+            "behavioural test would only notice once it changed a number."
         ),
         min_kills=1,
     ),
