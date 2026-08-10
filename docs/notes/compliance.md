@@ -66,6 +66,18 @@ Two things to be precise about when citing this in the paper:
 `CLAUDE_CODE_USE_BEDROCK=1`, `AWS_REGION=us-east-1`, model
 `us.anthropic.claude-opus-5`.
 
+**Two model ids, and the distinction matters here and nowhere else** (2026-08-11). The
+line above is the *harness*: the agent that writes this repository's code runs on
+`us.anthropic.claude-opus-5`. The *arms* — the calls that carry ±120 characters of dev-fold
+context in their prompt (`rule_author.md` §1.4) — run on
+`us.anthropic.claude-opus-4-5-20251101-v1:0`, pinned dated across every rung of the ladder
+(DESIGN §4, §10 A2). Both are Bedrock, both are in the account this section is about, and
+the governance argument is identical for the two: it turns on the platform and the account
+setting, not on which snapshot answered. What follows in §3 therefore covers both, and the
+one thing worth checking rather than assuming is the region set — verified 2026-08-11,
+`GetInferenceProfile` resolves the dated id to **the same three regions** as the alias
+(us-east-1, us-east-2, us-west-2), so §3's six-region check needs no widening.
+
 ## 3. Bedrock model-invocation logging — measured state
 
 This matters because it is the one setting that can silently break the premise. If
@@ -99,7 +111,10 @@ read-only observation, per instruction.
 The first three regions are the ones that matter operationally: the
 `us.anthropic.claude-opus-5` inference profile resolves to us-east-1, us-east-2 and
 us-west-2, so a cross-region-routed request can be served from any of the three and
-each needed checking independently. The other three were checked because the setting
+each needed checking independently. The dated arm id
+(`us.anthropic.claude-opus-4-5-20251101-v1:0`, §2) resolves to the same three — checked
+2026-08-11 rather than assumed, because a differently-routed profile would have put the
+arms' prompts through a region this section never examined. The other three were checked because the setting
 is per-region and a stale configuration in an unused region would still be a finding.
 
 **Not verified, and stated as such:** whether a CloudTrail trail records Bedrock API
@@ -167,5 +182,8 @@ exposures are local to this project:
   2023-04-18.
 - PhysioNet Contributor Review Health Data License v1.5.0 (2024), MIT Laboratory for
   Computational Physiology — the licence shipped with CARMEN-I.
-- Model serving: Amazon Bedrock, `us.anthropic.claude-opus-5`, model-invocation
-  logging verified unconfigured in all six regions checked on 2026-08-06 (§3).
+- Model serving: Amazon Bedrock. Experiment arms on
+  `us.anthropic.claude-opus-4-5-20251101-v1:0` (dated, pinned across the ladder —
+  DESIGN §4); the development harness on `us.anthropic.claude-opus-5`. Model-invocation
+  logging verified unconfigured in all six regions checked on 2026-08-06, and both
+  profiles resolve to the same three served regions (§2, §3).

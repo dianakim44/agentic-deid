@@ -367,6 +367,40 @@ fills the second thing §4.1 records as lost. It does not adjudicate any rung.
 Bedrock model aliases are updated silently and an unrecorded run does not reproduce six
 months later. That is required whether or not the appendix runs.
 
+#### Every rung runs on one **dated** id: `us.anthropic.claude-opus-4-5-20251101-v1:0` — decided 2026-08-11
+
+The paragraph above fixes the model *family* across the ladder. This fixes the *snapshot*,
+and it is the same rule taken to the point where it actually binds: **one capability rule
+requires the model to be pinned too, and an alias is not a pin.**
+
+`us.anthropic.claude-opus-5` is an undated alias. Bedrock updates the weights behind an
+alias silently, and nothing on the wire says which weights answered — four probes establish
+this and none of them leaves a route open (§10 A2; `docs/notes/baseline-model-family.md`).
+So two rungs run a month apart on that alias may have run on two models, and the record
+cannot distinguish "iteration helped" from "the model behind the alias changed between the
+two calls." That is the same two-axis failure this section rejects for the baseline family
+swap, arriving through a channel the family argument does not close. **`port-oneshot`,
+`port-loop` and `port-multi` therefore all take the same dated id**, and `port-selfdesign`
+too when it is built.
+
+Pinning is possible only downward: there is no dated `opus-5` on this account, so the pin is
+one generation below the newest available alias. **That costs this section's argument
+nothing.** The three comparisons ask whether iteration, role specialisation and delegated
+role design pay for themselves — each is a question about *harness structure at a fixed
+capability*, and the capability level is the thing held constant rather than the thing
+measured. A rung that beats the rung below it on opus-4-5 has demonstrated that the added
+capability does work; nothing in that inference requires the model to be the best one
+obtainable. If anything the lower generation reads better: at a less saturated capability
+level there is more headroom for a rung to show an effect, and a ladder whose rungs all
+score near ceiling is a ladder whose differences are inside the noise.
+
+The reproducibility side is what the pin buys, and it is worth more here than in an ordinary
+run because **each arm's window is binding from its first call** (§6.3). A rung that recorded
+`alias-unresolved` could never afterwards be pinned down — not by re-running it, since
+re-running is what the freeze forbids. §10 A2 records the reversal in full, including the
+term that was missing from the original trade and why pinning the whole ladder makes the
+snapshot discrepancy vanish rather than merely relocating it.
+
 ### 4.1 What retiring `port-human` costs, stated as a limitation
 
 `port-human` was the baseline until 2026-08-07 and was withdrawn for resourcing: no human
@@ -1905,10 +1939,15 @@ comes back undated. `GetInferenceProfile` resolves only to undated ids, and its
 | `model_id_resolution` | how far identification got: `dated`, `alias-unresolved`, or `mismatch` (`config/naming.yaml`) |
 
 Three fields because their *agreement* is the only check available and one field cannot
-express it. Both arms of A2 record `alias-unresolved` today, since neither
-`us.anthropic.claude-opus-5` nor `us.meta.llama4-maverick-17b-instruct-v1:0` carries a
-snapshot date. `mismatch` is refused rather than recorded: a call that succeeded while
-nobody can say which model answered is not a result this experiment can use.
+express it. **The two arms of A2 now differ in this field, and the asymmetry is the
+platform's rather than a choice** (revised 2026-08-11, see the reversal below): the Claude
+side runs `us.anthropic.claude-opus-4-5-20251101-v1:0` and records `dated`, while
+`us.meta.llama4-maverick-17b-instruct-v1:0` carries no snapshot date and records
+`alias-unresolved` — Bedrock offers no dated Llama 4 id, so the appendix's second family
+cannot be pinned however the ladder is. Everything below about what a stable alias cannot
+tell you therefore still holds, and it now describes **one side of A2 and no rung of the
+ladder**. `mismatch` is refused rather than recorded: a call that succeeded while nobody can
+say which model answered is not a result this experiment can use.
 
 **What survives, and what does not.** The distinction matters because the limitation is
 narrower than it first sounds:
@@ -1916,11 +1955,17 @@ narrower than it first sounds:
 - **A2's own claim survives intact.** The comparison is Anthropic versus Meta, and the two
   aliases name distinct *families* unambiguously — no weight update turns a Claude alias
   into a Llama one. The axis the appendix rests on is not the axis that is unresolved.
-- **Re-running this appendix later does not.** A silent weight update behind a stable alias
-  is undetectable from here. If someone re-runs `port-oneshot` in six months and gets a
-  different number, the record cannot say whether the model changed or the code did — and
-  that is exactly the attribution A1/A2 exist to make possible. **So the paper must say it
-  recorded the model *alias*, not the model.** The stronger sentence is not available.
+- **Re-running this appendix later does not — on the Llama side.** A silent weight update
+  behind a stable alias is undetectable from here. If someone re-runs the Llama arm in six
+  months and gets a different number, the record cannot say whether the model changed or the
+  code did — and that is exactly the attribution A1/A2 exist to make possible. **So the paper
+  must say it recorded the model *alias*, not the model, for that arm.** The stronger
+  sentence is not available there.
+
+  **It is available on the Claude side, since 2026-08-11.** The dated pin closes this bullet
+  for every ladder rung and for A2's Claude arm: a re-run names the same snapshot, so a
+  changed number is attributable to the code. That is the whole of what the pin buys and it
+  is the reason it was adopted — see the reversal below.
 
 Partial mitigations, stated as partial. Neither is an identifier and neither is claimed to
 be one:
@@ -1982,13 +2027,55 @@ second model-calling writer exists — at that point two writers can be held to 
 requirement without either inventing a value, and the argument for comparability applies to
 runs that can all answer.
 
-**Why not pin a dated id and be done.** A dated Bedrock id (`claude-opus-4-5-20251101`) does
-come back `dated`, so the resolution field would read better. It is not adopted: this
-project's whole toolchain — `CLAUDE_CODE_USE_BEDROCK=1` and every probe in
-`compliance.md` §2 — runs on `us.anthropic.claude-opus-5`, and pinning the appendix to a
+**Pin a dated id — reversed 2026-08-11, before the first agent call.** This paragraph
+previously declined to pin, and the reversal is recorded rather than the old reasoning
+replaced, because the argument that was wrong was wrong in a specific and instructive way.
+
+**What it used to say, and why it was not unreasonable.** A dated Bedrock id
+(`claude-opus-4-5-20251101`) comes back `dated`, so the resolution field would read better —
+but this project's whole toolchain (`CLAUDE_CODE_USE_BEDROCK=1`, every probe in
+`compliance.md` §2) runs on `us.anthropic.claude-opus-5`, and pinning **the appendix** to a
 different snapshot than the agents actually used would trade a recorded limitation for an
 unrecorded discrepancy. A limitation stated in the paper is cheaper than a mismatch nobody
 wrote down.
+
+**The term that was missing from that scale.** The comparison was generation against
+reproducibility, and it never weighed **the unrepeatability of the arm itself**. Every rung's
+window is binding from the moment its first `agent_calls.jsonl` line lands (§6.3) — not from
+a decision to keep it, but as a physical fact about what the record then attests to. So
+`alias-unresolved` here is not the ordinary limitation the old paragraph priced. In an
+ordinary run it means *we cannot say today, and could re-run to narrow it*; in a frozen arm
+it means **there is no later moment at which what this arm ran on can be established, by
+anyone, ever.** The mitigations two paragraphs up bound *when* the alias was resolved and
+say nothing about *to what*, and no future measurement reaches back past the freeze. That is
+a different quantity from the one the old paragraph traded away, and it is not recoverable.
+
+**The decisive point: pin the whole ladder, and the discrepancy does not get traded — it
+ceases to exist.** The old objection was to pinning *the appendix* to a snapshot the rungs
+did not use. It was an argument against a *partial* pin, and it was read as an argument
+against pinning. With every rung on `us.anthropic.claude-opus-4-5-20251101-v1:0` there is no
+second snapshot for anything to disagree with: the ladder, the appendix's Claude side, and
+each arm's `model_id` all name one dated id, `model_id_resolution` reads `dated` on every
+Claude arm, and the mismatch the old paragraph was protecting against has no two things left
+to hold apart. What remains is a gap between the *agents' own harness* (Claude Code on
+opus-5) and the model the arms call, and that gap is not a confound in any comparison the
+paper makes — the harness writes no rules and is scored on nothing. §4 states the ladder-wide
+pin and why the generation difference costs the argument nothing.
+
+**What is given up, stated plainly.** The arms run one generation below the frontier
+available on this account. Nothing in §4's three comparisons rests on frontier capability
+(see §4's paragraph on this), and the direction of the effect, if any, favours readability:
+less saturation leaves more room for a rung to show its effect.
+
+**When this is revisited, and the condition is narrower than it looks.** A dated `opus-5`
+being offered would be grounds to pin *newly started* arms to it — and **an arm whose window
+is already frozen is never re-pinned**, because re-pinning it is impossible: its call is
+made. The consequence is the one that decides the shape of the rule. If a dated `opus-5`
+appeared mid-ladder and were adopted, the ladder would straddle two models, and
+`port-multi` vs `port-loop` would then differ in role specialisation *and* in model —
+exactly the two-axis failure §4 rejects for the baseline. So the condition is: **the ladder
+is pinned once, and a new dated id applies only to a ladder none of whose rungs has been
+frozen.** A mid-ladder model change is a new ladder, reported as one.
 
 ---
 
