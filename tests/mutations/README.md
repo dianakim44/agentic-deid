@@ -492,6 +492,11 @@ no enforcement but a field in a log.
 | `the_freeze_record_drops_the_empty_block_marking` | `sections_empty` is dropped from the record | the record stops saying which blocks the call did *not* carry, so a reader must derive it from `INPUT_BLOCKS` — and a reader who knows `INPUT_BLOCKS` is not the reader the field is for. `sampling_applied` survives, so the record still distinguishes the two cases and no longer says what the distinction is about | **2** |
 | `the_freeze_record_claims_the_sampling_parameters_applied` | `sampling_applied` becomes the constant `True` | the field it was added to prevent, restored: a `port-oneshot` record then claims *n*=40 at ±120 characters governed a call that carried no §1.4 at all. §6.3 keeps `sampling_sha256` for comparability with the arms that do use it, which is exactly why the record needs a field saying the hash did not govern this call | **3** |
 | `the_baseline_draws_error_spans` | `orchestrate.freeze_window()` calls `initial_error_pool()` | **DESIGN §4's ladder condition broken in the direction that looks like an improvement.** At iteration 1 the §1.4 pool comes from an empty rule file, so those spans are dev **gold** — the baseline shown 40 of them has dev information `port-loop` call 1 does not, and the two arms differ in two things instead of one. A `port-loop` win is then unattributable at the comparison the paper leads with, and the arm flattered is the rung above. Caught structurally: the plumbing is a two-line addition and a behavioural test notices only once it moves a number | **2** |
+| `the_call_is_logged_after_the_response_is_judged` | `append_call(...)` becomes a lambda, invoked just before `run_fold` | the freeze guard's premise read backwards. The log line is what fixes this arm's window and *n*=1 means there are no per-line hashes to disagree with the record, so between the call and the log the window is still re-freezable. After a successful validation the log is byte-identical, so every assertion about its *contents* passes — what breaks is only the ordering, and only visibly in the branch where the response does not load, which returns having made a call, paid for it, and recorded nothing | **8** |
+| `a_format_failure_writes_zeroed_metrics_too` | the failure branch calls `run_fold` before writing `format_failure.json` | **§10 A2's central distinction erased.** A format failure now also leaves a `metrics.json`, scored over the bootstrap file, and near-zero numbers are indistinguishable from the opposite finding — a rule set that ran and caught almost nothing. This is why the failure is a *file name* and not a `status` field: an aggregation walking `results/` counts the failure as a scored arm with a bad score, understating capability and overstating compliance in one number | **1** |
+| `the_arm_reports_no_model_and_no_cost_to_the_scorer` | `model_record=model, cost=cost` dropped from the arm's `run_fold` call | the published metrics carry `model_id: "none"` — the `naming.yaml` value meaning *no model was used* — and three zeros for cost, for an arm whose whole content is one LLM call. Nothing about the file looks wrong: it is the `R` arm's record written under `port-oneshot`, so the baseline reads as a rules arm that cost nothing. The default is *correct* in `run_fold`, which closes an arm that genuinely calls none, so only a test on this arm's metrics can tell the two apart | **3** |
+| `the_failure_record_paraphrases_the_validator` | `error=str(exc)` becomes a fixed summary string | §10 A2's third recorded content stops being evidence. "The response was not a valid rule file" is not checkable and not comparable: a wrong `lang`, a fenced block and an invented matcher key become one row in the appendix. The raw response is still on disk beside it, so a reader can re-derive the message — which is the work the field saved, and the reason nobody notices it is gone | **3** |
+| `the_parse_error_quotes_the_line_it_choked_on` | `safe_load(fh)` → `safe_load(fh.read())`, **and** the picked-out fields → `{exc}` | two edits that only leak together, which is the finding. `MarkedYAMLError` prints the offending source line when its `Mark` carries a buffer, and a stream leaves it null while a string fills it — so the stream/string change is a refactor with no visible effect (and it is what every other loader here does), and `{exc}` is the second half. Together they put an LLM's response, which can echo its own §1.4 block, into a message bound for terminals and CI logs that `release_screen.py` never reaches | **1** |
 
 `initial_pool_excludes_train_instead_of_selecting_dev` is the one to read twice. The two
 filters are the same length, the same shape, and equivalent on any corpus with two
@@ -875,6 +880,47 @@ things instead of one, and a `port-loop` win becomes unattributable at exactly t
 the paper leads with — flattering the rung above. It is caught structurally, by AST, for the
 reason the row gives: the plumbing is a two-line addition, and a behavioural test notices only
 once it has already moved a number.
+
+The last five are about the arm that runs rather than about the record it starts from, and they
+sort into three shapes worth naming separately.
+
+**An ordering, not a value.** `the_call_is_logged_after_the_response_is_judged` writes exactly
+the same log line, with the same contents, to the same path — later. After a successful
+validation the file is byte-identical, so no assertion about what the log *says* can see this,
+and the group of tests that catches it is the group that drives the arm's failure branch. That
+is the argument for testing a format failure end to end even though it is the branch nobody
+expects to take: a suite that only ever exercised the happy path would have every field
+correct and the ordering guarantee unprotected. What the ordering protects is narrow and real
+— the log line is what `called_where()` reads, so until it is written the window can still be
+re-frozen, and *n*=1 means there is no per-line hash anywhere to contradict a rewritten record.
+
+**A record that is complete and describes a different arm.**
+`the_arm_reports_no_model_and_no_cost_to_the_scorer` and
+`a_format_failure_writes_zeroed_metrics_too` both produce schema-valid, internally consistent
+files with nothing blank in them. The first writes the `R` arm's record — `model_id: "none"`,
+cost zero — under `port-oneshot`, so the LLM baseline reads as a rules arm that cost nothing,
+and CLAUDE.md's requirement that cost travel beside quality is satisfied in form by a number
+that is false. The second gives a format failure a metrics file too, at which point the
+appendix's format-failure *rate* stops being computable from the directory: the state that A2
+reports is defined by the absence of `metrics.json`, which is why it is a filename and not a
+`status` field. Both mutations are reachable precisely because the value they substitute is
+*correct somewhere else* — `run_fold` closes an arm that genuinely calls no model, and zeros
+are the honest record there. Neither can be caught by a validator, only by a test that knows
+which arm it is looking at.
+
+**A guarantee that was safe by accident.** `the_parse_error_quotes_the_line_it_choked_on` is
+the only two-edit mutation in this group and the reason it needs two is the finding.
+`pyyaml`'s `MarkedYAMLError` prints the offending source line when its `Mark` carries a
+buffer, and whether it does is decided by how the input was handed in: `safe_load(fh)` leaves
+it null, `safe_load(fh.read())` fills it. So the loader's message was already careful *and*
+would have stayed clean under `{exc}` — until the day someone switched to reading the file to a
+string, which is the form every other loader in this repository uses and a change with no
+visible effect of its own. Two harmless-looking edits, in either order, and the second one
+completes a leak of an LLM response — which can echo the §1.4 block of its own prompt — into a
+message bound for terminals, CI logs and stack traces that `release_screen.py` never sees. The
+loader therefore picks the parser's fixed phrasing and the mark out by hand rather than
+interpolating the exception, and the mutation is what says that choice is load-bearing rather
+than fussy.
 
 ## What the seal cost, and what carries the difference
 

@@ -2355,6 +2355,173 @@ MUTATIONS = [
         ),
         min_kills=1,
     ),
+    # ── the arm itself: what it records, in which order (DESIGN §10 A2) ───────
+    Mutation(
+        name="the_call_is_logged_after_the_response_is_judged",
+        path=ORCHESTRATE,
+        anchor="    append_call(\n"
+               "        call_line(ITERATION, prompt_reference=reference, model=model,",
+        replacement="    _deferred = lambda: append_call(\n"
+                    "        call_line(ITERATION, prompt_reference=reference, model=model,",
+        also=((
+            ORCHESTRATE,
+            "    spans_file, metrics_file, scored = run_fold(",
+            "    _deferred()\n"
+            "    spans_file, metrics_file, scored = run_fold(",
+        ),),
+        breaks=(
+            "The call log is written after the response has been through the validator "
+            "instead of before, which is the freeze guard's premise read backwards. The "
+            "line in `agent_calls.jsonl` is what fixes this arm's window — there are no "
+            "per-line hashes to disagree with the record, because *n*=1 — so between the "
+            "call and the log the window is still re-freezable, and a call that has already "
+            "been made and paid for can be re-run under a different prompt with nothing on "
+            "disk showing it.\n"
+            "\n"
+            "The deferred call still happens on the way to `run_fold`, which is what makes "
+            "this the interesting shape rather than a dropped write: after a successful "
+            "validation the log ends up byte-identical, so every assertion about the log's "
+            "*contents* passes. What breaks is only the ordering — and it breaks visibly "
+            "only in the branch where the response does not load, where the arm returns "
+            "having made a call, paid for it, and recorded nothing.\n"
+            "\n"
+            "Caught by `test_the_call_is_logged_even_when_the_response_does_not_load` and "
+            "`test_a_call_fixes_the_window_through_the_arm`. Note the second is the reason "
+            "the first is not enough on its own: a suite that only checked the log after a "
+            "*successful* run would be blind to this, which is why the arm tests drive the "
+            "failure branch."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="a_format_failure_writes_zeroed_metrics_too",
+        path=ORCHESTRATE,
+        anchor="    except RuleError as exc:\n        failure = _write_failure(",
+        replacement=(
+            "    except RuleError as exc:\n"
+            "        run_fold(corpus=corpus, detector=detector, supervision=supervision,\n"
+            "                 porting=porting, split=split, model_record=model, cost=cost,\n"
+            "                 root=ROOT)\n"
+            "        failure = _write_failure("
+        ),
+        breaks=(
+            "**DESIGN §10 A2's central distinction erased.** A format failure now leaves a "
+            "`metrics.json` behind as well, scored over the bootstrap rule file — so the "
+            "arm's directory holds a complete metrics file whose numbers are near zero, and "
+            "that is indistinguishable from the opposite finding: a rule set that ran and "
+            "caught almost nothing.\n"
+            "\n"
+            "This is why the failure is a *file name* rather than a `status` field inside "
+            "the metrics. A2 reports how often each model family could not produce a "
+            "loadable rule file, and it can only report it if that state has no metrics "
+            "file — the moment both exist, an aggregation walking `results/` counts a "
+            "format failure as a scored arm with a bad score, which understates capability "
+            "and overstates compliance in the same number.\n"
+            "\n"
+            "Caught by `test_a_format_failure_writes_no_metrics_file`, which asserts the "
+            "absence of both `metrics.json` and `spans.jsonl` rather than only the presence "
+            "of `format_failure.json` — the presence assertion alone would pass here."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="the_arm_reports_no_model_and_no_cost_to_the_scorer",
+        path=ORCHESTRATE,
+        anchor="        split=split, rules={lang: rules_file}, model_record=model, cost=cost,",
+        replacement="        split=split, rules={lang: rules_file},",
+        breaks=(
+            "The success branch stops telling `run_fold` what it called, so the published "
+            "`metrics.json` carries `model_id: \"none\"` — the `naming.yaml` value meaning "
+            "*this arm used no model* — and a cost block of three zeros, for an arm whose "
+            "whole content is one LLM call.\n"
+            "\n"
+            "**Nothing about the resulting file looks wrong.** It is schema-valid, the run "
+            "block is complete, and `model_id` holds a legitimate vocabulary value rather "
+            "than a blank. It is the `R` arm's record written under `port-oneshot`, which "
+            "makes the baseline appear to be a rules arm that cost nothing — and CLAUDE.md's "
+            "requirement is precisely that cost travels beside quality, because an "
+            "improvement obtained at 2× cost and one obtained at 1.05× are different "
+            "results. Here the improvement reads as free.\n"
+            "\n"
+            "The defect is reachable because `run_fold` has to keep working without these "
+            "arguments: it closes the `R` arm, which genuinely calls no model. So the "
+            "absent-value default is correct in that module and wrong here, and only a test "
+            "on this arm's metrics can tell the two apart — "
+            "`test_the_metrics_record_the_model_that_was_called` and "
+            "`test_the_metrics_cost_block_is_the_calls_and_not_zeros`."
+        ),
+        min_kills=2,
+    ),
+    Mutation(
+        name="the_failure_record_paraphrases_the_validator",
+        path=ORCHESTRATE,
+        anchor="            split=split, model=model, response=response.text, error=str(exc),",
+        replacement="            split=split, model=model, response=response.text,\n"
+                    "            error=\"the response was not a valid rule file\",",
+        breaks=(
+            "The validator's own message is replaced by a summary of it, and §10 A2's third "
+            "recorded content stops being evidence. \"The response was not a valid rule "
+            "file\" is not something a reader can check and not something a later run can be "
+            "compared against: every failure becomes the same failure, so a model that "
+            "declared the wrong `lang`, a model that fenced its YAML and a model that "
+            "invented a matcher key are one row in the appendix.\n"
+            "\n"
+            "The claim A2 makes is about a specific model's specific inability, and the "
+            "paraphrase is the point at which that claim becomes unfalsifiable — the raw "
+            "response is still on disk beside it, so the reader can re-derive the message, "
+            "which is exactly the work the field existed to save and the reason nobody "
+            "notices it is missing.\n"
+            "\n"
+            "Caught by `test_the_failure_record_holds_the_validators_own_message`, which "
+            "asserts the message names the declared language it objected to."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="the_parse_error_quotes_the_line_it_choked_on",
+        path=RULES,
+        anchor="    with open(p, encoding=\"utf-8\") as fh:\n"
+               "        try:\n"
+               "            raw = yaml.safe_load(fh) or {}",
+        replacement="    with open(p, encoding=\"utf-8\") as fh:\n"
+                    "        try:\n"
+                    "            raw = yaml.safe_load(fh.read()) or {}",
+        also=((
+            RULES,
+            '                f"{p}: not parseable as YAML — {problem}"',
+            '                f"{p}: not parseable as YAML: {exc}"  # noqa: F821\n'
+            '                f""',
+        ),),
+        breaks=(
+            "**CLAUDE.md's rule about exception text, in the file format where the parser "
+            "volunteers the violation — and this is the mutation that shows the guarantee "
+            "is not a coincidence.** Two edits, and they have to go together, which is the "
+            "whole finding.\n"
+            "\n"
+            "`yaml.MarkedYAMLError.__str__` prints the offending source line whenever its "
+            "`Mark` carries a buffer, and whether it does depends on how the input reached "
+            "`pyyaml`: a stream leaves the buffer null (`yaml.reader.Reader.get_mark`), a "
+            "string fills it. So `safe_load(fh)` → `safe_load(fh.read())` is the *first* "
+            "edit — a refactor with no visible effect, matching what every other loader in "
+            "this repository does — and interpolating `{exc}` instead of the picked-out "
+            "`problem`/`context`/mark is the second. Either alone leaks nothing. Together "
+            "they put the rule file's content into a `RuleError`.\n"
+            "\n"
+            "That content is an LLM's response, which can echo the §1.4 block of its own "
+            "prompt, and the message goes to a terminal, a CI log, an issue and a stack "
+            "trace — `tools/release_screen.py` reaches none of them. The mutation is also a "
+            "*shorter and more helpful* message, which is how this class of defect always "
+            "arrives: the debugging convenience is real and the leak is on the one path no "
+            "screening covers.\n"
+            "\n"
+            "Caught by `test_the_parse_error_message_quotes_no_line_of_the_file`, whose "
+            "response carries an invented surface form on the line *after* the syntax "
+            "error. That is deliberate: the position `pyyaml` reports and the line it prints "
+            "are different lines, so a test asserting on an offset would pass while the "
+            "quoted line leaked, and the marker is what makes the assertion about content."
+        ),
+        min_kills=1,
+    ),
 ]
 
 COUNT_RE = re.compile(r"(\d+) (passed|failed|error|errors)")

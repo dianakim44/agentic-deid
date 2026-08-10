@@ -550,12 +550,23 @@ def load_rules(lang: str, *, path: Path | None = None) -> RuleSet:
             # failure there, and `yaml.YAMLError` escaping as itself would come out as a
             # traceback instead of the recorded, reportable result the appendix asks for.
             #
-            # **The parser's own `str(exc)` is not used.** A `MarkedYAMLError` renders the
-            # offending source line into its message, and the message travels to terminals,
-            # CI logs and issues where `release_screen.py` never looks (CLAUDE.md). So the
-            # position is reported and the content is not — the same substitution the span
-            # rule makes, one file format over. `problem` and `context` are the parser's
-            # fixed phrasing ("expected <block end>"), not text read out of the file.
+            # **The parser's own `str(exc)` is not used, and the reason is that it is only
+            # safe by accident.** `MarkedYAMLError` prints the offending source line
+            # whenever its `Mark` carries a buffer, and whether it does is decided by how
+            # the input was handed to `pyyaml`: parsing a *stream* leaves it null (measured
+            # against `yaml.reader.Reader.get_mark`) and parsing a *string* fills it. So the
+            # message from `yaml.safe_load(fh)` here happens to quote nothing, and
+            # `yaml.safe_load(path.read_text())` — the same call, one refactor away, and the
+            # form every other loader in this repository uses — would quote the line.
+            #
+            # This loader validates an LLM's output, and a response can echo the §1.4 block
+            # of its own prompt. An exception message travels to terminals, CI logs, issues
+            # and stack traces, and `release_screen.py` reaches none of them (CLAUDE.md). A
+            # guarantee that rests on which overload of a third-party call is in use is not
+            # a guarantee, so the fields are picked out explicitly: `problem` and `context`
+            # are the parser's fixed phrasing ("expected ',' or '}'") and the mark gives a
+            # position. Position reported, content not — the substitution the span rule
+            # makes, one file format over.
             mark = getattr(exc, "problem_mark", None)
             where_in_file = f"line {mark.line + 1}, column {mark.column + 1}" \
                 if mark is not None else "position not reported"
