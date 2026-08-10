@@ -29,6 +29,7 @@ import ast
 import io
 import json
 import sys
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -36,10 +37,14 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from src.corpora.base import Document, Span                      # noqa: E402
+from src.corpora.base import Document, Span, axis                # noqa: E402
 from src.llm import prompt as prompt_module                      # noqa: E402
-from src.llm.prompt import FilledPrompt, PromptError, render_window   # noqa: E402
-from src.sample import MISSED, ErrorSpan                         # noqa: E402
+from src.llm.prompt import (                                     # noqa: E402
+    EMPTY_SECTIONS, FILLED_SECTIONS, FilledPrompt, PromptError, assemble_task_prompt,
+    render_window,
+)
+from src.rules import rule_layers                                # noqa: E402
+from src.sample import MISSED, ErrorSpan, non_target_types       # noqa: E402
 
 MODULE = ROOT / "src" / "llm" / "prompt.py"
 
@@ -140,6 +145,219 @@ def test_a_sample_naming_a_document_that_was_not_supplied_is_refused():
         render_window([err("dev9")], {"dev1": doc()}, 120)
     assert SURFACE not in str(exc.value)
     assert "dev9" in str(exc.value)
+
+
+# ─── §§1.1–1.2: what a first call is shown ───────────────────────────────────
+
+
+def assembled(**kw) -> FilledPrompt:
+    kw.setdefault("lang", "es")
+    kw.setdefault("corpus", "es-meddocan")
+    return assemble_task_prompt(**kw)
+
+
+def shown(prompt: FilledPrompt) -> str:
+    """The filled prompt's text, read through the checked exit."""
+    out = FakeTerminal()
+    prompt.to_terminal(out)
+    return out.getvalue()
+
+
+def test_the_assembler_returns_a_filled_prompt_and_not_a_string():
+    """The same premise as the renderer's.
+
+    This block carries no corpus text today, and that is not the reason the type is used:
+    "this block happens to be safe" is the reasoning CLAUDE.md refuses about corpora, and
+    §1.2 quotes a rule file whose freedom from surface forms rests on a screener having
+    worked (rule_author.md Prohibition 2).
+    """
+    p = assembled()
+    assert isinstance(p, FilledPrompt)
+    assert not isinstance(p, str)
+
+
+def test_the_first_call_carries_the_template_verbatim():
+    """§2's schema, §3's tools and §4's prohibitions travel with the input.
+
+    An assembler forwarding §1 alone would send the instance without the specification it
+    is an instance of, and the model would be asked for a file whose schema it was never
+    given.
+    """
+    template = (ROOT / "docs" / "prompts" / "rule_author.md").read_text(encoding="utf-8")
+    assert template in shown(assembled())
+
+
+def test_the_task_frame_names_every_canonical_type_with_its_own_gloss():
+    """§1.1: verbatim from naming.yaml, glosses included.
+
+    Read from the config rather than compared against a list here, for the reason the
+    assembler reads it from there: this block is what tells the agent which values exist,
+    so a copy in the test would agree with a prompt that had drifted from the axis.
+    """
+    text = shown(assembled())
+    for name, gloss in axis("phi_type").items():
+        assert name in text, f"the task frame omits the {name} phi_type"
+        assert gloss in text, f"the task frame omits {name}'s gloss"
+
+
+def test_the_task_frame_names_the_writable_layers_and_excludes_the_rest():
+    """Which layers a rule may declare, and — by difference — which it may not.
+
+    The unwritable set is asserted as `axis("layer") - rule_layers()` rather than as
+    `{"tagger"}`: a second learned layer must appear in the prompt's exclusion without an
+    edit here, since a rule declaring it would be refused at load either way.
+    """
+    text = shown(assembled())
+    for layer in rule_layers():
+        assert layer in text
+        assert axis("layer")[layer] in text
+    for layer in set(axis("layer")) - set(rule_layers()):
+        assert layer in text, (
+            f"{layer} is not writable from a rule file and the frame does not say so"
+        )
+
+
+def test_the_task_frame_says_the_residual_bucket_is_not_a_target():
+    """§1.1's fourth bullet, and Prohibition 4.
+
+    Stated outright rather than left to the type list's gloss: an agent given a residual
+    bucket writes rules into it. The types are found through `non_target_types()`, which
+    reads naming.yaml's own gloss, so a corpus shipping a second residual bucket is covered
+    without an edit.
+    """
+    text = shown(assembled())
+    assert non_target_types(), "no non-target type to check — the fixture has drifted"
+    for name in non_target_types():
+        assert f"{name} is not a rule-development target" in text
+
+
+def test_the_task_frame_names_the_target_file_and_the_corpora_that_load_it():
+    """§1.1's first bullet. `es` is loaded by two corpora and both are named."""
+    text = shown(assembled())
+    assert "rules/es.yaml" in text
+    assert "es-meddocan" in text and "es-carmen" in text
+
+
+def test_the_current_rule_file_is_included_in_full():
+    """§1.2: full text, not a summary — the agent edits this file.
+
+    Written into a tmp path rather than read from `rules/es.yaml`, so the assertion is
+    about what the assembler does with a file's contents rather than about the contents of
+    the committed format example.
+    """
+    marker = "format_zzyzx_probe"
+    path = Path(tempfile.mkdtemp()) / "es.yaml"
+    path.write_text(f"version: 7\nlang: es\nrules: []  # {marker}\n", encoding="utf-8")
+    text = shown(assembled(rules_path=path))
+    assert marker in text
+    assert "version: 7" in text
+
+
+def test_a_missing_rule_file_is_named_as_empty_rather_than_left_blank():
+    """Iteration 1's ordinary state, and the agent is told which state it is in.
+
+    An agent shown nothing where a file was promised cannot tell "no rules yet" from "the
+    harness failed to load them", and those call for opposite behaviour.
+    """
+    text = shown(assembled(rules_path=Path("/nonexistent/es.yaml")))
+    assert "EMPTY" in text
+    assert "first iteration" in text
+    ref = assembled(rules_path=Path("/nonexistent/es.yaml")).reference()
+    assert ref["rules_empty"] is True
+    assert ref["rules_source"] is None
+    assert ref["rules_sha256"] is None
+
+
+def test_the_empty_blocks_are_stated_as_empty_and_not_omitted():
+    """DESIGN §4: §§1.3–1.4 are empty *for this call*, and the prompt says why.
+
+    The alternative — send §1.1 and §1.2 and say nothing — leaves the agent to resolve a
+    template describing four blocks against two arriving unexplained, and every resolution
+    available to it is worse than being told.
+    """
+    text = shown(assembled())
+    for section in EMPTY_SECTIONS:
+        assert f"### {section} — EMPTY for this call" in text
+    assert "no previous iteration" in text
+    assert "do not substitute anything for them" in text.lower()
+
+
+def test_the_reference_form_records_which_blocks_were_filled():
+    """The prompt's own account of its window, in `window_freeze.json`'s vocabulary.
+
+    Two statements rather than one restated: the freeze record is the arm's claim about the
+    window it committed to, and this is what the prompt says it carried. A comparison needs
+    both.
+    """
+    ref = assembled().reference()
+    assert ref["sections_filled"] == list(FILLED_SECTIONS)
+    assert ref["sections_empty"] == list(EMPTY_SECTIONS)
+    assert ref["block"] == "task_frame"
+    assert ref["lang"] == "es" and ref["corpus"] == "es-meddocan"
+    assert ref["text_sha256"].startswith("sha256:")
+    json.dumps(ref)                              # a record holds it, so it must serialise
+
+
+def test_the_reference_form_hashes_the_rule_file_the_call_actually_saw():
+    """Which revision of §1.2 the emitted diff applies to, without holding the file."""
+    d = Path(tempfile.mkdtemp())
+    one, two = d / "a.yaml", d / "b.yaml"
+    one.write_text("version: 1\nlang: es\nrules: []\n", encoding="utf-8")
+    two.write_text("version: 2\nlang: es\nrules: []\n", encoding="utf-8")
+    assert assembled(rules_path=one).reference()["rules_sha256"] != \
+        assembled(rules_path=two).reference()["rules_sha256"]
+
+
+def test_the_rule_file_path_is_not_recorded_absolutely():
+    """A published record does not name a home directory (`rules._relative`'s reason)."""
+    path = Path(tempfile.mkdtemp()) / "es.yaml"
+    path.write_text("version: 1\nlang: es\nrules: []\n", encoding="utf-8")
+    assert assembled(rules_path=path).reference()["rules_source"] == "es.yaml"
+    committed = ROOT / "rules" / "es.yaml"
+    if committed.exists():
+        assert assembled(rules_path=committed).reference()["rules_source"] == \
+            "rules/es.yaml"
+
+
+def test_a_language_the_corpus_does_not_load_is_refused():
+    """One invocation targets one file, and the corpus has to be one that loads it."""
+    with pytest.raises(PromptError) as exc:
+        assembled(lang="de")                        # es-meddocan loads [es]
+    assert "corpus_rule_langs" in str(exc.value)
+    for bad in ({"lang": "klingon"}, {"corpus": "es-nowhere"}):
+        with pytest.raises(PromptError) as exc:
+            assembled(**bad)
+        assert "naming.yaml" in str(exc.value)
+
+
+def test_the_assembler_does_not_render_or_draw_error_spans():
+    """DESIGN §4, consequence 3, at the assembler rather than at the orchestrator.
+
+    Structural: an assembler that reached for the renderer would put 40 dev gold spans into
+    call 1, which is the asymmetry the definition exists to prevent — and it would look
+    like a more complete implementation.
+    """
+    fn = functions(tree())["assemble_task_prompt"]
+    reached = calls_named(fn)
+    for name in ("render_window", "draw", "draw_iteration", "initial_error_pool"):
+        assert name not in reached, (
+            f"assemble_task_prompt calls {name}. Call 1 carries §§1.1–1.2 and nothing "
+            "else, in port-oneshot and in port-loop's iteration 1 alike (DESIGN §4)."
+        )
+
+
+def test_the_assembler_returns_only_a_filled_prompt_call():
+    """The renderer's structural check, applied to the other producer of the type."""
+    fn = functions(tree())["assemble_task_prompt"]
+    returns = [n for n in ast.walk(fn) if isinstance(n, ast.Return)]
+    assert returns, "assemble_task_prompt has no return statement to check"
+    for node in returns:
+        value = node.value
+        assert isinstance(value, ast.Call) and isinstance(value.func, ast.Name) and \
+            value.func.id == "FilledPrompt", (
+            "assemble_task_prompt returns something other than a FilledPrompt(...) "
+            "construction."
+        )
 
 
 # ─── the text has no accessor that is not named for a destination ────────────
