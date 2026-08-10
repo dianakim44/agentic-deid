@@ -57,7 +57,8 @@ from ..corpora.base import (
 from ..rules import RuleError, RuleSet, load_for_corpus
 from . import sealed_log
 from .scorer import (
-    PATH_AXES, ScorerError, check_run, from_documents, score, write_metrics,
+    PATH_AXES, REQUIRED_COST, ScorerError, check_run, from_documents, score,
+    write_metrics,
 )
 
 #: The fold this runs on unless told otherwise. Named rather than defaulted inline so
@@ -70,6 +71,15 @@ DEFAULT_SPLIT = "dev"
 #: exception — it is measured, because a rule pass does take time and a reader
 #: comparing arms on cost needs the compute side of `R` to be real.
 NO_LLM_COST = {"llm_calls": 0, "prompt_tokens": 0, "completion_tokens": 0}
+
+#: The only run-block fields `model_record` may carry — `bedrock.Response.model_record()`'s
+#: three. A closed set rather than a general override channel: a caller that could put any
+#: key into the run block from here would be a second assembler of it, and the reason this
+#: function assembles it is that one writer per record is what makes the record checkable.
+#: `scorer.REQUIRED_RUN` asks only for `model_id`; the other two are required by
+#: `src/orchestrate.py` of its own runs, because that is the writer that can observe them
+#: (DESIGN §10 A2).
+MODEL_FIELDS = ("model_id", "model_id_reported", "model_id_resolution")
 
 
 class FoldRunError(Exception):
@@ -214,6 +224,8 @@ def run_fold(
     split: str = DEFAULT_SPLIT,
     rules: dict[str, Path] | None = None,
     root: Path | None = None,
+    model_record: Mapping[str, str | None] | None = None,
+    cost: Mapping[str, float] | None = None,
 ) -> tuple[Path, Path, dict]:
     """Detect over the fold, score it, write both files. Returns (spans, metrics, scored).
 
@@ -237,6 +249,23 @@ def run_fold(
     what a version integer cannot: DESIGN §5.3's objection to a shared rule path is that
     an overwrite leaves a plausible metrics file behind, and only the path says which
     arm's file and which iteration the numbers were computed from.
+
+    **`model_record` and `cost` are how an arm that called a model reports it**, and they
+    are arguments rather than something this module could work out. It runs rules over a
+    fold; whether those rules were written by a person, by one LLM call or by twelve is
+    invisible from here, and inventing an answer is what `model_id_absent()` exists to
+    avoid. Omitted, they give the `R` arm's record: `none` for the model and zeros for the
+    three LLM counts, both explicit and neither a default standing in for a measurement.
+    `model_record` may carry only `MODEL_FIELDS`, so this stays a report of a call and does
+    not become a second way to write the run block.
+
+    **`wall_seconds` is the arm's total and the two parts are summed.** The caller's figure
+    is the call's, this function measures the detection pass, and both are compute time for
+    the same arm — which is precisely what makes them addable, and the property
+    `human_minutes` deliberately lacks (DESIGN §11.2: a person's attention and a pipeline's
+    wall clock are different quantities, and the distinct name is what stops an aggregation
+    summing them). Reporting only the call would put a rule pass's cost at zero seconds in
+    an arm whose comparison is against `port-loop`'s many calls.
     """
     docs = load_fold(corpus, split)
     ruleset = load_for_corpus(corpus, paths=rules)
@@ -248,6 +277,25 @@ def run_fold(
     pairs, excluded = from_documents(docs, predictions)
     scored = score(pairs, excluded_gold=excluded)
 
+    if model_record is not None:
+        unknown = [k for k in model_record if k not in MODEL_FIELDS]
+        if unknown:
+            raise FoldRunError(
+                f"model_record carries {sorted(unknown)}, which is not one of "
+                f"{list(MODEL_FIELDS)}. This argument reports what a caller observed about "
+                "the model it called; a run block assembled from two places is a run block "
+                "no single reader can check (DESIGN §10 A2)."
+            )
+    if cost is not None:
+        missing = [k for k in REQUIRED_COST if k not in cost]
+        if missing:
+            raise FoldRunError(
+                f"the cost block passed in is missing {missing}. CLAUDE.md requires cost "
+                "beside quality and the scorer refuses a partial block: an arm reporting "
+                "tokens without calls, or calls without time, is an arm whose cost cannot "
+                "be compared to another's."
+            )
+
     commit, tree = sealed_log.tree_state()
     run = {
         "corpus": corpus,
@@ -256,8 +304,11 @@ def run_fold(
         "porting": porting,
         "split": split,
         # DESIGN §4: required, and `none` rather than absent for an arm that calls no
-        # model. Read from naming.yaml, never spelled here.
+        # model. Read from naming.yaml, never spelled here. A caller that *did* call a
+        # model passes its `Response.model_record()` and it replaces this — the absent
+        # value is the record of an arm with no model, not a placeholder for one.
         "model_id": model_id_absent(),
+        **dict(model_record or {}),
         "rules_version": {lang: v for lang, v in sorted(ruleset.versions.items())},
         # Where each file was read from (DESIGN §5.3). Beside the version rather than
         # instead of it: the version says which revision the author declared and the
@@ -278,8 +329,13 @@ def run_fold(
         "tree": tree,
     }
     spans_file = write_spans(predictions, run, root=root)
+    # The detection pass's own time, added to whatever the caller spent calling a model.
+    # Both are this arm's compute; see the docstring on why they are summable and
+    # `human_minutes` is not.
+    seconds = round(elapsed + float((cost or {}).get("wall_seconds", 0.0)), 3)
     metrics_file = write_metrics(
-        scored, run=run, cost={**NO_LLM_COST, "wall_seconds": round(elapsed, 3)},
+        scored, run=run,
+        cost={**NO_LLM_COST, **dict(cost or {}), "wall_seconds": seconds},
         root=root,
     )
     return spans_file, metrics_file, scored

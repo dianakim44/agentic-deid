@@ -1,6 +1,14 @@
-"""Tests for src/orchestrate.py — the `port-oneshot` window freeze.
+"""Tests for src/orchestrate.py — the `port-oneshot` arm, and its window freeze.
 
-Two things are under test and they are different in kind.
+Three things are under test and they are different in kind.
+
+**The arm.** `run_arm()` is freeze → assemble → one call → validate → score-or-record. The
+tests drive it end to end through `FakeRuntime` (`tests/test_bedrock.py`'s, imported rather
+than re-invented) so that no test in this file needs a network or an AWS account, and they
+assert the *order* as much as the outputs: the call is logged before the response is judged,
+the cost block is written in both branches, and `metrics.json` is absent on a format failure
+rather than present with zeros in it (DESIGN §10 A2). What each of those would look like if
+it silently regressed is stated in the test that covers it.
 
 **The refusal.** `docs/notes/window-freeze-history.md` is a record of a guard that was
 stepped around three times, and the step was always the same: delete the file the guard
@@ -22,6 +30,12 @@ come from there. `a_repo()` and `commit_all()` mirror `tests/test_human_arm.py`'
 staging in `commit_all()` names `results` explicitly rather than using `-A`, for the
 reason that file gives: CLAUDE.md's rule exists so the habit cannot form, and a test file
 is where habits are copied from.
+
+The arm tests that reach `run_fold()` ask for `corpus_present` and skip without a corpus,
+from `tests/conftest.py` and nowhere else — availability is answered from a path there, so a
+skip cannot come to mean "the loader is broken". The format-failure tests do not need it and
+do not ask, which is the point of them being separate: a machine with no MEDDOCAN checkout
+still runs every assertion about what §10 A2 records.
 """
 from __future__ import annotations
 
@@ -37,18 +51,62 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from src import orchestrate, sample                             # noqa: E402
+from src import orchestrate, rules as rules_module, sample       # noqa: E402
 from src.corpora.base import path_template                      # noqa: E402
+from src.llm import bedrock as bedrock_module                   # noqa: E402
 from src.orchestrate import (                                   # noqa: E402
-    INPUT_BLOCKS, IN_LOG, IN_RESULTS, ONESHOT_SECTIONS, SAMPLING_SECTION,
-    OrchestrateError, arm_has_called, called_where, freeze_path, freeze_window,
-    log_path, prompt_blocks, window_drift,
+    CALLED, FORMAT_FAILURE, INPUT_BLOCKS, IN_LOG, IN_RESULTS, ITERATION,
+    ONESHOT_SECTIONS, REQUIRED_MODEL, SAMPLING_SECTION, SCORED,
+    OrchestrateError, arm_has_called, call_line, called_where, failure_path,
+    freeze_path, freeze_window, log_path, prompt_blocks, run_arm, window_drift,
 )
 from src.sample import WINDOW_FILES, window_hashes              # noqa: E402
+
+# `FakeRuntime` and `reply()` come from the transport's own suite rather than being written
+# again here. Two fakes of one `converse` shape are two shapes, and the one that drifts is
+# the copy: `tests/test_bedrock.py`'s is kept honest by the tests that assert what the real
+# client sends, and this file inherits that instead of inventing a client no measurement
+# stands behind (the same reasoning `tests/conftest.py` gives for one availability check).
+# Imported by module name: `tests/` has no `__init__.py`, so pytest's default import mode
+# puts this directory on `sys.path` and `test_bedrock` is importable from here.
+from test_bedrock import FakeRuntime, reply                      # noqa: E402
 
 MODULE = ROOT / "src" / "orchestrate.py"
 
 ARM = ("es-meddocan", "R", "sup-free")
+
+#: The arm as `run_arm()` takes it, keyword for keyword.
+ARM_KW = dict(corpus="es-meddocan", lang="es", detector="R", supervision="sup-free")
+
+#: Passed to `run_arm(model_id=...)`. Undated on purpose — `alias-unresolved` is what the
+#: real ladder records (`docs/notes/baseline-model-family.md`), so the arm's records are
+#: exercised in the state they will actually be written in. Not a constant in
+#: `src/orchestrate.py`: that file spells no model id at all, which is a test below.
+MODEL = "us.anthropic.claude-opus-5"
+
+#: A rule file that loads and fires on MEDDOCAN, standing in for what the model returns.
+#: It has to actually match something: a file whose rules match nothing would let the
+#: success branch pass while scoring an empty prediction set, and `metrics.json` with zeros
+#: in it is the artefact the failure branch exists to avoid writing.
+GOOD_RULES = """
+version: 1
+lang: es
+rules:
+  - rule_id: probe_org
+    layer: gazetteer
+    phi_type: ORGANISATION
+    terms: ["Hospital"]
+"""
+
+#: What a model returns when it answers in prose, or fences its YAML, or stops mid-file.
+#: Chosen to fail in the *parser* rather than in the schema, because that is the failure
+#: `yaml.safe_load` used to raise as itself — out of the failure branch and into a
+#: traceback (`src/rules.py`, the `YAMLError` clause).
+UNPARSEABLE = "```yaml\nversion: 1\nlang: es\nrules: [\n"
+
+#: Schema-valid YAML that is not a rule file. Fails in `load_rules`' own checks rather than
+#: in the parser, so the two failure kinds are both covered by name.
+WRONG_SHAPE = "version: 1\nlang: fr\nrules: []\n"
 
 
 @pytest.fixture
@@ -98,6 +156,50 @@ def an_artefact_was_written(*arm, name="metrics.json"):
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("{}\n", encoding="utf-8")
     return path
+
+
+@pytest.fixture
+def arm(tree, monkeypatch):
+    """`tree`, with the Bedrock logging gate patched open and one root everywhere.
+
+    Patched rather than satisfied, for the reason `tests/test_bedrock.py`'s own fixture
+    gives: satisfying it means appending a real dated line to `docs/notes/compliance.md`,
+    and that file is the project's compliance evidence — a test run must not write it. The
+    gate itself is tested there, where the real function is captured at import before this
+    kind of patch can reach it.
+
+    `src.rules.ROOT` is redirected too, and only because a redirected root has to be one
+    root. `rules._relative()` reduces a path against its own module's, so an unpatched
+    `src/rules.py` would report every file this arm writes as `<outside-repo>/es.yaml` —
+    true of `tmp_path` and false of the arm, which resolves against the same real root as
+    that module in every run that is not a test. Left unpatched, the assertions about
+    `rules_source` and `rules_path` would be assertions about the fixture.
+    """
+    monkeypatch.setattr(bedrock_module, "_require_logging_check", lambda: None)
+    monkeypatch.setattr(rules_module, "ROOT", tree)
+    return tree
+
+
+def an_answer(text: str, **kw) -> FakeRuntime:
+    """A transport that replies with `text`. Kept to one line at every call site."""
+    return FakeRuntime(reply(text, **kw))
+
+
+def calls(*arm) -> list[dict]:
+    """Every line of this arm's `agent_calls.jsonl`, parsed."""
+    path = log_path(*(arm or ARM))
+    if not path.exists():
+        return []
+    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()
+            if line.strip()]
+
+
+def failure_record(*arm) -> dict:
+    return json.loads(failure_path(*(arm or ARM)).read_text(encoding="utf-8"))
+
+
+def metrics_beside(*arm) -> Path:
+    return freeze_path(*(arm or ARM)).parent / "metrics.json"
 
 
 # ─── the record: this arm's own path, not the retired arm's ─────────────────
@@ -656,3 +758,403 @@ def test_the_module_hardcodes_no_model_id():
     text = MODULE.read_text(encoding="utf-8")
     for fragment in ("anthropic.claude", "us.anthropic", "meta.llama", "amazon.nova"):
         assert fragment not in text
+
+
+# ─── the arm: freeze → assemble → call → validate → score or record ─────────
+
+def test_the_arm_runs_end_to_end_and_scores(arm, corpus_present):
+    """The success path, asserted as artefacts rather than as a return value.
+
+    Everything the mapping reports is also on disk, which is the property that makes the
+    return value a convenience instead of the record. So the test reads the disk.
+    """
+    fake = an_answer(GOOD_RULES)
+    out = run_arm(**ARM_KW, model_id=MODEL, client=fake)
+
+    assert out["outcome"] == SCORED
+    assert out["failure_path"] is None
+    assert not failure_path(*ARM).exists()
+    assert out["metrics_path"].exists() and out["spans_path"].exists()
+    assert freeze_path(*ARM).exists()
+    assert len(fake.calls) == 1, "one call, and `port-oneshot` is the arm that is one call"
+
+
+def test_the_rule_file_goes_under_the_arm_and_not_to_the_bootstrap_path(arm,
+                                                                       corpus_present):
+    """DESIGN §5.3. `rules/es.yaml` is the committed format example; an arm writing there
+    would overwrite the input of whichever arm ran before it and leave a plausible
+    `metrics.json` behind, which is worse than an overwritten record because nothing about
+    the numbers looks wrong afterwards."""
+    out = run_arm(**ARM_KW, model_id=MODEL, client=an_answer(GOOD_RULES))
+    assert out["rules_path"].relative_to(arm).as_posix() == (
+        "results/es-meddocan/R/sup-free/port-oneshot/rules/iter1/es.yaml")
+    assert not (arm / "rules" / "es.yaml").exists()
+
+
+def test_the_response_is_written_verbatim(arm, corpus_present):
+    """No fence stripping, no newline repair, no YAML round-trip. §10 A2 fixes format
+    retries at zero, and a normalisation step is a retry with the count still reading
+    zero — the same edit, with nothing in the record to show it happened."""
+    text = GOOD_RULES + "\n# trailing comment the model wrote\n"
+    out = run_arm(**ARM_KW, model_id=MODEL, client=an_answer(text))
+    assert out["rules_path"].read_text(encoding="utf-8") == text
+
+
+def test_the_arm_scores_the_file_it_just_wrote(arm, corpus_present):
+    """`rules_source` in the metrics names the arm's own iteration-1 file. A run that
+    scored the bootstrap file instead would publish numbers for rules the model did not
+    write, and every other assertion here would still pass."""
+    out = run_arm(**ARM_KW, model_id=MODEL, client=an_answer(GOOD_RULES))
+    run = json.loads(out["metrics_path"].read_text(encoding="utf-8"))["run"]
+    assert run["rules_source"]["es"].endswith(
+        "results/es-meddocan/R/sup-free/port-oneshot/rules/iter1/es.yaml")
+    assert run["rules"] == ["es:probe_org"]
+
+
+def test_the_metrics_record_the_model_that_was_called(arm, corpus_present):
+    """All three fields, and `model_id` is not the absent value.
+
+    The failure this is against is quiet: `run_fold` fills `model_id` with `none` for the
+    `R` arm, so an orchestrator that scored without passing its model record would publish
+    an LLM arm's numbers under "no model was involved" — internally consistent, and wrong
+    about the one thing DESIGN §10 A2 is for.
+    """
+    run_arm(**ARM_KW, model_id=MODEL, client=an_answer(GOOD_RULES))
+    run = json.loads(metrics_beside().read_text(encoding="utf-8"))["run"]
+    assert run["model_id"] == MODEL
+    assert run["model_id_resolution"] == "alias-unresolved"
+    assert "model_id_reported" in run
+
+
+def test_the_metrics_cost_block_is_the_calls_and_not_zeros(arm, corpus_present):
+    """CLAUDE.md: cost beside quality. An arm reporting `llm_calls: 0` after making one is
+    an arm whose improvement looks free."""
+    run_arm(**ARM_KW, model_id=MODEL,
+            client=an_answer(GOOD_RULES, tokens=(4321, 8765)))
+    cost = json.loads(metrics_beside().read_text(encoding="utf-8"))["cost"]
+    assert cost["llm_calls"] == 1
+    assert (cost["prompt_tokens"], cost["completion_tokens"]) == (4321, 8765)
+
+
+def test_the_wall_clock_is_the_call_plus_the_detection_pass(arm, corpus_present,
+                                                            monkeypatch):
+    """Summed, not replaced. Both figures are this arm's compute, which is what makes them
+    addable — and `human_minutes` deliberately is not (DESIGN §11.2), so the sum can never
+    reach across that boundary.
+
+    Driven from a call time large enough to tell the three candidate implementations apart:
+    the caller's figure alone (a fold-wide rule pass reported at zero seconds), the
+    detection pass alone (`run_fold`'s own measurement overwriting what it was handed, which
+    is what the parameter's default does), and the sum. Only the third is greater than both.
+    """
+    slow_call = 300.0
+    real = orchestrate.invoke
+
+    def slow(*a, **kw):
+        response = real(*a, **kw)
+        object.__setattr__(response, "wall_seconds", slow_call)
+        return response
+
+    monkeypatch.setattr(orchestrate, "invoke", slow)
+    out = run_arm(**ARM_KW, model_id=MODEL, client=an_answer(GOOD_RULES))
+    reported = json.loads(out["metrics_path"].read_text(encoding="utf-8"))["cost"]
+    assert reported["wall_seconds"] > slow_call, (
+        "the detection pass's time went missing, so the arm's wall clock is the call's "
+        "alone")
+    assert out["cost"]["wall_seconds"] == slow_call, (
+        "the returned cost is the call's own; the sum belongs to the arm's metrics")
+
+
+# ─── the call is logged before the response is judged ───────────────────────
+
+def test_the_call_is_logged_even_when_the_response_does_not_load(arm):
+    """The ordering, as the property it protects.
+
+    The log line is what fixes the window (`called_where`), so a run that validated first
+    would leave the window re-freezable for the duration of a parse — and a parse that
+    raised would leave a call made, paid for, and unrecorded.
+    """
+    run_arm(**ARM_KW, model_id=MODEL, client=an_answer(UNPARSEABLE))
+    logged = calls()
+    assert len(logged) == 1
+    assert logged[0]["outcome"] == CALLED, (
+        "the outcome is what was known when the line was written: the response arrived "
+        "and nothing had judged it yet")
+
+
+def test_a_call_fixes_the_window_through_the_arm(arm):
+    """Not through the test helper. `a_call_was_made()` writes a line by hand, so every
+    freeze-refusal test above would pass against an orchestrator that logged nothing."""
+    run_arm(**ARM_KW, model_id=MODEL, client=an_answer(UNPARSEABLE))
+    assert called_where(*ARM) == IN_LOG
+    assert arm_has_called(*ARM)
+    with pytest.raises(OrchestrateError):
+        freeze_window(*ARM)
+
+
+def test_the_log_line_carries_no_prompt_and_no_response(arm):
+    """`rule_author.md` §6 names this file: the reference form may be recorded and the text
+    may not. The response is reduced to a length and a hash — enough to answer "was this
+    the output that was scored", and not enough to reconstitute a completion that echoed
+    its own §1.4 block. This log is deny-listed and never committed, so a copy here is a
+    copy in the one place no review reaches."""
+    fake = an_answer(UNPARSEABLE)
+    run_arm(**ARM_KW, model_id=MODEL, client=fake)
+    line = calls()[0]
+    text = json.dumps(line, ensure_ascii=False)
+    sent = fake.calls[0]["messages"][0]["content"][0]["text"]
+    assert UNPARSEABLE not in text
+    assert sent not in text
+    for fragment in sent.split("\n"):
+        if len(fragment.strip()) > 40:
+            assert fragment not in text
+    assert line["response_chars"] == len(UNPARSEABLE)
+    assert line["response_sha256"].startswith("sha256:")
+
+
+def test_the_sample_reference_is_present_and_null(arm):
+    """Written as an explicit absence rather than omitted, for `model_id_absent`'s reason
+    (DESIGN §4): a key some arms omit cannot be read across arms, and a null nobody wrote
+    cannot be told from one that was measured. This arm's §1.4 is empty by definition, so
+    the honest record is a null — and `port-loop`'s iteration 2 fills the same key."""
+    run_arm(**ARM_KW, model_id=MODEL, client=an_answer(UNPARSEABLE))
+    line = calls()[0]
+    assert "sample_reference" in line
+    assert line["sample_reference"] is None
+
+
+def test_the_log_line_carries_the_window_hashes_and_the_iteration(arm):
+    """DESIGN §11.2 puts the hashes on every line. This arm has one line and its freeze
+    record would do — the field is the *iterating* arms' mid-run drift detector, and a
+    writer that omitted it here is the writer `port-loop` gets copied from."""
+    run_arm(**ARM_KW, model_id=MODEL, client=an_answer(UNPARSEABLE))
+    line = calls()[0]
+    assert line["iteration"] == ITERATION == 1
+    for field, value in window_hashes().items():
+        assert line[field] == value
+
+
+def test_an_unknown_outcome_is_refused_by_the_log_line(arm):
+    """The log's own vocabulary rather than an axis — it describes one call's fate instead
+    of naming a cell of the experiment — but closed all the same, because a field filled
+    with anything once is a field nothing can aggregate."""
+    with pytest.raises(OrchestrateError) as e:
+        call_line(1, prompt_reference={}, model={}, response_chars=0,
+                  response_sha256="sha256:0", outcome="ok", cost={})
+    assert "not a call outcome" in str(e.value)
+
+
+# ─── the format failure is a result, not an accident (DESIGN §10 A2) ────────
+
+def test_an_unparseable_response_is_recorded_and_not_retried(arm):
+    """Zero format-compliance retries. One call, and what came back is the finding."""
+    fake = an_answer(UNPARSEABLE)
+    out = run_arm(**ARM_KW, model_id=MODEL, client=fake)
+    assert out["outcome"] == FORMAT_FAILURE
+    assert len(fake.calls) == 1, "a second call is a retry however it is spelled"
+    assert failure_path(*ARM).exists()
+
+
+def test_a_format_failure_writes_no_metrics_file(arm):
+    """Zeros there would be indistinguishable from a rule set that ran and caught nothing,
+    which is the opposite finding. One file or the other, and the filename is the answer —
+    which is also why this is not a `status` field inside `metrics.json`: the scorer schema
+    would then have to admit a metrics file with no score in it."""
+    out = run_arm(**ARM_KW, model_id=MODEL, client=an_answer(UNPARSEABLE))
+    assert out["metrics_path"] is None and out["spans_path"] is None
+    assert not metrics_beside().exists()
+    assert not (metrics_beside().parent / "spans.jsonl").exists()
+
+
+def test_the_failure_record_holds_the_validators_own_message(arm):
+    """§10 A2's third content, verbatim. "The file was malformed" is not something a reader
+    can check, and the appendix's claim is that *this model* could not do it."""
+    run_arm(**ARM_KW, model_id=MODEL, client=an_answer(WRONG_SHAPE))
+    record = failure_record()
+    assert "declares lang 'fr'" in record["error"]
+
+
+def test_the_failure_record_holds_the_raw_response(arm):
+    """The one path in this repository where a model's raw output reaches disk. It is on
+    the screener's ALLOW list as a *path* and the content sniffer still runs first, because
+    "this arm's call carries §§1.1–1.2 only" is a fact about today's arm rather than a
+    property of the path."""
+    run_arm(**ARM_KW, model_id=MODEL, client=an_answer(UNPARSEABLE))
+    record = failure_record()
+    assert record["response"] == UNPARSEABLE
+    assert record["response_chars"] == len(UNPARSEABLE)
+
+
+def test_the_failure_record_holds_the_three_model_fields_and_the_cost(arm):
+    """The cost block is written in both branches: the call was made and paid for either
+    way, and an arm whose failures were free would make a format-failure rate look like a
+    saving."""
+    run_arm(**ARM_KW, model_id=MODEL,
+            client=an_answer(UNPARSEABLE, tokens=(11, 22)))
+    record = failure_record()
+    for field in REQUIRED_MODEL:
+        assert field in record
+    assert record["model_id"] == MODEL
+    assert record["cost"] == {"llm_calls": 1, "prompt_tokens": 11,
+                              "completion_tokens": 22,
+                              "wall_seconds": record["cost"]["wall_seconds"]}
+
+
+def test_the_failure_record_names_the_file_it_could_not_load(arm):
+    """The failure is about a file, and a reader who cannot find the file has the message
+    and not the artefact. Repo-relative, through `rules._relative` rather than a third
+    spelling of it — an absolute path names a home directory and, on a machine where the
+    corpus sits beside the repo, a DUA layout."""
+    out = run_arm(**ARM_KW, model_id=MODEL, client=an_answer(UNPARSEABLE))
+    record = failure_record()
+    assert record["rules_path"].endswith("rules/iter1/es.yaml")
+    assert not record["rules_path"].startswith("/")
+    assert out["rules_path"].read_text(encoding="utf-8") == UNPARSEABLE, (
+        "the response is kept at the path the record names, so the artefact and the "
+        "message are both available")
+
+
+def test_a_yaml_parse_error_does_not_escape_as_a_traceback(arm):
+    """The specific regression: `yaml.safe_load` raising `YAMLError` out of `load_rules`.
+    A fenced code block is the likeliest single format failure, and as an uncaught parser
+    exception it would come out as a crash instead of the recorded, reportable result §10
+    A2 asks for."""
+    out = run_arm(**ARM_KW, model_id=MODEL, client=an_answer(UNPARSEABLE))
+    assert out["outcome"] == FORMAT_FAILURE
+    assert "not parseable as YAML" in failure_record()["error"]
+
+
+def test_the_parse_error_message_quotes_no_line_of_the_file(arm):
+    """CLAUDE.md, one file format over from the span rule.
+
+    `MarkedYAMLError` renders the offending source line into its own message, and that
+    message travels to terminals, CI logs and issues where `release_screen.py` never looks.
+    A response can echo its prompt, so a parser message pasted through would be corpus text
+    on a path no screening reaches. Position reported, content not.
+    """
+    marker = "Hospital Universitario de Zzyzx"
+    response = f"version: 1\nlang: es\nrules: [{{a: b\nnote: {marker}\n"
+    run_arm(**ARM_KW, model_id=MODEL, client=an_answer(response))
+    error = failure_record()["error"]
+    assert marker not in error
+    assert "line" in error and "column" in error
+
+
+# ─── what the arm refuses ──────────────────────────────────────────────────
+
+def test_an_empty_model_id_is_refused(arm):
+    """`model_id` is a parameter the whole way down (DESIGN §10 A2). A default here would
+    be the place it stopped being one, and the recorded value would then describe this file
+    rather than the call."""
+    with pytest.raises(OrchestrateError) as e:
+        run_arm(**ARM_KW, model_id="", client=an_answer(GOOD_RULES))
+    assert "model_id is required" in str(e.value)
+
+
+def test_a_lang_the_corpus_does_not_load_is_refused(arm):
+    """One call authors one file, and a file no corpus loads would be scored by nothing
+    (DESIGN §5.2, `corpus_rule_langs`). Refused before the call, so nothing is paid for a
+    result that cannot be read."""
+    fake = an_answer(GOOD_RULES)
+    with pytest.raises(OrchestrateError) as e:
+        run_arm(**{**ARM_KW, "lang": "de"}, model_id=MODEL, client=fake)
+    assert "corpus_rule_langs" in str(e.value)
+    assert fake.calls == [], "refused after the call is a refusal that costs money"
+
+
+def test_the_arm_refuses_after_its_call_has_been_made(arm):
+    """The freeze guard, reached through the arm rather than through the helper. A second
+    `run_arm()` on a called arm would re-freeze the window and then overwrite iteration 1's
+    rule file — the first is refused, which is what stops the second."""
+    run_arm(**ARM_KW, model_id=MODEL, client=an_answer(UNPARSEABLE))
+    with pytest.raises(OrchestrateError):
+        run_arm(**ARM_KW, model_id=MODEL, client=an_answer(GOOD_RULES))
+
+
+def test_the_run_block_requires_all_three_model_fields(arm, monkeypatch):
+    """Required *here* and not in `scorer.REQUIRED_RUN`, deliberately (DESIGN §10 A2,
+    schema 4).
+
+    `run_fold` closes the `R` arm, which calls no model and cannot observe two of the three;
+    requiring them there would have that writer fill them with placeholders on every run,
+    and a required field one writer fills with a placeholder makes the placeholder the
+    convention. So the requirement lives where the observation does — and it is enforced
+    rather than assumed, which is what this drives: a transport returning a response short
+    of one field gets a refusal instead of a metrics file whose resolution claim is blank.
+
+    The response is dismantled through `Response` rather than through the run block, so the
+    guard is reached the way a shape change in the transport would reach it.
+    """
+    real = orchestrate.invoke
+
+    def resolution_lost(*a, **kw):
+        # `Response` is frozen: this is the state a field lost between the two modules would
+        # actually arrive in, and it is unreachable through the constructor's own path.
+        response = real(*a, **kw)
+        object.__setattr__(response, "model_id_resolution", "")
+        return response
+
+    monkeypatch.setattr(orchestrate, "invoke", resolution_lost)
+    with pytest.raises(OrchestrateError) as e:
+        run_arm(**ARM_KW, model_id=MODEL, client=an_answer(GOOD_RULES))
+    assert "model_id_resolution" in str(e.value)
+    assert not metrics_beside().exists()
+
+
+# ─── the arm is shown §§1.1–1.2 and nothing else ────────────────────────────
+
+def test_the_prompt_sent_carries_the_task_frame_and_an_empty_rule_file(arm):
+    """DESIGN §4's ladder condition, at the transport rather than in the AST.
+
+    The structural gates below assert that nothing here *calls* a sampler. This asserts
+    what actually went over the wire, which is the claim the gates are a proxy for: the
+    filled §1.1 and §1.2, §1.2 stating that there is no rule file yet, and §§1.3–1.4
+    arriving named and empty.
+
+    **Note what is not asserted.** Not "`### 1.4` does not appear": the whole of
+    `rule_author.md` is sent as the template, so its own §1.4 *heading* is in there and
+    always will be. A test written that way would pass today and would go on passing after
+    a drawn sample was appended under that heading, which is the regression it looked like
+    it was for. The claim available at this level is that the block is stated empty, and
+    `test_the_freeze_record_and_the_prompt_agree_on_the_sections` is the other half.
+    """
+    fake = an_answer(UNPARSEABLE)
+    run_arm(**ARM_KW, model_id=MODEL, client=fake)
+    sent = fake.calls[0]["messages"][0]["content"][0]["text"]
+    assert "### 1.1" in sent and "### 1.2" in sent
+    assert "EMPTY. There is no current rule file" in sent
+    assert "### 1.3 — EMPTY for this call" in sent
+    assert "### 1.4 — EMPTY for this call" in sent
+    assert "there are no scores and no error spans" in sent
+
+
+def test_the_arm_does_not_show_the_bootstrap_rule_file(arm):
+    """§1.2 is the *arm's* current rule file and this arm has none. Passing
+    `rules/es.yaml` would show the committed format example as though it were the current
+    rule set — the bootstrap file doing a job DESIGN §5.3 took off it, and the agent would
+    then be editing rules nobody in this arm wrote."""
+    bootstrap = arm / "rules"
+    bootstrap.mkdir(parents=True, exist_ok=True)
+    (bootstrap / "es.yaml").write_text(GOOD_RULES, encoding="utf-8")
+    fake = an_answer(UNPARSEABLE)
+    run_arm(**ARM_KW, model_id=MODEL, client=fake)
+    sent = fake.calls[0]["messages"][0]["content"][0]["text"]
+    assert "probe_org" not in sent
+    assert "EMPTY. There is no current rule file" in sent
+    line = calls()[0]["prompt_reference"]
+    assert line["rules_empty"] is True and line["rules_source"] is None
+
+
+def test_the_freeze_record_and_the_prompt_agree_on_the_sections(arm):
+    """Two records of one fact, in different words, and the point is that they can be
+    compared. The freeze record says which blocks the call carried; the prompt is what it
+    carried. A record claiming §§1.1–1.2 beside a prompt holding §1.4 is the state the
+    `sampling_applied` field exists to make visible."""
+    fake = an_answer(UNPARSEABLE)
+    run_arm(**ARM_KW, model_id=MODEL, client=fake)
+    record = json.loads(freeze_path(*ARM).read_text(encoding="utf-8"))
+    assert record["sections_shown"] == ["1.1", "1.2"]
+    assert record["sampling_applied"] is False
+    reference = calls()[0]["prompt_reference"]
+    assert reference["sections_filled"] == record["sections_shown"]
+    assert reference["sections_empty"] == record["sections_empty"]

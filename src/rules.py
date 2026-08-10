@@ -541,7 +541,33 @@ def load_rules(lang: str, *, path: Path | None = None) -> RuleSet:
         # facts (DESIGN §5.3).
         return RuleSet(sources={lang: where})
     with open(p, encoding="utf-8") as fh:
-        raw = yaml.safe_load(fh) or {}
+        try:
+            raw = yaml.safe_load(fh) or {}
+        except yaml.YAMLError as exc:
+            # A file that is not YAML at all is a `RuleError` like any other malformed one.
+            # It matters because this loader is what validates an LLM's output (DESIGN §10
+            # A2, `orchestrate.run_arm`): a fenced code block is the likeliest single format
+            # failure there, and `yaml.YAMLError` escaping as itself would come out as a
+            # traceback instead of the recorded, reportable result the appendix asks for.
+            #
+            # **The parser's own `str(exc)` is not used.** A `MarkedYAMLError` renders the
+            # offending source line into its message, and the message travels to terminals,
+            # CI logs and issues where `release_screen.py` never looks (CLAUDE.md). So the
+            # position is reported and the content is not — the same substitution the span
+            # rule makes, one file format over. `problem` and `context` are the parser's
+            # fixed phrasing ("expected <block end>"), not text read out of the file.
+            mark = getattr(exc, "problem_mark", None)
+            where_in_file = f"line {mark.line + 1}, column {mark.column + 1}" \
+                if mark is not None else "position not reported"
+            problem = getattr(exc, "problem", None) or exc.__class__.__name__
+            context = getattr(exc, "context", None)
+            raise RuleError(
+                f"{p}: not parseable as YAML — {problem}"
+                f"{f' while {context}' if context else ''} at {where_in_file}. The "
+                "offending line is not quoted here: an exception message reaches logs the "
+                "release screener does not (CLAUDE.md), so the position is reported and "
+                "the content is not."
+            ) from exc
     if not isinstance(raw, dict):
         raise RuleError(f"{p}: the file must be a mapping with 'version', 'lang' and "
                         "'rules' keys")

@@ -1,9 +1,10 @@
 """The `port-oneshot` orchestrator. This file holds its window freeze.
 
 `port-oneshot` is the baseline rung: one LLM call writes `rules/{lang}.yaml` and the arm
-is over (DESIGN §4). Before the call it freezes its window — the RuleAuthor prompt
-template and `config/sampling.yaml`, hashed — and that freeze is what this module
-implements. The call itself, the schema validation and the scoring follow.
+is over (DESIGN §4). `run_arm()` is the whole arm — freeze the window, assemble §§1.1–1.2,
+call once, validate what came back against the rule schema, and then either score the fold
+or record the format failure. The freeze is written first and everything after it is
+described below in the order it happens.
 
 **Why the freeze is not `human_arm.freeze_window()`.** That function is pinned to
 `paths.humanfreeze` and writes `"porting": "port-human"` as a literal, and DESIGN §6.3
@@ -30,9 +31,38 @@ call 1 of an iterating arm has no previous iteration to draw either block from. 
 `sampling_sha256` would reasonably conclude 40 error spans at ±120 characters were shown.
 So the record states which blocks the call carried and whether the sampling parameters
 governed anything, and a record where those two disagree is refused.
+
+**The call is logged before the result is judged.** `run_arm()` appends to
+`agent_calls.jsonl` as soon as the transport returns, and only then parses what came back.
+That order is the freeze guard's premise read forwards: the log line is what fixes the
+window, so a run that validated first would leave a window re-freezable for the duration of
+a parse, and a parse that raised would leave a call made and no record that it was. The
+line carries the prompt's reference form and never its text (`rule_author.md` §6 names this
+file), the response's length and hash and never the response, and **the §1.4 sample
+reference as explicitly absent** — the key is written with a null value rather than left
+out, for `model_id_absent`'s reason: a field some arms omit cannot be read across arms, and
+this arm's absence of a sample is the arm's definition rather than a gap.
+
+**Zero format-compliance retries, so a failure is written down rather than retried**
+(DESIGN §10 A2). What comes back is written to the arm's rule file and loaded through
+`src/rules.py`; if it does not load, `metrics.json` is not written — zeros there would read
+as a rule set that ran and caught nothing — and `paths.formatfailure` gets the model ids,
+the raw response and the validator's own message instead. **The cost block is written in
+both branches**, because the call was made and paid for either way. Nothing repairs the
+response on the way in: no fence-stripping, no key-fixing. A repair step is where a retry
+budget hides when the retry count is zero.
+
+**`model_id` is a parameter from the top and this file spells none.** DESIGN §10 A2's
+comparison is one arm on two model families, so the id is an argument at every level down to
+`bedrock.invoke()`, and `tests/test_orchestrate.py` asserts no identifier appears in this
+file's text. All three of `Response.model_record()` are required in the run block this
+module assembles, which `scorer.REQUIRED_RUN` does not require of every arm: the `R` arm
+cannot observe two of them, and a required field one writer fills with a placeholder makes
+the placeholder the convention (DESIGN §10 A2, the note on schema 4).
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import string
 import subprocess
@@ -43,15 +73,28 @@ from typing import Sequence
 import regex
 
 from . import sample
-from .corpora.base import ROOT, CorpusError, axis, path_template
+from .corpora.base import ROOT, CorpusError, axis, path_template, rule_langs
+from .eval.run_fold import DEFAULT_SPLIT, run_fold
+from .eval.scorer import check_run
+from .eval import sealed_log
+from .llm.bedrock import invoke
+from .llm.prompt import assemble_task_prompt
+# `_relative` rather than a third spelling of the same reduction. `src/rules.py` decides
+# what a rule file's location looks like in a published record — repo-relative where it
+# can be, filename-with-marker where it cannot, because an absolute path names a home
+# directory and, on a machine where the corpus sits beside the repo, a DUA layout. The
+# format-failure record answers the same question about the same kind of path, and a
+# private name imported across two modules of one package is cheaper than two answers.
+from .rules import RuleError, _relative as rules_relative, arm_rules_path, load_rules
 from .sample import WINDOW_FILES, window_hashes
 
-#: The two `paths` keys this arm writes and reads, both from `config/naming.yaml` and
-#: neither as a literal here (DESIGN §11.2 requires it of an output path: a module holding
-#: its own copy is a second place the answer can change). `armfreeze` is the agent arms'
-#: freeze key and is deliberately *not* `humanfreeze` — see the module docstring.
+#: The three `paths` keys this arm writes and reads, all from `config/naming.yaml` and none
+#: as a literal here (DESIGN §11.2 requires it of an output path: a module holding its own
+#: copy is a second place the answer can change). `armfreeze` is the agent arms' freeze key
+#: and is deliberately *not* `humanfreeze` — see the module docstring.
 FREEZE_KEY = "armfreeze"
 LOG_KEY = "agentlog"
+FAILURE_KEY = "formatfailure"
 
 #: This arm's `porting` value. A literal here and checked against the axis on use, unlike
 #: `human_arm`'s: the difference is that `paths.armfreeze` templates `{porting}`, so the
@@ -90,6 +133,48 @@ _HEADING = regex.compile(r"^#{2,4}\s+(\d+\.\d+)\s", regex.MULTILINE)
 #: need different messages — see the refusal in `freeze_window()`.
 IN_LOG = "log"
 IN_RESULTS = "results"
+
+#: This arm's iteration number, which is 1 and is the whole of the sequence. Named because
+#: it is a path component (`paths.armrules` puts it in a directory) and a bare `1` threaded
+#: through three calls is three places `port-loop` would have to find when it counts.
+ITERATION = 1
+
+#: The arm this file drives, beyond `porting`. Defaults rather than pins, for `PORTING`'s
+#: reason: every path built here templates all four axes, so these are parameters with a
+#: default and the default is the cell the baseline occupies. `R` because a `port-oneshot`
+#: run authors a rule file and rules are what `R` is, and `sup-free` because the labels come
+#: from placeholder positions (naming.yaml).
+DETECTOR = "R"
+SUPERVISION = "sup-free"
+
+#: What the log line says happened to a call. The log's own vocabulary and **not an axis**:
+#: it describes one call's fate rather than naming a cell of the experiment, and
+#: naming.yaml's axes are what name cells (`scorer.TREE_STATES` is the same call).
+#: `CALLED` is what is known at the moment the line is written — the response arrived and
+#: nothing has judged it yet, which is the ordering the module docstring is about.
+CALLED = "called"
+SCORED = "scored"
+FORMAT_FAILURE = "format_failure"
+OUTCOMES = (CALLED, SCORED, FORMAT_FAILURE)
+
+#: The three fields `bedrock.Response.model_record()` returns, all required in the run block
+#: this module writes. `scorer.REQUIRED_RUN` names only `model_id` — see `_run_block()` and
+#: DESIGN §10 A2's note on schema 4 for why the requirement lives here instead.
+REQUIRED_MODEL = ("model_id", "model_id_reported", "model_id_resolution")
+
+#: The one of them whose value may be null. `model_id_reported` is `None` when the response
+#: did not carry the field at all, which is what Bedrock does by default
+#: (`docs/notes/baseline-model-family.md`) — the honest record of a platform that said less
+#: than it was asked to, and `model_id_resolution` is where that fact is named
+#: (`alias-unresolved`). `scorer.NULLABLE_RUN` makes the same distinction for `commit`:
+#: the key is required, the value may be null, and absent is still refused.
+NULLABLE_MODEL = ("model_id_reported",)
+
+#: Schema version of the format-failure record. Its own counter rather than the scorer's:
+#: this file is not a metrics file and DESIGN §10 A2's whole point is that the two are
+#: distinguishable by name, so a shared version would make a change to one imply a change
+#: to the other.
+FAILURE_SCHEMA = 1
 
 
 class OrchestrateError(CorpusError):
@@ -407,7 +492,7 @@ def freeze_window(corpus: str, detector: str, supervision: str,
         # An instant, not a date: two freezes of the same arm on one day are ordered by
         # this field and by nothing else, and `revision` says only how many there were.
         # Same format as `src/split.py`, `src/eval/sealed_log.py` and the run block.
-        "generated": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "generated": _now(),
         # How many times this window has been re-frozen before the call. Free, per §6.3,
         # and free is not the same as unrecorded: `port-human`'s six pre-start revisions
         # were each legitimate and none of them was visible in the record.
@@ -460,3 +545,337 @@ def window_drift(corpus: str, detector: str, supervision: str,
     now = window_hashes()
     return [field for field in ("prompt_sha256", "sampling_sha256")
             if frozen.get(field) != now[field]]
+
+
+# ─── the call log ───────────────────────────────────────────────────────────
+
+
+def call_line(iteration: int, *, prompt_reference: dict, model: dict,
+              response_chars: int, response_sha256: str, outcome: str,
+              cost: dict) -> dict:
+    """One `agent_calls.jsonl` line: what was sent, what answered, what it cost.
+
+    **No prompt text and no response text.** The prompt's `reference()` is what may be
+    recorded (`rule_author.md` §6, DESIGN §11.2) and the response is reduced to a length and
+    a hash here — enough to answer "was this the output that was scored" against the rule
+    file beside it, and not enough to reconstitute a completion that echoed its prompt. The
+    raw response does reach disk on a format failure, at `paths.formatfailure`, which is a
+    path the screener allows and sniffs; this log is deny-listed and never committed, so a
+    response here would be a copy in the one place no review reaches.
+
+    **`sample_reference` is written as null rather than omitted.** This arm's §1.4 block is
+    empty, so there is no drawn sample to point at — and the honest record of that is an
+    explicit absence, not a missing key. `model_id_absent` settles the same question one
+    field over (DESIGN §4): a key some arms omit cannot be compared across arms, and a null
+    nobody wrote cannot be told from a null that was measured. `port-loop`'s iteration 2
+    fills this key with `render_window()`'s reference; that the two arms' lines differ in a
+    value rather than in a shape is what makes them one log.
+
+    The window hashes go on every line, per DESIGN §11.2. `port-oneshot` has one line and
+    the freeze record would do, but the field is the iterating arms' mid-run drift detector
+    and a writer that omitted it here would be the writer `port-loop` is copied from.
+    """
+    if outcome not in OUTCOMES:
+        raise OrchestrateError(
+            f"{outcome!r} is not a call outcome (have: {list(OUTCOMES)}). The log's own "
+            "vocabulary, not an axis: it describes what happened to one call rather than "
+            "naming a cell of the experiment."
+        )
+    return {
+        "iteration": iteration,
+        "outcome": outcome,
+        **model,
+        "prompt_reference": dict(prompt_reference),
+        # Explicitly absent, and see the docstring. `port-loop` fills it from iteration 2.
+        "sample_reference": None,
+        "response_chars": response_chars,
+        "response_sha256": response_sha256,
+        "cost": dict(cost),
+        "generated": _now(),
+        **window_hashes(),
+    }
+
+
+def append_call(record: dict, corpus: str, detector: str, supervision: str,
+                porting: str = PORTING) -> Path:
+    """Append one line to `agent_calls.jsonl`. Creates the directory, rewrites nothing.
+
+    Append-only for `human_arm.append()`'s reason and one more of its own: this file is what
+    `called_where()` reads, so a writer that truncated it would un-fix a window that a call
+    had already fixed.
+    """
+    path = log_path(corpus, detector, supervision, porting)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "a", encoding="utf-8") as fh:
+        fh.write(json.dumps(record, ensure_ascii=False) + "\n")
+    return path
+
+
+# ─── the arm ────────────────────────────────────────────────────────────────
+
+
+def failure_path(corpus: str, detector: str, supervision: str,
+                 porting: str = PORTING) -> Path:
+    """Where a format failure is recorded (`paths.formatfailure`, DESIGN §10 A2)."""
+    return _arm_path(FAILURE_KEY, corpus=corpus, detector=detector,
+                     supervision=supervision, porting=porting)
+
+
+def _digest(text: str) -> str:
+    """`sha256:…` over a string, in `prompt._digest`'s form.
+
+    The same labelled shape `src/sample.py` and `src/llm/prompt.py` write, so a hash in this
+    module's records can be compared to one in theirs without a reader working out which
+    algorithm each meant. Re-derived rather than imported for one line, since importing a
+    private name across modules is worth it for `_relative`'s judgement about published
+    paths and not for two calls to `hashlib`.
+    """
+    return "sha256:" + hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def _now() -> str:
+    """The current instant in `scorer.GENERATED_RE`'s form.
+
+    One helper for the freeze record, the log line and the run block, because three
+    spellings of a timestamp is three records that do not sort against each other
+    (DESIGN §10 A2 requires the instant, not the date).
+    """
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _run_block(corpus: str, detector: str, supervision: str, porting: str,
+               split: str, model: dict) -> dict:
+    """The run block this arm publishes, validated before anything is written.
+
+    `scorer.REQUIRED_RUN`'s fields plus **all three of `Response.model_record()`**. The
+    scorer requires only `model_id`, and the difference is deliberate (DESIGN §10 A2, schema
+    4): `run_fold` closes the `R` arm, which calls no model and cannot observe the other two,
+    so requiring them there would have them filled with placeholders on every run that
+    writer makes — and a required field one writer fills with a placeholder makes the
+    placeholder the convention. The requirement therefore lives where the observation does,
+    which is here, and it is enforced rather than assumed: a caller passing a `model` mapping
+    short of one field gets a refusal instead of a metrics file whose resolution claim is
+    missing.
+    """
+    missing = [k for k in REQUIRED_MODEL if not model.get(k) and k not in NULLABLE_MODEL]
+    absent = [k for k in REQUIRED_MODEL if k not in model]
+    if missing or absent:
+        raise OrchestrateError(
+            f"the model record is missing {sorted(set(missing + absent))}. This arm calls a "
+            "model, so it can observe all three fields and it records all three "
+            f"({list(REQUIRED_MODEL)}, from bedrock.Response.model_record()). "
+            "scorer.REQUIRED_RUN asks only for model_id because run_fold closes an arm that "
+            "calls none; a placeholder written here would become what the schema looks like "
+            "by the time a second model-calling arm exists (DESIGN §10 A2)."
+        )
+    commit, tree = sealed_log.tree_state()
+    run = {
+        "corpus": corpus,
+        "detector": detector,
+        "supervision": supervision,
+        "porting": porting,
+        "split": split,
+        **{k: model[k] for k in REQUIRED_MODEL},
+        "generated": _now(),
+        "commit": commit,
+        "tree": tree,
+    }
+    # Validated here rather than only at write time, so the refusal arrives before a
+    # results directory exists — `run_fold` does the same for the same reason.
+    check_run(run)
+    return run
+
+
+def _write_rules(text: str, *, corpus: str, detector: str, supervision: str,
+                 porting: str, lang: str, iteration: int) -> Path:
+    """Write the model's output to the arm's rule file, verbatim.
+
+    `paths.armrules` and never `rules/{lang}.yaml` (DESIGN §5.3): the committed file is the
+    format example and the bootstrap state, and two arms writing one path means the second to
+    run overwrites the first's input while leaving a plausible `metrics.json` behind.
+
+    **Verbatim, and that is the whole of it.** No fence stripping, no trailing-newline
+    repair, no YAML round-trip. DESIGN §10 A2 fixes format retries at zero because a format
+    failure is a result the appendix reports, and a normalisation step is a retry with the
+    count still reading zero — it is the same edit ("make the obvious fix and validate
+    again") with nothing in the record to show it happened.
+    """
+    # `root=ROOT` rather than letting `arm_rules_path` default to its own module's: this
+    # module has one root, `_arm_path()` builds every other path from it, and a writer that
+    # read a different one would put the rule file somewhere the freeze record and the call
+    # log are not. It is also what makes the arm testable — the tests redirect this module's
+    # `ROOT`, and a default resolved in `src/rules.py` would ignore that and write into the
+    # real `results/` tree.
+    path = arm_rules_path(corpus=corpus, detector=detector, supervision=supervision,
+                          porting=porting, iteration=iteration, lang=lang, root=ROOT)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text, encoding="utf-8")
+    return path
+
+
+def _write_failure(*, corpus: str, detector: str, supervision: str, porting: str,
+                   split: str, model: dict, response: str, error: str,
+                   rules_path: Path, cost: dict, prompt_reference: dict) -> Path:
+    """Record a format failure. Written instead of `metrics.json`, never beside it.
+
+    DESIGN §10 A2's three contents: the model ids, the raw response, and **the validator's
+    own error message verbatim**. The message is not paraphrased — "the file was malformed"
+    is not something a reader can check, and the appendix's sentence is "this model could
+    not do it".
+
+    The cost block is here too, and `metrics.json` is absent. A metrics file with zeros in
+    it would be indistinguishable from a rule set that ran and caught nothing, which is the
+    opposite finding; a results directory holding one file or the other is what makes the
+    filename the answer.
+
+    This is the one path in this repository where a model's raw output reaches disk. It is on
+    the screener's ALLOW list as a path and the content sniffer still runs first, because a
+    completion that echoed a §1.4 prompt would carry the corpus with it and "this arm's call
+    carries §§1.1–1.2 only" is a fact about today's arm rather than a property of the path.
+    """
+    path = failure_path(corpus, detector, supervision, porting)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    record = {
+        "schema_version": FAILURE_SCHEMA,
+        "corpus": corpus,
+        "detector": detector,
+        "supervision": supervision,
+        "porting": porting,
+        "split": split,
+        **{k: model[k] for k in REQUIRED_MODEL},
+        "generated": _now(),
+        # Where the response was written before it was loaded. The failure is about a file,
+        # and a reader who cannot find the file has the message and not the artefact.
+        "rules_path": rules_relative(rules_path),
+        # Verbatim, per §10 A2. `str(exc)` and nothing more.
+        "error": error,
+        "response": response,
+        "response_chars": len(response),
+        "response_sha256": _digest(response),
+        "prompt_reference": dict(prompt_reference),
+        "cost": dict(cost),
+        **window_hashes(),
+    }
+    with open(path, "w", encoding="utf-8") as fh:
+        json.dump(record, fh, ensure_ascii=False, indent=2, sort_keys=False)
+        fh.write("\n")
+    return path
+
+
+def run_arm(*, corpus: str, lang: str, model_id: str,
+            detector: str = DETECTOR, supervision: str = SUPERVISION,
+            porting: str = PORTING, split: str = DEFAULT_SPLIT,
+            max_tokens: int | None = None, client=None) -> dict:
+    """The whole arm: freeze, assemble, call once, validate, then score or record failure.
+
+    Returns what happened, as a mapping with `outcome` (`SCORED` or `FORMAT_FAILURE`), the
+    cost block, the run block, and the paths written. Nothing about it is a summary the
+    caller has to trust: every value in it is also on disk.
+
+    The order is fixed and each step's position is load-bearing:
+
+    1. **Freeze the window** (DESIGN §6.3, "freeze last"). Immediately before the call and
+       not at the top of a setup script, because a freeze taken before the surrounding work
+       is settled gets retaken — six times, before `port-human`'s iteration 1.
+    2. **Assemble §§1.1–1.2** through `assemble_task_prompt()`, which draws nothing. §§1.3
+       and 1.4 are stated empty in the prompt (DESIGN §4), and the freeze record says the
+       same thing in its own words so the two can be compared.
+    3. **Call once.** `bedrock.invoke()` makes one attempt and this makes one call; there is
+       no loop here to bound.
+    4. **Log the call**, before the response is judged. See the module docstring: the log
+       line is what fixes the window, so it is written while the only thing known about the
+       response is that it arrived.
+    5. **Validate by loading.** The response is written to `paths.armrules` and read back
+       through `src/rules.py` — the same loader `run_fold` will use, so "it validated" and
+       "it will load when scored" cannot come apart.
+    6. **Score, or record the failure.** `run_fold` on success; `paths.formatfailure` on a
+       `RuleError`, with `metrics.json` left unwritten (DESIGN §10 A2).
+
+    `model_id` is required and keyword-only. It is a parameter the whole way down for A2's
+    two-family comparison, and nothing in this file spells one — a recorded id that came from
+    a literal is a record of what the code says rather than of what was called.
+
+    `client` is the transport seam the tests use, passed through to `bedrock.invoke()`
+    unexamined. `max_tokens` is left to that module's default unless given, so the budget is
+    decided in one place.
+    """
+    if not isinstance(model_id, str) or not model_id:
+        raise OrchestrateError(
+            "model_id is required and must be a non-empty string. DESIGN §10 A2's "
+            "comparison is one arm on two model families, so the id is an argument from the "
+            "top down; a default here would be the place it stopped being one, and the "
+            "recorded value would then describe this file rather than the call."
+        )
+    if lang not in rule_langs(corpus):
+        raise OrchestrateError(
+            f"{corpus} does not load a {lang!r} rule file (config/naming.yaml "
+            f"corpus_rule_langs: {rule_langs(corpus)}). One call authors one file, and a "
+            "file no corpus loads would be scored by nothing (DESIGN §5.2)."
+        )
+
+    freeze_window(corpus, detector, supervision, porting, sections=ONESHOT_SECTIONS)
+
+    # No `rules_path`: this arm's §1.2 is the empty state by definition (DESIGN §4 — one
+    # call, and there is no iteration before it to have written a file). Passing
+    # `rules/{lang}.yaml` would show the agent the committed format example as though it
+    # were the current rule set, which is the bootstrap file doing a job §5.3 took off it.
+    prompt = assemble_task_prompt(lang=lang, corpus=corpus)
+    reference = prompt.reference()
+
+    kwargs = {} if max_tokens is None else {"max_tokens": max_tokens}
+    response = invoke(prompt, model_id=model_id, client=client, **kwargs)
+    cost = response.cost()
+    model = response.model_record()
+
+    # Before the response is judged. The `text` never enters the line — a length and a
+    # hash do (`call_line`).
+    append_call(
+        call_line(ITERATION, prompt_reference=reference, model=model,
+                  response_chars=len(response.text),
+                  response_sha256=_digest(response.text),
+                  outcome=CALLED, cost=cost),
+        corpus, detector, supervision, porting,
+    )
+
+    run = _run_block(corpus, detector, supervision, porting, split, model)
+    rules_file = _write_rules(response.text, corpus=corpus, detector=detector,
+                              supervision=supervision, porting=porting, lang=lang,
+                              iteration=ITERATION)
+    try:
+        load_rules(lang, path=rules_file)
+    except RuleError as exc:
+        failure = _write_failure(
+            corpus=corpus, detector=detector, supervision=supervision, porting=porting,
+            split=split, model=model, response=response.text, error=str(exc),
+            rules_path=rules_file, cost=cost, prompt_reference=reference,
+        )
+        return {
+            "outcome": FORMAT_FAILURE,
+            "run": run,
+            "cost": cost,
+            "rules_path": rules_file,
+            "failure_path": failure,
+            # Named as absent rather than omitted, for `sample_reference`'s reason: a
+            # caller branching on a missing key branches on a typo just as readily.
+            "metrics_path": None,
+            "spans_path": None,
+        }
+
+    # The model record and the cost go through `run_fold` rather than being written
+    # over its metrics afterwards: it owns the one write of metrics.json, and a second
+    # writer patching that file is a second answer to what the run block contains.
+    spans_file, metrics_file, scored = run_fold(
+        corpus=corpus, detector=detector, supervision=supervision, porting=porting,
+        split=split, rules={lang: rules_file}, model_record=model, cost=cost,
+        root=ROOT,
+    )
+    return {
+        "outcome": SCORED,
+        "run": run,
+        "cost": cost,
+        "rules_path": rules_file,
+        "failure_path": None,
+        "metrics_path": metrics_file,
+        "spans_path": spans_file,
+        "scored": scored,
+    }
