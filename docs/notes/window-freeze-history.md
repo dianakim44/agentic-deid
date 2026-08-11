@@ -71,9 +71,29 @@ still did not, for the reason given below.
 | 5 | `179abac` | `5786260c6d93…` | `config/sampling.yaml` gained `practice_iteration_min: 900` and §2 of the prompt gained the two regex-free matcher forms — **both** hashes moved, the first time either has moved together with the other |
 | 6 | `804e22c` | `558bfe3fe86f…` | the arm was **retired**; §§7–8 of the prompt gained dormancy banners and the header was rewritten |
 | 7 | this commit (`docs: define port-oneshot as port-loop truncated (DESIGN §4)`) | `c4d1b66c1dc3…` on disk, **`558bfe3fe86f…` still in the record** | the banner gained the ladder condition — an edit made **for the agent arms**, and the first one this record does not follow |
+| 8 | `docs: state the output format, and name the arm that runs under it` (2026-08-11) | `ddc48bdb0a0c…` on disk, **`558bfe3fe86f…` still in the record** | §2 gained the no-code-fence instruction after `port-oneshot`'s first run returned a fenced file (`arm-port-oneshot-es.md`). Not followed here either, and for a second reason beyond revision 7's — see below |
 
 `sampling_sha256` = `fbfbbe107e2e…` at revisions 1–4 and `4c0e2cc725d3…` from revision 5
-onward, including revision 7 — `config/sampling.yaml` is untouched by that edit.
+onward, including revisions 7 and 8 — `config/sampling.yaml` is untouched by either edit.
+
+### Revision 8 is counted here and belongs to no arm's record
+
+This file's subject is `port-human`'s freeze record, and revision 8 is the second entry
+it does not follow. Revision 7's reason was that the edit was made for the agent arms
+while this record is a retired arm's property. Revision 8 adds a second reason that is
+stronger and worth separating: **it is an edit made after an agent arm has spent its
+call.** `port-oneshot` on `es-meddocan` froze at `c4d1b66c1dc3…` and called; §2 moved
+afterwards. Re-freezing that record would hash today's prompt and present it as the window
+the call ran under, which is precisely the failure the corrected guard exists to prevent
+and which `freeze_window()` now refuses outright.
+
+So the edit is followed by neither existing record, and the run that reads the revised
+prompt is a **new arm** — `port-oneshot-nofence` (`config/naming.yaml`, DESIGN §4) — which
+freezes `ddc48bdb0a0c…` as its own opening window at its first call. That is the shape the
+rule produces once more than one arm reads a hashed file: a prompt revision is not a
+revision *of* any frozen window, and the arms that already called keep hashes that no
+longer match the disk. The mismatch is the record working. `window_drift()` reports it
+rather than repairing it, for the reason DESIGN §6.3 gives.
 
 Revision 3 is the one with no excuse. Revisions 1→2 added a clause the arm needed and
 the arm had not started. Revision 3 was a *prose* edit to a section written minutes

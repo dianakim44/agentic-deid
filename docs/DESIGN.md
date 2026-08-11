@@ -261,6 +261,7 @@ corpus       ko-surro · es-meddocan · de-grascco · es-carmen · en-n2c2
 detector     R · T · RT · RT-Arb · RT-Aud · RT-Arb-Aud
 supervision  sup-free · sup-human
 porting      port-oneshot · port-loop · port-multi · port-selfdesign
+             port-oneshot-nofence (the baseline's prompt revised — see below)
              port-human (RETIRED 2026-08-07 — §11, retained in naming.yaml)
 ```
 
@@ -342,6 +343,45 @@ If `port-loop` does not beat `port-oneshot`, the agentic framing is not earned. 
 real possible outcome and the experiment is designed to detect it. The same holds one rung
 up, and CLAUDE.md's cost requirement plus §11.3's pre-registered 1.9× standard apply at
 every rung — a rung that wins only by spending more has not earned its name.
+
+#### A revised prompt gets a new `porting` value — `port-oneshot-nofence`, 2026-08-11
+
+The baseline's first run on `es-meddocan` ended in a format failure: the model wrapped the
+file in a markdown code fence, the schema refused it, and `format_failure.json` was written
+instead of `metrics.json` (`docs/notes/arm-port-oneshot-es.md`). §2 of `rule_author.md` now
+states that the emission is the file's content alone. The prompt is hashed into
+`window_freeze.json` (§6.3), so the edit moves `prompt_sha256` and the next run freezes its
+own window rather than inheriting one.
+
+**The run gets a new axis value rather than the baseline's directory.** `port-oneshot` on
+this corpus has called: `called_where()` reads its `agent_calls.jsonl` line and git history
+holds its artefacts, so the cell is spent and `tools/run_arm.py` refuses it before the plan
+is printed. That is the freeze working, and it is also what makes a field-level distinction
+unimplementable — recording "which prompt" in the run block presumes a second run to record
+it on, and there is no directory for one.
+
+**The name states a property of the prompt, because the alternative reads as a retry.**
+§10 A2 fixed format retries at zero, on the argument that a format failure is a finding
+about capability rather than an accident on the way to one. An ordinal suffix (`-r2`, `-p2`)
+would put an attempt count in the path and undo that in the one place a reader looks first;
+it is separately forbidden by `naming.yaml`'s ban on ordinals. `-nofence` names what the
+revised prompt specifies, so the two directories read as two prompts. The general
+convention, available to `port-loop` on the day a hashed window file moves after that arm
+has called, is `{rung}-{what the prompt now specifies}`.
+
+**A fifth path component was rejected.** `.../{porting}/{prompt}/…` is the more literal
+encoding of "two prompts", and it breaks what is already on disk: `format_failure.json` and
+two `window_freeze.json` records are committed at four axes deep, and a required fifth
+component leaves them matched by no `ALLOW_PATTERNS` entry and unreachable from
+`metrics_path()`. Migrating them is not open either — a relocated freeze record would sit at
+a five-deep path while its content names four axes, and editing a frozen record to agree is
+what §6.3 forbids.
+
+**The ladder still has four rungs, and this value is not a fifth.** It is the same rung
+under a different prompt, so it enters no comparison in the table above as a rung of its
+own; which value supplies the baseline number for `port-loop` to be read against is settled
+where the results are reported, on the ordinary rule that a rung is compared against a run
+that produced a `metrics.json`. A format failure produced none.
 
 **Every rung runs on the same model family, and the baseline is not exempted.** This was
 decided on 2026-08-07 against the alternative of swapping `port-oneshot` to a different

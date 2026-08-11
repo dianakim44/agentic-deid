@@ -201,6 +201,15 @@ The agent's entire output is this file. It emits the complete file, not a patch:
 requires the agent to have tracked line numbers it cannot see, and a malformed patch
 fails in a way that looks like a bad rule rather than a bad edit.
 
+**Emit the file's content and nothing else. No code fence, no ``` line, no `yaml`
+language tag, no preamble and no closing remark.** The first character of the response is
+the first character of the file, and the last is the last. The response is written to
+`rules/{lang}.yaml` verbatim — nothing strips a fence or repairs a key — so a fenced
+response is not a formatting preference that gets normalised, it is an invalid YAML file
+and the arm records a format failure. The fenced block below is an *example inside these
+instructions*, and the fence is how this document quotes it; it is not part of what the
+example says to emit.
+
 ```yaml
 version: 3                    # integer, incremented on every emission
 lang: es                      # must equal {lang}; a mismatch is rejected
