@@ -1,0 +1,54 @@
+{
+  "schema_version": 2,
+  "corpus": "es-meddocan",
+  "detector": "R",
+  "supervision": "sup-free",
+  "porting": "port-oneshot",
+  "split": "dev",
+  "model_id": "us.anthropic.claude-opus-4-5-20251101-v1:0",
+  "model_id_reported": "claude-opus-4-5-20251101",
+  "model_id_resolution": "dated",
+  "model_lifecycle": {
+    "model_arn": "arn:aws:bedrock:us-east-1::foundation-model/anthropic.claude-opus-4-5-20251101-v1:0",
+    "model_name": "Claude Opus 4.5",
+    "status": "ACTIVE",
+    "start_of_life_time": "2025-11-24T00:00:00+00:00"
+  },
+  "generated": "2026-08-11T04:49:15Z",
+  "rules_path": "results/es-meddocan/R/sup-free/port-oneshot/rules/iter1/es.yaml",
+  "error": "/Users/diana/Claude/agentic-deid/results/es-meddocan/R/sup-free/port-oneshot/rules/iter1/es.yaml: not parseable as YAML — found character '`' that cannot start any token while while scanning for the next token at line 1, column 1. The offending line is not quoted here: an exception message reaches logs the release screener does not (CLAUDE.md), so the position is reported and the content is not.",
+  "response": "```yaml\nversion: 1\nlang: es\nrules:\n  # === NAME: context_cue layer ===\n  - rule_id: doctor_prefix\n    layer: context_cue\n    phi_type: NAME\n    cue: [\"Dr.\", \"DR.\", \"Dr \", \"Dra.\", \"DRA.\", \"Dra \"]\n    then: capitalised_words\n    comment: >\n      Clinician names following doctor title prefix.\n\n  - rule_id: don_dona_prefix\n    layer: context_cue\n    phi_type: NAME\n    cue: [\"D.\", \"Dª\", \"Dª.\", \"Don \", \"Doña \"]\n    then: capitalised_words\n    comment: >\n      Names following honorific don/doña prefix.\n\n  - rule_id: paciente_cue\n    layer: context_cue\n    phi_type: NAME\n    cue: [\"Paciente:\", \"PACIENTE:\", \"Nombre:\", \"NOMBRE:\", \"Nombre del paciente:\", \"Nombre y apellidos:\"]\n    then: capitalised_words\n    comment: >\n      Patient name following explicit label.\n\n  - rule_id: firmado_cue\n    layer: context_cue\n    phi_type: NAME\n    cue: [\"Firmado:\", \"Fdo:\", \"Fdo.:\", \"Fdo.\", \"Fdo \"]\n    then: capitalised_words\n    comment: >\n      Names following signature marker.\n\n  - rule_id: atendido_por_cue\n    layer: context_cue\n    phi_type: NAME\n    cue: [\"atendido por \", \"Atendido por \", \"revisado por \", \"Revisado por \", \"visto por \", \"Visto por \"]\n    then: capitalised_words\n    comment: >\n      Clinician name following care attribution phrase.\n\n  # === DATE: regex_checksum layer ===\n  - rule_id: date_dmy_slash\n    layer: regex_checksum\n    phi_type: DATE\n    pattern: '\\b(0?[1-9]|[12]\\d|3[01])/(0?[1-9]|1[0-2])/(\\d{2}|\\d{4})\\b'\n    comment: >\n      Dates in DD/MM/YY or DD/MM/YYYY format.\n\n  - rule_id: date_dmy_dash\n    layer: regex_checksum\n    phi_type: DATE\n    pattern: '\\b(0?[1-9]|[12]\\d|3[01])-(0?[1-9]|1[0-2])-(\\d{2}|\\d{4})\\b'\n    comment: >\n      Dates in DD-MM-YY or DD-MM-YYYY format.\n\n  - rule_id: date_dmy_dot\n    layer: regex_checksum\n    phi_type: DATE\n    pattern: '\\b(0?[1-9]|[12]\\d|3[01])\\.(0?[1-9]|1[0-2])\\.(\\d{2}|\\d{4})\\b'\n    comment: >\n      Dates in DD.MM.YY or DD.MM.YYYY format.\n\n  - rule_id: date_spanish_month_long\n    layer: regex_checksum\n    phi_type: DATE\n    pattern: '\\b(0?[1-9]|[12]\\d|3[01])\\s+de\\s+(enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre)\\s+de\\s+\\d{4}\\b'\n    flags: [ignorecase]\n    comment: >\n      Spanish long date format like \"12 de enero de 2023\".\n\n  - rule_id: date_spanish_month_short\n    layer: regex_checksum\n    phi_type: DATE\n    pattern: '\\b(0?[1-9]|[12]\\d|3[01])[-/\\s]?(ene|feb|mar|abr|may|jun|jul|ago|sep|oct|nov|dic)[-/\\s]?(\\d{2}|\\d{4})\\b'\n    flags: [ignorecase]\n    comment: >\n      Spanish abbreviated month dates like \"12-ENE-2023\".\n\n  # === ID: regex_checksum layer ===\n  - rule_id: dni_spanish\n    layer: regex_checksum\n    phi_type: ID\n    pattern: '\\b\\d{8}[A-Z]\\b'\n    checksum: dni_mod23\n    comment: >\n      Spanish DNI with 8 digits and check letter.\n\n  - rule_id: nie_spanish\n    layer: regex_checksum\n    phi_type: ID\n    pattern: '\\b[XYZ]\\d{7}[A-Z]\\b'\n    checksum: nie_mod23\n    comment: >\n      Spanish NIE for foreign residents.\n\n  - rule_id: nuss_spanish\n    layer: regex_checksum\n    phi_type: ID\n    pattern: '\\b\\d{2}[/-]?\\d{8}[/-]?\\d{2}\\b'\n    comment: >\n      Spanish social security number (NUSS) format.\n\n  - rule_id: nhc_cue\n    layer: context_cue\n    phi_type: ID\n    cue: [\"NHC:\", \"NHC \", \"N.H.C.:\", \"N.H.C. \", \"Nº Historia:\", \"Historia Clínica:\", \"HC:\", \"Nº HC:\"]\n    then: digits\n    comment: >\n      Clinical history number following explicit label.\n\n  - rule_id: cip_cue\n    layer: context_cue\n    phi_type: ID\n    cue: [\"CIP:\", \"CIP \", \"CIPA:\", \"Tarjeta Sanitaria:\"]\n    then: digits\n    comment: >\n      Health card identifier following label.\n\n  # === CONTACT: regex_checksum layer ===\n  - rule_id: phone_spanish\n    layer: regex_checksum\n    phi_type: CONTACT\n    pattern: '\\b(?:\\+34\\s?)?[6789]\\d{2}[\\s.-]?\\d{3}[\\s.-]?\\d{3}\\b'\n    comment: >\n      Spanish phone numbers, mobile and landline.\n\n  - rule_id: email_pattern\n    layer: regex_checksum\n    phi_type: CONTACT\n    pattern: '\\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Z|a-z]{2,}\\b'\n    comment: >\n      Email addresses.\n\n  # === LOCATION_STREET: context_cue layer ===\n  - rule_id: calle_cue\n    layer: context_cue\n    phi_type: LOCATION_STREET\n    cue: [\"C/\", \"c/\", \"Calle \", \"calle \", \"CALLE \"]\n    then: capitalised_words\n    comment: >\n      Street addresses following calle prefix.\n\n  - rule_id: avenida_cue\n    layer: context_cue\n    phi_type: LOCATION_STREET\n    cue: [\"Av.\", \"Av \", \"Avda.\", \"Avda \", \"Avenida \", \"AVENIDA \"]\n    then: capitalised_words\n    comment: >\n      Avenue addresses.\n\n  - rule_id: plaza_cue\n    layer: context_cue\n    phi_type: LOCATION_STREET\n    cue: [\"Pl.\", \"Pl \", \"Plaza \", \"PLAZA \"]\n    then: capitalised_words\n    comment: >\n      Plaza addresses.\n\n  - rule_id: domicilio_cue\n    layer: context_cue\n    phi_type: LOCATION_STREET\n    cue: [\"Domicilio:\", \"DOMICILIO:\", \"Dirección:\", \"DIRECCIÓN:\", \"Direccion:\"]\n    then: rest_of_line\n    comment: >\n      Full address following domicilio label.\n\n  # === LOCATION_AREA: regex_checksum layer ===\n  - rule_id: postal_code_spanish\n    layer: regex_checksum\n    phi_type: LOCATION_AREA\n    pattern: '\\b(0[1-9]|[1-4]\\d|5[0-2])\\d{3}\\b'\n    comment: >\n      Spanish postal codes (01000-52999).\n\n  # === ORGANISATION: context_cue layer ===\n  - rule_id: hospital_cue\n    layer: context_cue\n    phi_type: ORGANISATION\n    cue: [\"Hospital \", \"HOSPITAL \", \"H.\", \"H \"]\n    then: capitalised_words\n    comment: >\n      Hospital names.\n\n  - rule_id: centro_salud_cue\n    layer: context_cue\n    phi_type: ORGANISATION\n    cue: [\"Centro de Salud \", \"C.S.\", \"C.S \", \"CS \", \"Centro de salud \"]\n    then: capitalised_words\n    comment: >\n      Health centre names.\n\n  - rule_id: servicio_cue\n    layer: context_cue\n    phi_type: ORGANISATION\n    cue: [\"Servicio de \", \"SERVICIO DE \", \"Sº de \", \"Sº \"]\n    then: capitalised_words\n    comment: >\n      Hospital service/department names.\n\n  # === AGE: regex_checksum layer ===\n  - rule_id: age_years\n    layer: regex_checksum\n    phi_type: AGE\n    pattern: '\\b(\\d{1,3})\\s*años\\b'\n    flags: [ignorecase]\n    comment: >\n      Age in years like \"45 años\".\n\n  - rule_id: age_months\n    layer: regex_checksum\n    phi_type: AGE\n    pattern: '\\b(\\d{1,2})\\s*meses\\b'\n    flags: [ignorecase]\n    comment: >\n      Age in months for infants.\n\n  # === PROFESSION: context_cue layer ===\n  - rule_id: profesion_cue\n    layer: context_cue\n    phi_type: PROFESSION\n    cue: [\"Profesión:\", \"PROFESIÓN:\", \"Profesion:\", \"Ocupación:\", \"trabaja como \", \"trabaja de \"]\n    then: capitalised_words\n    comment: >\n      Occupation following explicit label.\n```",
+  "response_chars": 6541,
+  "response_sha256": "sha256:5e97874391454a47f92f3ca9e6546e08aa7244686949061136631d5b00cdedc6",
+  "prompt_reference": {
+    "block": "task_frame",
+    "lang": "es",
+    "corpus": "es-meddocan",
+    "sections_filled": [
+      "1.1",
+      "1.2"
+    ],
+    "sections_empty": [
+      "1.3",
+      "1.4"
+    ],
+    "rules_source": null,
+    "rules_chars": 0,
+    "rules_sha256": null,
+    "rules_empty": true,
+    "text_chars": 53012,
+    "text_sha256": "sha256:14a2b4306c148a5bbdbb632fa23e18523147af58941682bb74a30fc39142a5a2",
+    "window_files": {
+      "docs/prompts/rule_author.md": "sha256:c4d1b66c1dc3d7b56db61e369464aba5d9ae698a54dba407fe10b0dbe0f9d55b",
+      "config/sampling.yaml": "sha256:4c0e2cc725d357a1bdfa5c718d243c850ae52f5f236543bbac45b5d8e6ecb615"
+    }
+  },
+  "cost": {
+    "llm_calls": 1,
+    "prompt_tokens": 13914,
+    "completion_tokens": 2559,
+    "wall_seconds": 33.312
+  },
+  "prompt_sha256": "sha256:c4d1b66c1dc3d7b56db61e369464aba5d9ae698a54dba407fe10b0dbe0f9d55b",
+  "sampling_sha256": "sha256:4c0e2cc725d357a1bdfa5c718d243c850ae52f5f236543bbac45b5d8e6ecb615"
+}

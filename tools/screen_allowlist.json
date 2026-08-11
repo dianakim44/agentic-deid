@@ -46,6 +46,11 @@
       "why": "Korean comments explaining the error-sample parameters and why changing them invalidates a port-human run. Holds four integers and two strings; no span, no offset, no corpus text."
     },
     {
+      "path": "docs/notes/arm-port-oneshot-es.md",
+      "sniff": "Korean prose",
+      "why": "Korean prose recording the first port-oneshot run on es-meddocan: that it was a format failure, the validator's own error message, the cost and model-id fields, and the lifecycle record. No corpus text and no rule content beyond counts by layer — the failure was a markdown fence at line 1, so the position is quoted and the offending line is not, which is the same rule the validator message follows."
+    },
+    {
       "path": "docs/notes/baseline-model-family.md",
       "sniff": "Korean prose",
       "why": "Korean prose reviewing which Bedrock model families could run the port-oneshot baseline after port-human's retirement (DESIGN 4.1). Holds model ids, a probe result table, and the trade-offs of each option. No corpus text, no spans: the only strings sent to Bedrock to produce it were 'Reply with the single word: ok'."

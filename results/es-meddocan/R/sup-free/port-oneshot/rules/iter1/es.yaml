@@ -1,0 +1,230 @@
+```yaml
+version: 1
+lang: es
+rules:
+  # === NAME: context_cue layer ===
+  - rule_id: doctor_prefix
+    layer: context_cue
+    phi_type: NAME
+    cue: ["Dr.", "DR.", "Dr ", "Dra.", "DRA.", "Dra "]
+    then: capitalised_words
+    comment: >
+      Clinician names following doctor title prefix.
+
+  - rule_id: don_dona_prefix
+    layer: context_cue
+    phi_type: NAME
+    cue: ["D.", "Dª", "Dª.", "Don ", "Doña "]
+    then: capitalised_words
+    comment: >
+      Names following honorific don/doña prefix.
+
+  - rule_id: paciente_cue
+    layer: context_cue
+    phi_type: NAME
+    cue: ["Paciente:", "PACIENTE:", "Nombre:", "NOMBRE:", "Nombre del paciente:", "Nombre y apellidos:"]
+    then: capitalised_words
+    comment: >
+      Patient name following explicit label.
+
+  - rule_id: firmado_cue
+    layer: context_cue
+    phi_type: NAME
+    cue: ["Firmado:", "Fdo:", "Fdo.:", "Fdo.", "Fdo "]
+    then: capitalised_words
+    comment: >
+      Names following signature marker.
+
+  - rule_id: atendido_por_cue
+    layer: context_cue
+    phi_type: NAME
+    cue: ["atendido por ", "Atendido por ", "revisado por ", "Revisado por ", "visto por ", "Visto por "]
+    then: capitalised_words
+    comment: >
+      Clinician name following care attribution phrase.
+
+  # === DATE: regex_checksum layer ===
+  - rule_id: date_dmy_slash
+    layer: regex_checksum
+    phi_type: DATE
+    pattern: '\b(0?[1-9]|[12]\d|3[01])/(0?[1-9]|1[0-2])/(\d{2}|\d{4})\b'
+    comment: >
+      Dates in DD/MM/YY or DD/MM/YYYY format.
+
+  - rule_id: date_dmy_dash
+    layer: regex_checksum
+    phi_type: DATE
+    pattern: '\b(0?[1-9]|[12]\d|3[01])-(0?[1-9]|1[0-2])-(\d{2}|\d{4})\b'
+    comment: >
+      Dates in DD-MM-YY or DD-MM-YYYY format.
+
+  - rule_id: date_dmy_dot
+    layer: regex_checksum
+    phi_type: DATE
+    pattern: '\b(0?[1-9]|[12]\d|3[01])\.(0?[1-9]|1[0-2])\.(\d{2}|\d{4})\b'
+    comment: >
+      Dates in DD.MM.YY or DD.MM.YYYY format.
+
+  - rule_id: date_spanish_month_long
+    layer: regex_checksum
+    phi_type: DATE
+    pattern: '\b(0?[1-9]|[12]\d|3[01])\s+de\s+(enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre)\s+de\s+\d{4}\b'
+    flags: [ignorecase]
+    comment: >
+      Spanish long date format like "12 de enero de 2023".
+
+  - rule_id: date_spanish_month_short
+    layer: regex_checksum
+    phi_type: DATE
+    pattern: '\b(0?[1-9]|[12]\d|3[01])[-/\s]?(ene|feb|mar|abr|may|jun|jul|ago|sep|oct|nov|dic)[-/\s]?(\d{2}|\d{4})\b'
+    flags: [ignorecase]
+    comment: >
+      Spanish abbreviated month dates like "12-ENE-2023".
+
+  # === ID: regex_checksum layer ===
+  - rule_id: dni_spanish
+    layer: regex_checksum
+    phi_type: ID
+    pattern: '\b\d{8}[A-Z]\b'
+    checksum: dni_mod23
+    comment: >
+      Spanish DNI with 8 digits and check letter.
+
+  - rule_id: nie_spanish
+    layer: regex_checksum
+    phi_type: ID
+    pattern: '\b[XYZ]\d{7}[A-Z]\b'
+    checksum: nie_mod23
+    comment: >
+      Spanish NIE for foreign residents.
+
+  - rule_id: nuss_spanish
+    layer: regex_checksum
+    phi_type: ID
+    pattern: '\b\d{2}[/-]?\d{8}[/-]?\d{2}\b'
+    comment: >
+      Spanish social security number (NUSS) format.
+
+  - rule_id: nhc_cue
+    layer: context_cue
+    phi_type: ID
+    cue: ["NHC:", "NHC ", "N.H.C.:", "N.H.C. ", "Nº Historia:", "Historia Clínica:", "HC:", "Nº HC:"]
+    then: digits
+    comment: >
+      Clinical history number following explicit label.
+
+  - rule_id: cip_cue
+    layer: context_cue
+    phi_type: ID
+    cue: ["CIP:", "CIP ", "CIPA:", "Tarjeta Sanitaria:"]
+    then: digits
+    comment: >
+      Health card identifier following label.
+
+  # === CONTACT: regex_checksum layer ===
+  - rule_id: phone_spanish
+    layer: regex_checksum
+    phi_type: CONTACT
+    pattern: '\b(?:\+34\s?)?[6789]\d{2}[\s.-]?\d{3}[\s.-]?\d{3}\b'
+    comment: >
+      Spanish phone numbers, mobile and landline.
+
+  - rule_id: email_pattern
+    layer: regex_checksum
+    phi_type: CONTACT
+    pattern: '\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b'
+    comment: >
+      Email addresses.
+
+  # === LOCATION_STREET: context_cue layer ===
+  - rule_id: calle_cue
+    layer: context_cue
+    phi_type: LOCATION_STREET
+    cue: ["C/", "c/", "Calle ", "calle ", "CALLE "]
+    then: capitalised_words
+    comment: >
+      Street addresses following calle prefix.
+
+  - rule_id: avenida_cue
+    layer: context_cue
+    phi_type: LOCATION_STREET
+    cue: ["Av.", "Av ", "Avda.", "Avda ", "Avenida ", "AVENIDA "]
+    then: capitalised_words
+    comment: >
+      Avenue addresses.
+
+  - rule_id: plaza_cue
+    layer: context_cue
+    phi_type: LOCATION_STREET
+    cue: ["Pl.", "Pl ", "Plaza ", "PLAZA "]
+    then: capitalised_words
+    comment: >
+      Plaza addresses.
+
+  - rule_id: domicilio_cue
+    layer: context_cue
+    phi_type: LOCATION_STREET
+    cue: ["Domicilio:", "DOMICILIO:", "Dirección:", "DIRECCIÓN:", "Direccion:"]
+    then: rest_of_line
+    comment: >
+      Full address following domicilio label.
+
+  # === LOCATION_AREA: regex_checksum layer ===
+  - rule_id: postal_code_spanish
+    layer: regex_checksum
+    phi_type: LOCATION_AREA
+    pattern: '\b(0[1-9]|[1-4]\d|5[0-2])\d{3}\b'
+    comment: >
+      Spanish postal codes (01000-52999).
+
+  # === ORGANISATION: context_cue layer ===
+  - rule_id: hospital_cue
+    layer: context_cue
+    phi_type: ORGANISATION
+    cue: ["Hospital ", "HOSPITAL ", "H.", "H "]
+    then: capitalised_words
+    comment: >
+      Hospital names.
+
+  - rule_id: centro_salud_cue
+    layer: context_cue
+    phi_type: ORGANISATION
+    cue: ["Centro de Salud ", "C.S.", "C.S ", "CS ", "Centro de salud "]
+    then: capitalised_words
+    comment: >
+      Health centre names.
+
+  - rule_id: servicio_cue
+    layer: context_cue
+    phi_type: ORGANISATION
+    cue: ["Servicio de ", "SERVICIO DE ", "Sº de ", "Sº "]
+    then: capitalised_words
+    comment: >
+      Hospital service/department names.
+
+  # === AGE: regex_checksum layer ===
+  - rule_id: age_years
+    layer: regex_checksum
+    phi_type: AGE
+    pattern: '\b(\d{1,3})\s*años\b'
+    flags: [ignorecase]
+    comment: >
+      Age in years like "45 años".
+
+  - rule_id: age_months
+    layer: regex_checksum
+    phi_type: AGE
+    pattern: '\b(\d{1,2})\s*meses\b'
+    flags: [ignorecase]
+    comment: >
+      Age in months for infants.
+
+  # === PROFESSION: context_cue layer ===
+  - rule_id: profesion_cue
+    layer: context_cue
+    phi_type: PROFESSION
+    cue: ["Profesión:", "PROFESIÓN:", "Profesion:", "Ocupación:", "trabaja como ", "trabaja de "]
+    then: capitalised_words
+    comment: >
+      Occupation following explicit label.
+```
