@@ -605,6 +605,135 @@ def test_a_staged_corpus_file_is_blocked(tmp_path):
 
 # ─── gitignore and the screener must agree ─────────────────────────────────
 
+#: One representative path per deny pattern, plus the variants that a single
+#: hand-written .gitignore line is most likely to miss. Keyed by the pattern itself so
+#: that adding a deny rule without a sample fails `test_every_deny_pattern_has_a_sample`
+#: below — a sample list maintained by hand goes stale in the direction that passes.
+#:
+#: Corpus-agnostic on purpose, and this is the whole lesson of the gap it was written
+#: for. The .gitignore said `*ko_tagged*` and `*ko_surrogate*` while DENY_PATTERNS said
+#: `_tagged` and `surrogate`, so `es_tagged.jsonl` was denied and git could see it. The
+#: sample corpus below is a letter, not a real corpus id: a sample naming es-meddocan
+#: would pass on a gitignore line naming es-meddocan.
+DENY_SAMPLES = {
+    "^" + rs.SEALED_PREFIX: ["sealed/c/test/note.txt"],
+    r"^data/": ["data/x.jsonl", "data/c/notes.csv"],
+    r"(^|/)data/(source|derived|raw|interim)/": [
+        "sub/data/source/a.txt", "sub/data/derived/a.txt",
+        # raw/ and interim/ were in the deny rule and not in .gitignore.
+        "sub/data/raw/a.txt", "sub/data/interim/a.txt",
+    ],
+    r"(^|/)[^/]*surrogate[^/]*\.(jsonl|json|csv|tsv|txt)$": [
+        "out/c_surrogate.jsonl", "out/c_surrogate.csv", "out/c_surrogate.txt",
+        "out/surrogate_registry.json",
+    ],
+    r"(^|/)[^/]*value_map[^/]*\.(jsonl|json|csv|tsv)$": [
+        "out/value_map.json", "out/c_value_map.csv", "results/value_map_iter1.jsonl",
+    ],
+    r"(^|/)[^/]*_tagged[^/]*\.(jsonl|json|csv|tsv|txt)$": [
+        "out/c_tagged.jsonl", "out/de_tagged.csv", "out/es_tagged.txt",
+    ],
+    r"(^|/)[^/]*_with_text[^/]*": [
+        "out/spans_with_text.jsonl", "out/c_with_text.json", "out/preds_with_text.md",
+    ],
+    r"(^|/)[^/]*_raw_llm[^/]*": [
+        # The old line was `**/*_raw_llm*.jsonl` — extension-bound, so .txt escaped.
+        "out/c_raw_llm.jsonl", "out/c_raw_llm.txt", "results/x_raw_llm_iter2.json",
+    ],
+    r"(^|/)call_logs?/": [
+        "results/call_logs/a.jsonl", "results/call_log/a.jsonl", "x/y/call_logs/b.json",
+    ],
+    r"(^|/)raw_responses[^/]*": [
+        "results/raw_responses_iter1.json", "out/raw_responses/a.txt",
+    ],
+    r"(^|/)critic_log\.jsonl$": [
+        "results/critic_log.jsonl", "results/a/b/critic_log.jsonl",
+    ],
+    r"(^|/)agent_calls\.jsonl$": [
+        # The arm that produced the first one of these was port-oneshot, 2026-08-11:
+        # denied since the rule was written, gitignored by nothing, and BLOCKED the
+        # moment the file appeared. See docs/notes/arm-port-oneshot-es.md.
+        "results/a/b/c/d/agent_calls.jsonl", "agent_calls.jsonl",
+    ],
+}
+
+#: The deny patterns that must NOT be gitignored, and the test that says why is
+#: `test_the_filled_prompt_patterns_are_not_gitignored`. Listed here so the sync test
+#: below covers every pattern and skips these by name rather than by falling through.
+DENY_NOT_IGNORED = {
+    r"(^|/)prompts?/(filled|rendered)/",
+    r"(^|/)[^/]*\.(filled|rendered)\.[^/]+$",
+    r"(^|/)[^/]*_(filled|rendered)_prompt[^/]*",
+    r"(^|/)[^/]*prompt[^/]*_iter[0-9]+[^/]*",
+}
+
+
+def test_every_deny_pattern_has_a_sample():
+    """A new deny rule must come with samples or be declared deliberately visible.
+
+    Without this the sync test below is only as good as whoever last remembered to
+    extend it, and a forgotten pattern shows up as a pass.
+    """
+    covered = set(DENY_SAMPLES) | DENY_NOT_IGNORED
+    missing = [p for p in rs.DENY_PATTERNS if p not in covered]
+    assert not missing, (
+        f"deny patterns with no gitignore sample and no exemption: {missing}. Add "
+        "samples to DENY_SAMPLES, or add the pattern to DENY_NOT_IGNORED with the "
+        "reason it must stay visible to git."
+    )
+    stale = [p for p in covered if p not in rs.DENY_PATTERNS]
+    assert not stale, f"samples for deny patterns that no longer exist: {stale}"
+
+
+def test_the_samples_match_the_pattern_they_are_filed_under():
+    """Guards the sync test's premise: a sample that matches nothing proves nothing.
+
+    A typo'd sample would be denied by no rule, be ignored by no rule, and pass the
+    sync test by agreeing with it — vacuously.
+    """
+    for pattern, paths in DENY_SAMPLES.items():
+        for path in paths:
+            assert re.search(pattern, path), f"{path!r} does not match {pattern!r}"
+            assert rs.deny(path), f"{path!r} is not denied by the screener"
+
+
+@pytest.mark.parametrize("path", sorted(
+    p for paths in DENY_SAMPLES.values() for p in paths))
+def test_every_deny_listed_path_is_also_gitignored(path):
+    """A deny rule with no .gitignore counterpart is half a convention.
+
+    The file still cannot be committed — it reports BLOCKED, which gates the commit —
+    but it sits in the working tree where one `git add` reaches it, and BLOCKED is a
+    number someone has to read. Being gitignored as well means git will not stage it
+    by accident in the first place, and the screener reports it as Quarantined.
+
+    Checked with `--no-index` so the path need not exist. The four filled-prompt
+    patterns are the deliberate exception and are excluded by DENY_NOT_IGNORED above.
+    """
+    r = subprocess.run(
+        ["git", "-C", ROOT, "check-ignore", "-q", "--no-index", "--", path],
+        capture_output=True)
+    assert r.returncode == 0, (
+        f"{path} is denied by tools/release_screen.py and is not gitignored. Add a "
+        "pattern to .gitignore's deny-list section — matching the deny rule's shape, "
+        "not this one filename."
+    )
+
+
+def test_no_tracked_file_is_gitignored():
+    """The other direction: a new ignore pattern must not shadow a committed file.
+
+    A tracked file that is also ignored keeps working — the index wins — so the
+    mistake is invisible until someone re-clones or the file is removed and cannot be
+    re-added. Committed rule files and result records live under paths the deny-list
+    section's globs come close to.
+    """
+    out = subprocess.run(
+        ["git", "-C", ROOT, "ls-files", "--cached", "--ignored", "--exclude-standard"],
+        capture_output=True, text=True).stdout.split()
+    assert not out, f"tracked files matched by a .gitignore pattern: {out}"
+
+
 def test_history_reports_blobs_not_trees():
     """screen_history() must not report tree objects.
 

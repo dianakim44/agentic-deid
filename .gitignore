@@ -10,6 +10,8 @@ data/acquire/*
 !data/acquire/fetch_*.sh
 **/data/source/
 **/data/derived/
+**/data/raw/
+**/data/interim/
 
 # 코퍼스 경로 매핑. 기계마다 다르고 DUA 데이터 위치를 노출한다.
 # 커밋되는 것은 config/data_paths.example.yaml 뿐이다.
@@ -18,13 +20,46 @@ config/data_paths.*.local.yaml
 
 # ─── 봉인된 test fold ───────────────────────────────────────
 sealed/
-*value_map*
-*surrogate_registry*
-*ko_tagged*
-*ko_surrogate*
+
+# ─── deny-list 대응 (tools/release_screen.py DENY_PATTERNS) ──
+# 아래 항목은 스크리너의 deny 규칙과 1:1 로 대응한다. deny 인데 gitignore 가
+# 아니면 규약이 반쪽이다 — 파일이 생기는 순간 BLOCKED 가 되고, 커밋이 막히는
+# 것은 맞지만 실수 하나로 스테이징될 수 있는 상태로 디스크에 남는다.
+# 대응을 tests/test_release_screen.py 가 검사하므로 한쪽만 고치면 실패한다.
+#
+# **이전 판이 왜 부족했는가.** 여기 있던 것은 `*ko_tagged*` · `*ko_surrogate*` ·
+# `*surrogate_registry*` 처럼 그때 디스크에 있던 **개별 파일 이름**이었다.
+# deny 규칙은 코퍼스 비의존으로 쓰여 있는데 (그 목록의 주석이 "한 코퍼스를
+# 명시한 패턴은 다음 코퍼스를 조용히 보호하지 않는다" 라고 적은 그대로)
+# gitignore 쪽만 코퍼스 이름을 담고 있었으므로, `es_tagged.jsonl` 은 deny 이면서
+# git 에 보였다. 그래서 항목을 기제(deny 패턴)에 맞춰 다시 쓴다.
+**/call_log/
+**/call_logs/
+**/raw_responses*
 **/critic_log.jsonl
-**/*_raw_llm*.jsonl
-**/*_predictions_with_text*
+**/agent_calls.jsonl
+*value_map*.jsonl
+*value_map*.json
+*value_map*.csv
+*value_map*.tsv
+*surrogate*.jsonl
+*surrogate*.json
+*surrogate*.csv
+*surrogate*.tsv
+*surrogate*.txt
+*_tagged*.jsonl
+*_tagged*.json
+*_tagged*.csv
+*_tagged*.tsv
+*_tagged*.txt
+*_with_text*
+*_raw_llm*
+
+# 채워진 프롬프트 인스턴스는 **일부러 넣지 않는다.** gitignore 하면 디스크에
+# 생긴 인스턴스가 BLOCKED 대신 Quarantined 로 조용히 집계된다. 규약이
+# "커밋 금지" 가 아니라 "디스크에 남기지 않는다" 이므로 존재 자체가 잡혀야
+# 한다. 근거는 release_screen.py 의 해당 deny 블록 주석에 있고, 위 테스트는
+# 이 넷을 예외로 알고 있다.
 
 # ─── 모델·체크포인트 ────────────────────────────────────────
 *.ckpt
