@@ -16,6 +16,21 @@ tests therefore assert that a bad invocation exits non-zero having written nothi
 here is the cell it would have run in" is the answer a dry run is asked for; but a script
 reading 0 from it would read that as permission.
 
+**Two cells, because a dry run has two correct outcomes and they are not the same test.**
+An arm that has not called yet gets the plan; an arm that has gets a refusal, and the
+refusal happens *before* the plan (DESIGN §6.3 — the window is bound from the moment the
+`agent_calls.jsonl` line lands, so there is nothing left to approve). Every test below
+therefore names which cell it is about. `dry()` runs a cell that has not called, asked of
+`called_where()` rather than pinned to a value, and `called()` runs the baseline cell,
+which has.
+
+This split is a repair. Every test here used to run the baseline cell, on the presumption
+that no arm had run — and the first `port-oneshot` run made that false. Five tests then
+failed, which was the visible half; the invisible half is that three others went on passing
+while asserting nothing, because a refusal prints an empty stdout and `"sealed/" not in ""`
+is true. So the three carry a positive control now: each states that the plan was printed
+before it says what is absent from it. `tests/mutations/README.md` records the shape.
+
 Run as subprocesses. What is being tested is what a person types and what comes back, and
 an in-process `main()` call shares this process's imported modules and its cwd — the tool
 inserts `ROOT` on `sys.path` and reads the real `config/naming.yaml`, which is the thing
@@ -23,6 +38,7 @@ whose vocabulary the refusals are about.
 """
 from __future__ import annotations
 
+import functools
 import subprocess
 import sys
 from pathlib import Path
@@ -30,9 +46,18 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
+from src import orchestrate                                          # noqa: E402
+from src.corpora.base import axis                                    # noqa: E402
+
 TOOL = ROOT / "tools" / "run_arm.py"
 CORPUS = "es-meddocan"
 LANG = "es"
+
+#: The baseline cell, which on this corpus has already spent its one call. Read from the
+#: orchestrator rather than spelled, for the reason the tool's own defaults are
+#: (`test_the_axis_defaults_come_from_the_orchestrator`): two copies of "the baseline cell"
+#: is two answers the day the baseline moves.
+CALLED_CELL = (orchestrate.DETECTOR, orchestrate.SUPERVISION, orchestrate.PORTING)
 
 #: An id in the accepted shape, undated. Not a default anywhere in the tool — that is a
 #: test below — so the tests spell one, and they spell an *undated* one so that the
@@ -54,9 +79,53 @@ def run(*args, expect: int | None = None) -> subprocess.CompletedProcess:
     return done
 
 
+@functools.lru_cache(maxsize=1)
+def uncalled_cell() -> tuple[str, str, str]:
+    """A cell of this corpus that has not made its call, so a dry run reaches the plan.
+
+    **Asked of `called_where()` rather than pinned to a value, and that is the repair.**
+    The version of this file that presumed the baseline was uncalled did not fail when the
+    baseline ran — it failed *afterwards*, on state the arm had created, and the same thing
+    would happen to any literal written here the day that cell runs. So the cell is
+    discovered, from the same predicate the tool branches on.
+
+    Detector first because `port-oneshot` is the arm under test and the supervision axis is
+    not a place to wander: `sup-human` names a different experiment. The order is
+    naming.yaml's, so the answer moves only when the axis does.
+    """
+    for detector in axis("detector"):
+        cell = (detector, orchestrate.SUPERVISION, orchestrate.PORTING)
+        if orchestrate.called_where(CORPUS, *cell) is None:
+            return cell
+    raise AssertionError(
+        f"every {CORPUS} cell of {orchestrate.PORTING} has called, so no dry run in this "
+        "file can reach the plan. Point these tests at a corpus that has not run rather "
+        "than asserting the refusal twice — a plan test that only ever sees a refusal "
+        "passes while checking nothing, which is the defect this helper exists to end."
+    )
+
+
 def dry(*args, expect: int | None = None) -> subprocess.CompletedProcess:
-    """A dry run of the baseline cell with `args` appended or overriding."""
+    """A dry run of an uncalled cell, with `args` appended or overriding.
+
+    The plan branch. Everything about what the tool *prints* is asserted through this, and
+    an arm that has already called is `called()` below.
+    """
+    detector, supervision, porting = uncalled_cell()
     return run("--corpus", CORPUS, "--lang", LANG, "--model-id", ALIAS, "--dry-run",
+               "--detector", detector, "--supervision", supervision, "--porting", porting,
+               *args, expect=expect)
+
+
+def called(*args, expect: int | None = None) -> subprocess.CompletedProcess:
+    """A dry run of the baseline cell, which has spent its one call on this corpus.
+
+    Separate from `dry()` because the refusal is not a degraded plan — it is the other
+    correct outcome, and it is reached before the plan is made.
+    """
+    detector, supervision, porting = CALLED_CELL
+    return run("--corpus", CORPUS, "--lang", LANG, "--model-id", ALIAS, "--dry-run",
+               "--detector", detector, "--supervision", supervision, "--porting", porting,
                *args, expect=expect)
 
 
@@ -72,12 +141,19 @@ def test_a_dry_run_writes_nothing_under_the_arm():
     Asserted against the real results tree rather than a temporary one, deliberately. The
     tool is not parameterised by a root — it writes where the config says — so a test that
     redirected it would be testing a path this tool cannot take.
+
+    Both cells, because they stop at different points and only one of them is the
+    interesting case. The refused cell never reaches a write; the uncalled one runs every
+    check the real invocation runs and stops at the freeze, which is the property being
+    claimed. A test that checked only the refused cell would pass on a tool that froze the
+    window on every dry run of every arm that had not yet called.
     """
-    arm = ROOT / "results" / CORPUS / "R" / "sup-free" / "port-oneshot"
-    before = sorted(p.name for p in arm.iterdir()) if arm.exists() else None
-    dry()
-    after = sorted(p.name for p in arm.iterdir()) if arm.exists() else None
-    assert after == before
+    for cell, invoke in ((uncalled_cell(), dry), (CALLED_CELL, called)):
+        arm = ROOT.joinpath("results", CORPUS, *cell)
+        before = sorted(p.name for p in arm.iterdir()) if arm.exists() else None
+        invoke()
+        after = sorted(p.name for p in arm.iterdir()) if arm.exists() else None
+        assert after == before, cell
 
 
 def test_a_dry_run_reaches_no_transport():
@@ -85,8 +161,14 @@ def test_a_dry_run_reaches_no_transport():
     resolution predicate, and neither of those constructs a client — `bedrock._client()`
     imports boto3 inside the function for exactly this reason. A dry run that opened a
     session would be a dry run that needed credentials to answer "is this command right".
+
+    The plan assertion is the positive control and is not decoration. `_plan()` is where
+    `bedrock._resolution` is called, so a run that stopped before it would satisfy all
+    three absences having exercised nothing — which is what this test did while the
+    baseline cell was refused.
     """
     done = dry()
+    assert "resolution" in done.stdout, "the plan was not reached, so nothing was tested"
     assert "botocore" not in done.stderr
     assert "NoCredentials" not in done.stderr
     assert "Traceback" not in done.stderr
@@ -149,8 +231,14 @@ def test_the_test_fold_is_refused_and_points_at_the_sealed_path():
 def test_no_sealed_path_appears_in_the_output():
     """Neither the plan nor an error may name the sealed directory. The plan prints five
     filled templates and a rule path; if any of them could be pointed at `sealed/`, the
-    tool would be the map to a directory nobody is to open."""
+    tool would be the map to a directory nobody is to open.
+
+    The six paths are asserted present first. An absence check over an empty stdout is
+    vacuously true, and that is not hypothetical here: this test passed unchanged while the
+    baseline cell printed nothing but a refusal.
+    """
     done = dry()
+    assert "armrules" in done.stdout, "the plan was not reached, so nothing was tested"
     assert "sealed/" not in done.stdout
 
 
@@ -177,7 +265,7 @@ def test_a_blocked_gate_still_shows_the_plan():
     gate open to find out what it would have done, which is the run they were trying to
     check first."""
     done = dry()
-    assert "port-oneshot" in done.stdout
+    assert orchestrate.PORTING in done.stdout
     assert "model_id" in done.stdout
 
 
@@ -190,7 +278,9 @@ def test_the_plan_names_every_path_the_arm_writes():
     done = dry()
     for key in ("armrules", "armfreeze", "agentlog", "metrics", "spans", "formatfailure"):
         assert key in done.stdout, key
-    assert "results/es-meddocan/R/sup-free/port-oneshot/rules/iter1/es.yaml" in done.stdout
+    detector, supervision, porting = uncalled_cell()
+    assert (f"results/{CORPUS}/{detector}/{supervision}/{porting}/rules/iter1/{LANG}.yaml"
+            in done.stdout)
 
 
 def test_the_plan_reports_the_resolution_the_run_block_would_record():
@@ -198,8 +288,7 @@ def test_the_plan_reports_the_resolution_the_run_block_would_record():
     alias records `alias-unresolved` and can never be pinned down afterwards, and the arm
     cannot be re-run to find out (DESIGN §10 A2, docs/notes/baseline-model-family.md)."""
     assert "alias-unresolved" in dry().stdout
-    assert "dated" in run("--corpus", CORPUS, "--lang", LANG, "--model-id", DATED,
-                          "--dry-run").stdout
+    assert "dated" in dry("--model-id", DATED).stdout
 
 
 def test_the_plan_reports_the_tree_state():
@@ -208,6 +297,61 @@ def test_the_plan_reports_the_tree_state():
     done = dry()
     assert "commit" in done.stdout
     assert "tree" in done.stdout
+
+
+# ─── the arm that has already called: the refusal, not a degraded plan ──────
+
+
+def test_a_dry_run_of_a_called_arm_is_refused_and_prints_no_plan():
+    """The baseline cell on this corpus has spent its one call, and this is what a dry run
+    of it must do (DESIGN §6.3, §11.1).
+
+    **The refusal replaces the plan rather than preceding it, and that ordering is the
+    claim.** `--dry-run` normally prints the plan even when the logging gate is shut, on
+    the reasoning that "not ready, and here is the cell it would have run in" is what a dry
+    run is asked for. This case is different in kind: the window is bound from the moment
+    the `agent_calls.jsonl` line lands, so there is no run left to approve and a plan would
+    describe an invocation the tool will not make. It goes to stderr and exit 2, where a
+    script cannot read it as a readiness report.
+    """
+    done = called(expect=2)
+    assert "already made its call" in done.stderr
+    assert "DESIGN §6.3" in done.stderr
+    assert done.stdout == "", (
+        "a called arm printed a plan. The refusal is asked before `_plan()` because there "
+        f"is nothing to approve:\n{done.stdout}"
+    )
+
+
+def test_the_refusal_names_the_cell_and_its_evidence():
+    """Which arm, and how the tool knows — the two things the person needs.
+
+    The evidence word is `called_where()`'s (`log` / `results`, `config`-free literals in
+    `src/orchestrate.py`) and it is the actionable half: `log` means the call log is sitting
+    there, `results` means it is gone and a committed artefact is what remains. Advice that
+    did not distinguish them would send someone looking for a file that is not there.
+    """
+    detector, supervision, porting = CALLED_CELL
+    done = called(expect=2)
+    assert f"{CORPUS}/{detector}/{supervision}/{porting}" in done.stderr
+    assert orchestrate.called_where(CORPUS, *CALLED_CELL) in (
+        orchestrate.IN_LOG, orchestrate.IN_RESULTS)
+    assert f"evidence: {orchestrate.called_where(CORPUS, *CALLED_CELL)}" in done.stderr
+
+
+def test_the_refusal_outranks_the_logging_gate():
+    """Both are exit 2, and the message must be the one that cannot be fixed today.
+
+    A shut logging gate is a thing to go and do; a spent call is not, and reporting the
+    gate would send the person to `check_bedrock_logging.py` and back for a second refusal
+    they could have had first. So this asserts the gate line is absent rather than merely
+    that the refusal is present — the two coexisting in one output is the failure that
+    reads as helpful.
+    """
+    done = called(expect=2)
+    assert "already made its call" in done.stderr
+    assert "logging gate" not in done.stdout
+    assert "logging gate" not in done.stderr
 
 
 # ─── the model id is a parameter, here as everywhere ────────────────────────
@@ -267,8 +411,14 @@ def test_the_already_called_refusal_is_asked_before_the_plan():
     `path.exists()` (DESIGN §6.3) — so that a second invocation is refused by name rather
     than by an exception from inside the freeze.
 
-    Asserted on the source, because the state it branches on is "this arm has already
-    run", and a test that produced that state would have to run the arm.
+    **Kept as a source check even though the behaviour is now covered above, because the
+    two assert different things.** The tests above observe that *this corpus's* baseline
+    cell is refused, which they can only do because it has run; this one asserts that the
+    refusal is conditioned on the call log at all, and it goes on holding on a machine where
+    no arm has ever run. Which predicate the branch reads is not visible in the output —
+    `path.exists()` would produce a byte-identical refusal here — and that substitution is
+    the fourth member of `tests/mutations/README.md`'s family, made once already in
+    `freeze_window()`.
     """
     text = TOOL.read_text(encoding="utf-8")
     assert "called_where" in text

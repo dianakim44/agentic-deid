@@ -1464,6 +1464,73 @@ that is a search a person does, not a check. **The sweep does not generalise int
 should not be written up as though it did.** What generalises is the harness's answer to any
 comment of this kind: apply the edit the comment says is unsafe, and read the count.
 
+### The seventh of the family — and the five failures beside it that are not
+
+**Judged 2026-08-11, on the state the first `port-oneshot` run left behind.** The run made
+its one call, `agent_calls.jsonl` gained a line, and `tools/run_arm.py --dry-run` began
+refusing that cell instead of printing its plan — the freeze discipline working as designed
+(DESIGN §6.3). Five tests in `tests/test_run_arm_cli.py` then failed, because all eighteen
+ran the baseline cell and the plan tests presumed no arm had called. Confirmed by `git
+stash` to fail on the unmodified tree: state, not a code change.
+
+**The five failures are ordinary test debt, and writing them up as a family member would be
+the more flattering mistake.** A test that presumes a precondition and fails when the
+precondition changes has failed loudly, at the moment the state changed, naming the
+assertion that no longer holds. Nothing was hidden and nothing resolved an ambiguity in a
+reassuring direction — the fix was to give the file two fixtures, one cell that has called
+and one that has not, and to test both outcomes rather than presume one. That is a repair,
+not an incident. **Recording it as a seventh member would inflate this file's central claim
+by counting an ordinary breakage as a silent one**, and a document whose examples drift
+toward the dramatic stops being usable as a diagnostic.
+
+**What is a family member is the three tests in the same file that went on passing.**
+`test_no_sealed_path_appears_in_the_output` asserts `"sealed/" not in done.stdout`, and the
+refusal writes to stderr — so `stdout` was the empty string, the assertion was vacuously
+true, and the test reported a pass having examined nothing.
+`test_a_dry_run_reaches_no_transport` is the same shape over three absences in `stderr`, and
+it is the worse of the two: what it exists to check is that `_plan()`'s call to
+`bedrock._resolution` opens no
+client, and `_plan()` was never reached. `test_a_dry_run_writes_nothing_under_the_arm` is
+the third — it compared a directory listing before and after an invocation that returned at
+the guard, so it stopped covering the freeze it is named for.
+
+This is the signature exactly: **an absence check cannot distinguish *the output was
+produced and lacks the forbidden thing* from *there was no output*, and it resolves that
+ambiguity in the reassuring direction.** A skip read as a pass, a collection error as
+thirty-seven kills, a deleted freeze record as an unopened window, and now an empty stdout
+as a clean one. The mechanism is different each time and the resolution is always the
+comfortable one.
+
+Two things distinguish this occurrence from the six above, and both are about how it was
+found.
+
+**1. The loud failures are what made the silent ones findable.** No mutation caught these,
+no check caught them, and — this is the uncomfortable half, as with the `OTHER` incident —
+nothing would have. Five sibling tests breaking is what caused anyone to read the file at
+all, and the three vacuous passes were sitting in the output of that reading. Had the plan
+tests been written as absence checks too, the whole file would have gone green against a
+tool that printed nothing, and the run that changed the state would have looked like it
+changed nothing. **The debt and the defect arrived from one cause and only the debt was
+visible**, which is an argument for treating a test that breaks on state as worth reading
+past rather than merely repairing.
+
+**2. It is closable, and by the cheap half of the pattern.** The first two members were
+closed by making the mechanism able to tell the cases apart; the third could not be and was
+closed by reading the constraint from where it is stated. This one is the first kind: an
+absence check is completed by a positive control, so each of the three now asserts that the
+plan was *reached* before asserting what is missing from it — `armrules` present, then no
+`sealed/`; `resolution` present, then no `botocore`. One line each, and the vacuous form
+cannot come back silently because the control fails first.
+
+**The generalisation, and it is narrower than the fifth's but has more sites:** *an
+assertion of the form "X is not in the output" is a claim about an output, so the output's
+existence is part of what it claims and has to be asserted.* Where the thing under test can
+exit early — a guard, a refusal, a shut gate, an empty fold — that early exit satisfies
+every absence check in the file at once. The sweep this suggests is a grep for `not in`
+over `tests/`, and unlike the sixth member's rhetorical sweep it is mechanical enough to be
+worth writing as one; it is not written yet, and it is recorded here as work owed rather
+than done.
+
 ### The two axes: doing too much, and taking too much away
 
 Two structural checks now sit either side of the same problem, and the pairing is the
