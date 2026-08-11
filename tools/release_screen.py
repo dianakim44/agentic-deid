@@ -213,13 +213,126 @@ RULE_ID_VOCAB = {
     "slash", "dash", "dot", "colon", "paren", "bracket", "quote", "space",
     "long", "short", "full", "partial", "left", "right", "before", "after",
     "with", "without", "and", "or", "not", "any", "all", "only",
+    # 2026-08-11. 이 넷은 언어별 층이 아니라 여기 들어간다 — 어느 언어의
+    # 상용구도 아니고 기제·구조 낱말이기 때문이다. 층에 넣으면 같은 낱말을
+    # 언어마다 반복해야 하고, 그것은 범주를 잘못 고른 표시다.
+    #
+    #   - `dmy`/`mdy`/`ymd`: 날짜 성분의 **순서**. `date_dmy_slash` 는 구분자와
+    #     순서로 기제를 다 서술한다.
+    #   - `postal`: `postcode`·`code` 가 이미 있는데 `postal_code` 라는 두 낱말
+    #     형태가 자연스럽다. 같은 대상의 형용사형이다.
+    #   - `years`/`months`: `year`·`month` 의 복수형. 단수만 있는 것은 누락이고
+    #     구분이 아니다 (`digit`/`digits`·`initial`/`initials` 는 이미 둘 다 있다).
+    "dmy", "mdy", "ymd", "postal", "years", "months", "days",
+    # 언어 이름. 규칙의 **방언**을 서술한다 (`date_spanish_month_long` = 스페인어
+    # 월 이름 표기). 개인을 지목할 수 없고, `config/naming.yaml` 의 lang 축이
+    # 아니라 영어 언어명이므로 축 어휘 규약과 충돌하지 않는다.
+    "spanish", "catalan", "german", "korean", "english",
 }
 #: 코드형 토큰. 국가별 식별자 약어와 자릿수 표기는 기제 어휘가 아니지만
 #: 규칙 이름에 정상적으로 나타난다 (`nhc_checksum`, `cp_5digit`).
 RULE_ID_ALLOWED_TOKENS = {
     "id", "nhc", "cip", "ss", "dni", "nie", "nif", "cp", "iban", "uuid",
     "ssn", "mrn", "kvnr", "nhs", "curp", "rut",
+    # NUSS (número de la Seguridad Social). Same category as the rest of this set —
+    # a national identifier scheme — and missing only because no rule had needed it.
+    "nuss",
 }
+
+# ─── 언어별 층 ──────────────────────────────────────────────────────────────
+# 위 어휘는 영어 전용이었고, 그래서 **영어가 아닌 arm 전부에서 깨진다.** 규칙
+# 이름을 짓는 것은 에이전트이고, 스페인어 코퍼스의 규칙에 스페인어 단서어의
+# 이름을 붙이는 것은 자연스러운 선택이다 — `paciente_cue` 는 "환자" 를 뜻하는
+# 임상 상용구를 가리키는 기제 이름이고, Prohibition 2 가 허용하는 바로 그
+# 범주다. 2026-08-11 의 es-meddocan port-oneshot 은 28개 중 23개가 이 이유로
+# SUSPECT 였다 (docs/notes/arm-port-oneshot-es.md).
+#
+# **기준은 움직이지 않는다.** Prohibition 2 는 "임상 상용구는 허용, 개인을
+# 지목하는 것은 금지" 이고, 언어가 늘어도 그 선은 그대로다. 바뀌는 것은
+# 상용구가 어느 언어로 쓰였는가뿐이다. 그러므로 여기 들어가는 것은
+# **그 언어의 임상 상용구·행정 용어의 폐쇄 집합**이고, 개인을 지목할 수 있는
+# 낱말 범주는 어느 언어에서도 들어가지 않는다:
+#
+#   - 사람 이름(성·이름·애칭)은 넣지 않는다. 경칭(`don`, `dona`, `herr`)은
+#     상용구이지만 이름 자체는 아니다 — 경칭은 이름 **앞에 오는 표지**이고,
+#     그것이 `doctor` 가 이미 위 어휘에 있는 이유와 같다.
+#   - 지명(도시·구·병원 고유명)은 넣지 않는다. `calle`·`avenida` 는 거리의
+#     **종류**이고 거리 이름이 아니다. `centro`·`salud` 는 기관의 종류이고
+#     특정 기관이 아니다. 이 구분이 위 영어 어휘의 `street`/`hospital` 과
+#     정확히 같은 구분이다.
+#   - 하나의 개인·기관만 가리킬 수 있는 낱말은 넣지 않는다.
+#
+# **사례를 나열하는 것이 아니라 범주를 넓히는 것이다.** 이번 실행에서 걸린
+# 23건을 근거로 삼았지만 그 목록을 그대로 허용하지 않았다: 각 토큰이 어느
+# 범주인지 판정했고, 범주를 채울 때 그 실행에 나오지 않은 낱말도 함께 넣었다
+# (`apellido`·`nacido`·`ingreso` 등). 나오지 않은 것을 넣는 것이 사례 목록과
+# 범주의 차이이고, 다음 arm 이 같은 이유로 또 걸리지 않는 이유다.
+#
+# 이 낱말들은 사전에 있는 일반명사·행정용어이고 코퍼스에서 인용한 것이 아니다.
+# 어느 개인도 지목하지 않으므로 커밋해도 안전하다 — 위 영어 어휘가 안전한 것과
+# 같은 근거이고, 그 근거는 언어에 달려 있지 않다.
+#
+# **새 언어를 추가할 때 해야 하는 일.** (1) `config/naming.yaml` 의 `lang` 축에
+# 그 언어가 있어야 한다 — 아래 키는 그 축에 대해 검사된다. (2) 여기 그 언어의
+# 키를 추가하고, 위 세 개의 배제 범주를 지키는 상용구만 넣는다. (3) 그 언어의
+# 이름이 통과하는 테스트와, 그 언어의 층이 개인 지목 이름을 통과시키지 않는지
+# 보는 테스트를 함께 넣는다 (tests/test_release_screen.py). 층을 비워두는 것도
+# 유효한 선택이다 — 그러면 그 언어의 규칙 이름은 영어 기제 어휘로만 지어진다.
+RULE_ID_VOCAB_BY_LANG = {
+    "es": {
+        # 경칭·역할. 이름 앞에 오는 표지이고 이름이 아니다.
+        "don", "dona", "sr", "sra", "srta", "doctor", "doctora", "dr", "dra",
+        "paciente", "medico", "enfermero", "enfermera", "familiar",
+        # 문서 상용구. 임상 노트의 서식 낱말.
+        "firmado", "atendido", "remitido", "derivado", "ingreso", "alta",
+        "consulta", "informe", "servicio", "nacido", "nacida", "fecha",
+        "nombre", "apellido", "apellidos", "edad", "anos", "meses",
+        "profesion", "ocupacion", "domicilio", "telefono", "correo",
+        # 주소·기관의 **종류**. 고유명이 아니다.
+        "calle", "avenida", "plaza", "paseo", "carretera", "camino", "via",
+        "numero", "piso", "puerta", "codigo", "postal", "provincia",
+        "hospital", "centro", "salud", "clinica", "ambulatorio", "servicio",
+        # 문법어. 복합 이름을 잇는다 (`atendido_por_cue`).
+        "por", "del", "de", "la", "el", "los", "las", "en", "y",
+    },
+    "cat": {
+        "sr", "sra", "senyor", "senyora", "doctor", "doctora", "pacient",
+        "signat", "ates", "derivat", "ingres", "informe", "naixement",
+        "nom", "cognom", "cognoms", "edat", "anys", "mesos", "professio",
+        "domicili", "telefon", "adreca",
+        "carrer", "avinguda", "placa", "passeig", "carretera", "cami",
+        "numero", "pis", "porta", "codi", "postal", "provincia",
+        "hospital", "centre", "salut", "clinica",
+        "per", "del", "de", "la", "el", "els", "les", "en", "i",
+    },
+    "de": {
+        "herr", "frau", "doktor", "arzt", "arztin", "patient", "patientin",
+        "unterschrieben", "aufnahme", "entlassung", "befund", "geboren",
+        "geburtsdatum", "name", "vorname", "nachname", "alter", "jahre",
+        "monate", "beruf", "anschrift", "telefon",
+        "strasse", "str", "gasse", "platz", "weg", "allee", "hausnummer",
+        "stock", "postleitzahl", "plz", "stadt", "ort",
+        "krankenhaus", "klinik", "praxis", "station", "abteilung",
+        "von", "der", "die", "das", "den", "dem", "und", "im", "am",
+    },
+    "ko": {
+        # 로마자 표기. 규칙 이름은 ASCII 식별자이므로 (RULE_ID_RULES 의 비ASCII
+        # 규칙) 한글은 애초에 통과하지 못한다.
+        "hwanja", "uisa", "seongmyeong", "ireum", "saengnyeonworil", "nai",
+        "juso", "jeonhwa", "byeongwon", "uiwon", "jinryo", "gwa",
+    },
+    # 영어는 위 RULE_ID_VOCAB 자체가 영어이므로 층이 필요 없다. 키를 두는 것은
+    # "en 은 잊혀졌다" 와 "en 은 층이 비어 있다" 를 가르기 위해서다.
+    "en": set(),
+}
+
+#: 어느 언어 층에도 들어갈 수 없는 낱말이 아니라, **층이 지켜야 하는 성질**을
+#: 검사에 쓰는 상한. 층은 폐쇄 집합이고 정규식이 아니므로 토큰 하나가
+#: 통째로 매치되어야 하며, 위 배제 범주(이름·지명·개인 지목)는 코드가 아니라
+#: 리뷰로 지켜진다 — 그리고 tests/test_release_screen.py 가 층 전체에 대해
+#: 형태 규칙(대문자·숫자·비ASCII)을 다시 적용해서, 층을 통해 표면형이
+#: 들어오는 가장 흔한 형태를 막는다.
+RULE_ID_VOCAB_LANG_MAX_LEN = 20
 #: 자릿수·버전 표기. `cp_5digit` 의 `5digit`, `v2`.
 RULE_ID_CODE_TOKEN = re.compile(r"^(?:v[0-9]{1,2}|[0-9]{1,2}[a-z]{0,8})$")
 RULE_ID_RULES = (
@@ -240,7 +353,7 @@ RULE_ID_MAX_LEN = 40
 RULE_ID_MAX_PARTS = 5
 
 
-def rule_id_findings(text):
+def rule_id_findings(text, lang=None):
     """rule_id 값 중 표면형을 담은 것으로 보이는 것을 (id, 이유) 로 돌려준다.
 
     Shape first, then a *positive* vocabulary — never a list of names to reject. A
@@ -257,13 +370,42 @@ def rule_id_findings(text):
     False positives are the acceptable direction. A rejected name is renamed at no
     cost; a name carrying a patient's surname into `metrics.json` cannot be unpublished
     (CLAUDE.md: the repository is public and a push is irreversible).
+
+    **The language layer.** `lang` opens that language's clinical-formula set
+    (`RULE_ID_VOCAB_BY_LANG`) in addition to the English mechanism vocabulary, because
+    the English vocabulary alone rejects every non-English arm's names — and rejects
+    them for naming a formula, which Prohibition 2 permits. Four properties, each of
+    which is a way this could have become a bypass:
+
+      - **`lang` comes from the caller, which derives it from the file path.** Not from
+        the id's own prefix. The path is chosen by the harness from the arm's
+        configuration (`paths.armrules`, DESIGN §5.3); the prefix is free text inside a
+        file the model wrote. Letting the screened text nominate its own vocabulary is
+        the bypass, and it is not a hypothetical distinction: every id in both the
+        committed `rules/es.yaml` and the first port-oneshot output is unprefixed, so a
+        prefix-keyed layer would have widened nothing at all.
+      - **A prefix that disagrees with the path opens no layer.** `de:strasse_cue`
+        inside `es.yaml` gets the English vocabulary only. Disagreement is the one case
+        where the two sources can be played against each other, so it resolves to the
+        narrower treatment.
+      - **The layer is additive and per-language.** `es` opens the Spanish set and
+        nothing else, so a widening is scoped to the language whose formulae justified
+        it and Spanish words never become sayable in a German rule name.
+      - **No `lang`, or one not in the table, opens no layer.** A caller that cannot say
+        which language a file is in gets the English vocabulary, which is the behaviour
+        this function had before the layer existed.
     """
+    lang = (lang or "").strip().lower()
+    extra = RULE_ID_VOCAB_BY_LANG.get(lang, frozenset()) if lang else frozenset()
     out = []
     for raw in RULE_ID_KEY.findall(text):
         value = raw.strip().strip("'\"")
         if not value:
             continue
-        body = value.split(":", 1)[1] if ":" in value else value
+        prefix, sep, rest = value.partition(":")
+        body = rest if sep else value
+        # A prefix that contradicts the path drops the layer. See the docstring.
+        allowed_extra = frozenset() if (sep and prefix.strip().lower() != lang) else extra
         parts = [p for p in re.split(r"[_\-]", body) if p]
 
         # Shape first: these say something specific about *how* the name is wrong,
@@ -289,6 +431,7 @@ def rule_id_findings(text):
         unknown = [p for p in parts
                    if p.lower() not in RULE_ID_VOCAB
                    and p.lower() not in RULE_ID_ALLOWED_TOKENS
+                   and p.lower() not in allowed_extra
                    and not RULE_ID_CODE_TOKEN.match(p.lower())]
         if unknown:
             out.append((value, f"{len(unknown)} token(s) outside the mechanism "
@@ -403,6 +546,22 @@ def strip_code_prose(text):
     return COMMENT_OR_DOCSTRING.sub(" ", text)
 
 
+def rule_file_lang(path):
+    """Which language's rule file is this? The stem of `rules/{lang}.yaml`, or None.
+
+    Covers both `rules/es.yaml` and an arm's `.../rules/iter3/es.yaml` — the filename
+    carries `{lang}` in both (`paths.rules` and `paths.armrules`, DESIGN §5.3).
+
+    Returns None rather than guessing when the stem is not a language this screener has
+    a layer for. None means "English vocabulary only", so an unrecognised filename is
+    screened exactly as it was before the layer existed. That is the safe direction: the
+    failure mode of guessing wrong here is a wider vocabulary for a file nobody
+    classified.
+    """
+    stem = os.path.splitext(os.path.basename(path))[0].strip().lower()
+    return stem if stem in RULE_ID_VOCAB_BY_LANG else None
+
+
 def sniff(path, blob=None, force=False):
     """Look for note text inside a file. `force` skips the extension filter.
 
@@ -437,7 +596,7 @@ def sniff(path, blob=None, force=False):
     # (tests/test_conftest.py). Keeping `rules/` in the arm path is what makes one pattern
     # cover both, and DESIGN §5.3 records that as a reason the component stays.
     if re.search(r"(^|/)rules/(iter[0-9]+/)?[^/]+\.ya?ml$", path.replace(os.sep, "/")):
-        found = rule_id_findings(text)
+        found = rule_id_findings(text, lang=rule_file_lang(path))
         if found:
             why = found[0][1]
             # The id is NOT quoted: it may be the surface form itself, and this

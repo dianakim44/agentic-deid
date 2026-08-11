@@ -13,6 +13,7 @@ both layers at once. Both layers were changed; both directions are tested.
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 
@@ -195,6 +196,155 @@ def test_the_check_is_a_vocabulary_not_a_blacklist():
     assert rs.rule_id_findings("  - rule_id: es:perez_ruiz\n")
     # And the vocabulary itself holds no corpus content: English structural terms.
     assert all(t.isascii() and t.islower() for t in rs.RULE_ID_VOCAB)
+
+
+# ─── the language layer ─────────────────────────────────────────────────────
+# The English-only vocabulary rejected 23 of the 28 names in the first port-oneshot
+# output, every one of them for naming a clinical formula in the corpus language.
+# Prohibition 2 permits exactly that, so the vocabulary was wrong and not the names.
+# What must not move is the line itself: a formula is allowed, designating an
+# individual is not, in every language.
+
+
+@pytest.mark.parametrize("rule_id", [
+    "paciente_cue",           # 환자 — a role word, the formula Prohibition 2 allows
+    "firmado_cue",            # signed by — document boilerplate
+    "atendido_por_cue",       # attended by
+    "calle_cue",              # street as a *type*, not a street name
+    "avenida_cue",
+    "centro_salud_cue",       # a kind of institution, not one institution
+    "domicilio_cue",
+    "profesion_cue",
+    "don_dona_prefix",        # honorifics: markers that precede a name
+])
+def test_spanish_formula_names_pass_under_the_spanish_layer(rule_id):
+    """These are the names the English-only vocabulary rejected.
+
+    Unprefixed on purpose: that is how the arm actually wrote them, and how the
+    committed `rules/es.yaml` writes them.
+    """
+    assert rs.rule_id_findings(f"  - rule_id: {rule_id}\n", lang="es") == []
+
+
+@pytest.mark.parametrize("rule_id", [
+    "perez_ruiz",             # two surnames
+    "garcia_lopez",
+    "maria_carmen",           # given names
+    "calle_mayor",            # `calle` is vocabulary; the street's *name* is not
+    "hospital_clinic_barcelona",   # a specific institution
+    "paciente_perez",         # a formula token used to smuggle one that is not
+])
+def test_the_spanish_layer_does_not_pass_a_person_or_place(rule_id):
+    """The layer widens the categories and not the line.
+
+    Each of these is inside the language the layer opened, so nothing about being
+    Spanish is what gets them through — membership in a closed set of formulae is,
+    and a name is not a formula. `calle_mayor` and `paciente_perez` are the pointed
+    cases: one token from the layer does not license the rest of the name.
+    """
+    assert rs.rule_id_findings(f"  - rule_id: {rule_id}\n", lang="es"), (
+        f"{rule_id} passed under the es layer")
+
+
+def test_a_layer_is_scoped_to_its_own_language():
+    """Kills `an_unknown_language_gets_every_layer` and the cross-language widening.
+
+    A Spanish formula in a German rule name is not a German formula. If the layers
+    were unioned — the tempting simplification, since it makes the lookup
+    language-independent — every layer's words would be sayable in every language's
+    files, and the widest vocabulary in the tool would be the only one that exists.
+    """
+    assert rs.rule_id_findings("  - rule_id: paciente_cue\n", lang="es") == []
+    assert rs.rule_id_findings("  - rule_id: paciente_cue\n", lang="de")
+    assert rs.rule_id_findings("  - rule_id: strasse_cue\n", lang="de") == []
+    assert rs.rule_id_findings("  - rule_id: strasse_cue\n", lang="es")
+
+
+def test_an_unknown_language_gets_no_layer_at_all():
+    """Not the union, and not an error. The pre-layer behaviour."""
+    assert rs.rule_id_findings("  - rule_id: paciente_cue\n", lang="xx")
+    assert rs.rule_id_findings("  - rule_id: paciente_cue\n", lang=None)
+    # An English mechanism name is unaffected by any of this.
+    assert rs.rule_id_findings("  - rule_id: doctor_prefix\n", lang="xx") == []
+
+
+def test_the_layer_is_keyed_on_the_path_not_on_the_id():
+    """Kills `the_language_layer_is_keyed_on_the_id_the_model_wrote`.
+
+    The path comes from the arm's configuration; the id prefix is free text in a file
+    the model wrote. Keyed on the prefix, the screened text chooses its own
+    vocabulary. Asserted through `sniff`, which is where the path is available.
+    """
+    surname = "  - rule_id: es:perez_ruiz\n"
+    # The prefix claims Spanish. The name is still a surname, under any layer.
+    assert rs.sniff("rules/es.yaml", blob=surname.encode()) is not None
+    # And a Spanish formula in a German file does not become sayable by saying `es:`.
+    smuggled = "  - rule_id: es:paciente_cue\n"
+    assert rs.sniff("rules/de.yaml", blob=smuggled.encode()) is not None
+    # Same bytes, the file the harness would actually have written them to: clean.
+    assert rs.sniff("rules/es.yaml", blob="  - rule_id: paciente_cue\n".encode()) is None
+
+
+def test_a_prefix_disagreeing_with_the_path_drops_the_layer():
+    """Kills `a_disagreeing_prefix_still_opens_the_layer`.
+
+    Disagreement between the harness's path and the model's prefix resolves to the
+    narrower vocabulary. Checked at the function, so the branch is exercised directly
+    rather than through whichever way `sniff` happens to derive the language.
+    """
+    assert rs.rule_id_findings("  - rule_id: de:paciente_cue\n", lang="es")
+    assert rs.rule_id_findings("  - rule_id: paciente_cue\n", lang="es") == []
+    assert rs.rule_id_findings("  - rule_id: es:paciente_cue\n", lang="es") == []
+
+
+def test_layer_membership_is_exact_not_substring():
+    """Kills `the_language_layer_is_a_substring_test`.
+
+    A closed set decided by containment is not closed: every fragment of every listed
+    word joins it, and fragments are what names are made of.
+    """
+    assert "anos" in rs.RULE_ID_VOCAB_BY_LANG["es"]
+    assert rs.rule_id_findings("  - rule_id: ana_cue\n", lang="es"), (
+        "a fragment of a listed word passed the layer")
+    assert rs.rule_id_findings("  - rule_id: ano_cue\n", lang="es")
+
+
+def test_every_layer_language_is_a_declared_lang_axis_value():
+    """A layer for a language the experiment does not have is a vocabulary nobody
+    reviewed against a corpus. CLAUDE.md: naming.yaml is the only vocabulary."""
+    import yaml
+    with open(os.path.join(ROOT, "config", "naming.yaml"), encoding="utf-8") as fh:
+        langs = set(yaml.safe_load(fh)["axes"]["lang"])
+    assert set(rs.RULE_ID_VOCAB_BY_LANG) <= langs, (
+        f"layers for undeclared langs: {set(rs.RULE_ID_VOCAB_BY_LANG) - langs}")
+
+
+def test_no_layer_word_could_be_a_surface_form_by_shape():
+    """The shape rules, re-applied to the layers themselves.
+
+    The exclusion categories — no personal names, no place names, nothing that can
+    designate one individual or institution — are held by review and cannot be
+    asserted. What *can* be asserted is that no layer word has the shape of a quoted
+    surface: a capital, a digit run, a non-ASCII character, or the length of a phrase.
+    That closes the crudest way a surface form enters through a layer.
+    """
+    for lang, words in rs.RULE_ID_VOCAB_BY_LANG.items():
+        for w in words:
+            assert w == w.lower(), f"{lang}: {w!r} is not lower case"
+            assert w.isascii(), f"{lang}: {w!r} is not ASCII"
+            assert w.isalpha(), f"{lang}: {w!r} is not purely alphabetic"
+            assert len(w) <= rs.RULE_ID_VOCAB_LANG_MAX_LEN, f"{lang}: {w!r} is too long"
+            for pattern, _why in rs.RULE_ID_RULES:
+                assert not pattern.search(w), f"{lang}: {w!r} matches a shape rule"
+
+
+def test_the_arm_rule_file_lang_comes_from_the_filename():
+    """Both `rules/es.yaml` and an arm's `rules/iter3/es.yaml` carry {lang}."""
+    assert rs.rule_file_lang("rules/es.yaml") == "es"
+    assert rs.rule_file_lang(
+        "results/c/R/sup-free/port-oneshot/rules/iter3/de.yaml") == "de"
+    assert rs.rule_file_lang("rules/unknown.yaml") is None
+    assert rs.rule_file_lang("rules/ES.yaml") == "es"
 
 
 def test_the_finding_does_not_quote_the_id():
@@ -668,6 +818,34 @@ DENY_NOT_IGNORED = {
 }
 
 
+@pytest.fixture(scope="module")
+def gitignore_probe(tmp_path_factory):
+    """Ask the repository's .gitignore about a path, in a tree with nothing else in it.
+
+    A scratch repository holding a copy of the real `.gitignore` and no files. Asking
+    git in the working copy instead looks simpler and is not: `git check-ignore` needs
+    to resolve the leading directories, so the answer depends on what happens to be on
+    disk. Under the mutation harness (`tests/mutations/run.py`) `sealed/` is a symlink
+    into the real tree, and git refuses any path beyond a symlink with a fatal error —
+    which this test then reads as "not ignored" and reports as a leak that is not there.
+
+    The rules are what is under test, so the probe holds the rules and nothing else.
+    """
+    d = tmp_path_factory.mktemp("gitignore_probe")
+    subprocess.run(["git", "init", "-q", str(d)], check=True)
+    shutil.copyfile(os.path.join(ROOT, ".gitignore"), os.path.join(d, ".gitignore"))
+
+    def ignored(path):
+        r = subprocess.run(
+            ["git", "-C", str(d), "check-ignore", "-q", "--no-index", "--", path],
+            capture_output=True)
+        assert r.returncode in (0, 1), (
+            f"git could not answer for {path!r}: {r.stderr.decode().strip()}")
+        return r.returncode == 0
+
+    return ignored
+
+
 def test_every_deny_pattern_has_a_sample():
     """A new deny rule must come with samples or be declared deliberately visible.
 
@@ -699,7 +877,7 @@ def test_the_samples_match_the_pattern_they_are_filed_under():
 
 @pytest.mark.parametrize("path", sorted(
     p for paths in DENY_SAMPLES.values() for p in paths))
-def test_every_deny_listed_path_is_also_gitignored(path):
+def test_every_deny_listed_path_is_also_gitignored(path, gitignore_probe):
     """A deny rule with no .gitignore counterpart is half a convention.
 
     The file still cannot be committed — it reports BLOCKED, which gates the commit —
@@ -707,13 +885,10 @@ def test_every_deny_listed_path_is_also_gitignored(path):
     number someone has to read. Being gitignored as well means git will not stage it
     by accident in the first place, and the screener reports it as Quarantined.
 
-    Checked with `--no-index` so the path need not exist. The four filled-prompt
-    patterns are the deliberate exception and are excluded by DENY_NOT_IGNORED above.
+    Asked of the rules rather than of this disk — see `gitignore_probe`. The four
+    filled-prompt patterns are the deliberate exception, excluded by DENY_NOT_IGNORED.
     """
-    r = subprocess.run(
-        ["git", "-C", ROOT, "check-ignore", "-q", "--no-index", "--", path],
-        capture_output=True)
-    assert r.returncode == 0, (
+    assert gitignore_probe(path), (
         f"{path} is denied by tools/release_screen.py and is not gitignored. Add a "
         "pattern to .gitignore's deny-list section — matching the deny rule's shape, "
         "not this one filename."

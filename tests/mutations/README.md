@@ -206,6 +206,50 @@ a positive mechanism vocabulary, because a name assembled only from mechanism wo
 demonstrates that the natural alternative fails silently and in the direction that
 publishes a surname through `metrics.json`.
 
+### The language layer: four mutations on a check that was wrong in the safe direction
+
+The vocabulary above shipped English-only, and the first arm to actually run against a
+Spanish corpus produced 28 rule names of which **23 were reported SUSPECT** — every one
+of them for naming a clinical formula in the corpus language (`paciente_cue`,
+`calle_cue`, `firmado_cue`). Prohibition 2 permits exactly that: a formula is allowed
+and designating an individual is not. So the check was wrong, and it was wrong in the
+direction this project prefers — it over-rejected, nothing leaked, and the cost was a
+screener that would exit 1 on every non-English arm forever. That is still a cost worth
+paying attention to, because a permanent finding is not a finding, which is the same
+argument the SEALED line and the allowlist were built on.
+
+The fix widens the vocabulary with a per-language layer of that language's formulae
+(`RULE_ID_VOCAB_BY_LANG`). Widening a whitelist is the dangerous kind of change, so all
+four mutations below are ways the widening goes further than the categories justify.
+
+| mutation | changes | breaks | tests that catch it |
+|---|---|---|---|
+| `the_language_layer_is_keyed_on_the_id_the_model_wrote` | `lang` comes from the rule id's `es:` prefix instead of from the file path | the screened text nominates its own vocabulary. The prefix is free text in a file the model produced; the path comes from the arm's configuration. Reads as the *more* precise source, and for every legitimate file the two agree | **2** |
+| `a_disagreeing_prefix_still_opens_the_layer` | the branch that drops the layer when prefix and path disagree is deleted | `de:` inside `es.yaml` keeps the Spanish set. Looks like deleting an unreachable case — why would an id in `es.yaml` say `de:`? Because the model writes it, and disagreement is the one state where the two sources can be played against each other | **1** |
+| `an_unknown_language_gets_every_layer` | an unrecognised `lang` falls back to the union of all layers rather than to none | presented as robustness for a corpus whose vocabulary nobody has written yet. It makes the union — the widest vocabulary in the tool — reachable from any unclassified filename, so one name may be built from Spanish, Catalan, German and Korean formulae at once | **1** |
+| `the_language_layer_is_a_substring_test` | layer membership becomes `p in w` instead of `p == w` | reads as tolerance for inflection (`ano` inside `anos`). A closed set decided by containment is not closed: `ana` passes on `anos`, `mar` on `marzo`, and short fragments are what names are made of | **1** |
+
+**What holds the line, and what cannot.** The layers contain no personal names, no
+place names, and nothing that can designate one individual or institution — and that is
+held by review, not by code. Two tests get as close as a test can. `test_no_layer_word_could_be_a_surface_form_by_shape`
+re-applies the shape rules to the layers themselves, so a capitalised, digit-bearing or
+non-ASCII word cannot enter a layer even though those words would be caught anyway when
+used; it closes the crudest route rather than the interesting one.
+`test_the_spanish_layer_does_not_pass_a_person_or_place` carries the actual criterion,
+and `calle_mayor` is the row that shows the categories are doing the work: `calle` is in
+the layer as a *kind* of street and `mayor` is not in anything, so a street's name is
+still flagged while the mechanism name that matches streets is not. `paciente_perez` is
+the same shape — one token from the layer does not license the rest of the name.
+
+The layer is code in `tools/release_screen.py` rather than data in `config/naming.yaml`,
+and the reason is that the screener imports nothing but the standard library. It is the
+one tool that must run before every commit, so giving it a YAML dependency adds a
+failure mode to the gate itself. `naming.yaml` is the *experiment's* vocabulary, read by
+`src/`; this is a publication-screening criterion with no experimental meaning. The two
+are connected by `test_every_layer_language_is_a_declared_lang_axis_value`, which
+refuses a layer for a language the `lang` axis does not declare — so the layer can be
+narrower than the axis but never invent a language.
+
 `git_tracked()` is not mutated, and that is worth stating rather than leaving as a
 gap in the table. It asks the index directly whether a denied path is staged or
 tracked. On git 2.54 `check-ignore` consults the index too, so a force-added file is

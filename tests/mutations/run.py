@@ -654,6 +654,87 @@ MUTATIONS = [
         ),
         min_kills=1,
     ),
+    # ─── the language layer (2026-08-11, Prohibition 2 across languages) ─────
+    # The layer exists because the English-only vocabulary rejected 23 of 28 names in
+    # the first port-oneshot output, all of them for naming a clinical formula in the
+    # corpus language — which Prohibition 2 permits. Every mutation below is a way of
+    # widening the vocabulary further than that, and each one looks like a
+    # simplification of an awkward special case.
+    Mutation(
+        name="the_language_layer_is_keyed_on_the_id_the_model_wrote",
+        path=SCREEN,
+        anchor='        found = rule_id_findings(text, lang=rule_file_lang(path))',
+        replacement='        found = rule_id_findings(text, lang=(text.split("rule_id:")[1]\n'
+                    '                                 .split(":")[0].strip()\n'
+                    '                                 if "rule_id:" in text and ":" in\n'
+                    '                                 text.split("rule_id:")[1] else None))',
+        breaks=(
+            "The language is taken from the rule id's own prefix instead of from the "
+            "file path. It reads as the more precise source — the id says what "
+            "language it is in, and the path only says what file it is in — and for "
+            "every legitimate file the two agree, so nothing looks wrong. The "
+            "difference is who writes them: the path comes from the arm's "
+            "configuration (`paths.armrules`, DESIGN §5.3) and the prefix is free "
+            "text inside a file the model produced. Keyed on the prefix, the screened "
+            "text nominates its own vocabulary, and `es:` in front of a surname buys "
+            "the whole Spanish formula set for the name it precedes. It is also dead "
+            "in practice in the reassuring direction: every id in both the committed "
+            "`rules/es.yaml` and the first port-oneshot output is unprefixed, so a "
+            "prefix-keyed layer widens nothing and passes the same tests."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="a_disagreeing_prefix_still_opens_the_layer",
+        path=SCREEN,
+        anchor="        allowed_extra = frozenset() if (sep and prefix.strip().lower() != lang) else extra",
+        replacement="        allowed_extra = extra",
+        breaks=(
+            "A prefix that contradicts the path keeps the path's layer instead of "
+            "dropping to the English vocabulary. This is the branch that decides what "
+            "happens when the harness and the model disagree about what language a "
+            "name is in, and deleting it looks like removing a case that cannot arise "
+            "— the file is `es.yaml`, so why would an id say `de:`? Because the model "
+            "writes the prefix, and a disagreement is precisely the state to treat as "
+            "suspicious rather than as an opportunity to pick the wider set."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="an_unknown_language_gets_every_layer",
+        path=SCREEN,
+        anchor="    extra = RULE_ID_VOCAB_BY_LANG.get(lang, frozenset()) if lang else frozenset()",
+        replacement="    extra = RULE_ID_VOCAB_BY_LANG.get(\n"
+                    "        lang, frozenset().union(*RULE_ID_VOCAB_BY_LANG.values()))",
+        breaks=(
+            "An unrecognised language falls back to the union of every layer rather "
+            "than to no layer. Presented as robustness — a new corpus should not fail "
+            "screening merely because nobody has written its vocabulary yet — and it "
+            "passes every per-language test, since each declared language still gets "
+            "its own set. What it actually does is make the union reachable from any "
+            "filename at all: one unclassified rule file, and a name may be built "
+            "from Spanish, Catalan, German and Korean formulae at once. The union is "
+            "the widest vocabulary in the tool and nothing should reach it, least of "
+            "all by default."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="the_language_layer_is_a_substring_test",
+        path=SCREEN,
+        anchor="                   and p.lower() not in allowed_extra",
+        replacement="                   and not any(p.lower() in w for w in allowed_extra)",
+        breaks=(
+            "Membership becomes a substring test against the layer. Every legitimate "
+            "name still passes and the change reads like tolerance for inflection — "
+            "`ano` inside `anos`, a stem inside its own plural. But the test now "
+            "succeeds for any fragment of any listed word, and short fragments are "
+            "what names are made of: `ana` passes on `anos`, `mar` on `marzo`, `don` "
+            "would no longer need to be listed at all. A closed set stops being "
+            "closed the moment membership is decided by containment."
+        ),
+        min_kills=1,
+    ),
     Mutation(
         name="greedy_allows_reuse",
         path=SCORER,
