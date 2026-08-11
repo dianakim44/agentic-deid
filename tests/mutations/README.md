@@ -19,10 +19,16 @@ is tested by `tests/test_mutation_harness.py`, which pytest does collect.
 
 Each one corresponds to a decision in DESIGN.md that a plausible "simplification"
 would silently undo. What they have in common is the property that makes them
-dangerous: **ninety-four of the hundred and five change no total.** The corpus still loads,
+dangerous: **the great majority change no total.** The corpus still loads,
 the document count is still 750, the span count is still 17,134 — and every
 downstream number is wrong. Those are the errors a reviewer cannot catch and an
 aggregate cannot reveal, which is why they get a harness rather than trust.
+
+That sentence used to read "ninety-four of the hundred and five", and it was wrong by
+five when it was noticed — the harness held a hundred and ten. `run.py --list` is the
+count; a fraction maintained by hand in prose beside it is a second answer that drifts,
+which is the failure this whole directory is about. The current total is whatever
+`--list` prints.
 
 The seal mutations are the sharpest case of that. A broken seal produces no wrong
 number at all: the figures are real, they are simply computed on data that was
@@ -756,7 +762,8 @@ and the second job is the one that survives contact with a tired evening.
 
 ### The Bedrock mutations, and the one that survived
 
-Six are on `src/llm/bedrock.py` and `tools/check_bedrock_logging.py`, and they
+Six are on `src/llm/bedrock.py` and `tools/check_bedrock_logging.py` (the two lifecycle-probe
+mutations added later are counted with their own group below), and they
 share a property none of the earlier groups has: **five of the six leave a client that
 returns a perfectly good `Response`.** No exception, no missing field, no malformed
 artefact. The arm runs, the rules are written, `metrics.json` validates. What each one
@@ -921,6 +928,58 @@ message bound for terminals, CI logs and stack traces that `release_screen.py` n
 loader therefore picks the parser's fixed phrasing and the mark out by hand rather than
 interpolating the exception, and the mutation is what says that choice is load-bearing rather
 than fussy.
+
+### The lifecycle probe: four mutations, three of which make the code nicer
+
+Added 2026-08-11 with the probe itself, and the group is unusual because **the thing being
+protected is optional metadata.** `GetFoundationModel`'s record is supplementary — nothing
+in the paper's numbers depends on it — so the ordinary argument for a guard ("a wrong number
+gets published") does not apply. Three of the four mutations are edits a reviewer would
+wave through, and two of them make the code read *better* than the real version.
+
+`the_lifecycle_probe_can_abort_the_arm` narrows `except Exception` to `except ValueError`.
+Every style guide in the world is on the mutation's side; the bare `except` is the thing you
+are taught not to write. What it costs is the arm. The freeze is already taken by the time
+the probe runs (`freeze_window` is step 1), so a probe that raises leaves a frozen window, no
+call log line, and a metadata endpoint as the cause of death — for a field nobody would have
+missed. The four live failure modes are `ClientError`, a credentials error, a `KeyError` from
+a changed envelope and `ImportError` with no boto3, and none of them is a `ValueError`. The
+probe is placed *before* the call for exactly this reason and the mutation converts that
+placement from a safety into a liability, which is the sharpest version of "a guard whose
+cost is paid by the thing it was meant to protect" in this file.
+
+`the_probe_error_carries_the_exception_message` swaps `type(exc).__name__` for `str(exc)`,
+which is what anyone debugging would want. This dict reaches three files and one of them is
+`agent_calls.jsonl`, which `release_screen.py` deny-lists — so nothing screens what lands
+there. CLAUDE.md's rule about exception text is not conditional on the exception being about
+a span; a rule that varies by context is a rule whose violations go quiet.
+
+`the_lifecycle_block_moves_into_the_run_block` is the one to read twice, and **it survived
+its first writing.** It spreads the lifecycle dict into `run_fold`'s run block — one line,
+tidier than the real code, which threads an argument through two functions to keep it out.
+What it produces is `start_of_life_time` sitting beside `model_id_resolution`, where a reader
+takes a catalogue timestamp as evidence for a resolution verdict. That is **the sixth family
+reintroduced as data**: a claim of resolution that nothing resolved, filed where no comment
+can warn anyone, because it reaches `metrics.json` and a reader who never opens the module.
+
+It survived because the guarantee had been credited to `MODEL_FIELDS`, and `MODEL_FIELDS`
+does not reach it — that check constrains `model_record`, and the mutation spreads a
+*different* argument into the same dict one line below. Worse, `MODEL_FIELDS` had no test
+anywhere in the suite: a closed set nothing exercised, cited in a docstring as the mechanism.
+Two gaps of one shape, and the shape is the recurring one in this file — a guarantee
+attributed to a mechanism that does not touch it. The repair added
+`test_model_record_is_a_closed_set` (the check finally has one) and
+`test_the_lifecycle_record_stays_out_of_the_run_block` at the writer's own layer, rather than
+relying on the two downstream tests in `test_orchestrate.py` that were already there.
+
+`an_empty_lifecycle_mapping_is_written_as_no_probe` is the smallest of the four and the
+easiest to argue against: an empty dict and no dict produce the same file, so refusing one
+looks like pedantry. The two states are "no probe was made" (the `R` arm, which calls
+nothing) and "a probe was made" — the failing case has its own record, `status: unavailable`.
+An empty mapping means a caller assembled the block by hand and lost that distinction, and
+writing it as absent files the arm as having called no model. It is also the reason
+`SCHEMA_VERSION` moved for an *optional* field: absence has to stay readable, and it only
+does if every writer means the same thing by it.
 
 ## What the seal cost, and what carries the difference
 
@@ -1290,6 +1349,16 @@ things is true, and they are not close: the property is enforced elsewhere and t
 names the wrong enforcer, or the property is not enforced at all and the comment is a
 prediction. **A guarantee asserted in a comment and held by an accident of a third-party
 call is indistinguishable, from inside the file, from one the code enforces.**
+
+**And it recurs as data, which is worse.** `the_lifecycle_block_moves_into_the_run_block`
+(2026-08-11, `### The lifecycle probe` above) is this same fault with the comment replaced by
+a field: `start_of_life_time` filed beside `model_id_resolution` asserts that something was
+resolved, and nothing was. The difference in severity is where the claim can be read. A
+comment misleads whoever opens the file; a field misleads whoever opens `metrics.json`, which
+is everyone the paper is written for and nobody who will check the module. That is the reason
+`bedrock.model_lifecycle`'s docstring leads with what it is *not* and the reason no field in
+it is named `model_resolved` — the naming is the guard, chosen because this family's lesson
+was already on the books.
 
 #### The sweep, and what it turned up
 

@@ -225,6 +225,7 @@ def run_fold(
     rules: dict[str, Path] | None = None,
     root: Path | None = None,
     model_record: Mapping[str, str | None] | None = None,
+    model_lifecycle: Mapping[str, str | None] | None = None,
     cost: Mapping[str, float] | None = None,
 ) -> tuple[Path, Path, dict]:
     """Detect over the fold, score it, write both files. Returns (spans, metrics, scored).
@@ -258,6 +259,16 @@ def run_fold(
     three LLM counts, both explicit and neither a default standing in for a measurement.
     `model_record` may carry only `MODEL_FIELDS`, so this stays a report of a call and does
     not become a second way to write the run block.
+
+    **`model_lifecycle` is passed through and never merged into the run block.** It is
+    `bedrock.model_lifecycle()`'s record, and it is a separate argument from `model_record`
+    for the reason `MODEL_FIELDS` is a closed set: the two say different kinds of thing.
+    `model_record` is what the response confirmed about the id that answered, and it is a
+    premise of the numbers. The lifecycle record is when the id *appeared* in the catalogue,
+    which **does not resolve the alias** — see `scorer.write_metrics` and
+    `docs/notes/baseline-model-family.md` §"측정 결과" 4. Merging them would put a timestamp
+    that identifies nothing next to `model_id_resolution`, where it would read as evidence
+    for it. Nothing here derives one from the other in either direction.
 
     **`wall_seconds` is the arm's total and the two parts are summed.** The caller's figure
     is the call's, this function measures the detection pass, and both are compute time for
@@ -336,6 +347,7 @@ def run_fold(
     metrics_file = write_metrics(
         scored, run=run,
         cost={**NO_LLM_COST, **dict(cost or {}), "wall_seconds": seconds},
+        model_lifecycle=model_lifecycle,
         root=root,
     )
     return spans_file, metrics_file, scored

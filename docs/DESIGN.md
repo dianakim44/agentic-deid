@@ -401,6 +401,26 @@ re-running is what the freeze forbids. §10 A2 records the reversal in full, inc
 term that was missing from the original trade and why pinning the whole ladder makes the
 snapshot discrepancy vanish rather than merely relocating it.
 
+**The catalogue timestamp is recorded beside the call, and it is not part of the pin.** Each
+arm probes `GetFoundationModel` once, before its call, and files the result — ARN, display
+name, status, `startOfLifeTime` — in the call log and in whichever of `metrics.json` or
+`paths.formatfailure` it writes. Three homes because the call log is deny-listed by
+`tools/release_screen.py` and no git copy of it can ever exist, and because exactly one of the
+other two files is written per arm. It costs one control-plane call, which makes no inference
+and is therefore not in the cost block (CLAUDE.md's cost-beside-quality figures stay
+comparable to `port-loop`'s).
+
+What the timestamp is worth: it orders the arm against the id's publication, so "this arm
+called a snapshot that had already been out for nine months" is answerable from the record.
+What it is **not**: it does not resolve an alias, and it is not evidence that anything was
+resolved. `startOfLifeTime` is when the *id* appeared in the catalogue, not which weights
+served it on the day — probe 4 of `docs/notes/baseline-model-family.md`. So it lives at the
+top level of those files and never in the run block, where it would sit beside
+`model_id_resolution` and be read as corroborating a verdict it cannot support. That
+separation is a decision and not an implementation detail: the same failure once appeared here
+as a comment overstating a guarantee (`tests/mutations/README.md`, the sixth family), and a
+field is the version of it that reaches a reader who never opens the code.
+
 ### 4.1 What retiring `port-human` costs, stated as a limitation
 
 `port-human` was the baseline until 2026-08-07 and was withdrawn for resourcing: no human

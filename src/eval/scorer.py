@@ -58,7 +58,12 @@ SCORER_VERSION = 1
 #: mitigation described in the design and absent from the writer. This is that mitigation
 #: becoming a property. `run_fold` already wrote `commit` and `tree`; what changes is that
 #: a run block without them is now refused rather than accepted and unnoticed.
-SCHEMA_VERSION = 4
+#: 5 adds an optional top-level `model_lifecycle` block (DESIGN §4's dated pin,
+#: 2026-08-11). A new *optional* block is still a shape change, because a reader diffing
+#: two files needs to know whether an absent block means "this writer did not have one" or
+#: "this version had no such field". Top-level and not inside `run` on purpose — see
+#: `write_metrics`.
+SCHEMA_VERSION = 5
 
 FULLY_COVERED = "fully_covered"
 RELAXED = "relaxed"
@@ -970,7 +975,12 @@ def metrics_path(run: Mapping[str, str], root: Path | None = None) -> Path:
 
 
 def write_metrics(
-    scored: Mapping, *, run: Mapping, cost: Mapping, root: Path | None = None
+    scored: Mapping,
+    *,
+    run: Mapping,
+    cost: Mapping,
+    model_lifecycle: Mapping | None = None,
+    root: Path | None = None,
 ) -> Path:
     """Assemble and write metrics.json. `run` and `cost` are required.
 
@@ -986,6 +996,28 @@ def write_metrics(
     allowed to omit the field; an LLM arm records the exact identifier it called,
     because Bedrock aliases move under a stable name and a run recorded by alias is a
     run nobody can reproduce.
+
+    `model_lifecycle` is `bedrock.model_lifecycle()`'s record, and three things about it
+    are deliberate.
+
+    **It does not resolve the alias, and it is not evidence that anything was resolved.**
+    `start_of_life_time` is when the *id* appeared, not what the id pointed at on the day
+    of the call — the measurement is `docs/notes/baseline-model-family.md` §"측정 결과" 4.
+    Anyone reading this block as identification is reading it as the opposite of what it
+    is, which is why the writer never derives `model_id_resolution` from it and why no
+    field here is named `model_resolved`.
+
+    **It sits at the top level and not in the run block**, which is where `model_id` and
+    `model_id_resolution` live. The run block is what the paper's premises are read off;
+    a lifecycle timestamp beside a resolution verdict would read as corroborating it. The
+    separation is the same one `cost` gets, and for the same reason: adjacent to the claims
+    rather than inside them.
+
+    **Absent means no probe, not an older writer.** The block is omitted rather than
+    nulled when there is nothing to probe (the `R` arm calls no model), and
+    `SCHEMA_VERSION` was bumped for an *optional* addition precisely so that absence is
+    legible — without the bump, a reader diffing two files cannot tell "this arm made no
+    call" from "this writer had no such field".
     """
     missing = [k for k in REQUIRED_COST if cost.get(k) is None]
     if missing:
@@ -994,12 +1026,26 @@ def write_metrics(
             "An arm that makes no LLM calls passes 0 — a zero is a measurement and "
             "an absent key is not, and this refuses to conflate them."
         )
+    if model_lifecycle is not None and not model_lifecycle:
+        raise ScorerError(
+            "model_lifecycle is an empty mapping. Pass None for 'no probe was made' and "
+            "bedrock.model_lifecycle()'s record otherwise — that function returns an "
+            "`unavailable` record for every failure rather than an empty one, so an empty "
+            "mapping here is a caller that built the block itself and lost the "
+            "distinction. An empty dict would be written as absent, which says the arm "
+            "called no model. (The constant is not imported: this module is agent-free "
+            "and arm-free by construction, and a dependency on the LLM client for one "
+            "word would end that.)"
+        )
     path = metrics_path(run, root=root)
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = {
         "schema_version": SCHEMA_VERSION,
         "run": {**dict(run), "scorer_version": SCORER_VERSION},
         "cost": dict(cost),
+        # Top level, not inside `run` — see the docstring. Omitted when there is nothing
+        # to probe rather than written as null.
+        **({"model_lifecycle": dict(model_lifecycle)} if model_lifecycle else {}),
         "headline_mode": dict(HEADLINE_MODE),
         **{k: v for k, v in scored.items() if k != "scorer_version"},
     }

@@ -59,6 +59,15 @@ file's text. All three of `Response.model_record()` are required in the run bloc
 module assembles, which `scorer.REQUIRED_RUN` does not require of every arm: the `R` arm
 cannot observe two of them, and a required field one writer fills with a placeholder makes
 the placeholder the convention (DESIGN §10 A2, the note on schema 4).
+
+**The lifecycle record has three homes and none of them is the run block.** The arm probes
+`GetFoundationModel` once before the call and the record goes to the call log, and then to
+whichever of `metrics.json` / `paths.formatfailure` this arm writes — three places because
+the call log is deny-listed by `tools/release_screen.py` and can never be recovered from
+git, and because exactly one of the other two exists per arm. Not the run block, and not
+`MODEL_FIELDS`: `start_of_life_time` is when the *id* appeared in the catalogue and says
+nothing about what answered, so beside `model_id_resolution` it would read as evidence for a
+verdict it cannot support. `bedrock.model_lifecycle`'s docstring is where that is argued.
 """
 from __future__ import annotations
 
@@ -77,7 +86,7 @@ from .corpora.base import ROOT, CorpusError, axis, path_template, rule_langs
 from .eval.run_fold import DEFAULT_SPLIT, run_fold
 from .eval.scorer import check_run
 from .eval import sealed_log
-from .llm.bedrock import invoke
+from .llm.bedrock import invoke, model_lifecycle
 from .llm.prompt import assemble_task_prompt
 # `_relative` rather than a third spelling of the same reduction. `src/rules.py` decides
 # what a rule file's location looks like in a published record — repo-relative where it
@@ -174,7 +183,10 @@ NULLABLE_MODEL = ("model_id_reported",)
 #: this file is not a metrics file and DESIGN §10 A2's whole point is that the two are
 #: distinguishable by name, so a shared version would make a change to one imply a change
 #: to the other.
-FAILURE_SCHEMA = 1
+#: 2 adds `model_lifecycle` (2026-08-11). It moves in step with `scorer.SCHEMA_VERSION` 5
+#: and not because of it: exactly one of the two files is written per arm, so a record the
+#: metrics file carries and this one does not would be a record the failing arms lose.
+FAILURE_SCHEMA = 2
 
 
 class OrchestrateError(CorpusError):
@@ -552,7 +564,7 @@ def window_drift(corpus: str, detector: str, supervision: str,
 
 def call_line(iteration: int, *, prompt_reference: dict, model: dict,
               response_chars: int, response_sha256: str, outcome: str,
-              cost: dict) -> dict:
+              cost: dict, model_lifecycle: dict | None = None) -> dict:
     """One `agent_calls.jsonl` line: what was sent, what answered, what it cost.
 
     **No prompt text and no response text.** The prompt's `reference()` is what may be
@@ -574,6 +586,22 @@ def call_line(iteration: int, *, prompt_reference: dict, model: dict,
     The window hashes go on every line, per DESIGN §11.2. `port-oneshot` has one line and
     the freeze record would do, but the field is the iterating arms' mid-run drift detector
     and a writer that omitted it here would be the writer `port-loop` is copied from.
+
+    **`model_lifecycle` is supplementary and lives here rather than in the run block.** It is
+    `GetFoundationModel`'s metadata for the id that was called — an ARN, a display name, a
+    status and a `startOfLifeTime` — and it **does not resolve an alias**: the timestamp says
+    when the *id* first appeared and not which weights served it (DESIGN §10 A2, measurement 4
+    of `docs/notes/baseline-model-family.md`). The reason it is a log field and not a run
+    field is that distinction. `metrics.json`'s run block is what the paper's claims are read
+    off, and a per-call metadata block sitting there beside `model_id_resolution` would read
+    as strengthening it. In the call log it is what it is: a note about the id, attached to
+    the call that used it.
+
+    Optional, and `None` gives a line without the key rather than a null. That is the
+    opposite of `sample_reference` one line down, deliberately: an empty §1.4 block is a fact
+    about this arm and must be legible across arms, whereas a metadata probe is a convenience
+    whose absence claims nothing. `port-loop` may pass it or not, and neither reading of its
+    log becomes wrong.
     """
     if outcome not in OUTCOMES:
         raise OrchestrateError(
@@ -585,6 +613,9 @@ def call_line(iteration: int, *, prompt_reference: dict, model: dict,
         "iteration": iteration,
         "outcome": outcome,
         **model,
+        # A note about the id and not a resolution of it — see the docstring, and the field
+        # name says so. Omitted entirely when absent, unlike `sample_reference`.
+        **({"model_lifecycle": dict(model_lifecycle)} if model_lifecycle else {}),
         "prompt_reference": dict(prompt_reference),
         # Explicitly absent, and see the docstring. `port-loop` fills it from iteration 2.
         "sample_reference": None,
@@ -715,7 +746,8 @@ def _write_rules(text: str, *, corpus: str, detector: str, supervision: str,
 
 def _write_failure(*, corpus: str, detector: str, supervision: str, porting: str,
                    split: str, model: dict, response: str, error: str,
-                   rules_path: Path, cost: dict, prompt_reference: dict) -> Path:
+                   rules_path: Path, cost: dict, prompt_reference: dict,
+                   model_lifecycle: dict | None = None) -> Path:
     """Record a format failure. Written instead of `metrics.json`, never beside it.
 
     DESIGN §10 A2's three contents: the model ids, the raw response, and **the validator's
@@ -732,6 +764,14 @@ def _write_failure(*, corpus: str, detector: str, supervision: str, porting: str
     the screener's ALLOW list as a path and the content sniffer still runs first, because a
     completion that echoed a §1.4 prompt would carry the corpus with it and "this arm's call
     carries §§1.1–1.2 only" is a fact about today's arm rather than a property of the path.
+
+    `model_lifecycle` is carried here for the reason the first paragraph of this docstring
+    gives: this file is written **instead of** `metrics.json`, so a record only that file
+    carries is a record every failing arm loses, and a failing arm is exactly the appendix
+    case §10 A2 cares most about. It is a sibling of the model ids rather than merged into
+    them, and it **does not resolve the alias** — `start_of_life_time` is when the id
+    appeared in the catalogue, not what answered on the day (`bedrock.model_lifecycle`,
+    `docs/notes/baseline-model-family.md` §"측정 결과" 4).
     """
     path = failure_path(corpus, detector, supervision, porting)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -743,6 +783,11 @@ def _write_failure(*, corpus: str, detector: str, supervision: str, porting: str
         "porting": porting,
         "split": split,
         **{k: model[k] for k in REQUIRED_MODEL},
+        # Omitted when there was nothing to probe, never nulled — the same choice
+        # `call_line` makes and the deliberate opposite of `sample_reference`'s. Here the
+        # two states are "no probe" and "a probe that failed", and the second already has
+        # its own record (`status: unavailable`), so a null would be read as the first.
+        **({"model_lifecycle": dict(model_lifecycle)} if model_lifecycle else {}),
         "generated": _now(),
         # Where the response was written before it was loaded. The failure is about a file,
         # and a reader who cannot find the file has the message and not the artefact.
@@ -765,7 +810,7 @@ def _write_failure(*, corpus: str, detector: str, supervision: str, porting: str
 def run_arm(*, corpus: str, lang: str, model_id: str,
             detector: str = DETECTOR, supervision: str = SUPERVISION,
             porting: str = PORTING, split: str = DEFAULT_SPLIT,
-            max_tokens: int | None = None, client=None) -> dict:
+            max_tokens: int | None = None, client=None, control_client=None) -> dict:
     """The whole arm: freeze, assemble, call once, validate, then score or record failure.
 
     Returns what happened, as a mapping with `outcome` (`SCORED` or `FORMAT_FAILURE`), the
@@ -780,8 +825,12 @@ def run_arm(*, corpus: str, lang: str, model_id: str,
     2. **Assemble §§1.1–1.2** through `assemble_task_prompt()`, which draws nothing. §§1.3
        and 1.4 are stated empty in the prompt (DESIGN §4), and the freeze record says the
        same thing in its own words so the two can be compared.
-    3. **Call once.** `bedrock.invoke()` makes one attempt and this makes one call; there is
-       no loop here to bound.
+    3. **Probe the model's lifecycle**, then **call once.** `bedrock.invoke()` makes one
+       attempt and this makes one call; there is no loop here to bound. The probe is a
+       control-plane lookup that makes no inference, so it is not in `cost` — counting it in
+       `llm_calls` would make this arm's cost incomparable to `port-loop`'s for a reason
+       having nothing to do with either — and it goes before the call rather than after so
+       that anything surprising it does happens while the arm can still be rerun.
     4. **Log the call**, before the response is judged. See the module docstring: the log
        line is what fixes the window, so it is written while the only thing known about the
        response is that it arrived.
@@ -798,6 +847,13 @@ def run_arm(*, corpus: str, lang: str, model_id: str,
     `client` is the transport seam the tests use, passed through to `bedrock.invoke()`
     unexamined. `max_tokens` is left to that module's default unless given, so the budget is
     decided in one place.
+
+    `control_client` is the *second* seam, for the lifecycle probe, and it is separate
+    because the probe is a different service — `converse` is on `bedrock-runtime` and
+    `GetFoundationModel` is not, so one object cannot stand in for both. It is a seam at all
+    for a reason worth stating: without it a test of this function reaches AWS, and a suite
+    that makes network calls is a suite that gets a `--no-network` flag and then stops
+    covering the probe at all.
     """
     if not isinstance(model_id, str) or not model_id:
         raise OrchestrateError(
@@ -822,6 +878,13 @@ def run_arm(*, corpus: str, lang: str, model_id: str,
     prompt = assemble_task_prompt(lang=lang, corpus=corpus)
     reference = prompt.reference()
 
+    # Before the call and not after, so that if this probe ever does something surprising it
+    # does so while the arm is still repeatable. It cannot raise (`model_lifecycle` returns an
+    # `unavailable` record for every failure) and it is not counted in `cost` — a control-plane
+    # lookup makes no inference and consumes no tokens, and putting it in `llm_calls` would
+    # make this arm's cost incomparable to `port-loop`'s for a reason unrelated to either.
+    lifecycle = model_lifecycle(model_id, client=control_client)
+
     kwargs = {} if max_tokens is None else {"max_tokens": max_tokens}
     response = invoke(prompt, model_id=model_id, client=client, **kwargs)
     cost = response.cost()
@@ -833,7 +896,7 @@ def run_arm(*, corpus: str, lang: str, model_id: str,
         call_line(ITERATION, prompt_reference=reference, model=model,
                   response_chars=len(response.text),
                   response_sha256=_digest(response.text),
-                  outcome=CALLED, cost=cost),
+                  outcome=CALLED, cost=cost, model_lifecycle=lifecycle),
         corpus, detector, supervision, porting,
     )
 
@@ -848,6 +911,7 @@ def run_arm(*, corpus: str, lang: str, model_id: str,
             corpus=corpus, detector=detector, supervision=supervision, porting=porting,
             split=split, model=model, response=response.text, error=str(exc),
             rules_path=rules_file, cost=cost, prompt_reference=reference,
+            model_lifecycle=lifecycle,
         )
         return {
             "outcome": FORMAT_FAILURE,
@@ -867,7 +931,7 @@ def run_arm(*, corpus: str, lang: str, model_id: str,
     spans_file, metrics_file, scored = run_fold(
         corpus=corpus, detector=detector, supervision=supervision, porting=porting,
         split=split, rules={lang: rules_file}, model_record=model, cost=cost,
-        root=ROOT,
+        model_lifecycle=lifecycle, root=ROOT,
     )
     return {
         "outcome": SCORED,

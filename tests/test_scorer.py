@@ -1317,9 +1317,16 @@ def test_the_provenance_fields_are_not_in_the_results_path(tmp_path):
 
 
 def test_the_schema_version_moved_with_the_new_required_fields():
-    """Three required fields are a shape change, so `SCHEMA_VERSION` moves and
-    `SCORER_VERSION` does not — no existing field means anything different."""
-    assert scorer.SCHEMA_VERSION == 4
+    """A shape change moves `SCHEMA_VERSION` and leaves `SCORER_VERSION` alone — no
+    existing field means anything different.
+
+    Schema 4 was three new required fields; schema 5 is one new *optional* block
+    (`model_lifecycle`). The optional case is the one worth a tripwire: it is the change
+    most easily made without touching the counter, and then an absent block cannot be told
+    apart from a writer that never had one. Failing here is the reminder to bump, not a
+    reason to edit the number until the constant's own note says what changed.
+    """
+    assert scorer.SCHEMA_VERSION == 5
     assert scorer.SCORER_VERSION == 1
 
 
@@ -1382,3 +1389,83 @@ def test_the_written_file_is_the_scored_result(scored, tmp_path):
     written = json.loads(path.read_text(encoding="utf-8"))
     for key in ("counts", "headline", "modes", "false_positive_opportunity"):
         assert written[key] == json.loads(json.dumps(scored[key]))
+
+
+# ─── model_lifecycle: beside the claims, never inside them ───────────────────
+
+LIFECYCLE = {
+    "model_arn": "arn:aws:bedrock:us-east-1::foundation-model/anthropic.x",
+    "model_name": "Claude Opus 4.5", "status": "ACTIVE",
+    "start_of_life_time": "2025-11-24T00:00:00+00:00",
+}
+
+
+def test_the_lifecycle_block_is_top_level_and_not_in_the_run_block(scored, tmp_path):
+    """The run block is what the paper's premises are read off. A lifecycle timestamp
+    beside `model_id_resolution` would read as corroborating a verdict it cannot support —
+    `start_of_life_time` is when the *id* appeared, not what answered (DESIGN §4)."""
+    path = write_metrics(scored, run=RUN, cost=COST, model_lifecycle=LIFECYCLE,
+                         root=tmp_path)
+    written = json.loads(path.read_text(encoding="utf-8"))
+    assert written["model_lifecycle"] == LIFECYCLE
+    assert "model_lifecycle" not in written["run"]
+    for field in written["run"]:
+        assert "lifecycle" not in field and "start_of_life" not in field
+
+
+def test_an_absent_probe_omits_the_block_rather_than_nulling_it(scored, tmp_path):
+    """`model_lifecycle()` returns an `unavailable` record for every failure, so the two
+    states here are "a probe happened" and "there was nothing to probe" — the R arm calls
+    no model. A null would be a third state no reader can act on."""
+    path = write_metrics(scored, run=RUN, cost=COST, root=tmp_path)
+    written = json.loads(path.read_text(encoding="utf-8"))
+    assert "model_lifecycle" not in written
+
+
+def test_an_empty_lifecycle_mapping_is_refused(scored, tmp_path):
+    """An empty dict would be written as absent — that is, as "this arm called no model",
+    which is the opposite of what a caller passing one meant. Refused rather than
+    normalised, because the caller that built it lost a distinction on the way."""
+    with pytest.raises(ScorerError, match="empty"):
+        write_metrics(scored, run=RUN, cost=COST, model_lifecycle={}, root=tmp_path)
+
+
+def test_the_lifecycle_block_does_not_change_the_path(scored, tmp_path):
+    """Same rule as `model_id` and `generated`: the path names the cell of the experiment,
+    and anything formatted into it mints a cell."""
+    a = write_metrics(scored, run=RUN, cost=COST, root=tmp_path)
+    b = write_metrics(scored, run=RUN, cost=COST, model_lifecycle=LIFECYCLE,
+                      root=tmp_path)
+    assert a == b
+
+
+def test_the_scorer_does_not_import_the_llm_client():
+    """This module is agent-free and arm-free by construction (its own docstring). A
+    dependency on the Bedrock client for one constant would end that, which is why
+    `LIFECYCLE_UNAVAILABLE` is spelled out in the message rather than imported.
+
+    Imports, not prose: the docstrings here name `bedrock.model_lifecycle` on purpose, and
+    a substring search would forbid explaining the boundary in order to enforce it.
+    """
+    import ast
+    tree = ast.parse((ROOT / "src" / "eval" / "scorer.py").read_text(encoding="utf-8"))
+    imported = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            imported.update(a.name for a in node.names)
+        elif isinstance(node, ast.ImportFrom):
+            imported.add(node.module or "")
+    assert not any("llm" in m or "bedrock" in m for m in imported), sorted(imported)
+
+
+def test_nothing_in_the_written_file_derives_a_resolution_from_the_lifecycle(scored,
+                                                                            tmp_path):
+    """The one thing this block must never become. `model_id_resolution` comes from the
+    response the call returned; a writer that could compute it from a catalogue timestamp
+    would be asserting the causal link the sixth mutation family is about."""
+    path = write_metrics(scored, run=RUN, cost=COST, model_lifecycle=LIFECYCLE,
+                         root=tmp_path)
+    written = json.loads(path.read_text(encoding="utf-8"))
+    # RUN carries no resolution field, and writing a lifecycle block does not invent one.
+    assert "model_id_resolution" not in written["run"]
+    assert "resolution" not in written["model_lifecycle"]

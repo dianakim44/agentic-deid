@@ -463,6 +463,191 @@ def test_the_model_record_keeps_both_ids():
     assert record["model_id_resolution"] == UNRESOLVED
 
 
+# ─── the lifecycle probe, which resolves nothing ──────────────────────────────
+
+class FakeControl:
+    """`GetFoundationModel` in the measured shape, or a raiser.
+
+    `start_of_life` is a `datetime` because that is what botocore returns, and the writer
+    stringifying it is the behaviour under test — a `datetime` reaching `json.dump` raises
+    in whichever of three callers forgot the encoder.
+    """
+
+    def __init__(self, *, raises: Exception | None = None, status: str | None = "ACTIVE",
+                 lifecycle_key: bool = True):
+        self.raises = raises
+        self.status = status
+        self.lifecycle_key = lifecycle_key
+        self.asked: list[str] = []
+
+    def get_foundation_model(self, *, modelIdentifier: str):
+        self.asked.append(modelIdentifier)
+        if self.raises is not None:
+            raise self.raises
+        from datetime import datetime, timezone
+        details = {
+            "modelArn": f"arn:aws:bedrock:us-east-1::foundation-model/{modelIdentifier}",
+            "modelName": "Claude Opus 4.5",
+        }
+        if self.lifecycle_key:
+            details["modelLifecycle"] = {
+                "status": self.status,
+                "startOfLifeTime": datetime(2025, 11, 24, tzinfo=timezone.utc),
+            }
+        return {"modelDetails": details}
+
+
+def test_the_probe_strips_the_region_prefix_because_the_control_plane_refuses_it():
+    """Measured 2026-08-11: `GetFoundationModel` raises `ResourceNotFoundException` on the
+    inference-profile id and answers on the bare one. The stripping is not decoration."""
+    control = FakeControl()
+    bedrock_module.model_lifecycle(DATED_ID, client=control)
+    assert control.asked == ["anthropic.claude-opus-4-5-20251101-v1:0"]
+
+
+def test_the_probe_and_the_resolver_agree_about_what_a_prefix_is():
+    """Two lists of region prefixes are two answers to the same question. The mechanism is
+    that both read one literal — this fails if either grows a prefix the other lacks."""
+    src = MODULE.read_text(encoding="utf-8")
+    assert src.count('("us.", "eu.", "apac.")') == 2, (
+        "the region-prefix tuple is written somewhere other than the two places that "
+        "share it, or one of them has diverged"
+    )
+
+
+def test_a_datetime_does_not_reach_the_record():
+    """Three callers JSON-encode this dict. A type needing a custom encoder is a type one
+    of them writes without one, and the failure lands after the unrepeatable call."""
+    import json
+    record = bedrock_module.model_lifecycle(DATED_ID, client=FakeControl())
+    assert record["start_of_life_time"] == "2025-11-24T00:00:00+00:00"
+    json.dumps(record)                          # raises if anything here is a datetime
+
+
+def test_the_probe_never_raises_whatever_the_failure_is():
+    """The arm's one call is unrepeatable (DESIGN §6.3). A supplementary metadata lookup
+    that can abort it is the tail wagging the dog, so every failure becomes a record."""
+    class Boom(Exception):
+        pass
+
+    for exc in (Boom("no"), KeyError("modelDetails"), ImportError("no boto3"),
+                RuntimeError("credentials")):
+        record = bedrock_module.model_lifecycle(DATED_ID,
+                                               client=FakeControl(raises=exc))
+        assert record["status"] == bedrock_module.LIFECYCLE_UNAVAILABLE
+        assert record["probe_error"] == type(exc).__name__
+
+
+def test_the_probe_error_is_a_type_name_and_never_the_message():
+    """This dict is written to `agent_calls.jsonl` and to two files under `results/`. A
+    botocore message can carry the request it failed on, and CLAUDE.md's rule about what
+    goes into a log does not care what the exception was about."""
+    secret = f"ValidationException: could not parse {SURFACE}"
+    record = bedrock_module.model_lifecycle(DATED_ID,
+                                            client=FakeControl(raises=ValueError(secret)))
+    assert record["probe_error"] == "ValueError"
+    assert SURFACE not in repr(record)
+
+
+def test_a_missing_lifecycle_block_is_unavailable_rather_than_null():
+    """`model_id_absent`'s rule (DESIGN §4): "we did not look" and "we looked and the
+    platform had nothing to say" are different facts and only the second is a measurement."""
+    record = bedrock_module.model_lifecycle(DATED_ID,
+                                           client=FakeControl(lifecycle_key=False))
+    assert record["status"] == bedrock_module.LIFECYCLE_UNAVAILABLE
+    assert record["start_of_life_time"] is None
+    assert record["model_name"] == "Claude Opus 4.5"          # the rest still arrived
+
+
+def test_the_record_carries_only_the_closed_field_list():
+    """`LIFECYCLE_FIELDS` is a closed list for a reason — the rest of the response is
+    capability description, and a record that grows when AWS adds a field is a record
+    whose diff between two runs is unreadable. Asserted here because nothing in the
+    module enforces it; a constant no code reads is a comment."""
+    record = bedrock_module.model_lifecycle(DATED_ID, client=FakeControl())
+    assert tuple(record) == bedrock_module.LIFECYCLE_FIELDS
+    failed = bedrock_module.model_lifecycle(DATED_ID,
+                                           client=FakeControl(raises=ValueError("x")))
+    # The failure record is the same fields plus the one that says why, and no others.
+    assert tuple(failed) == bedrock_module.LIFECYCLE_FIELDS + ("probe_error",)
+
+
+def test_no_field_here_claims_to_have_resolved_anything():
+    """The sixth family in `tests/mutations/README.md` was a comment asserting a causal
+    link that nothing established. The same defect as *data* would reach `metrics.json`
+    and a reader who never opens this module, so the names are the guard."""
+    record = bedrock_module.model_lifecycle(DATED_ID, client=FakeControl())
+    for field in record:
+        assert "resolv" not in field and "weights" not in field, (
+            f"{field!r} reads as an identity claim; this probe establishes none — "
+            "start_of_life_time is when the id appeared, not what serves it"
+        )
+    assert bedrock_module.DATED not in repr(record)
+
+
+def test_the_probe_does_not_touch_the_runtime_client():
+    """It is a different service. A probe reaching `converse` would be an uncounted
+    inference call sitting outside the cost block."""
+    fake = FakeRuntime()
+    bedrock_module.model_lifecycle(DATED_ID, client=FakeControl())
+    assert fake.calls == []
+    src = MODULE.read_text(encoding="utf-8")
+    fn = next(n for n in ast.parse(src).body
+              if isinstance(n, ast.FunctionDef) and n.name == "model_lifecycle")
+    called = {n.func.attr for n in ast.walk(fn)
+              if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)}
+    assert "converse" not in called
+
+
+def test_the_control_client_asks_for_the_control_plane_and_the_given_region(monkeypatch):
+    """The real `_control_client`, with only `boto3` faked.
+
+    Written because `tools/check_patched_guarantees.py` flagged this function as patched
+    everywhere and executed by nothing: `tests/test_orchestrate.py` substitutes it for every
+    arm test, which is right for those tests and leaves it uncovered. Patching the
+    third-party call inside it and running the real body is the same repair
+    `test_check_bedrock_logging.py` made for `check_region` — the AWS call is faked, the
+    function is not.
+
+    What it asserts is the whole of what the function decides: the service name, because
+    `GetFoundationModel` is on `bedrock` and `converse` is on `bedrock-runtime` and asking
+    the wrong one fails at every id; and that the region argument arrives, since a probe
+    pinned to the default region would describe a profile the call may not have used.
+    """
+    seen = {}
+
+    class FakeBoto3:
+        def client(self, service, **kwargs):
+            seen["service"] = service
+            seen.update(kwargs)
+            return "a client"
+
+    monkeypatch.setitem(sys.modules, "boto3", FakeBoto3())
+    assert bedrock_module._control_client("us-west-2") == "a client"
+    assert seen == {"service": "bedrock", "region_name": "us-west-2"}
+    # None means "let botocore decide from the environment", not "pass a null region".
+    bedrock_module._control_client(None)
+    assert seen["region_name"] is None
+
+
+def test_the_control_client_is_not_pinned_to_one_attempt():
+    """`MAX_ATTEMPTS = 1` exists so `llm_calls` counts truthfully. This endpoint makes no
+    inference and appears in no cost block, so pinning it would trade a metadata field for
+    nothing — the difference between the two clients is deliberate and easy to 'tidy'."""
+    src = MODULE.read_text(encoding="utf-8")
+    fn = next(n for n in ast.parse(src).body
+              if isinstance(n, ast.FunctionDef) and n.name == "_control_client")
+    # The body without its docstring: that docstring names the constant to explain the
+    # difference, and a substring search over the whole node reads the explanation as the
+    # thing it warns against.
+    body = [n for n in fn.body if not (isinstance(n, ast.Expr)
+                                       and isinstance(n.value, ast.Constant))]
+    names = {n.id for n in ast.walk(ast.Module(body=body, type_ignores=[]))
+             if isinstance(n, ast.Name)}
+    assert "MAX_ATTEMPTS" not in names
+    assert "retries" not in ast.dump(ast.Module(body=body, type_ignores=[]))
+
+
 # ─── the logging gate ────────────────────────────────────────────────────────
 
 def a_tree_with(tmp_path: Path, section_body: str) -> Path:

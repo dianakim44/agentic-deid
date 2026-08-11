@@ -470,6 +470,50 @@ def test_the_schema_version_is_recorded(ran):
     assert written["schema_version"] == scorer.SCHEMA_VERSION
 
 
+LIFECYCLE = {"model_arn": "arn:…:foundation-model/anthropic.x",
+             "model_name": "Claude Opus 4.5", "status": "ACTIVE",
+             "start_of_life_time": "2025-11-24T00:00:00+00:00"}
+
+
+def test_model_record_is_a_closed_set(tmp_path, probe_file, corpus_present):
+    """`MODEL_FIELDS` is the whole of what a caller may put in the run block from here.
+
+    A caller that could add any key would be a second assembler of that block, and the
+    reason this function assembles it is that one writer per record is what makes the
+    record checkable. The rejected key here is the plausible one: a caller holding a
+    lifecycle probe's output has three fields to report and a fourth thing to file.
+    """
+    with pytest.raises(rf.FoldRunError, match="model_lifecycle"):
+        rf.run_fold(**ARM, rules={"es": probe_file}, root=tmp_path,
+                    model_record={"model_id": "x", "model_lifecycle": LIFECYCLE})
+
+
+def test_the_lifecycle_record_stays_out_of_the_run_block(tmp_path, probe_file,
+                                                         corpus_present):
+    """Its own argument, passed through to the writer, and never merged.
+
+    `start_of_life_time` is when the *id* appeared in Bedrock's catalogue — not what
+    answered (`docs/notes/baseline-model-family.md` §"측정 결과" 4). Inside the run block it
+    would sit beside `model_id_resolution` and read as evidence for a verdict it cannot
+    support, which is the sixth mutation family filed as data instead of as a comment.
+    """
+    _, metrics, _ = rf.run_fold(**ARM, rules={"es": probe_file}, root=tmp_path,
+                                model_lifecycle=LIFECYCLE)
+    written = json.loads(metrics.read_text(encoding="utf-8"))
+    assert written["model_lifecycle"] == LIFECYCLE
+    assert not [f for f in written["run"] if "lifecycle" in f or "start_of_life" in f]
+    # Not spread flat either: `model_arn` one key over from `model_id` is an
+    # identifier-looking field in the place identifiers are read from.
+    assert not [f for f in written["run"] if f in LIFECYCLE]
+
+
+def test_a_rule_arm_writes_no_lifecycle_block(ran):
+    """The `R` arm probes nothing because it calls nothing, and the block is omitted rather
+    than nulled — absence here means "no probe", which is a fact about the arm."""
+    _, metrics, _ = ran
+    assert "model_lifecycle" not in json.loads(metrics.read_text(encoding="utf-8"))
+
+
 # ─── every rule file the corpus declares ─────────────────────────────────────
 
 

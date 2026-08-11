@@ -69,7 +69,7 @@ from src.sample import WINDOW_FILES, window_hashes              # noqa: E402
 # stands behind (the same reasoning `tests/conftest.py` gives for one availability check).
 # Imported by module name: `tests/` has no `__init__.py`, so pytest's default import mode
 # puts this directory on `sys.path` and `test_bedrock` is importable from here.
-from test_bedrock import FakeRuntime, reply                      # noqa: E402
+from test_bedrock import FakeControl, FakeRuntime, reply         # noqa: E402
 
 MODULE = ROOT / "src" / "orchestrate.py"
 
@@ -124,6 +124,26 @@ def tree(tmp_path, monkeypatch):
     monkeypatch.setattr(orchestrate, "ROOT", tmp_path)
     monkeypatch.setattr(sample, "ROOT", tmp_path)
     return tmp_path
+
+
+@pytest.fixture(autouse=True)
+def no_control_plane(monkeypatch):
+    """Close the lifecycle probe's route to AWS for every test in this file.
+
+    Patched at the client factory rather than at `model_lifecycle`, so the function under
+    test still runs: the prefix stripping, the stringified timestamp and the never-raises
+    behaviour are all exercised, and only the socket is gone. Patching `model_lifecycle`
+    itself would make every assertion below about a stub.
+
+    Autouse rather than per-test because the probe is inside `run_arm` and 32 call sites
+    would each have to remember. It is also a measurement: before this fixture existed the
+    arm tests took 29 seconds instead of 5, which is what one unmocked control-plane call
+    per test looks like — and a suite that is slow because it uses the network is a suite
+    someone eventually runs with the network off, at which point the probe is covered by
+    nothing.
+    """
+    monkeypatch.setattr(bedrock_module, "_control_client",
+                        lambda region=None: FakeControl())
 
 
 def a_repo(tmp_path):
@@ -1038,6 +1058,111 @@ def test_the_parse_error_message_quotes_no_line_of_the_file(arm):
     error = failure_record()["error"]
     assert marker not in error
     assert "line" in error and "column" in error
+
+
+# ─── the lifecycle record: three homes, and none of them the run block ──────
+
+def test_the_lifecycle_record_reaches_the_call_log(arm):
+    """The log line is written before the response is judged, so it is the one home that
+    exists in both branches. It is also the one that can never be recovered: the log is
+    deny-listed by `tools/release_screen.py` and is never committed."""
+    run_arm(**ARM_KW, model_id=MODEL, client=an_answer(GOOD_RULES))
+    line = calls()[0]
+    assert line["model_lifecycle"]["status"] == "ACTIVE"
+    assert line["model_lifecycle"]["start_of_life_time"].startswith("2025-11-24")
+
+
+def test_the_lifecycle_record_reaches_the_metrics_file_beside_the_run_block(arm,
+                                                                           corpus_present):
+    """Top level, because the run block is what the paper's premises are read off and a
+    catalogue timestamp beside `model_id_resolution` would read as evidence for it."""
+    out = run_arm(**ARM_KW, model_id=MODEL, client=an_answer(GOOD_RULES))
+    written = json.loads(out["metrics_path"].read_text(encoding="utf-8"))
+    assert written["model_lifecycle"]["status"] == "ACTIVE"
+    assert "model_lifecycle" not in written["run"]
+
+
+def test_the_lifecycle_record_reaches_the_failure_file_too(arm):
+    """`paths.formatfailure` is written *instead of* `metrics.json`, so a record only the
+    metrics file carried would be a record every failing arm lost — and a failing arm is
+    exactly the case DESIGN §10 A2 exists for."""
+    run_arm(**ARM_KW, model_id=MODEL, client=an_answer(UNPARSEABLE))
+    record = failure_record()
+    assert record["model_lifecycle"]["status"] == "ACTIVE"
+    assert record["schema_version"] == orchestrate.FAILURE_SCHEMA
+
+
+def test_the_probe_is_not_counted_in_the_cost_block(arm, corpus_present):
+    """A control-plane lookup makes no inference and consumes no tokens. Counting it in
+    `llm_calls` would make this arm's cost incomparable to `port-loop`'s for a reason having
+    nothing to do with either of them — and CLAUDE.md's point is that cost is a headline."""
+    out = run_arm(**ARM_KW, model_id=MODEL, client=an_answer(GOOD_RULES))
+    assert out["cost"]["llm_calls"] == 1
+    cost = json.loads(out["metrics_path"].read_text(encoding="utf-8"))["cost"]
+    assert cost["llm_calls"] == 1
+
+
+def test_the_probe_happens_before_the_call(arm):
+    """Ordered so that anything surprising it does happens while the arm is still
+    repeatable. After the call, a probe that hung or raised would do so with the window
+    already bound by the log line (DESIGN §6.3) — and that call cannot be made again."""
+    order = []
+    real_probe = orchestrate.model_lifecycle
+    real_invoke = orchestrate.invoke
+
+    def probe(*a, **kw):
+        order.append("probe")
+        return real_probe(*a, **kw)
+
+    def invoke(*a, **kw):
+        order.append("call")
+        return real_invoke(*a, **kw)
+
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(orchestrate, "model_lifecycle", probe)
+        mp.setattr(orchestrate, "invoke", invoke)
+        run_arm(**ARM_KW, model_id=MODEL, client=an_answer(UNPARSEABLE))
+    assert order == ["probe", "call"]
+
+
+def test_a_failed_probe_does_not_stop_the_arm(arm, corpus_present):
+    """The arm's one call is unrepeatable, so a supplementary metadata lookup must never be
+    able to abort it. The record says `unavailable` and the arm runs."""
+    out = run_arm(**ARM_KW, model_id=MODEL, client=an_answer(GOOD_RULES),
+                  control_client=FakeControl(raises=RuntimeError("no credentials")))
+    assert out["outcome"] == SCORED
+    written = json.loads(out["metrics_path"].read_text(encoding="utf-8"))
+    assert written["model_lifecycle"]["status"] == "unavailable"
+    assert written["model_lifecycle"]["probe_error"] == "RuntimeError"
+
+
+def test_the_probe_gets_the_id_the_arm_was_given(arm):
+    """Not a literal, and not the reported id from the response — the probe asks about the
+    id that was requested, which is the only one that exists before the call."""
+    control = FakeControl()
+    run_arm(**ARM_KW, model_id=MODEL, client=an_answer(UNPARSEABLE),
+            control_client=control)
+    assert control.asked == ["anthropic.claude-opus-5"]
+
+
+def test_no_home_flattens_the_lifecycle_fields_in_beside_the_model_ids(arm,
+                                                                      corpus_present):
+    """The block is a block everywhere, and never spread.
+
+    `MODEL_FIELDS` is a closed set for this reason: `start_of_life_time` sitting beside the
+    three identity fields would read as corroborating them, and `model_arn` spread flat is
+    an identifier-looking field one key over from `model_id`. So the check is that no home
+    has a *top-level* lifecycle field — the run block has no lifecycle key at all, and the
+    call log and the failure record have exactly one, nested.
+    """
+    out = run_arm(**ARM_KW, model_id=MODEL, client=an_answer(GOOD_RULES))
+    written = json.loads(out["metrics_path"].read_text(encoding="utf-8"))
+    for run in (written["run"], out["run"]):
+        assert not [f for f in run if "lifecycle" in f or "start_of_life" in f], run
+    for record in (calls()[0], written):
+        flattened = [f for f in record if f in bedrock_module.LIFECYCLE_FIELDS]
+        assert not flattened, f"{flattened} spread flat instead of nested"
+        assert "model_lifecycle" in record
 
 
 # ─── what the arm refuses ──────────────────────────────────────────────────

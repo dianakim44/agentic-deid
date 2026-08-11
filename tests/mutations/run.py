@@ -1930,6 +1930,122 @@ MUTATIONS = [
         ),
         min_kills=2,
     ),
+    # ─── the lifecycle probe (2026-08-11, DESIGN §4's dated pin) ────────────
+    # Four guarantees, and the shape of the risk is unusual: this probe is *optional*
+    # metadata, so three of the four mutations below make the arm run better rather than
+    # worse — a probe that raises, a record with a message in it, a block moved somewhere
+    # more convenient. What each one damages is either the arm's one unrepeatable call or
+    # the reading of a claim, and neither is visible in a passing run.
+    Mutation(
+        name="the_lifecycle_probe_can_abort_the_arm",
+        path=BEDROCK,
+        anchor="    except Exception as exc:                                        # noqa: BLE001",
+        replacement="    except ValueError as exc:",
+        breaks=(
+            "A supplementary metadata lookup regains the power to stop the call. The four "
+            "live failure modes are botocore's `ClientError`, a credentials error, a "
+            "missing key in a changed envelope, and `ImportError` with no boto3 — none of "
+            "them a `ValueError`, so every one of them now raises out of `model_lifecycle` "
+            "and out of `run_arm` before `invoke()`.\n"
+            "\n"
+            "**What that costs is the arm.** The probe sits before the call precisely so a "
+            "surprise happens while the run is still repeatable, and this mutation converts "
+            "that safety into its opposite: the freeze has already been taken "
+            "(`freeze_window` runs first), so an arm killed here has a frozen window, no "
+            "call log line, and a metadata endpoint as the reason. Narrowing a bare "
+            "`except` is also the most reviewable-looking edit in this file — the comment "
+            "above it exists because 'catch what you mean' is right everywhere else.\n"
+            "\n"
+            "Caught by `test_the_probe_never_raises_whatever_the_failure_is` (four "
+            "exception types, one of them deliberately not a `ValueError`) and "
+            "`test_a_failed_probe_does_not_stop_the_arm`."
+        ),
+        min_kills=2,
+    ),
+    Mutation(
+        name="the_probe_error_carries_the_exception_message",
+        path=BEDROCK,
+        anchor='            "probe_error": type(exc).__name__,',
+        replacement='            "probe_error": str(exc),',
+        breaks=(
+            "CLAUDE.md's rule about exception text, one function over from where it is "
+            "usually enforced. This dict is written to three files — `agent_calls.jsonl`, "
+            "`metrics.json` and `paths.formatfailure` — and the first is deny-listed by "
+            "`release_screen.py`, so nothing screens what lands in it.\n"
+            "\n"
+            "The message is the leak surface: a botocore error can quote the request it "
+            "failed on, and the id it failed on is assembled from an argument. The rule is "
+            "not conditional on this exception being about a model rather than a span "
+            "(CLAUDE.md: not corpus-dependent, because a rule that varies by context is a "
+            "rule whose violations go quiet). A type name is more than a null and less "
+            "than a guess, which is exactly what a supplementary field should carry.\n"
+            "\n"
+            "Caught by `test_the_probe_error_is_a_type_name_and_never_the_message`, which "
+            "raises with an invented surface form inside the message text."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="the_lifecycle_block_moves_into_the_run_block",
+        path=RUN_FOLD,
+        anchor='        "model_id": model_id_absent(),\n        **dict(model_record or {}),',
+        replacement=(
+            '        "model_id": model_id_absent(),\n'
+            '        **dict(model_record or {}),\n'
+            '        **dict(model_lifecycle or {}),'
+        ),
+        breaks=(
+            "The one thing this record must never do. `start_of_life_time` is when the "
+            "*id* appeared in Bedrock's catalogue and says nothing about which weights "
+            "answered — measurement 4 of `docs/notes/baseline-model-family.md` establishes "
+            "that and `GetInferenceProfile` closes the other route. Spread into the run "
+            "block it sits beside `model_id_resolution`, where a reader takes it as "
+            "evidence for the resolution verdict.\n"
+            "\n"
+            "**This is the sixth mutation family reintroduced as data.** That family is a "
+            "mechanism resolving an ambiguity it cannot see, in the reassuring direction; "
+            "the sixth member was a comment asserting a causal link nothing established. A "
+            "timestamp filed under identity is the same defect where a comment cannot warn "
+            "anyone, because it reaches `metrics.json` and a reader who never opens the "
+            "module. The mutation is also *tidier* than the real code — one dict spread "
+            "instead of an argument threaded through two functions.\n"
+            "\n"
+            "**It survived its first writing, with one killing test.** `MODEL_FIELDS` was "
+            "assumed to cover this and does not: that check constrains `model_record`, and "
+            "this mutation spreads a *different* argument into the same dict, one line "
+            "below the check. `MODEL_FIELDS` also had no test of its own anywhere in the "
+            "suite — a closed set nothing exercised. Both gaps were the same shape: a "
+            "guarantee credited to a mechanism that does not reach it.\n"
+            "\n"
+            "Now caught by `test_the_lifecycle_record_stays_out_of_the_run_block` and "
+            "`test_model_record_is_a_closed_set` in `tests/test_run_fold.py` (the writer's "
+            "own layer), and by "
+            "`test_no_home_flattens_the_lifecycle_fields_in_beside_the_model_ids` and "
+            "`test_the_lifecycle_block_is_top_level_and_not_in_the_run_block` downstream."
+        ),
+        min_kills=2,
+    ),
+    Mutation(
+        name="an_empty_lifecycle_mapping_is_written_as_no_probe",
+        path=SCORER,
+        anchor="    if model_lifecycle is not None and not model_lifecycle:",
+        replacement="    if False:",
+        breaks=(
+            "The two states this block distinguishes collapse. `model_lifecycle()` returns "
+            "an `unavailable` record for every failure and never an empty one, so an empty "
+            "mapping reaching the writer means a caller assembled the block itself and lost "
+            "a distinction on the way. Written as absent, it says the arm called no model — "
+            "which is the `R` arm's record, and the opposite of what happened.\n"
+            "\n"
+            "The mutation looks like tolerance: an empty dict and no dict do produce the "
+            "same file, so refusing one reads as pedantry. What it protects is that "
+            "absence stays readable — the reason `SCHEMA_VERSION` moved for an optional "
+            "field at all.\n"
+            "\n"
+            "Caught by `test_an_empty_lifecycle_mapping_is_refused`."
+        ),
+        min_kills=1,
+    ),
     # ─── the seal's own modules (DESIGN §6) ─────────────────────────────────
     # An audit found `sealed_log.py` and `run_sealed_eval.py` had no mutation at all:
     # both seal mutations were in `base.py`, the call sites. So it was checked that

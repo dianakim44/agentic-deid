@@ -81,6 +81,19 @@ DATED = "dated"
 UNRESOLVED = "alias-unresolved"
 MISMATCH = "mismatch"
 
+#: The `modelLifecycle` fields `model_lifecycle()` keeps, plus the two identity fields that
+#: say which record they came from. A closed list rather than the whole `GetFoundationModel`
+#: response: the rest is capability description (modalities, streaming support) that belongs
+#: to a model card and not to a run record, and a record that grows whenever AWS adds a field
+#: is a record whose diff between two runs is unreadable.
+LIFECYCLE_FIELDS = ("model_arn", "model_name", "status", "start_of_life_time")
+
+#: What `model_lifecycle()` puts in `status` when the probe could not answer. Explicit, for
+#: `model_id_absent`'s reason (DESIGN §4): "we did not look" and "we looked and the platform
+#: had nothing to say" are different facts, and only the second is a measurement. A null
+#: nobody wrote cannot be told from a null that was measured.
+LIFECYCLE_UNAVAILABLE = "unavailable"
+
 
 class BedrockError(CorpusError):
     """A call that could not be made, or a response that cannot be recorded.
@@ -161,6 +174,88 @@ def _client(region: str | None):
         region_name=region,
         config=Config(retries={"max_attempts": MAX_ATTEMPTS, "mode": "standard"}),
     )
+
+
+def _control_client(region: str | None):
+    """A `bedrock` (control-plane) client, for `model_lifecycle()` only.
+
+    A different service from `bedrock-runtime` and therefore a different client: `converse`
+    is on the runtime and `GetFoundationModel` is not. Retries are left at botocore's default
+    here, unlike `_client()`, and the difference is the point — `MAX_ATTEMPTS = 1` exists so
+    that `llm_calls` counts calls truthfully, and this endpoint makes no inference, consumes
+    no tokens and appears in no cost block. Pinning it to one attempt would trade a metadata
+    field for nothing.
+    """
+    import boto3
+
+    return boto3.client("bedrock", region_name=region)
+
+
+def model_lifecycle(model_id: str, *, region: str | None = None,
+                    client: Any | None = None) -> dict:
+    """`GetFoundationModel`'s lifecycle block for one id, or an explicit unavailable record.
+
+    **This does not resolve an alias, and saying so is the whole reason the field is named
+    the way it is.** `startOfLifeTime` is when the *id* first appeared, not which weights
+    serve it today — measurement 4 of `docs/notes/baseline-model-family.md` establishes that,
+    and `GetInferenceProfile` closes the other route. So this adds a timestamp about an
+    identifier and no information about a model. It is recorded because the timestamp is
+    genuinely useful for ordering ("was the snapshot this arm called already published when
+    the arm ran") and because it costs one API call, and it is recorded under a name that
+    cannot be read as an identity claim.
+
+    That naming is not cosmetic. `tests/mutations/README.md` writes up a comment in this file
+    that asserted a measurement as though it were a platform property; the sixth of that
+    family. A field called `model_resolved` or `weights_id` here would be the same defect
+    reintroduced as *data*, where it would reach `metrics.json` and a reader who never opens
+    this file. Hence `LIFECYCLE_FIELDS`, and hence the docstring saying what it is not.
+
+    **Never raises, and that is deliberate.** This is a supplementary record, so a probe
+    failure must not be able to stop a call that is otherwise ready to make — the arm's one
+    call is unrepeatable (DESIGN §6.3) and losing it to a metadata lookup would be the
+    tail wagging the dog. Every failure returns `status` of `LIFECYCLE_UNAVAILABLE` with the
+    exception's type name, which is more than a null and less than a guess.
+
+    **Two ids, and the conversion is measured rather than assumed** (2026-08-11).
+    `GetFoundationModel` refuses an inference-profile id: `us.anthropic.claude-opus-4-5-…`
+    raises `ResourceNotFoundException` and the bare `anthropic.claude-opus-4-5-…` succeeds.
+    The region prefix is stripped with the same three-prefix list `_resolution()` uses, so
+    the two functions cannot disagree about what the prefix is.
+    """
+    bare = model_id.split(".", 1)[1] if model_id.startswith(("us.", "eu.", "apac.")) \
+        else model_id
+    try:
+        bedrock = client if client is not None else _control_client(region)
+        details = bedrock.get_foundation_model(modelIdentifier=bare)["modelDetails"]
+        lifecycle = details.get("modelLifecycle") or {}
+        start = lifecycle.get("startOfLifeTime")
+        return {
+            "model_arn": details.get("modelArn"),
+            "model_name": details.get("modelName"),
+            "status": lifecycle.get("status") or LIFECYCLE_UNAVAILABLE,
+            # Stringified here rather than left as botocore's `datetime`, because this dict
+            # is written to JSON by three callers and a type that needs a custom encoder is
+            # a type one of them will forget to give one.
+            "start_of_life_time": start.isoformat() if hasattr(start, "isoformat")
+            else start,
+        }
+    except Exception as exc:                                        # noqa: BLE001
+        # Bare `Exception` on purpose. The failure modes are botocore's `ClientError`, a
+        # credentials error, a missing key in a changed envelope and an ImportError with no
+        # boto3 installed, and every one of them means the same thing here: no metadata, and
+        # the call proceeds. Naming the subset would leave the next new failure raising out
+        # of a supplementary probe into an arm that was ready to run.
+        return {
+            "model_arn": None,
+            "model_name": None,
+            "status": LIFECYCLE_UNAVAILABLE,
+            # The type name and never `str(exc)`. A botocore message can carry the request
+            # it failed on, and this dict is written to `agent_calls.jsonl` — CLAUDE.md's
+            # rule about what goes into a log applies to an exception's text whatever the
+            # exception is about.
+            "start_of_life_time": None,
+            "probe_error": type(exc).__name__,
+        }
 
 
 def _require_logging_check() -> None:
