@@ -1,0 +1,218 @@
+version: 1
+lang: es
+rules:
+  - rule_id: doctor_prefix
+    layer: context_cue
+    phi_type: NAME
+    cue: ["Dr.", "Dr ", "Dra.", "Dra "]
+    then: capitalised_words
+    comment: >
+      Clinician name after doctor title prefix.
+
+  - rule_id: don_dona_prefix
+    layer: context_cue
+    phi_type: NAME
+    cue: ["Don ", "Doña ", "D. ", "Dña. "]
+    then: capitalised_words
+    comment: >
+      Person name after honorific don or dona.
+
+  - rule_id: paciente_cue
+    layer: context_cue
+    phi_type: NAME
+    cue: ["paciente ", "Paciente "]
+    then: capitalised_words
+    comment: >
+      Patient name after the word paciente.
+
+  - rule_id: familiar_cue
+    layer: context_cue
+    phi_type: NAME
+    cue: ["hijo de ", "hija de ", "esposo de ", "esposa de ", "madre de ", "padre de "]
+    then: capitalised_words
+    comment: >
+      Relative name after family relationship cue.
+
+  - rule_id: firmado_cue
+    layer: context_cue
+    phi_type: NAME
+    cue: ["Firmado: ", "Fdo: ", "Fdo. "]
+    then: capitalised_words
+    comment: >
+      Signature name after firmado abbreviation.
+
+  - rule_id: dni_checksum
+    layer: regex_checksum
+    phi_type: ID
+    pattern: '\b\d{8}[A-Z]\b'
+    checksum: dni_mod23
+    comment: >
+      Spanish national ID with mod23 check letter.
+
+  - rule_id: nie_checksum
+    layer: regex_checksum
+    phi_type: ID
+    pattern: '\b[XYZ]\d{7}[A-Z]\b'
+    checksum: nie_mod23
+    comment: >
+      Foreign resident ID with mod23 check letter.
+
+  - rule_id: nuss_pattern
+    layer: regex_checksum
+    phi_type: ID
+    pattern: '\b\d{2}[/-]?\d{8}[/-]?\d{2}\b'
+    comment: >
+      Social security number pattern without checksum.
+
+  - rule_id: nhc_cue
+    layer: context_cue
+    phi_type: ID
+    cue: ["NHC:", "NHC ", "N.H.C.:", "Nº Historia:", "Historia Clínica:"]
+    then: digits
+    gap: 5
+    comment: >
+      Medical record number after NHC or historia label.
+
+  - rule_id: nass_cue
+    layer: context_cue
+    phi_type: ID
+    cue: ["NASS:", "NASS ", "N.A.S.S.:"]
+    then: digits
+    gap: 5
+    comment: >
+      Social security number after NASS label.
+
+  - rule_id: date_dmy_slash
+    layer: regex_checksum
+    phi_type: DATE
+    pattern: '\b(0?[1-9]|[12]\d|3[01])/(0?[1-9]|1[0-2])/(\d{4}|\d{2})\b'
+    comment: >
+      Date in day/month/year format.
+
+  - rule_id: date_dmy_dash
+    layer: regex_checksum
+    phi_type: DATE
+    pattern: '\b(0?[1-9]|[12]\d|3[01])-(0?[1-9]|1[0-2])-(\d{4}|\d{2})\b'
+    comment: >
+      Date in day-month-year format.
+
+  - rule_id: date_dmy_dot
+    layer: regex_checksum
+    phi_type: DATE
+    pattern: '\b(0?[1-9]|[12]\d|3[01])\.(0?[1-9]|1[0-2])\.(\d{4}|\d{2})\b'
+    comment: >
+      Date in day.month.year format.
+
+  - rule_id: date_spanish_month
+    layer: regex_checksum
+    phi_type: DATE
+    pattern: '\b(0?[1-9]|[12]\d|3[01])[\s\-/]*(de\s+)?(enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre)(\s+de)?[\s\-/]*\d{4}\b'
+    flags: [ignorecase]
+    comment: >
+      Date with Spanish month name.
+
+  - rule_id: date_abbrev_month
+    layer: regex_checksum
+    phi_type: DATE
+    pattern: '\b(0?[1-9]|[12]\d|3[01])[\s\-/]*(ene|feb|mar|abr|may|jun|jul|ago|sep|oct|nov|dic)[\s\-./]*(\d{4}|\d{2})\b'
+    flags: [ignorecase]
+    comment: >
+      Date with abbreviated Spanish month.
+
+  - rule_id: nacido_cue
+    layer: context_cue
+    phi_type: DATE
+    cue: ["nacido el ", "nacida el ", "Nacido el ", "Nacida el ", "fecha de nacimiento:", "Fecha de nacimiento:", "FN:", "F.N.:"]
+    then: digits
+    gap: 5
+    comment: >
+      Birth date after nacido or fecha de nacimiento cue.
+
+  - rule_id: phone_pattern
+    layer: regex_checksum
+    phi_type: CONTACT
+    pattern: '\b(\+34[\s\-]?)?[6789]\d{2}[\s\-]?\d{3}[\s\-]?\d{3}\b'
+    comment: >
+      Spanish phone number pattern.
+
+  - rule_id: phone_cue
+    layer: context_cue
+    phi_type: CONTACT
+    cue: ["Tel:", "Tel.:", "Teléfono:", "Tfno:", "Tfno.:"]
+    then: digits
+    gap: 5
+    comment: >
+      Phone number after telephone label.
+
+  - rule_id: email_pattern
+    layer: regex_checksum
+    phi_type: CONTACT
+    pattern: '\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b'
+    comment: >
+      Email address pattern.
+
+  - rule_id: calle_cue
+    layer: context_cue
+    phi_type: LOCATION_STREET
+    cue: ["C/", "c/", "Calle ", "calle ", "Avda.", "Avda ", "Avenida ", "Pza.", "Plaza ", "Paseo "]
+    then: capitalised_words
+    gap: 3
+    comment: >
+      Street address after street type abbreviation.
+
+  - rule_id: domicilio_cue
+    layer: context_cue
+    phi_type: LOCATION_STREET
+    cue: ["Domicilio:", "domicilio:", "Dirección:", "dirección:"]
+    then: rest_of_line
+    gap: 5
+    comment: >
+      Full address after domicilio or direccion label.
+
+  - rule_id: postal_code
+    layer: regex_checksum
+    phi_type: LOCATION_AREA
+    pattern: '\b(0[1-9]|[1-4]\d|5[0-2])\d{3}\b'
+    comment: >
+      Spanish postal code pattern.
+
+  - rule_id: hospital_gaz
+    layer: gazetteer
+    phi_type: ORGANISATION
+    terms: ["Hospital Universitario", "Hospital General", "Hospital Clínico", "Centro de Salud", "C.S.", "Clínica Universitaria", "Hospital de", "Complejo Hospitalario"]
+    comment: >
+      Common hospital and health centre prefixes.
+
+  - rule_id: servicio_cue
+    layer: context_cue
+    phi_type: ORGANISATION
+    cue: ["Servicio de "]
+    then: capitalised_words
+    comment: >
+      Hospital department after servicio de.
+
+  - rule_id: profesion_cue
+    layer: context_cue
+    phi_type: PROFESSION
+    cue: ["profesión:", "Profesión:", "trabaja como ", "trabajo de "]
+    then: capitalised_words
+    gap: 5
+    comment: >
+      Occupation after profession label.
+
+  - rule_id: edad_cue
+    layer: context_cue
+    phi_type: AGE
+    cue: ["años de edad", "años,", "de edad"]
+    then: number
+    gap: 10
+    comment: >
+      Age when followed by edad phrase.
+
+  - rule_id: age_pattern
+    layer: regex_checksum
+    phi_type: AGE
+    pattern: '\b\d{1,3}\s*años\b'
+    flags: [ignorecase]
+    comment: >
+      Age as number followed by años.

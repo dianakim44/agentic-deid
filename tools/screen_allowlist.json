@@ -51,6 +51,11 @@
       "why": "Korean prose recording the first port-oneshot run on es-meddocan: that it was a format failure, the validator's own error message, the cost and model-id fields, and the lifecycle record. No corpus text and no rule content beyond counts by layer — the failure was a markdown fence at line 1, so the position is quoted and the offending line is not, which is the same rule the validator message follows."
     },
     {
+      "path": "docs/notes/arm-port-oneshot-nofence-es.md",
+      "sniff": "Korean prose",
+      "why": "Korean prose recording the port-oneshot-nofence run on es-meddocan: the frozen window, the scoring (leak rate in both modes, P/R/F1, the complementarity decomposition and per-type leak), the cost and model-id fields, and the lifecycle record. Rule content is rule_id, layer and phi_type only — no pattern, no cue word, no term list — so nothing here reproduces what the rules match, and no corpus text, span or offset appears. The per-type tables are counts against gold, which is what results/**/metrics.json already publishes by path."
+    },
+    {
       "path": "docs/notes/baseline-model-family.md",
       "sniff": "Korean prose",
       "why": "Korean prose reviewing which Bedrock model families could run the port-oneshot baseline after port-human's retirement (DESIGN 4.1). Holds model ids, a probe result table, and the trade-offs of each option. No corpus text, no spans: the only strings sent to Bedrock to produce it were 'Reply with the single word: ok'."

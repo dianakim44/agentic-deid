@@ -224,6 +224,11 @@ RULE_ID_VOCAB = {
     #   - `years`/`months`: `year`·`month` 의 복수형. 단수만 있는 것은 누락이고
     #     구분이 아니다 (`digit`/`digits`·`initial`/`initials` 는 이미 둘 다 있다).
     "dmy", "mdy", "ymd", "postal", "years", "months", "days",
+    # 2026-08-12. `gaz` 는 `gazetteer` 의 약어이고, 그 낱말은 이미 이 어휘에
+    # 있다. layer 축의 값 이름이기도 하다 (config/naming.yaml). `abbrev` 가
+    # `abbreviation` 과 함께 있는 것과 같은 형태 — 줄임말만 빠진 것은 누락이고
+    # 구분이 아니다. 개인을 지목할 수 없다.
+    "gaz",
     # 언어 이름. 규칙의 **방언**을 서술한다 (`date_spanish_month_long` = 스페인어
     # 월 이름 표기). 개인을 지목할 수 없고, `config/naming.yaml` 의 lang 축이
     # 아니라 영어 언어명이므로 축 어휘 규약과 충돌하지 않는다.
@@ -237,6 +242,11 @@ RULE_ID_ALLOWED_TOKENS = {
     # NUSS (número de la Seguridad Social). Same category as the rest of this set —
     # a national identifier scheme — and missing only because no rule had needed it.
     "nuss",
+    # NASS (número de afiliación a la Seguridad Social). The same scheme's other
+    # common abbreviation, and it arrived the way NUSS did: an arm wrote it before
+    # this set had it. Both spellings are in circulation in Spanish clinical text,
+    # so listing one and not the other is a gap rather than a distinction.
+    "nass",
 }
 
 # ─── 언어별 층 ──────────────────────────────────────────────────────────────
