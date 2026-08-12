@@ -66,12 +66,15 @@ def test_the_role_names_match_their_prompt_templates():
     for role in agent_roles():
         expected = root / "docs" / "prompts" / f"{role}.md"
         assert expected.name == f"{role}.md"
-        # `auditor.md` does not exist until the Auditor is built (DESIGN §5.5, step 5 of
-        # the port-loop order). The vocabulary is declared first on purpose — the prompt
-        # is hashed into the freeze record, and a value invented at the moment the prompt
-        # lands is a value chosen while the arm is being wired.
-        if role == "rule_author":
-            assert expected.exists(), expected
+        # Both templates now exist — `auditor.md` landed 2026-08-12, and the exemption this
+        # loop carried for it is gone rather than left as a passing branch. The vocabulary
+        # was still declared first, on purpose: the prompt is hashed into the freeze record
+        # (DESIGN §5.5), and a value invented at the moment the prompt lands is a value
+        # chosen while the arm is being wired. A **new** role is therefore added to
+        # `naming.yaml` and to `docs/prompts/` in one commit, and this assertion is what
+        # says so — a role declared without a template is a window hash over a file nobody
+        # wrote.
+        assert expected.exists(), expected
 
 
 def test_a_role_outside_the_vocabulary_is_refused():

@@ -1273,6 +1273,59 @@ are the artefact and plumbing questions the two of those leave open.
   errors was the agent shown at iteration 4" is answerable after the run, which is the same
   property §5.3 wanted from per-iteration rule files.
 
+#### 5.5.1 `errors.jsonl` is not a `FilledPrompt`, and where that stops being true
+
+Asked and answered while implementing the export, 2026-08-12, and recorded because the
+question is going to be asked again: `errors.jsonl` becomes the input to `rule_author.md`
+§1.4's error block, so it looks like it should inherit §5.4's discipline. It does not, and
+leaving that as a judgement in a commit message means the next person re-decides it.
+
+**The rule.** `FilledPrompt` is for functions that **slice document text**. `render_window()`
+cuts the ±120-character contexts and the masker (`port-loop`'s stage 4) produces masked text;
+those functions could return `str`, a `str` goes anywhere, and the type is what forces the two
+named exits. `ErrorSpan` has **no text field by construction** (`src/sample.py`) and this file
+carries six values — `doc_id`, `span_index`, `phi_type`, `kind`, `start`, `end`. There is
+nothing to wrap, because there is no slice.
+
+**Wrapping it anyway would weaken the convention, which is the load-bearing half of this
+decision.** The guarantee here is *no surface forms exist in the object*. The guarantee
+`FilledPrompt` gives is *text that does exist has two exits*. Wrapping the first in the second
+substitutes "it is a `FilledPrompt`, so it is safe" for "it has no surface form, so it is
+safe" — and the second is the true reason. Once the weaker claim is what the code asserts, a
+later field addition satisfies the type and breaks the fact.
+
+**The path rules carry the defence instead, and they are not redundant with the absence of
+text.** `paths.itererrors` is deny-listed in `config/naming.yaml` and matched by
+`tools/release_screen.py`'s `DENY_PATTERNS`, with the paired `.gitignore` entry. The reason is
+independent of surface forms: a list of the offsets of **every** missed identifier in a DUA
+fold is a map of the residual identifiers in that fold, drawn from gold, and **offsets plus
+the corpus resolve to the text.** §11.2's referent property is exactly this — resolvable by
+whoever holds the corpus, inert to anyone else — and "inert to anyone else" is a statement
+about the reader, not about the file. So the file is safe to *exist* because it has no text,
+and it is denied *even so* because of what it is. Two guarantees, two mechanisms, neither
+standing in for the other. `tests/test_run_fold.py` asserts both on the real path
+(`test_the_export_path_is_denied_by_the_screener`, `test_the_export_path_is_gitignored`),
+through `deny()` rather than against the pattern's text, because a pattern that matched
+nothing would be a rule reported as present and never run.
+
+**The boundary, stated so it is not mistaken for a migration path.** The loop driver reads
+this file and hands **references** to `render_window()`, which slices the text itself, from
+the corpus, inside the type. That separation is what makes the whole arrangement hold. So:
+
+> The moment anything adds a `text`, `surface`, `context` or `snippet` field to
+> `ErrorSpan` or to a row of `errors.jsonl` — including "just for debugging" — that is
+> **not** the signal to move the file under `FilledPrompt`. It is the signal to refuse the
+> field.
+
+Moving it under the type at that point would be answering the wrong question: the file's
+safety would then depend on a wrapper rather than on a schema, and a deny-listed path holding
+window text is one `ALLOW_PATTERNS` edit away from publication, where a path holding
+references is not. The renderer already exists and already has the discipline; there is no
+work the field would save that is not already done one layer up. `write_errors()` enumerates
+its six fields rather than dumping the object for this reason — a whitelist refuses the new
+field on the day it is added, and this file is the one where "the day it is added" means
+publishing it into the window §1.4 builds.
+
 ---
 
 ## 6. Experimental integrity
