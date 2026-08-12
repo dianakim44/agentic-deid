@@ -206,7 +206,8 @@ most concentrated such artefact the loop produces (DESIGN §5.5).
      "start": 1841, "end": 1859, "score": 0.8}
   ],
   "refused": [{"doc_id": "…", "reason": "inside_a_mask_tag"}],
-  "counts": {"flags": 118, "refused": 3, "by_phi_type": {"NAME": 61, "DATE": 22}}
+  "counts": {"flags": 118, "refused": 3, "by_phi_type": {"NAME": 61, "DATE": 22},
+             "by_refusal": {"inside_a_mask_tag": 2, "out_of_range": 1}}
 }
 ```
 
@@ -214,6 +215,17 @@ most concentrated such artefact the loop produces (DESIGN §5.5).
 the masker's map. `doc_id` is the orchestrator's. Both are code's contribution, and neither is
 a contribution to the *content*: the orchestrator adds no flag and removes only flags it can
 prove impossible.
+
+**A refused flag keeps its `doc_id` and its reason and nothing else — not even its
+position.** Half of these refusals *are* the judgement that the position cannot be trusted
+(§2.3's `out_of_range`, `crosses_a_line`), and a recorded untrustworthy position would pass
+for part of the residual-identifier map this path is deny-listed for being.
+
+**`flags` is sorted in the file; the order of one call's return is not.** `validate_flags()`
+keeps what the agent returned, because that value is the record of a call and reordering it
+would be code editing the call. The file sorts, because two rounds get diffed and an order
+that moves when the model's does makes every diff a rewrite. Same split as `errors.jsonl`
+(DESIGN §5.5).
 
 **Why the file is not the agent's bytes verbatim, unlike `rules/{lang}.yaml`.** The rule file
 *is* the RuleAuthor's artefact and is written through unchanged. Here the artefact needs a

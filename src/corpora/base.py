@@ -432,6 +432,54 @@ def check_agent_role(value: str) -> str:
     return value
 
 
+def audit_refusals() -> dict[str, str]:
+    """Why an Auditor flag was refused, from `config/naming.yaml`. `auditor.md` §2.3.
+
+    Five values, and the vocabulary exists because the validator **refuses rather than
+    repairs**. A validator that snapped an out-of-range column to the end of its line would
+    produce a flag at a position the agent never claimed, with nothing in the file saying
+    so; one that dropped silently would make the report shorter for a reason no reader
+    could see. So a refusal is recorded with its reason and counted, and a round in which
+    the model lost the coordinate scheme is a number rather than a thin report.
+
+    A closed vocabulary and **not** an axis, like `agent_role` and `termination_reason`.
+    Unlike those two it lands in the *content* of a file under `results/` rather than in a
+    log line, which CLAUDE.md's rule covers equally.
+    """
+    value = naming().get("audit_refusal")
+    if not isinstance(value, dict) or not value:
+        raise CorpusError(
+            "config/naming.yaml has no `audit_refusal` mapping. It is the closed "
+            "vocabulary for why an Auditor flag was refused, it lands in "
+            "audit_report.json, and CLAUDE.md keeps such values out of the modules."
+        )
+    bad = [key for key in value if not isinstance(key, str) or not key]
+    if bad:
+        raise CorpusError(
+            f"config/naming.yaml `audit_refusal` has {len(bad)} non-string or empty "
+            "key(s). Each key is a value written to the audit report."
+        )
+    return dict(value)
+
+
+def check_audit_refusal(value: str) -> str:
+    """Return `value` if it is a declared refusal reason; raise otherwise.
+
+    `check_agent_role`'s reason, one file over. The failure it closes is specific to this
+    field: the refusal reasons are what a reader consults to decide whether a thin report
+    means clean text or a broken call, so a reason invented at a call site would be a
+    diagnosis nothing can group by — and the diagnosis is the only thing a refused flag
+    carries.
+    """
+    reasons = audit_refusals()
+    if value not in reasons:
+        raise CorpusError(
+            f"{value!r} is not an audit refusal reason in config/naming.yaml "
+            f"(have: {sorted(reasons)}). Add it there before a module writes it."
+        )
+    return value
+
+
 def path_template(key: str) -> str:
     """One `paths` template from naming.yaml, e.g. `path_template("humanlog")`.
 

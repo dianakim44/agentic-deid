@@ -57,6 +57,7 @@ TEST_FILES = [
     "tests/test_orchestrate.py",
     "tests/test_termination.py",
     "tests/test_agent_role.py",
+    "tests/test_audit.py",
 ]
 
 #: Repository directories the loader tests need. `splits/` is here because the
@@ -191,6 +192,10 @@ RUN_FOLD = "src/eval/run_fold.py"
 #: rule that a new value goes into the config first: the collision is visible in one
 #: committed file rather than distributed across the callers.
 NAMING = "config/naming.yaml"
+#: The Auditor's flag validator. Mutated separately from the loop driver for
+#: `src/termination.py`'s reason: it is the file that decides what a refusal means, and a
+#: mutation to a refusal cannot then be confused with a bug in the thing that calls it.
+AUDIT = "src/porting/audit.py"
 CONFTEST = "tests/conftest.py"
 TEST_RUN_FOLD = "tests/test_run_fold.py"
 PROMPT = "src/llm/prompt.py"
@@ -3069,6 +3074,120 @@ MUTATIONS = [
             "`test_no_error_list_is_written_unless_it_is_asked_for`, which walks the whole "
             "results tree rather than checking one path — an export written to an "
             "un-iterated path would satisfy the narrower assertion."
+        ),
+        min_kills=1,
+    ),
+
+    # ─── the Auditor's flag validator (auditor.md §2.3) ─────────────────────
+    Mutation(
+        name="an_unknown_flag_field_is_ignored_instead_of_refused",
+        path=AUDIT,
+        anchor="    if set(item) - FLAG_FIELDS or not {\"line\", \"start\", \"end\", "
+               "\"phi_type\"} <= set(item):",
+        replacement="    if not {\"line\", \"start\", \"end\", \"phi_type\"} <= set(item):",
+        breaks=(
+            "**`auditor.md` §3's prohibition stops being enforced, and every legitimate "
+            "flag still validates.** The edit keeps the required-field check and drops the "
+            "whitelist, which is the version a reviewer would call more permissive in the "
+            "harmless direction: unknown keys are ignored rather than rejected, the way "
+            "most JSON consumers work.\n"
+            "\n"
+            "What it ignores is the field the surface form arrives in. §3 removes every "
+            "free-text field from a flag because any justification for a span is a "
+            "description of that span's text and the shortest honest one is a quotation — "
+            "so the natural thing for a model to add is `\"reason\": \"the name after "
+            "'Dr.'\"`, with the name in it. Ignored means not written, today; the failure "
+            "is that the *next* edit to the prompt or the report assembler can start "
+            "carrying it and nothing objects. This is the whitelist rule "
+            "`write_errors()` follows (DESIGN §5.5.1) in the place where 'the day it is "
+            "added' means publishing a residual identifier from a DUA fold into a file "
+            "under `results/` in a public repository.\n"
+            "\n"
+            "Caught by `test_an_unknown_field_is_refused_rather_than_ignored`, which is "
+            "parametrised over the eight field names a helpful model would reach for."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="an_out_of_range_column_is_snapped_to_the_line",
+        path=AUDIT,
+        anchor="    if end > len(line.text):",
+        replacement="    if False:  # end is clamped below instead\n"
+                    "        pass\n"
+                    "    end = min(end, len(line.text))\n"
+                    "    if end <= start:",
+        breaks=(
+            "**Repair instead of refusal, in the form that looks like robustness.** A flag "
+            "whose `end` runs past its line is clamped to the line rather than refused, so "
+            "the report keeps a flag the agent's coordinates could not support — at a "
+            "position the agent never claimed, with nothing in the file saying so. "
+            "`counts.refused` goes down, which reads as the model having done better.\n"
+            "\n"
+            "`auditor.md` §2.3 is explicit that the validator refuses rather than repairs, "
+            "and this mutation is why the sentence is in the prompt rather than only in the "
+            "code: a clamped flag is indistinguishable in the report from a correct one, "
+            "and the RuleAuthor is then shown a marked sample span (§4) whose boundary is "
+            "this function's arithmetic rather than the Auditor's claim.\n"
+            "\n"
+            "It also destroys the diagnostic. A round where the model lost the coordinate "
+            "scheme should show up as a refusal count; clamped, it shows up as ordinary "
+            "flags at line ends. Caught by "
+            "`test_a_span_past_the_end_of_its_line_crosses_a_line` and "
+            "`test_nothing_is_repaired`, the second of which exists because each "
+            "individual refusal test is also consistent with a validator that repaired "
+            "some other case."
+        ),
+        min_kills=2,
+    ),
+    Mutation(
+        name="a_flag_overlapping_a_mask_tag_is_kept_when_it_is_not_contained",
+        path=AUDIT,
+        anchor="        if start < col + length and col < end:",
+        replacement="        if col <= start and end <= col + length:",
+        breaks=(
+            "**Overlap becomes containment, so a flag half over a mask tag survives and "
+            "gets translated.** The edit reads as a tightening of the same idea — it still "
+            "refuses flags *inside* a tag, which is what the reason is named for — and it "
+            "passes any test that only flags a whole tag.\n"
+            "\n"
+            "A flag partly over a tag has no boundary the corpus can resolve: the part "
+            "inside the tag corresponds to a span that was replaced, so `_to_document()` "
+            "translates a column that has no document counterpart. Worse, the flag that "
+            "survives is *plausible* — it points at real text adjacent to a detected span, "
+            "which is exactly where a missed identifier often sits, so the wrong offsets "
+            "land in the report looking like the report's most credible entries.\n"
+            "\n"
+            "Caught by `test_any_overlap_with_a_tag_is_refused_not_only_containment`, "
+            "parametrised over the four ways a span can overlap a tag without being "
+            "contained by it, and by `test_a_flag_touching_a_tag_boundary_is_not_refused` "
+            "— the complement, which is what stops the fix from being 'refuse anything "
+            "near a tag' and losing the common case."
+        ),
+        min_kills=2,
+    ),
+    Mutation(
+        name="the_report_reads_its_own_round_as_the_masked_one",
+        path=AUDIT,
+        anchor="    if masked_from_iteration != iteration - 1:",
+        replacement="    if masked_from_iteration not in (iteration, iteration - 1):",
+        breaks=(
+            "**The report may claim it audited the round it belongs to.** `iter4/"
+            "audit_report.json` with `masked_from_iteration: 4` says the arm audited round "
+            "4's predictions — which do not exist when the Auditor runs, since the Auditor "
+            "is round 4's *first* step (`auditor.md` banner). The record then attributes a "
+            "round's flags to the wrong `spans.jsonl`.\n"
+            "\n"
+            "Every downstream number stays consistent, which is the whole difficulty: flag "
+            "counts, per-type counts and the marked sample all come out the same, because "
+            "the field is a *label* on the derivation rather than an input to it. The file "
+            "is well-formed and its own arithmetic agrees with itself. What breaks is the "
+            "one question the field exists to answer — 'which predictions was this "
+            "computed from' — and it breaks in the direction that makes an arm look like "
+            "it audited fresher output than it did.\n"
+            "\n"
+            "The permissive form is what a caller would reach for while wiring the loop "
+            "driver, at the moment they are unsure which round number they hold. Caught by "
+            "`test_masked_from_iteration_must_be_the_previous_round`."
         ),
         min_kills=1,
     ),

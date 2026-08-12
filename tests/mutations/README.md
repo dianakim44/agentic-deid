@@ -1182,6 +1182,51 @@ on disk that should not exist, which is `rule_author.md` §6's rule about render
 artefact over. The test walks the whole results tree rather than checking one path, because
 an export written to an un-iterated path satisfies the narrower assertion.
 
+### The Auditor's validator: four mutations, and each one makes the report look better
+
+Added 2026-08-12 with `src/porting/audit.py` (`docs/prompts/auditor.md` §2.3). The
+validator's failure mode is the opposite of the scorer's: nothing here is a metric at all, so
+no edit below is visible in any published number. Three of the four make the report read as
+*cleaner* — fewer refusals, more surviving flags — which is the direction a reviewer would
+approve of.
+
+`an_unknown_flag_field_is_ignored_instead_of_refused` drops the whitelist and keeps the
+required-field check, which is how most JSON consumers work and reads as permissive in the
+harmless direction. The field it starts ignoring is the one carrying the text. `auditor.md`
+§3 strips every free-text field from a flag because any justification for a span is a
+description of that span's text and the shortest honest one is a quotation, so the natural
+addition is `"reason": "the name after 'Dr.'"` with the name in it. Ignored is not written —
+today. The failure is that the next edit to the prompt or to the assembler can start carrying
+it and nothing objects, which is `write_errors()`'s whitelist rule (DESIGN §5.5.1) in the one
+place where "the day it is added" means publishing a residual identifier from a DUA fold into
+a file under `results/` in a public repository. Eight tests catch it, one per field name a
+helpful model would reach for.
+
+`an_out_of_range_column_is_snapped_to_the_line` clamps instead of refusing, and this is the
+one worth reading twice: it is indistinguishable from robustness. The clamped flag sits at a
+position the agent never claimed, `counts.refused` falls, and the report looks like a round
+where the model did better. It also destroys the diagnostic the count exists to be — a round
+where the model lost the coordinate scheme should be a number, and clamped it becomes ordinary
+flags at line ends. `test_nothing_is_repaired` exists because every individual refusal test is
+also consistent with a validator that repaired some *other* case.
+
+`a_flag_overlapping_a_mask_tag_is_kept_when_it_is_not_contained` turns overlap into
+containment. It still refuses flags inside a tag — which is what the reason is named for — so
+it reads as a tightening. What survives is a flag partly over a replacement, whose translated
+offsets are wrong because the part inside the tag has no document counterpart. The surviving
+flags are *plausible*: they point at real text immediately beside a detected span, which is
+where a missed identifier often sits, so the wrong offsets arrive looking like the report's
+most credible entries. The paired test that a flag *touching* a tag boundary is kept is what
+stops the fix from being "refuse anything near a tag", which would lose the common case.
+
+`the_report_reads_its_own_round_as_the_masked_one` lets `masked_from_iteration` equal the
+current round. Every number in the file stays consistent, because the field is a label on the
+derivation rather than an input to it — flag counts, per-type counts and the marked sample all
+come out identical, and the file's arithmetic agrees with itself. What breaks is the one
+question the field answers, and it breaks in the flattering direction: the arm appears to have
+audited fresher output than it did. The permissive form is exactly what a caller reaches for
+while wiring the loop driver and unsure which round number they are holding.
+
 ## What the seal cost, and what carries the difference
 
 Sealing 250 documents removed checks that cannot be replaced, and pretending
