@@ -480,6 +480,46 @@ def check_audit_refusal(value: str) -> str:
     return value
 
 
+def masked_tag_heterogeneous() -> str:
+    """The mask tag for a union of overlapping spans whose types disagree. DESIGN §3.
+
+    The masker masks the union of overlapping extents and prints a `phi_type` only where
+    that union is type-homogeneous. Where the types disagree it prints this value, which
+    names no type — because **naming one would give the masker a merge policy**, and merge
+    policy is a replaceable strategy that must not be baked into a component every arm runs
+    through (§4, §9.3). Declining to state a type is the only answer here that is not a
+    tie-break.
+
+    In the config rather than in the masker for `model_id_absent`'s reason: it is a single
+    value rather than a vocabulary, but it lands in the content of a prompt and in the
+    masker's output, so a literal in the module would be a vocabulary item invented in code
+    (CLAUDE.md).
+
+    **Refused if it is a `phi_type`.** Spelling it `[NAME]` would make a heterogeneous union
+    indistinguishable from a homogeneous one, which restores at the notation layer exactly
+    the arbitrary choice the rule exists to avoid — and it would do so while every other
+    check still passed.
+    """
+    value = naming().get("masked_tag_heterogeneous")
+    if not isinstance(value, str) or not value:
+        raise CorpusError(
+            "config/naming.yaml has no `masked_tag_heterogeneous` string. It is the mask "
+            "tag for a union of overlapping spans whose types disagree (DESIGN §3), it "
+            "lands in the Auditor's prompt, and CLAUDE.md keeps such values out of the "
+            "modules."
+        )
+    bare = value.strip("[]")
+    if bare in axis("phi_type"):
+        raise CorpusError(
+            f"`masked_tag_heterogeneous` is {value!r}, which names the phi_type {bare!r}. "
+            "It must name no type: the tag marks a union whose spans disagreed, and "
+            "spelling it as a type makes that union indistinguishable from a homogeneous "
+            "one — which is the arbitrary choice DESIGN §3 refuses, reappearing in the "
+            "notation."
+        )
+    return value
+
+
 def path_template(key: str) -> str:
     """One `paths` template from naming.yaml, e.g. `path_template("humanlog")`.
 

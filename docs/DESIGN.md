@@ -115,6 +115,72 @@ right-to-left. It makes no inference, so it is not a component whose error rate 
 measuring — and it must not be, because a masker that made judgements would be a second
 detector inside the loop.
 
+##### Overlapping spans: the masker masks the union of extents and never picks a winning type
+
+Asked and answered 2026-08-12, while checking the validator's contract and **before the
+masker was written**, because the masker's input makes this unavoidable and the obvious
+implementation resolves it by accident.
+
+**The input has overlaps by design.** `RuleSet.detect` returns every rule's match including
+overlapping ones, deliberately: "a detector that resolved its own overlaps would make every
+merge policy produce the same spans" (§4, §9.3). So `spans.jsonl` may carry a `NAME` at
+[10, 25) and an `ORGANISATION` at [20, 34), and the masker must produce non-overlapping tags
+from them. Union of the *extents* is mechanical — [10, 34) — but **which type tag prints is
+not**, and that is the whole difficulty.
+
+**The rule, in two parts:**
+
+1. **The masked extent is the union of the overlapping spans' extents.** Transitively: a
+   chain of pairwise overlaps is one tag, so masking cannot depend on the order the spans
+   arrive in.
+2. **The type tag prints a `phi_type` only where the union is type-homogeneous.** Where every
+   span in the union carries the same `phi_type`, that type is printed (`[NAME]`). Where the
+   types differ, a distinct tag is printed that names no type. Its spelling is
+   `masked_tag_heterogeneous` in `config/naming.yaml` — a value in the config for CLAUDE.md's
+   reason, since it lands in the content of a prompt and in the masker's output, and a literal
+   in the masker would be a vocabulary item invented in code.
+
+**Why not a precedence order.** Deciding that `NAME` beats `ORGANISATION` — by type, by span
+length, by rule score, by anything — makes the masker hold a **merge policy**. Merge policy is
+a replaceable strategy whose variants are supposed to be comparable on identical detections
+(§4), and a policy baked into the masker would be applied inside `port-loop` to every arm
+regardless of which policy the arm was configured with. That is exactly what §9.3 refuses for
+the scorer, arriving through a different component: the masker would silently resolve the
+overlaps `RuleSet.detect` was built to preserve, and the reason those overlaps survive
+detection is that resolving them is somebody else's decision to make and to be measured on.
+
+**This rule is the only one available that makes no judgement.** Union-of-extents is forced —
+every character in it was detected by something, so masking all of them reports no more and no
+less than the arm found. Homogeneous-type-or-nothing is forced in the other direction — where
+the arm's own detectors agree on the type there is nothing to decide, and where they disagree,
+*declining to state a type* is the only answer that is not a tie-break. Every alternative
+(pick one, print both, print the longer span's) adds information the detection did not
+contain.
+
+**From the Auditor's side this costs nothing, which is what makes the choice affordable.** The
+heterogeneous tag means "masked, type unresolved", and the property the role depends on is
+untouched: a **tag is not a candidate** (`docs/prompts/auditor.md` §1.2) whatever its
+spelling, so the agent's instruction — flag the words that were *not* replaced — reads the same
+over `[NAME]` and over the heterogeneous tag. The Auditor is looking for residual identifiers,
+and a residual identifier is by definition outside every tag. Two smaller consequences follow
+and both are already the specified behaviour: the validator refuses a flag overlapping *any*
+tag without inspecting its type (`src/porting/audit.py`), and a mistyped mask is the arbiter's
+question and out of scope here (that section's third consequence) — so a union the masker
+declined to type is not a defect the Auditor is being asked to report.
+
+**How often this fires is unmeasured, and the reason it is unmeasured is worth recording.**
+The intended measurement is the overlapping-pair count on the dev fold, and it cannot be taken
+yet: `rules/es.yaml` currently holds 3 rules and predicts **0 spans on es-meddocan dev**, so
+the overlap count is 0 for want of predictions rather than for want of overlaps. The number is
+therefore vacuous, not reassuring, and quoting it as evidence that the case is rare would be
+the worse error. What *is* measured is the shape of the input this will meet: the dev fold has
+**0 gold spans crossing a newline** and **393 gold pairs separated by ≤1 character**, so
+adjacency is the common case and tag-abutting-tag is ordinary rather than exotic. **When the
+first `port-loop` arm runs, the overlapping-pair count and the heterogeneous-union count are
+measured on its own predictions and reported** — the second is the number that says how often
+this rule actually fires, and a rule pre-registered without that follow-up is a rule nobody
+ever learns the cost of.
+
 **Masked text is a *larger* corpus exposure than §1.4, not a smaller one, and it inherits
 `FilledPrompt`'s treatment.** This is the part that is easy to get backwards on the intuition
 that masked text is safe text. On es-meddocan's dev fold the masked input is on the order of
