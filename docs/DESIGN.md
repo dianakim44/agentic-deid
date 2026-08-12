@@ -85,6 +85,115 @@ scorer. Agents and scoring are never mixed.
 consecutive iterations, or the call budget is exhausted. Never "until it looks
 good enough".
 
+#### The termination rule, pre-registered — δ = 0.005, k = 2, ceiling = 8 iterations (2026-08-12)
+
+**Pre-registered before `port-loop`'s first call, and that timing is the whole point.** δ
+and k decide how many iterations the arm runs, hence its cost, hence whether it clears
+§11.3's 1.9× standard against a baseline whose number is already known. A δ chosen with that
+number in view is a δ chosen to make the rung win or lose, which is the same objection §11.3
+records against picking a cost threshold after the fact. So the values are fixed here, with
+their derivation, and the derivation deliberately uses no `port-oneshot` result.
+
+**It is a difference rule, not a level rule, and the distinction was nearly lost.** The rule
+is *the dev leak rate **improves by less than** δ*, i.e. δ is a threshold on the
+iteration-to-iteration **first difference**. It was at one point restated as "dev leak rate
+**below** δ", which is a level rule and a different criterion — recorded because the
+restatement is easy to make and the two fail in opposite directions:
+
+- **A level rule cannot terminate on a plateau.** An arm that converges at a leak rate above
+  δ never satisfies it, so termination falls through to the budget on every run where the
+  rule matters most, and "the arm ran to convergence" becomes "the arm ran out of money" with
+  nothing in the record distinguishing them.
+- **A difference rule can terminate at any level, including a bad one.** Its failure is the
+  mirror: an arm that stalls early stops early and reports a converged-looking result at a
+  high leak rate. This is the failure this project prefers, because it is **visible in the
+  headline** — the leak rate is reported next to the iteration count, so a stall shows up as
+  a high number reached in few iterations. A budget exhaustion shows up as nothing.
+- **The level rule also embeds a target the experiment has no basis for.** Choosing "below
+  δ" means naming an acceptable absolute leak rate, which is a deployment decision about a
+  corpus and a threat model, not a convergence test. §9.3's leak rate is a comparative
+  measure here; treating it as a pass mark would be this project asserting a safety
+  threshold it has not established.
+
+The difference rule is kept, and the ceiling below is what closes its remaining gap.
+
+**δ = 0.005 (half a percentage point of dev leak rate).** Derived from the measurement floor
+upward, not from any observed value:
+
+- **The noise floor is one span: `1/5254` = 0.019 percentage points** on es-meddocan's dev
+  fold (`splits/es-meddocan.json`: 5,254 in-scope gold spans). A δ at or below that is
+  meaningless — every iteration that moves one span clears it — so the floor sets a hard
+  lower bound and δ must be some multiple of it.
+- **δ = 0.005 is ~26 spans.** The multiple is chosen so that "improved" means *a pattern was
+  found*, not *a span was memorised*: Prohibition 2 and §9.4 both turn on the difference
+  between a rule that generalises and a rule written from one or two examples, and a
+  threshold in the low single-digit spans would score the memorised rule as progress. 26
+  spans on a 250-document fold is about a tenth of a span per document — small enough that a
+  genuinely productive iteration clears it easily, large enough that clearing it is not
+  achievable by enumeration within one 40-span window.
+- **It survives a smaller corpus.** The δ has to be one number across corpora or the arms
+  are not comparable, and dev folds elsewhere will be smaller. At 1,000 in-scope spans
+  δ = 0.005 is 5 spans, which is still above that fold's own 0.1-point noise floor. Below
+  about 500 spans the two collide, and a corpus that small needs a recorded exception rather
+  than a silently different rule.
+- **It is not tuned to a leak-rate level.** 0.005 is a distance, and the same distance is
+  demanded of an iteration moving from 0.60 to 0.595 as from 0.20 to 0.195. That is the
+  intended reading: the rule asks whether the loop is still finding things, not whether it
+  has reached anywhere in particular.
+
+**k = 2 consecutive iterations.** One below-δ iteration is not evidence of convergence — the
+error sample is a seeded draw of 40 spans stratified by type (§1.4 of the prompt), so a
+single iteration can land on a stratum the current rules already cover and produce a small
+improvement for a reason unrelated to the arm having run out of ideas. Two consecutive
+below-δ iterations draw two independent samples and require both to come back thin. k = 3
+was considered and rejected on cost: each additional k is a full iteration of RuleAuthor plus
+Auditor plus a scorer pass, spent purely to confirm a stop, and at k = 2 the confirmation
+already costs one iteration in every run. k = 2 is also the smallest value for which
+"consecutive" means anything at all, and a stopping rule whose k could have been 1 is a rule
+that will be read as arbitrary.
+
+**Ceiling = 8 iterations** — §11.3's neutral third option (the convergence test plus an
+independent cap), adopted here for the agent arm as well as the human one. The ceiling is in
+**iterations**, for §11.3's reason: it is the unit the call budget and the human arm share,
+and the unit in which "the agent ran longer" is a statement rather than an assertion.
+
+- **Cost structure, from the one measurement available that is not a result.** The
+  `port-oneshot` call's *token counts* — 14,071 prompt, 2,325 completion — are cost
+  measurements rather than quality findings, so using them here does not smuggle 0.560 in.
+  Adding §1.3 (per-type tables plus `by_rule`) and §1.4 (40 spans at ±120 characters) puts a
+  RuleAuthor iteration at roughly 21k tokens; the Auditor reads the masked dev fold, whose
+  token total is 110,601 (`splits/es-meddocan.json`), so **an iteration costs on the order of
+  135k tokens, dominated by the Auditor rather than the RuleAuthor.** Eight iterations is
+  therefore around 1.1M tokens against `port-oneshot`'s 16.4k.
+- **So §11.3's 1.9× standard cannot be met by any iterating arm, and that is a finding about
+  the standard rather than a reason to lower the ceiling.** 1.9× was set for `port-loop` vs
+  `port-multi` — two arms of the same shape — and against a *one-call* baseline no loop of
+  any length comes close. **The comparison `port-loop` vs `port-oneshot` is therefore not
+  cost-thresholded; it is cost-*reported*,** and what the ceiling buys is that the reported
+  figure is bounded in advance rather than being whatever the loop happened to spend. §11.3's
+  threshold continues to apply where it was written, one rung up.
+- **Eight rather than four or twelve.** Four would make the ceiling, not δ/k, the operative
+  stopping rule in most runs — a cap that binds routinely is a budget masquerading as a
+  convergence test, and the arm's claim would be about eight calls rather than about
+  iteration. Twelve buys about 500k more tokens for iterations that δ/k is very unlikely to
+  reach. Eight leaves k = 2's confirmation cost affordable (six productive iterations before
+  the two that stop it), which is the property that decides it.
+- **Hitting the ceiling is a reported outcome, not a failure to record.** An arm that
+  terminates on the cap has *not* satisfied the convergence test, and the two must be
+  distinguishable in `metrics.json` — a run that stopped at 8 with the leak rate still
+  falling is a different claim from one that stopped at 5 having converged. The termination
+  reason is therefore recorded, and a ceiling-terminated run may not be described as
+  converged.
+
+**What this licenses:** a stopping rule fixed before the arm ran, applied to `port-loop` and
+to any later iterating arm, with the termination reason and the iteration count reported
+beside the leak rate. **What it does not:** a claim that δ = 0.005 is where returns actually
+diminish. It is a threshold chosen from a measurement floor and a cost structure, which is
+the best available basis before the arm has run and is not the same as a measured
+inflection point. If a later corpus shows the rule stopping arms that were still improving
+steeply, that is a finding to report — not a value to retune mid-ladder, since a δ changed
+between rungs makes the rungs incomparable exactly as a mid-ladder model change would (§4).
+
 ### Span provenance
 
 Every detected span carries **layer · detector · rule ID · score**.
