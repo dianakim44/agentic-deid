@@ -81,6 +81,77 @@ two roles: build-time feedback to the RuleAuthor, and the runtime component of
 the `RT-Aud` arm. Scoring against gold is done by a separate deterministic
 scorer. Agents and scoring are never mixed.
 
+#### The Auditor reads *masked* text, and stage 3 is not a prerequisite — decided 2026-08-12
+
+**The requirement is "does not see gold", not "went through the full pipeline".** Planning
+`port-loop` surfaced §2's stage 3 (pseudonymization: date offsets, within-document surrogate
+consistency, type tags for high-risk identifiers) as an apparent blocker — the Auditor reads
+"the de-identified output", and nothing in this repository produces one. The reading is
+wrong, and the correction matters because it was about to make an unbuilt stage a
+prerequisite for the arm the ladder's lead comparison rests on.
+
+**Masking is sufficient, and it is sufficient for a structural reason rather than as an
+approximation.** The Auditor's input is the dev text with **every detected span replaced by
+its type tag** (`[NAME]`, `[DATE]`), and nothing else changed. What the Auditor is asked to
+find is *residual* PHI — identifiers the rules **missed**. A missed identifier is by
+definition not in the detected set, so it is **not masked, and stands in the text verbatim**.
+The signal the Auditor exists to find is therefore fully present in masked text; stage 3 would
+change only the *replacements*, which are the spans the Auditor is not being asked about.
+
+**A surrogate is not merely unnecessary here, it is worse for this role.** Stage 3 substitutes
+realistic replacements — a plausible name for a name, a shifted date for a date. For the
+build-time Auditor that means the text it reads is seeded with name-shaped and date-shaped
+strings that are *not* PHI, and it will flag them. Those flags are neither gold misses nor
+real leaks: they are artefacts of the surrogate generator, and they land in the
+"flagged, not in gold" case of the prompt's three-case reading — the case already documented
+as the one the RuleAuthor may not act on. So pseudonymised input would inflate exactly the
+least actionable category of the report, and §9.2's caution about a surface agreeing with the
+surrogate generator without being an identifier is the same observation from the scoring side.
+A type tag is unambiguous: it is not a name and cannot be mistaken for one.
+
+**Masking is deterministic code, not an agent.** It consumes the arm's own `spans.jsonl`,
+which already carries `start`/`end`/`phi_type` per span and no text, and applies replacements
+right-to-left. It makes no inference, so it is not a component whose error rate needs
+measuring — and it must not be, because a masker that made judgements would be a second
+detector inside the loop.
+
+**Masked text is a *larger* corpus exposure than §1.4, not a smaller one, and it inherits
+`FilledPrompt`'s treatment.** This is the part that is easy to get backwards on the intuition
+that masked text is safe text. On es-meddocan's dev fold the masked input is on the order of
+110,601 tokens (`splits/es-meddocan.json`) against §1.4's 40-span window at roughly 2,700 —
+about **40×** — and under the leak rates this arm actually produces a majority of in-scope
+gold identifiers are unmasked, because unmasked is precisely what "leaked" means. So the
+Auditor's prompt carries more corpus text, containing more intact identifiers, than any other
+prompt in the project. Two consequences, both binding:
+
+- **The masker returns `FilledPrompt` and never a `str`,** for the reason `render_window()`
+  does (`src/llm/prompt.py`'s module docstring): it is the second function in the project that
+  slices document text for a prompt, so it belongs inside the same discipline rather than
+  beside it. Nothing writes the masked text to disk, no exception message quotes it
+  (CLAUDE.md), and `reports/leaks_{iter}.json` holds offsets, types and scores only — never
+  the flagged surface.
+- **Where §1.4's `n` is 0 for DUA reasons, the Auditor cannot run at all.** §1.4 records that
+  a corpus whose text may not be sent to an external API sets `n` = 0 and the arm runs on a
+  local model or is reported as not run. That constraint applies here **with more force**,
+  and it is not degradable: an Auditor shown 0 characters produces no report, and `port-loop`
+  without an Auditor is a different arm. So the DUA case is not "`port-loop` with a smaller
+  window" — it is `port-loop` unavailable on that corpus, recorded per corpus rather than
+  worked around.
+
+**What is deferred, and when it becomes due.** Stage 3 proper — one date offset per document
+preserving intervals, surrogates consistent within a document, type tags for high-risk
+identifiers — is **not built and is not scheduled by this decision.** Nothing in the ladder
+needs it: CLAUDE.md fixes evaluation as detection-only, so every arm's metrics are computed
+from spans against gold and no arm's score depends on a replacement ever being generated. It
+becomes due at exactly three points, none of which is `port-loop`: **(1)** any claim about the
+*utility* of the pipeline's output, since utility is a property of the replacements and not of
+the detection; **(2)** releasing de-identified text from any corpus, where a type tag destroys
+readability that a surrogate preserves; **(3)** the `RT-Aud` arm's **runtime** role, if that
+arm is specified as auditing pipeline output rather than masked output — a decision that
+should be taken with that arm and not inherited from this one. Recording the trigger
+conditions is the point: a deferral with no stated due date is how a pipeline stage silently
+becomes out of scope.
+
 **Loop termination** is explicit: dev leak rate improves by less than δ for k
 consecutive iterations, or the call budget is exhausted. Never "until it looks
 good enough".
@@ -958,6 +1029,89 @@ alters nothing about what any agent is shown. The decision belongs in DESIGN, wh
 hashed, and §6 continues to state the rule while this section states how the rule is held.
 The general form is worth keeping: **a hashed file is edited when the instruction changes, not
 when the implementation of an unchanged instruction moves.**
+
+### 5.5 What `port-loop` adds, decided before it is built — 2026-08-12
+
+Seven decisions taken at planning time so that none of them is taken by whoever is mid-way
+through the implementation. The termination rule is §3's; the Auditor's input is §3's; these
+are the artefact and plumbing questions the two of those leave open.
+
+- **The freeze record hashes three prompts, not two.** `WINDOW_FILES` becomes
+  `rule_author.md`, `auditor.md`, `config/sampling.yaml`. The Auditor's prompt decides what
+  the RuleAuthor is shown at §1.3's audit block, so it is part of the window by the same
+  argument that puts `sampling.yaml` there — a record naming only the RuleAuthor's template
+  would agree with a rewritten Auditor as readily as with this one. `port-loop` is unfrozen,
+  so this costs nothing there. **The frozen arms are not touched and not re-hashed**: their
+  records attest to the two files that existed when their calls were made, and a third hash
+  added retroactively would be a claim about a window that never applied
+  (§6.3, `docs/notes/window-freeze-history.md`).
+- **`reports/leaks_{iter}.json` is deny-listed, not allowed-and-sniffed.** The report is a
+  list of positions an agent believes are surviving PHI, which is a map of the residual
+  identifiers in a DUA corpus — the most concentrated such artefact the loop produces. Deny
+  is the safe default and the direction §6.1's allowlist argument runs: a path may be excused
+  from the *content sniffer* only if the path rules already publish it, and nothing here
+  requires publishing this. `metrics.json` and `spans.jsonl` already carry what a reader needs
+  about detection; the audit report is an internal input. If a later analysis needs its
+  aggregate, that is a derived count added to `metrics.json`, not a re-classification of this
+  path.
+- **The report path carries the four axes and the iteration.** `reports/leaks_{iter}.json` as
+  §3 writes it has no axes at all, which is §5.3's defect exactly: two arms, one file, the
+  second overwrites the first and leaves a plausible record behind. The key declared in
+  `config/naming.yaml` is axis-scoped and iteration-scoped like `armrules`.
+- **`call_line()` gains a `role` field.** RuleAuthor and Auditor both call a model and both
+  lines land in one `agent_calls.jsonl`, so `llm_calls` counts them together — which is
+  correct for cost and useless for attribution unless the line says which agent spent it.
+  Written on every line including `port-oneshot`'s, per the rule that a key some arms omit
+  cannot be compared across arms; the frozen arms' existing lines are not rewritten.
+- **The window is frozen once and the log carries drift.** `freeze_window()` already refuses
+  after the first call and already takes `sections=`, and the temptation is a per-iteration
+  re-freeze because `sections_shown` grows at iteration 2. Rejected: a record that can be
+  rewritten mid-run is not a freeze, and §6.3's whole finding is that a guard conditioned on
+  the record rather than on the call log is not a guard. So `port-loop` freezes once, naming
+  the full window it will use across the run, and **every `agent_calls.jsonl` line's
+  `window_files` hash is the mid-run drift detector** — which is what that field was added
+  for and what `port-oneshot` could not exercise with one line. `sections_shown` on the freeze
+  record describes the arm, and the per-iteration truth of which blocks were filled is the
+  prompt's own `reference()` on each line.
+- **`paths.metrics` gains `{iteration}`.** δ/k is computed over the sequence of per-iteration
+  dev leak rates, so that sequence *is* the experimental record — and one `metrics.json` per
+  arm keeps only the last, reducing the arm to its final state. This is §5.3's argument about
+  rule files applied to scores, and the two must move together: a rule file at `iter3/` whose
+  score was overwritten is a rule set nobody can price. The un-iterated path stays valid for
+  the single-call arms, so the key is templated rather than replaced.
+- **The loop driver is a new module, not a widened `orchestrate.py`.** That file's
+  `PORTING = "port-oneshot"` and `ITERATION = 1` are module-level constants and its
+  `run_arm()` is one call from start to finish. Widening it would put both arms' control flow
+  in one function whose branches differ in everything, and — the decisive part — it would make
+  the baseline's driver a file that changes while `port-loop` is developed. The baseline has
+  run; its driver should stop changing. Second module, shared helpers (`freeze_window`,
+  `call_line`, `append_call`, `called_where`), same reasoning that made `armfreeze` a second
+  key rather than a widened one.
+- **The scorer's per-span error export goes in `run_fold`, beside `spans.jsonl`, and not in
+  `score()`.** Iterations ≥2 need `ErrorSpan`s — `(doc_id, span_index, phi_type, kind, start,
+  end)` — and today `score()` returns aggregates while the per-gold verdicts live in
+  `_records()`/`_GoldRecord`, which is private and carries no `span_index`.
+
+  Three placements were available. **Widening `score()`'s return** is wrong because that
+  return is `metrics.json`'s content: a per-span error list inside it would be published by
+  every arm that scores, on every corpus, as a permanent by-product of a feature only the
+  iterating arms use — and it is a list of the positions of every missed identifier in the
+  fold, which is the artefact the previous bullet deny-lists when an agent writes it. **A new
+  public function in `scorer.py`** returning the list without writing it was the close
+  second, and is what should be added *inside* the module: the matching must not be
+  recomputed outside the scorer, for §9.3's reason that a second matching makes every merge
+  policy score the same. **The write belongs to `run_fold`**, which is where §5.0 already puts
+  the decision about what closing an arm writes, and which already owns the one write of
+  `spans.jsonl` and `metrics.json`.
+
+  So: `scorer` exposes the per-gold verdicts as data — one matching, the same one the metrics
+  came from, with `span_index` carried through `_GoldRecord` — and `run_fold` writes them to
+  an axis- and iteration-scoped path beside the other two, deny-listed for the same reason as
+  the audit report. The loop driver reads that file to build its pool, exactly as
+  `initial_error_pool()` reads the loader at iteration 1. What this buys over threading the
+  list through in memory is that the pool at iteration *n* is on disk and checkable: "which
+  errors was the agent shown at iteration 4" is answerable after the run, which is the same
+  property §5.3 wanted from per-iteration rule files.
 
 ---
 
