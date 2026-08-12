@@ -487,6 +487,72 @@ def test_the_allowed_arm_rule_path_is_the_one_naming_yaml_declares():
     assert any("rules/es.yaml".startswith(h) for h in rs.ALLOW_HINTS)
 
 
+def test_the_four_iteration_scoped_paths_split_two_and_two():
+    """**One directory, four files, and the screener must put them in two classes.**
+
+    DESIGN §5.5 puts a round's whole record under `iter{n}/`: the predictions and the score
+    (`paths.iterspans`, `paths.itermetrics`) which hold what the four-deep `spans.jsonl` and
+    `metrics.json` hold and are allowed for the same reason, and beside them the audit
+    report and the per-span error export, which are lists of the positions of residual
+    identifiers and are denied.
+
+    Asserted as one test rather than four because the property is the *split*, and the way
+    it breaks is a pattern anchored on the directory instead of the filename. A
+    `results/.../iter[0-9]+/` ALLOW entry would publish all four; the same shape on the deny
+    side would suppress the arm's own scores. Neither mistake is visible from either side
+    alone, which is why both directions are checked here against the four real templates.
+    """
+    from src.corpora.base import path_template
+    axes = dict(corpus="es-meddocan", detector="R", supervision="sup-free",
+                porting="port-loop", iteration=3)
+    allowed = {"itermetrics", "iterspans"}
+    denied = {"auditreport", "itererrors"}
+    for key in allowed | denied:
+        rel = path_template(key).format(**axes)
+        assert f"/iter{axes['iteration']}/" in rel, (
+            f"paths.{key} must be iteration-scoped (DESIGN §5.5): {rel}")
+        if key in allowed:
+            assert any(re.search(p, rel) for p in rs.ALLOW_PATTERNS), rel
+            assert not rs.deny(rel), rel
+        else:
+            assert rs.deny(rel), (
+                f"paths.{key} is not denied: {rel}. DESIGN §5.5 deny-lists it — on a DUA "
+                "corpus it is a map of the identifiers the rules did not remove.")
+            assert not any(re.search(p, rel) for p in rs.ALLOW_PATTERNS), rel
+
+
+def test_the_iteration_scoped_score_is_allowed_under_every_arm_and_round():
+    """A pattern that matched only `iter1/` would leave every later round uncategorised,
+    and uncategorised reads as reviewed to whoever scans the summary."""
+    from src.corpora.base import path_template
+    for arm in ("port-loop", "port-multi", "port-selfdesign"):
+        for iteration in (1, 2, 8, 903):
+            for key in ("itermetrics", "iterspans"):
+                rel = path_template(key).format(
+                    corpus="es-meddocan", detector="R", supervision="sup-free",
+                    porting=arm, iteration=iteration)
+                assert any(re.search(p, rel) for p in rs.ALLOW_PATTERNS), rel
+
+
+def test_the_un_iterated_result_paths_are_still_allowed():
+    """**The reason §5.5 added a second key instead of widening `paths.metrics`.**
+
+    `port-oneshot-nofence`'s `metrics.json` and `spans.jsonl` are committed at four axes
+    deep. Had the existing key gained `{iteration}`, they would be matched by no ALLOW entry
+    and reachable from no `metrics_path()` call — and §4 refused exactly that migration for
+    a freeze record. This pins the four-deep case so a later edit to the patterns above
+    cannot quietly take it away.
+    """
+    from src.corpora.base import path_template
+    for key in ("metrics", "spans"):
+        rel = path_template(key).format(
+            corpus="es-meddocan", detector="R", supervision="sup-free",
+            porting="port-oneshot-nofence")
+        assert "iter" not in rel, (
+            f"paths.{key} must stay un-iterated (DESIGN §5.5): {rel}")
+        assert any(re.search(p, rel) for p in rs.ALLOW_PATTERNS), rel
+
+
 def test_the_allowed_format_failure_path_is_the_one_naming_yaml_declares():
     """`paths.formatfailure` and the ALLOW pattern must describe the same file.
 
@@ -804,6 +870,12 @@ DENY_SAMPLES = {
         # denied since the rule was written, gitignored by nothing, and BLOCKED the
         # moment the file appeared. See docs/notes/arm-port-oneshot-es.md.
         "results/a/b/c/d/agent_calls.jsonl", "agent_calls.jsonl",
+    ],
+    r"(^|/)audit_report\.json$": [
+        "results/a/b/c/d/iter3/audit_report.json", "audit_report.json",
+    ],
+    r"(^|/)errors\.jsonl$": [
+        "results/a/b/c/d/iter3/errors.jsonl", "errors.jsonl",
     ],
 }
 

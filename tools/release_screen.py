@@ -63,6 +63,23 @@ DENY_PATTERNS = [
     r"(^|/)critic_log\.jsonl$",
     r"(^|/)agent_calls\.jsonl$",           # 에이전트 프롬프트에 dev 원문이 들어간다
 
+    # ─── 루프가 만드는 잔존 식별자 목록 ─────────────────────────
+    # DESIGN §5.5. 둘 다 표면형을 담지 않도록 쓰는 쪽이 규약을 지키지만, 담는
+    # 것은 위치이고 위치의 목록이 문제다 — audit_report.json 은 Auditor 가
+    # 잔존 PHI 라고 의심한 지점들이고, errors.jsonl 은 그 fold 에서 실제로
+    # 놓친 모든 식별자의 위치다 (gold 에서 나온다). DUA 코퍼스에서 후자는
+    # 남아 있는 식별자의 지도 그 자체다.
+    #
+    # ALLOW 에 올리고 sniffer 에 맡기지 않는 이유: §6.1 의 allowlist 논거는
+    # "경로 규칙이 이미 공개하기로 한 파일만 내용 검사를 면제받을 수 있다" 로
+    # 가고, 이 둘을 공개해야 할 이유가 없다. metrics.json 과 spans.jsonl 이
+    # 탐지에 대해 독자가 필요한 것을 담는다.
+    #
+    # 이름으로 거는 것은 의도다. 경로 전체(iter{n}/ 아래)로 걸면 그 디렉토리에
+    # 함께 있는 itermetrics·iterspans 를 같이 잡는다.
+    r"(^|/)audit_report\.json$",
+    r"(^|/)errors\.jsonl$",
+
     # ─── 채워진 프롬프트 인스턴스 ───────────────────────────────
     # 템플릿(docs/prompts/*.md)은 공개된다. 값이 채워진 인스턴스는 dev 원문을
     # 담는다 — RuleAuthor 프롬프트의 오류 스팬 블록은 ±120자 문맥을 포함하고,
@@ -105,6 +122,24 @@ ALLOW_HINTS = [
 ALLOW_PATTERNS = [
     r"^results/[^/]+/[^/]+/[^/]+/[^/]+/metrics\.json$",
     r"^results/[^/]+/[^/]+/[^/]+/[^/]+/spans\.jsonl$",
+    # The iterating arms' per-round score and predictions (paths.itermetrics,
+    # paths.iterspans; DESIGN §5.5). Same content as the two above — offsets, types and
+    # scores — so the same treatment, and declared in the same commit as the keys for
+    # `armrules`' reason: a path declared in one commit and screened in a later one goes
+    # unscreened in between, and unscreened does not mean rejected. It means the file
+    # passes without the check ever running.
+    #
+    # Two entries rather than an optional `(iter[0-9]+/)?` on each of the two above. The
+    # optional group is the shorter edit and it makes one pattern answer two questions:
+    # a typo inside it would silently widen or narrow both the four-deep and the
+    # five-deep case, and the four-deep case is what every committed result matches
+    # today. Separate lines fail separately.
+    #
+    # `audit_report.json` and `errors.jsonl` live in this same directory and are
+    # deny-listed by name, which is why these two match on their filenames rather than
+    # on the directory (see DENY_PATTERNS).
+    r"^results/[^/]+/[^/]+/[^/]+/[^/]+/iter[0-9]+/metrics\.json$",
+    r"^results/[^/]+/[^/]+/[^/]+/[^/]+/iter[0-9]+/spans\.jsonl$",
     r"^results/sealed_eval_log\.md$",
     # port-human only, and the {porting} component is the literal rather than [^/]+:
     # DESIGN §11.2 gives this file exactly one value of that axis. `human_minutes` and

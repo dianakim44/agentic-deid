@@ -38,6 +38,12 @@ sealed/
 **/raw_responses*
 **/critic_log.jsonl
 **/agent_calls.jsonl
+# 루프가 만드는 잔존 식별자 목록 (DESIGN §5.5). audit_report.json 은 Auditor 가
+# 의심 표시한 지점들, errors.jsonl 은 그 fold 에서 실제로 놓친 모든 식별자의
+# 위치다. 같은 iter{n}/ 디렉토리에 있는 metrics.json·spans.jsonl 은 ALLOW 이므로
+# 디렉토리가 아니라 파일 이름으로 거는 것이 deny 규칙과 같은 이유로 맞다.
+**/audit_report.json
+**/errors.jsonl
 *value_map*.jsonl
 *value_map*.json
 *value_map*.csv

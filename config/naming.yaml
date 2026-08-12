@@ -287,6 +287,29 @@ termination:
   # 개수의 함수가 아니다 (§3).
   ceiling: 8
 
+# ─── 호출한 에이전트 역할 ───────────────────────────────────
+# agent_calls.jsonl 각 행의 role 필드. DESIGN §5.5 — RuleAuthor 와 Auditor 가
+# 둘 다 모델을 호출하고 둘의 행이 한 로그에 섞이므로, llm_calls 는 둘을 합쳐
+# 센다. 비용으로는 그게 맞고 (한 회차가 쓴 총액이다) 귀속으로는 쓸 수 없다 —
+# 행이 어느 에이전트의 것인지 말하지 않으면 "Auditor 가 비용의 절반을 쓴다"
+# 같은 문장을 확인할 방법이 없다.
+#
+# **축이 아니다.** termination_reason·model_id_resolution 과 같은 층위이고,
+# 경로에 들어가지 않는다. 그럼에도 여기 있는 이유는 CLAUDE.md 의 규칙이
+# 결과 경로에 들어가지 않는 값도 포함하기 때문이다.
+#
+# 값 이름이 프롬프트 파일 이름과 같다 (docs/prompts/rule_author.md ·
+# auditor.md). 우연이 아니라 그 대응이 §3 의 "에이전트는 자기가 만드는 파일로
+# 정의된다" 를 로그 층에서 확인 가능하게 하기 때문이다. 다만 코드가 파일
+# 이름에서 role 을 **유도하지 않는다** — layer 를 탐지기 이름에서 유도하지
+# 않는 것과 같은 이유로, 호출하는 쪽이 직접 적는다.
+#
+# port-oneshot 계열의 기존 행은 다시 쓰지 않는다 (§5.5). 그 행들은 role 필드가
+# 없던 시점의 기록이고, 나중에 채워 넣은 값은 그 호출에 대한 진술이 아니다.
+agent_role:
+  rule_author: rules/{lang}.yaml 을 쓰는 에이전트. 모든 porting arm 이 최소 한 번 호출한다
+  auditor:     마스킹된 dev 텍스트를 읽고 잔존 PHI 를 의심 표시한다. port-loop 회차 2 이상에서만 호출된다
+
 # ─── 층 → 계열 ───────────────────────────────────────────────
 # 상보성 분해(DESIGN.md §5)는 "rules only / tagger only / both / neither" 로
 # 보고한다. 그러려면 어느 층이 rules 계열인지 알아야 하는데, 그 지식이 코드에만
@@ -332,7 +355,64 @@ corpus_rule_langs:
 paths:
   metrics:  "results/{corpus}/{detector}/{supervision}/{porting}/metrics.json"
   spans:    "results/{corpus}/{detector}/{supervision}/{porting}/spans.jsonl"
+  # 반복하는 arm 의 회차별 점수. DESIGN §5.5 (2026-08-12 정정).
+  #
+  # **metrics 를 넓히지 않고 두 번째 키를 둔다.** 넓히면 이미 커밋된
+  # port-oneshot-nofence 의 metrics.json·spans.jsonl 이 ALLOW_PATTERNS 에
+  # 걸리지 않고 metrics_path() 로 도달할 수 없게 된다. 옮기는 것도 열려 있지
+  # 않다 — §4 가 다섯 번째 경로 성분을 거부한 이유가 그것이고, 이것이 그
+  # 논거의 세 번째 등장이다 (§6.3 의 armfreeze/humanfreeze 분리가 두 번째).
+  #
+  # 그래서 metrics 는 축 넷 그대로 남고 **모든 arm 의 최종 점수** 가 거기
+  # 쓰인다 (port-loop 포함). 마지막 회차의 점수는 두 경로에 같은 내용으로
+  # 존재한다. 의도한 중복이다: 최종 점수를 iterN/ 에만 두면 arm 의 headline
+  # 값을 읽는 것이 디렉토리 나열 + max 가 되고, 그건 §5.3 이 파일명 파싱을
+  # 거부한 이유가 자리만 옮긴 것이다. run_fold 가 한 번의 채점으로 둘 다
+  # 쓰므로 두 파일이 어긋날 수 없다.
+  #
+  # {iteration} 이 디렉토리인 이유는 armrules 와 같다.
+  itermetrics: "results/{corpus}/{detector}/{supervision}/{porting}/iter{iteration}/metrics.json"
+  # 회차별 예측. itermetrics 와 **함께** 움직인다 (DESIGN §5.5).
+  #
+  # run_fold 가 두 파일을 한 번의 채점으로 쓰므로, 점수만 회차별로 두면 예측은
+  # 매 회차 덮이고 점수는 전부 남는다. 그건 둘 다 잃는 것보다 나쁘다 — 아래
+  # itererrors 가 그 회차의 예측을 gold 에 대고 만든 파생물이므로, iter3 의
+  # 오류 목록은 iter8 이 spans.jsonl 을 덮은 뒤에는 무엇으로도 재도출·검증할
+  # 수 없다. 한 회차가 내는 세 파일(예측·점수·오류)은 한 기록이고, 함께
+  # 회차별이 되거나 기록에 구멍이 남는다.
+  iterspans: "results/{corpus}/{detector}/{supervision}/{porting}/iter{iteration}/spans.jsonl"
   agentlog: "results/{corpus}/{detector}/{supervision}/{porting}/agent_calls.jsonl"
+  # Auditor 의 보고서. DESIGN §5.5 — 의심되는 잔존 PHI 의 위치 목록이다.
+  #
+  # **deny 대상이다. ALLOW 에 올리고 sniffer 에 맡기지 않는다.** DUA 코퍼스에서
+  # 이 파일은 남아 있는 식별자의 지도이고, 루프가 만드는 것 중 그런 성질이 가장
+  # 농축된 산출물이다. §6.1 의 allowlist 논거가 가는 방향이 deny 다 — 경로가
+  # 내용 sniffer 를 면제받을 수 있는 것은 경로 규칙이 이미 그 파일을 공개하기로
+  # 했을 때뿐이고, 이것을 공개해야 할 이유는 아무것도 없다. metrics.json 과
+  # spans.jsonl 이 탐지에 대해 독자가 필요한 것을 이미 담는다. 나중에 이 파일의
+  # 집계가 필요해지면 metrics.json 에 파생 카운트를 더하는 것이고, 이 경로의
+  # 분류를 바꾸는 것이 아니다.
+  #
+  # **§3 이 적은 `reports/leaks_{iter}.json` 을 그대로 쓰지 않는다.** 그 경로에는
+  # 축이 하나도 없고, 그건 §5.3 이 rules/{lang}.yaml 에서 고친 결함과 같다 —
+  # 두 arm 이 한 파일에 쓰고 나중에 돈 arm 이 먼저 돈 arm 을 덮는다.
+  # 표면형은 담지 않는다: 오프셋·유형·점수만이고, 그 규약은 이 파일을 쓰는
+  # 코드가 지킨다 (CLAUDE.md).
+  auditreport: "results/{corpus}/{detector}/{supervision}/{porting}/iter{iteration}/audit_report.json"
+  # 채점기의 스팬 단위 오류 목록. 다음 회차의 §1.4 표본이 여기서 뽑힌다.
+  # DESIGN §5.5 — score() 의 반환값을 넓히지 않고 run_fold 가 별도 파일로 쓴다.
+  #
+  # auditreport 와 같은 이유로 deny 대상이다. 오히려 더 직접적이다: 이건
+  # *의심* 목록이 아니라 그 fold 에서 놓친 모든 식별자의 위치 목록이고,
+  # gold 에서 나온다. ErrorSpan 이 doc_id·span_index·오프셋만 담고 표면형
+  # 필드를 갖지 않는 것이 그 방어의 절반이며 (src/sample.py), 경로 규칙이
+  # 나머지 절반이다.
+  #
+  # 회차별인 이유: 회차 n 의 표본이 무엇에서 뽑혔는지가 사후에 답할 수 있어야
+  # 한다. 한 경로에 덮어쓰면 마지막 회차의 오류 목록만 남고, "회차 4 에서
+  # 에이전트가 무엇을 봤는가" 는 §5.3 이 규칙 파일에 대해 요구한 것과 같은
+  # 질문이다.
+  itererrors: "results/{corpus}/{detector}/{supervision}/{porting}/iter{iteration}/errors.jsonl"
   # port-human 전용. {porting} 이 템플릿이 아니라 고정값인 유일한 경로다 —
   # 이 파일은 그 축의 값 하나에만 존재하고, 템플릿으로 두면 다른 arm 이
   # 여기에 쓰도록 초대하는 셈이다 (DESIGN §11.2).

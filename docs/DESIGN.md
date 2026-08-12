@@ -1228,6 +1228,17 @@ are the artefact and plumbing questions the two of those leave open.
   same coupling §5.3 fixed for `armrules`: a path declared in one commit and screened in a
   later one is a path that goes unscreened in between, and unscreened here means the file
   passes without the check ever running.
+
+  **`paths.spans` moves with it — `paths.iterspans`, same shape, same reason.** Noticed while
+  implementing the two keys above and added here rather than decided in code. `run_fold`
+  writes `spans.jsonl` and `metrics.json` from one pass, so an iterating arm that scoped only
+  the second would overwrite its predictions every round while keeping every round's score.
+  That is worse than losing both: the per-iteration error export beneath is *derived* from
+  that round's predictions against gold, so an `iter3/errors.jsonl` whose `spans.jsonl` has
+  been overwritten by iteration 8 is a list nothing can re-derive or check. The three files a
+  round produces — predictions, score, errors — are one record and they are scoped together
+  or the record has a hole in it. Same duplication rule as `metrics`: the final round's spans
+  exist at both paths, written from one pass.
 - **The loop driver is a new module, not a widened `orchestrate.py`.** That file's
   `PORTING = "port-oneshot"` and `ITERATION = 1` are module-level constants and its
   `run_arm()` is one call from start to finish. Widening it would put both arms' control flow

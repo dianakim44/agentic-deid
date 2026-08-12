@@ -1073,6 +1073,47 @@ the spec's wording. The edit is in `config/naming.yaml` rather than in a module,
 rule about vocabulary going into the config first doing its job: the collision is visible in
 one committed file rather than distributed across callers.
 
+### The iteration-scoped paths: three mutations where the deny rule still fires
+
+Added 2026-08-12 with `paths.itermetrics` / `iterspans` / `auditreport` / `itererrors`
+(DESIGN §5.5). One `iter{n}/` directory holds four files with two classifications — the
+round's score and predictions are publishable, the audit report and the per-span error
+export are not — and every mutation here attacks the boundary between them rather than the
+screener as a whole.
+
+`the_audit_report_is_allowed_instead_of_denied` does not delete a pattern. It rewrites the
+deny entry into an ALLOW-shaped one, four axes and an iteration deep, identical in form to
+the score sitting beside it — so the edit reads as *tightening*, being strictly more specific
+than the line it replaces. **The content sniffer does not save it**, and that is the part
+worth stating plainly: the report holds offsets, types and scores and no surface forms by
+construction, which makes it exactly the kind of file `sniff()` passes. §6.1's allowlist
+argument runs the other way — a path may be excused from the sniffer only where the path
+rules already publish it, and nothing requires publishing a list of positions an agent
+believes are surviving PHI in a DUA corpus. The mutation also produces no BLOCKED line,
+because `.gitignore` still covers the filename: an ignored-but-not-denied path is reported as
+Quarantined, which is the class that reads as fine.
+
+`the_iteration_allow_pattern_covers_the_whole_directory` reaches the same publication from
+the other side and is the *shorter* edit — one ALLOW pattern on `iter[0-9]+/` instead of two
+on filenames. Today it changes no reported classification at all, because `deny()` is
+consulted before ALLOW and both denied files are still caught. What it changes is that the
+two lists now contradict each other, and the contradiction is invisible until somebody edits
+either one. That is the whole reason these patterns anchor on filenames: the directory is the
+wrong unit when it holds two classes, and a screener whose ALLOW list *would* publish a
+denied file is one deletion away from doing it. So the test asserts the denied two match **no
+ALLOW pattern**, not merely that they are denied — a test written the weaker way passes this
+mutation and every future variant of it.
+
+`the_per_iteration_key_replaces_the_arm_level_one` restores the bullet §5.5 had to correct.
+The superseded text said `paths.metrics` gains `{iteration}` *and* that the un-iterated path
+stays valid for the single-call arms; a template is either formatted with an iteration or it
+is not. Taking the first half orphans two **committed** files —
+`port-oneshot-nofence/metrics.json` and `spans.jsonl` at four axes deep — leaving them matched
+by no ALLOW entry and reachable from no `metrics_path()` call, which is exactly the migration
+§4 refused for a freeze record. This one belongs to the same family as the two above and to
+the seal mutations further up: nothing it produces is malformed, and the damage is to files
+that already exist and are not being looked at.
+
 ## What the seal cost, and what carries the difference
 
 Sealing 250 documents removed checks that cannot be replaced, and pretending

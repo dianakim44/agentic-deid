@@ -380,6 +380,58 @@ def termination_params() -> dict[str, int | float]:
             "k": value["k"], "ceiling": value["ceiling"]}
 
 
+def agent_roles() -> dict[str, str]:
+    """Which agent made a call, from `config/naming.yaml`. DESIGN §5.5.
+
+    Two values today, `rule_author` and `auditor`, and the field exists because they share
+    one `agent_calls.jsonl`. `llm_calls` sums their lines, which is right for cost — it is
+    what a round spent — and useless for attribution: without the role, "the Auditor
+    accounts for half this arm's spend" is unverifiable from the log that holds the spend.
+
+    A closed vocabulary and **not** an axis, like `termination_reason` and
+    `model_id_resolution`. It is here rather than as a module literal because CLAUDE.md's
+    rule covers values that never reach a results path, and this is one.
+
+    The values are spelled like the prompt templates they correspond to
+    (`docs/prompts/rule_author.md`, `auditor.md`), which makes §3's "an agent is defined by
+    the file it produces" checkable at the log layer. **No code derives one from the
+    other.** That is the `layer`-from-detector-name prohibition in a second place: the
+    caller states its role, and a mapping from filename to role would be a component whose
+    mistakes look like data.
+    """
+    value = naming().get("agent_role")
+    if not isinstance(value, dict) or not value:
+        raise CorpusError(
+            "config/naming.yaml has no `agent_role` mapping. It is the closed vocabulary "
+            "for which agent made a call, it lands on every agent_calls.jsonl line, and "
+            "CLAUDE.md keeps such values out of the modules."
+        )
+    bad = [key for key in value if not isinstance(key, str) or not key]
+    if bad:
+        raise CorpusError(
+            f"config/naming.yaml `agent_role` has {len(bad)} non-string or empty key(s). "
+            "Each key is a value written to the call log."
+        )
+    return dict(value)
+
+
+def check_agent_role(value: str) -> str:
+    """Return `value` if it is a declared agent role; raise otherwise.
+
+    A checked accessor for `check_model_resolution`'s reason. The specific failure it
+    closes: a caller writing `"RuleAuthor"` or `"rule-author"` produces a log in which one
+    agent's calls are split across two spellings, and every per-role cost figure computed
+    from it is wrong in a direction nothing in the file reveals.
+    """
+    roles = agent_roles()
+    if value not in roles:
+        raise CorpusError(
+            f"{value!r} is not an agent role in config/naming.yaml "
+            f"(have: {sorted(roles)}). Add it there before a module writes it."
+        )
+    return value
+
+
 def path_template(key: str) -> str:
     """One `paths` template from naming.yaml, e.g. `path_template("humanlog")`.
 

@@ -56,6 +56,7 @@ TEST_FILES = [
     "tests/test_structure.py",
     "tests/test_orchestrate.py",
     "tests/test_termination.py",
+    "tests/test_agent_role.py",
 ]
 
 #: Repository directories the loader tests need. `splits/` is here because the
@@ -2832,6 +2833,85 @@ MUTATIONS = [
             "`test_convergence_needs_k_plus_one_iterations`."
         ),
         min_kills=3,
+    ),
+
+    # ─── the iteration-scoped paths (DESIGN §5.5) ──────────────────────────
+    Mutation(
+        name="the_audit_report_is_allowed_instead_of_denied",
+        path=SCREEN,
+        anchor='    r"(^|/)audit_report\\.json$",',
+        replacement='    r"^results/[^/]+/[^/]+/[^/]+/[^/]+/iter[0-9]+/audit_report\\.json$",',
+        breaks=(
+            "**The Auditor's report becomes a publishable path, and it still gets sniffed, "
+            "so the mutation looks careful.** The edit does not delete the pattern — it "
+            "moves the report from the deny list's shape to an ALLOW-shaped one, four axes "
+            "and an iteration deep, exactly like the score beside it. Everything about it "
+            "reads as tightening: it is more specific than the line it replaces.\n"
+            "\n"
+            "What it publishes is a list of positions an agent believes are surviving PHI in "
+            "a DUA corpus — DESIGN §5.5 calls it the most concentrated such artefact the loop "
+            "produces. The content sniffer does not save it. The file holds offsets, types "
+            "and scores by construction and no surface forms, so it is exactly the kind of "
+            "file `sniff()` passes: §6.1's allowlist argument runs the other way, that a path "
+            "may be excused from the sniffer only when the path rules already publish it, and "
+            "nothing requires publishing this one.\n"
+            "\n"
+            "It also un-gitignores nothing and so produces no BLOCKED line: the deny rule and "
+            "the `.gitignore` entry are paired by "
+            "`test_every_deny_listed_path_is_also_gitignored`, and a path that is ignored but "
+            "not denied is reported as Quarantined — the class that reads as fine. Caught by "
+            "`test_the_four_iteration_scoped_paths_split_two_and_two` and by the deny-sample "
+            "sync tests, which fail on the pattern they no longer find."
+        ),
+        min_kills=2,
+    ),
+    Mutation(
+        name="the_iteration_allow_pattern_covers_the_whole_directory",
+        path=SCREEN,
+        anchor='    r"^results/[^/]+/[^/]+/[^/]+/[^/]+/iter[0-9]+/metrics\\.json$",',
+        replacement='    r"^results/[^/]+/[^/]+/[^/]+/[^/]+/iter[0-9]+/",',
+        breaks=(
+            "**The same publication, reached from the other side, and this is the shorter "
+            "edit.** One pattern instead of two for the round's score and predictions — and "
+            "it publishes the audit report and the per-span error export sitting in that same "
+            "directory. The deny rules still catch both today, because `deny()` is consulted "
+            "before ALLOW, so the *reported* classification does not change. What changes is "
+            "that the two lists now disagree, and the disagreement is invisible until "
+            "somebody edits either one.\n"
+            "\n"
+            "That is the reason §5.5 anchors these on filenames and the reason "
+            "`config/naming.yaml` puts four files in one `iter{n}/` directory with two "
+            "classifications: the directory is the wrong unit here, and a screener whose "
+            "ALLOW list would publish a denied file is one deny-rule deletion away from doing "
+            "it. Caught by `test_the_four_iteration_scoped_paths_split_two_and_two`, which "
+            "asserts the denied two match *no* ALLOW pattern rather than only that they are "
+            "denied."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="the_per_iteration_key_replaces_the_arm_level_one",
+        path=NAMING,
+        anchor='  metrics:  "results/{corpus}/{detector}/{supervision}/{porting}/metrics.json"',
+        replacement='  metrics:  "results/{corpus}/{detector}/{supervision}/{porting}/iter{iteration}/metrics.json"',
+        breaks=(
+            "**The bullet DESIGN §5.5 had to correct, restored.** The superseded text said "
+            "`paths.metrics` gains `{iteration}` *and* that the un-iterated path stays valid "
+            "for the single-call arms, which cannot both hold of one template — a template is "
+            "either formatted with an iteration or it is not. This edit takes the first half.\n"
+            "\n"
+            "`port-oneshot-nofence`'s `metrics.json` and `spans.jsonl` are committed at four "
+            "axes deep. After this edit they are matched by no `ALLOW_PATTERNS` entry and "
+            "reachable from no `metrics_path()` call, and §4 refused precisely that migration "
+            "for a freeze record: a relocated result sits at a deeper path while nothing in "
+            "its content records the move. The ladder's table also stops being a table — "
+            "`port-loop`'s headline number would live at a path shape no other rung uses.\n"
+            "\n"
+            "Caught by `test_the_un_iterated_result_paths_are_still_allowed` and by "
+            "`test_metrics_path_follows_the_naming_template`, which formats the template with "
+            "the four axes and no iteration."
+        ),
+        min_kills=2,
     ),
 ]
 
