@@ -932,6 +932,17 @@ def run_arm(*, corpus: str, lang: str, model_id: str,
     # The model record and the cost go through `run_fold` rather than being written
     # over its metrics afterwards: it owns the one write of metrics.json, and a second
     # writer patching that file is a second answer to what the run block contains.
+    #
+    # **No `iteration=` here, and `ITERATION` above is not it.** This arm writes its rule
+    # file to `iter1/` (`paths.armrules`) and its results to the un-iterated paths, and the
+    # asymmetry is not an oversight. The rule path is iteration-scoped for *every* arm
+    # because `port-oneshot` and `port-loop` would otherwise share one file and the second
+    # to run would overwrite the first's input (DESIGN §5.3). The results path is
+    # iteration-scoped only for arms that have rounds, because `iter1/` under an arm with
+    # one pass is a false statement about the arm and would put a second copy of a
+    # committed result beside it — DESIGN §5.5's "what a non-iterating arm writes". One
+    # path answers "which arm's input is this", the other "which round is this", and this
+    # arm has an answer to the first question only.
     spans_file, metrics_file, scored = run_fold(
         corpus=corpus, detector=detector, supervision=supervision, porting=porting,
         split=split, rules={lang: rules_file}, model_record=model, cost=cost,

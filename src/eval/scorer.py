@@ -1246,17 +1246,74 @@ def check_termination(termination: Mapping) -> None:
         )
 
 
-def metrics_path(run: Mapping[str, str], root: Path | None = None) -> Path:
+def metrics_path(
+    run: Mapping[str, str], root: Path | None = None, *, iteration: int | None = None
+) -> Path:
     """The results path for this arm, from naming.yaml's `paths.metrics`.
 
     Validates the whole run block, then formats **only** `PATH_AXES` into the template.
     The two sets differ (`split`, `model_id`), and keeping them separate is what lets a
     field be required without becoming part of the arm's identity: a path is the cell of
     the experiment, so anything formatted into it mints a cell.
+
+    `iteration` routes to `paths.itermetrics` — one round's score beneath the same
+    directory (DESIGN §5.5). Routed rather than formatted here: `iter_metrics_path` is the
+    single builder of that path, and a second `.format()` of the same template in this
+    function would be two definition sites for one location.
     """
     check_run(run)
+    if iteration is not None:
+        return iter_metrics_path(
+            **{k: run[k] for k in PATH_AXES}, iteration=iteration, root=root)
     template = naming()["paths"]["metrics"]
     return (root or ROOT) / template.format(**{k: run[k] for k in PATH_AXES})
+
+
+def iter_metrics_path(
+    *, corpus: str, detector: str, supervision: str, porting: str, iteration: int,
+    root: Path | None = None,
+) -> Path:
+    """`paths.itermetrics` for one round — `iter{N}/metrics.json` beside that round's spans.
+
+    **Keyword axes rather than a run block, unlike `metrics_path`, and for
+    `run_fold.errors_path`'s reason: two interested parties.** This module writes the file
+    from a run block it was handed, and the loop driver *reads* it — the sequence of
+    per-round dev leak rates is what δ/k is computed over (`src/termination.py`), so the
+    driver holding four axes and no run block has to be able to name the path. Handing it a
+    run block to assemble would make it a second assembler of the record that one writer
+    per record exists to protect.
+
+    Every component is validated, the axes against `naming.yaml` and the round for being a
+    round: a results path names the cell of the experiment an artefact belongs to, so an
+    unknown component mints a cell instead of failing, and `iter0/` or `iter1.0/` puts a
+    round's score somewhere nothing looks for it.
+
+    The same shape of validation lives in `run_fold._round_path` for the two keys that
+    module builds, and the repetition is the module boundary rather than an oversight: this
+    module raises `ScorerError` and that one `FoldRunError`, each is the type its own
+    callers already catch, and `src.rules.arm_rules_path` is a third instance for the same
+    reason. What must not be repeated is the *template lookup*, and each key has exactly
+    one.
+    """
+    for value, ax in ((corpus, "corpus"), (detector, "detector"),
+                      (supervision, "supervision"), (porting, "porting")):
+        if value not in axis(ax):
+            raise ScorerError(
+                f"{value!r} is not a value of the {ax!r} axis in config/naming.yaml "
+                f"(have: {sorted(axis(ax))}). Add it there before using it, rather than "
+                "writing to a path nothing defines."
+            )
+    if not isinstance(iteration, int) or isinstance(iteration, bool) or iteration < 1:
+        raise ScorerError(
+            f"iteration must be an integer >= 1, got {iteration!r}. It is a path "
+            "component (paths.itermetrics), and the sequence of an iterating arm's scores "
+            "is what δ/k is computed over — a round's score written to iter0/ is a leak "
+            "rate the stopping rule cannot find (DESIGN §3, §5.5)."
+        )
+    return (root or ROOT) / naming()["paths"]["itermetrics"].format(
+        corpus=corpus, detector=detector, supervision=supervision, porting=porting,
+        iteration=iteration,
+    )
 
 
 def write_metrics(
@@ -1267,6 +1324,7 @@ def write_metrics(
     termination: Mapping,
     model_lifecycle: Mapping | None = None,
     root: Path | None = None,
+    iteration: int | None = None,
 ) -> Path:
     """Assemble and write metrics.json. `run`, `cost` and `termination` are required.
 
@@ -1325,6 +1383,14 @@ def write_metrics(
     This function does not evaluate the rule. It validates the block's shape and the one
     property §3 forbids violating (`check_termination`), and the verdict itself comes from
     `src/termination.py` — see that module's note on why the rule is not in the loop driver.
+
+    **`iteration` chooses the path and changes nothing about the payload** (DESIGN §5.5).
+    Given a round, this writes `paths.itermetrics`; omitted, `paths.metrics`. It is
+    deliberately not a field of any block: a round number in the run block would be a
+    premise of the numbers that `metrics_path` could later be asked to format, and §5.5's
+    duplication rule requires the final round's two files to be *identical*, which they
+    cannot be if one of them names its own path. The round is recoverable from the path,
+    and the `termination` block already carries `iterations`.
     """
     missing = [k for k in REQUIRED_COST if cost.get(k) is None]
     if missing:
@@ -1345,7 +1411,7 @@ def write_metrics(
             "word would end that.)"
         )
     check_termination(termination)
-    path = metrics_path(run, root=root)
+    path = metrics_path(run, root=root, iteration=iteration)
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = {
         "schema_version": SCHEMA_VERSION,

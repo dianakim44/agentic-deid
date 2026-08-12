@@ -3046,36 +3046,131 @@ MUTATIONS = [
         min_kills=2,
     ),
     Mutation(
-        name="the_error_export_is_written_by_every_arm",
+        name="the_round_s_files_are_written_by_every_arm",
         path=RUN_FOLD,
-        anchor="    if export_errors_for_iteration is not None:\n"
-               "        # From `pairs`",
+        anchor="    if iteration is not None:\n"
+               "        # The round's three files",
         replacement="    if True:\n"
-                    "        # From `pairs`",
-        also=((
-            RUN_FOLD,
-            "        write_errors(error_spans(pairs), run, export_errors_for_iteration, "
-            "root=root)",
-            "        write_errors(error_spans(pairs), run, "
-            "export_errors_for_iteration or 1, root=root)",
-        ),),
+                    "        # The round's three files",
+        also=(
+            (RUN_FOLD,
+             "        write_spans(predictions, run, root=root, iteration=iteration)",
+             "        write_spans(predictions, run, root=root, "
+             "iteration=iteration or 1)"),
+            (RUN_FOLD,
+             "        write_errors(error_spans(pairs), run, iteration, root=root)",
+             "        write_errors(error_spans(pairs), run, iteration or 1, root=root)"),
+            (RUN_FOLD,
+             "        write_metrics(scored, iteration=iteration, **metrics_args)",
+             "        write_metrics(scored, iteration=iteration or 1, **metrics_args)"),
+        ),
         breaks=(
             "Opt-in becomes always-on, in the silent form. The bare `if True:` would fail "
-            "loudly on `iter{iteration}` formatted with `None`, so the `or 1` goes in "
-            "with it: every arm on every corpus then writes `iter1/errors.jsonl`, a list "
-            "of the positions of every missed identifier in the fold, as a permanent "
-            "by-product of a feature only the iterating arms use. `port-oneshot`'s "
-            "directory grows an artefact whose `iter1` is a lie about an arm that has no "
-            "rounds, and `port-loop`'s round 4 would overwrite it.\n"
+            "loudly on `iter{iteration}` formatted with `None`, so `or 1` goes in at all "
+            "three writes: every arm on every corpus then produces an `iter1/` directory "
+            "holding a copy of its score, a copy of its predictions, and "
+            "`iter1/errors.jsonl` — a list of the positions of every missed identifier in "
+            "the fold, as a permanent by-product of a feature only the iterating arms "
+            "use.\n"
             "\n"
-            "The deny rule and the `.gitignore` entry hold either way, so nothing is "
-            "published — the cost is a file on disk that should not exist, which is "
-            "`rule_author.md` §6's rule about rendered windows one artefact over, and "
+            "`port-oneshot-nofence`'s `metrics.json` and `spans.jsonl` are committed at "
+            "four axes, so this puts a second copy of a published result beside them, and "
+            "the `iter1` naming it is a false statement about an arm that has no rounds. "
+            "This is the direction §5.5 explicitly decided against, and the decision is "
+            "recorded on `run_fold` because both readings are defensible — a uniform tree "
+            "is the argument for, and three separate costs are the argument against.\n"
+            "\n"
+            "The deny rule and the `.gitignore` entry hold either way, so the error list "
+            "is not published — the cost is a file on disk that should not exist, which "
+            "is `rule_author.md` §6's rule about rendered windows one artefact over, and "
             "the same argument §5.5 gives for not widening `score()`'s return: an "
-            "iterating arm's input should not be every arm's output. Caught by "
-            "`test_no_error_list_is_written_unless_it_is_asked_for`, which walks the whole "
-            "results tree rather than checking one path — an export written to an "
-            "un-iterated path would satisfy the narrower assertion."
+            "iterating arm's input should not be every arm's output. The two allowed "
+            "files are worse in the other direction: they *are* publishable, so a "
+            "duplicate of a committed result reaches a commit with nothing objecting.\n"
+            "\n"
+            "Caught by `test_no_error_list_is_written_unless_the_arm_iterates` and "
+            "`test_a_non_iterating_arm_writes_no_round_directory_at_all`, both of which "
+            "walk the whole results tree rather than checking one path — an artefact "
+            "written to a path a test did not name satisfies the narrower assertion."
+        ),
+        min_kills=2,
+    ),
+    Mutation(
+        name="only_the_score_is_scoped_to_the_round",
+        path=RUN_FOLD,
+        anchor="        write_spans(predictions, run, root=root, iteration=iteration)\n"
+               "        write_errors(error_spans(pairs), run, iteration, root=root)\n",
+        replacement="        write_errors(error_spans(pairs), run, iteration, root=root)\n",
+        breaks=(
+            "**The round-scoped write of the predictions is dropped and the other two "
+            "stay.** This is the design §5.5 corrected on 2026-08-12, restored: scope the "
+            "score, leave `spans.jsonl` arm-wide. It reads as the smaller change and it "
+            "loses more than scoping nothing would.\n"
+            "\n"
+            "Every round's score survives and every round's error list survives, so the "
+            "record looks complete. But `iter{N}/errors.jsonl` is *derived* from round "
+            "N's predictions against gold, and the predictions it was derived from are "
+            "overwritten by round N+1 — so from round 2 onward the arm holds a list of "
+            "missed identifiers that nothing in the repository can re-derive or check "
+            "against the spans it came from. The one file that could contradict it is "
+            "gone, and nothing about the remaining files looks wrong: each round's "
+            "`metrics.json` is internally consistent, and the arm-wide `spans.jsonl` is a "
+            "valid prediction file for *some* round.\n"
+            "\n"
+            "That is the shape §5.3 objected to for rule files, one artefact over: an "
+            "overwritten *record* is visibly gone and an overwritten *premise* leaves a "
+            "complete file behind whose input no longer exists. Caught by "
+            "`test_the_round_s_three_files_land_together`, which checks all three names in "
+            "the round's directory rather than the one this mutation keeps."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="the_final_rounds_duplicate_comes_from_a_second_scoring",
+        path=RUN_FOLD,
+        anchor="    spans_file = write_spans(predictions, run, root=root)\n"
+               "    metrics_file = write_metrics(scored, **metrics_args)",
+        replacement=(
+            "    fresh = detect_fold(load_fold(corpus, split), ruleset, "
+            "detector=detector)\n"
+            "    again, again_excluded = from_documents(load_fold(corpus, split), fresh)\n"
+            "    spans_file = write_spans(fresh, run, root=root)\n"
+            "    metrics_file = write_metrics(\n"
+            "        score(again, excluded_gold=again_excluded), **metrics_args)"
+        ),
+        breaks=(
+            "**The un-iterated pair comes from a second detection and a second scoring "
+            "instead of from the one this function already did.** On today's code the two "
+            "passes agree — detection is deterministic and the rule file has not moved "
+            "between them — so this mutation changes no byte of any output on any corpus. "
+            "It is in the harness because *that* is the failure: the guarantee §5.5 rests "
+            "on is not \"the two files happen to match\", it is \"there is one scoring "
+            "pass, so they cannot differ\", and a second pass removes the guarantee while "
+            "leaving the property.\n"
+            "\n"
+            "What it costs the day something does move: a rule file edited mid-run, a "
+            "corpus re-exported, or a detector with any non-determinism in it (a "
+            "tagger — the `RT` and `T` arms are on the ladder) and `metrics.json` and "
+            "`iter{N}/metrics.json` disagree, with **neither file looking wrong**. Each "
+            "is internally consistent with the pass that produced it; the run block, the "
+            "cost block and the `termination` block are identical in both. Nothing in "
+            "either file records which pass it came from, so there is no way to tell "
+            "which number the arm's headline should be — and §5.5's whole argument for "
+            "duplicating the final round is that two identical files are checkable while "
+            "a headline that has to be computed is not.\n"
+            "\n"
+            "It also doubles the detection cost of every round, which `cost.wall_seconds` "
+            "would report faithfully while `llm_calls` stayed put — a real regression "
+            "that reads as the fold getting slower.\n"
+            "\n"
+            "**Caught by `test_the_fold_is_detected_once_and_scored_once`, and not by the "
+            "byte-equality test beside it** — which is the point worth recording. "
+            "`test_the_final_rounds_duplicate_is_byte_identical_to_the_round_copy` is what "
+            "a reader can check on a finished run, and it passes under this mutation on "
+            "every corpus here, because both passes are deterministic. So the guarantee "
+            "had to be tested as what it is — one call — rather than as its currently "
+            "observable consequence. Both tests stay: the byte comparison is the property "
+            "§5.5 promises, and the call count is the mechanism that delivers it."
         ),
         min_kills=1,
     ),

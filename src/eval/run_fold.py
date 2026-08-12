@@ -9,11 +9,18 @@ Writes two files under `results/{corpus}/{detector}/{supervision}/{porting}/`:
 could be written and counted, but a dev-wide score — the number every comparison in
 DESIGN §4 is made of — had nowhere to come from.
 
-An iterating arm asks for a third (`export_errors_for_iteration`): `iter{N}/errors.jsonl`,
-the round's per-span error list, which is what the next round's §1.4 window is drawn from.
-Opt-in, deny-listed, and written from the same scoring pass as the other two — see
-`write_errors` and DESIGN §5.5. It is not returned: the path is a pure function of the four
-axes and the round (`errors_path`), so the driver that asked for it can name it.
+An iterating arm passes `iteration=N` and gets the round's whole record: `iter{N}/` holds
+that round's `spans.jsonl` and `metrics.json` (`paths.iterspans`, `paths.itermetrics`) plus
+`errors.jsonl`, the per-span error list the next round's §1.4 window is drawn from —
+deny-listed, and written from the same scoring pass as the other two. The un-iterated pair
+is written as well, every round, so `paths.metrics` holds every arm's latest and finally its
+final score without anyone having to know which round is last (DESIGN §5.5). One argument
+for all three files because they are one record: a round whose score is scoped and whose
+predictions are not leaves an error list nothing can re-derive.
+
+The iteration-scoped paths are not returned. Each is a pure function of the four axes and
+the round (`iter_spans_path`, `errors_path`, `scorer.iter_metrics_path`), so the driver that
+asked for them can name them, and the return stays the pair every caller reads.
 
 **This is the execution path, and `tools/check_rules.py` is a sample view of it.**
 The tool calls `detect_fold()` from here rather than iterating rules itself. Two
@@ -65,7 +72,7 @@ from ..termination import Termination, not_applicable
 from . import sealed_log
 from .scorer import (
     PATH_AXES, REQUIRED_COST, ScorerError, check_run, error_spans, from_documents,
-    score, write_metrics,
+    iter_metrics_path, score, write_metrics,
 )
 
 #: The fold this runs on unless told otherwise. Named rather than defaulted inline so
@@ -159,16 +166,88 @@ def load_fold(corpus: str, split: str) -> list[Document]:
 # ─── output ─────────────────────────────────────────────────────────────────
 
 
-def spans_path(run: Mapping[str, str], root: Path | None = None) -> Path:
+def spans_path(
+    run: Mapping[str, str], root: Path | None = None, *, iteration: int | None = None
+) -> Path:
     """`paths.spans` for this arm, from naming.yaml.
 
     Beside `metrics.json` by construction: both format the same `PATH_AXES` from the
     same validated run block, so a spans file cannot end up in a different arm's
     directory from the metrics computed on it.
+
+    `iteration` routes to `paths.iterspans` — that round's predictions beneath the same
+    directory (DESIGN §5.5). Routed through `iter_spans_path` rather than formatted here,
+    so the template has one reader, and the same argument holds one module over for
+    `scorer.metrics_path`. The pairing survives the widening: at a given round, this and
+    `scorer.metrics_path(run, iteration=…)` still land in one directory, because both
+    format `PATH_AXES` from the same validated block plus the same round.
     """
     check_run(run)
+    if iteration is not None:
+        return iter_spans_path(
+            **{k: run[k] for k in PATH_AXES}, iteration=iteration, root=root)
     template = path_template("spans")
     return (root or ROOT) / template.format(**{k: run[k] for k in PATH_AXES})
+
+
+def _round_path(
+    key: str, *, corpus: str, detector: str, supervision: str, porting: str,
+    iteration: int, artefact: str, root: Path | None = None,
+) -> Path:
+    """One iteration-scoped results path from naming.yaml, with every component checked.
+
+    The two keys this module builds (`iterspans`, `itererrors`) differ in nothing but the
+    key and the subject of the refusal, so the check is written once. `artefact` is that
+    subject — the message names which of the round's files was about to be misplaced,
+    because "iteration must be an integer >= 1" with two callers is a message that does not
+    say which call to look at.
+
+    Not shared with `scorer.iter_metrics_path`: that module raises `ScorerError`, this one
+    `FoldRunError`, and each is the type its own callers catch. Importing one module's
+    error type into the other to share nine lines would couple them for the smaller reason.
+    """
+    for value, ax in ((corpus, "corpus"), (detector, "detector"),
+                      (supervision, "supervision"), (porting, "porting")):
+        if value not in axis(ax):
+            raise FoldRunError(
+                f"{value!r} is not a {ax} in config/naming.yaml (have: "
+                f"{sorted(axis(ax))}). This path names the cell of the experiment the "
+                f"round's {artefact} belongs to, so an unknown component would create a "
+                "cell rather than fail (DESIGN §5.3, §5.5)."
+            )
+    if not isinstance(iteration, int) or isinstance(iteration, bool) or iteration < 1:
+        raise FoldRunError(
+            f"iteration must be an integer >= 1, got {iteration!r}. It is a path "
+            f"component (paths.{key}), and the sequence of an iterating arm's "
+            f"{artefact}s is the experimental record — a round written to iter0/ or "
+            "iter1.0/ is a round nothing looks for afterwards (DESIGN §5.5)."
+        )
+    return (root or ROOT) / path_template(key).format(
+        corpus=corpus, detector=detector, supervision=supervision, porting=porting,
+        iteration=iteration,
+    )
+
+
+def iter_spans_path(
+    *, corpus: str, detector: str, supervision: str, porting: str, iteration: int,
+    root: Path | None = None,
+) -> Path:
+    """`paths.iterspans` for one round — `iter{N}/spans.jsonl`, that round's predictions.
+
+    **Scoped with the score and not left arm-wide** (DESIGN §5.5). An iterating arm that
+    scoped only its `metrics.json` would keep every round's number and overwrite its
+    predictions every round, which is worse than losing both: `iter{N}/errors.jsonl` is
+    *derived* from that round's predictions against gold, so a round-3 error list whose
+    predictions round 8 overwrote is a list nothing can re-derive or check. The three files
+    a round produces are one record and they are scoped together.
+
+    Keyword axes, for `errors_path`'s reason: `spans_path` has one interested party and the
+    iteration-scoped paths have two, the second being the loop driver, which holds four
+    axes and a round and no run block.
+    """
+    return _round_path(
+        "iterspans", corpus=corpus, detector=detector, supervision=supervision,
+        porting=porting, iteration=iteration, artefact="prediction list", root=root)
 
 
 def errors_path(
@@ -182,39 +261,22 @@ def errors_path(
     path per arm leaves only the last round's list (DESIGN §5.5, §5.3's argument for
     per-iteration rule files).
 
-    **Keyword axes rather than a run block, unlike `spans_path`, and the difference is the
-    number of interested parties.** A spans file has one — this module writes it and nobody
+    **Keyword axes rather than a run block, and the difference is the number of interested
+    parties.** The un-iterated `spans.jsonl` has one — this module writes it and nobody
     looks it up. This file has two: `run_fold` writes it from a run block it assembled, and
     the loop driver *reads* it to build the next round's pool, holding the four axes and no
     run block. Handing the driver a run block to assemble would make it a second assembler
     of the thing one-writer-per-record exists to prevent, so the signature is
     `rules.arm_rules_path()`'s — the other iteration-scoped path, for the same reason.
 
-    Every component is validated, axes against `naming.yaml` and the round for being a
-    round, because a results path names the cell an artefact belongs to: an unknown
-    component mints a cell instead of failing, and `iter1.0/` or `iter0/` puts a round's
-    record somewhere nothing looks for it.
+    Every component is validated (`_round_path`), axes against `naming.yaml` and the round
+    for being a round, because a results path names the cell an artefact belongs to: an
+    unknown component mints a cell instead of failing, and `iter1.0/` or `iter0/` puts a
+    round's record somewhere nothing looks for it.
     """
-    for value, ax in ((corpus, "corpus"), (detector, "detector"),
-                      (supervision, "supervision"), (porting, "porting")):
-        if value not in axis(ax):
-            raise FoldRunError(
-                f"{value!r} is not a {ax} in config/naming.yaml (have: "
-                f"{sorted(axis(ax))}). This path names the cell of the experiment the "
-                "round's error list belongs to, so an unknown component would create a "
-                "cell rather than fail (DESIGN §5.3, §5.5)."
-            )
-    if not isinstance(iteration, int) or isinstance(iteration, bool) or iteration < 1:
-        raise FoldRunError(
-            f"iteration must be an integer >= 1, got {iteration!r}. It is a path "
-            "component (paths.itererrors), and the sequence of an iterating arm's error "
-            "lists is what makes the window at round n checkable afterwards "
-            "(DESIGN §5.5)."
-        )
-    return (root or ROOT) / path_template("itererrors").format(
-        corpus=corpus, detector=detector, supervision=supervision, porting=porting,
-        iteration=iteration,
-    )
+    return _round_path(
+        "itererrors", corpus=corpus, detector=detector, supervision=supervision,
+        porting=porting, iteration=iteration, artefact="error list", root=root)
 
 
 def write_errors(
@@ -270,7 +332,7 @@ def write_errors(
 
 def write_spans(
     predictions: Mapping[str, Sequence], run: Mapping[str, str],
-    root: Path | None = None,
+    root: Path | None = None, *, iteration: int | None = None,
 ) -> Path:
     """One JSON object per predicted span, with full provenance and no text.
 
@@ -291,8 +353,12 @@ def write_spans(
     same fold produce byte-identical files. `RuleSet.detect` iterates rules in file
     order, which is stable, but "stable because of an implementation detail upstream"
     is not the same claim as "sorted here".
+
+    `iteration` chooses the path (`paths.iterspans`) and changes nothing about the rows —
+    §5.5's duplication rule needs the final round's two files to be identical, and a row
+    that named its own round could not be.
     """
-    path = spans_path(run, root=root)
+    path = spans_path(run, root=root, iteration=iteration)
     path.parent.mkdir(parents=True, exist_ok=True)
     rows = []
     for doc_id in sorted(predictions):
@@ -332,7 +398,7 @@ def run_fold(
     model_lifecycle: Mapping[str, str | None] | None = None,
     cost: Mapping[str, float] | None = None,
     termination: Termination | None = None,
-    export_errors_for_iteration: int | None = None,
+    iteration: int | None = None,
 ) -> tuple[Path, Path, dict]:
     """Detect over the fold, score it, write both files. Returns (spans, metrics, scored).
 
@@ -398,20 +464,64 @@ def run_fold(
     non-iterating arm's file too — deliberately, so a reader comparing `port-oneshot`'s single
     leak rate against `port-loop`'s stopping point finds the threshold in both files.
 
-    **`export_errors_for_iteration` writes the round's error list, and it is opt-in.** Given a
-    round number, this writes `paths.itererrors` beside the other two from the same scoring
-    pass (DESIGN §5.5); omitted, nothing is written. Opt-in rather than always, and the
-    argument is not cost: the file is a map of the residual identifiers in the fold, it is
-    deny-listed for that reason, and only an iterating arm has a use for it. A `port-oneshot`
-    run that produced one anyway would leave that artefact in every arm's directory as a
-    by-product of a feature it does not use — which is `score()`'s objection to widening its
-    own return, one layer out.
+    **`iteration` says which round this is, and it scopes all three of the round's files
+    together** (DESIGN §5.5). Given a round number, this writes `iter{N}/spans.jsonl`,
+    `iter{N}/metrics.json` and `iter{N}/errors.jsonl`; omitted, it writes the un-iterated
+    `spans.jsonl` and `metrics.json` and no error list. One argument and not three, because
+    the three files are one record: a round whose score is scoped and whose predictions are
+    not keeps every number and overwrites the spans the errors were derived from, so
+    `iter3/errors.jsonl` becomes a list nothing can re-derive. A separate flag per file is a
+    way to reach that state, and the reason this argument replaced
+    `export_errors_for_iteration` — which could scope the error list *alone* — is that the
+    old signature made the hole expressible.
+
+    **Every round writes the un-iterated pair too, so the final round's duplicate needs no
+    decision from anybody.** §5.5 requires the last round's score and spans to exist at
+    `paths.metrics`/`paths.spans` as well, and the obvious implementation — a `final=True`
+    argument — cannot be given a correct value by the caller: whether round *n* is the last
+    is `should_stop(corpus, leak_rates)`'s verdict, and that needs round *n*'s leak rate,
+    which does not exist until this function has scored and written. So the flag would be
+    passed either a guess or a re-derivation, and a wrong guess leaves the arm's headline at
+    round *n − 1* with nothing anywhere saying so.
+
+    Instead the un-iterated pair is rewritten each round from that round's `predictions` and
+    `scored`, so it holds the latest round throughout and the final round when the loop
+    stops. That is exactly what §5.5 asks for, and it is reached without anyone knowing the
+    future. **Both copies come from the one `score()` call in this function**, which is the
+    property that matters: two calls could differ — a rule file edited between them, or a
+    non-deterministic detector added later — and *neither file would look wrong*, because
+    each would be internally consistent with the pass that produced it. So the agreement is
+    a property of this code path rather than of a convention a caller follows.
+
+    Mid-run, `paths.metrics` therefore holds an unfinished arm's most recent round. That is
+    legible rather than misleading: the `termination` block in it says `reason: null`, which
+    is the record of an arm that has not stopped, and a run in progress has no final score to
+    hold instead.
 
     It is a **number and not a flag**, for the reason `arm_rules_path` takes one: the round is
     a path component, and a boolean here would need the iteration from somewhere else — the
     `termination` block's `iterations` is the nearest candidate and it is the wrong one, since
-    it counts the rounds *so far* and this file belongs to the round being scored. Two
+    it counts the rounds *so far* and these files belong to the round being scored. Two
     quantities that coincide until an arm resumes.
+
+    **A non-iterating arm passes nothing and writes only the un-iterated pair.** Not
+    `iteration=1`, and the choice is recorded here because both readings are defensible.
+    Writing `iter1/` for every arm would make the tree uniform, and it is refused for three
+    reasons that point the same way. First, `port-oneshot-nofence`'s `metrics.json` and
+    `spans.jsonl` are committed at four axes and would gain an `iter1/` duplicate beside
+    them on the next run — a second copy of a published result, created by a feature that
+    arm does not have. Second, `iter1/` under an arm with no rounds is a false statement
+    about the arm: the directory exists to answer "what did round *n* look like", and an arm
+    with one pass has no round 1 to distinguish from a round 2. Third, `iter1/errors.jsonl`
+    would then be written by every arm on every corpus — a map of the residual identifiers
+    in the fold as a by-product of a feature only the iterating arms use, which is exactly
+    what the previous signature's opt-in existed to prevent.
+
+    This does not conflict with the duplication rule, because that rule is stated in one
+    direction: the final round's score is *also* at `paths.metrics`, so every arm's headline
+    is at the same path. A non-iterating arm already satisfies it — its one pass writes
+    there. The rule asks that `paths.metrics` hold every arm's final score, not that
+    `iter{N}/` hold every arm's only score.
     """
     docs = load_fold(corpus, split)
     ruleset = load_for_corpus(corpus, paths=rules)
@@ -442,15 +552,21 @@ def run_fold(
                 "be compared to another's."
             )
 
-    if export_errors_for_iteration is not None:
-        # Validated before the first write rather than at the third. `errors_path` refuses
-        # a round that is not a round, and a run that had written `spans.jsonl` and then
-        # raised would leave the arm's directory holding predictions with no score beside
-        # them — the partially written results directory `FoldRunError` exists to avoid.
-        # The path is a pure function of its arguments, so building it here and again in
-        # `write_errors` cannot give two answers.
-        errors_path(corpus=corpus, detector=detector, supervision=supervision,
-                    porting=porting, iteration=export_errors_for_iteration, root=root)
+    if iteration is not None:
+        # All three round paths, validated before the first write rather than at the third.
+        # Each builder refuses a round that is not a round, and a run that had written
+        # `iter{N}/spans.jsonl` and then raised on the error list would leave the round's
+        # directory holding predictions with no score beside them — the partially written
+        # results directory `FoldRunError` exists to avoid. Every path here is a pure
+        # function of its arguments, so building them now and again at the write cannot give
+        # two answers. All three and not just one: they share the round component, so any
+        # of them can be the one that refuses, and a check on a single path would leave the
+        # other two validated after the first write for no reason.
+        axes = dict(corpus=corpus, detector=detector, supervision=supervision,
+                    porting=porting, iteration=iteration, root=root)
+        iter_spans_path(**axes)
+        errors_path(**axes)
+        iter_metrics_path(**axes)
 
     commit, tree = sealed_log.tree_state()
     run = {
@@ -484,18 +600,15 @@ def run_fold(
         "commit": commit,
         "tree": tree,
     }
-    spans_file = write_spans(predictions, run, root=root)
-    if export_errors_for_iteration is not None:
-        # From `pairs` — the same objects `score()` read, so the exported list and the
-        # published counts come from one scoring of one set of spans (DESIGN §9.3). The
-        # matchings are inside `error_spans`; nothing here recomputes one.
-        write_errors(error_spans(pairs), run, export_errors_for_iteration, root=root)
     # The detection pass's own time, added to whatever the caller spent calling a model.
     # Both are this arm's compute; see the docstring on why they are summable and
     # `human_minutes` is not.
     seconds = round(elapsed + float((cost or {}).get("wall_seconds", 0.0)), 3)
-    metrics_file = write_metrics(
-        scored, run=run,
+    # Assembled once and passed to both writes of each file, so the round-scoped copy and
+    # the un-iterated one cannot be built from two different cost or termination blocks
+    # (DESIGN §5.5). `write_metrics` copies what it is given; nothing below re-derives.
+    metrics_args = dict(
+        run=run,
         cost={**NO_LLM_COST, **dict(cost or {}), "wall_seconds": seconds},
         # An arm that does not iterate records that it does not, rather than omitting the
         # block (DESIGN §3, and the cost block's zeros one argument over).
@@ -503,6 +616,27 @@ def run_fold(
         model_lifecycle=model_lifecycle,
         root=root,
     )
+
+    if iteration is not None:
+        # The round's three files: predictions, score, errors. Written together because
+        # they are one record (DESIGN §5.5) — the error list is derived from this round's
+        # predictions against gold, so a round whose spans a later round overwrote holds an
+        # error list nothing can re-derive or check.
+        #
+        # From `pairs` — the same objects `score()` read, so the exported list and the
+        # published counts come from one scoring of one set of spans (DESIGN §9.3). The
+        # matchings are inside `error_spans`; nothing here recomputes one.
+        write_spans(predictions, run, root=root, iteration=iteration)
+        write_errors(error_spans(pairs), run, iteration, root=root)
+        write_metrics(scored, iteration=iteration, **metrics_args)
+
+    # And the un-iterated pair, from the *same* `predictions` and the *same* `scored` as
+    # the block above — §5.5's duplication rule, and the reason the two copies cannot
+    # disagree is that this function scores once. Written every round rather than only on
+    # the last, because which round is last is `should_stop()`'s verdict on a leak rate
+    # this pass has not yet produced; see the docstring.
+    spans_file = write_spans(predictions, run, root=root)
+    metrics_file = write_metrics(scored, **metrics_args)
     return spans_file, metrics_file, scored
 
 
@@ -527,11 +661,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     parser.add_argument(
         "--iteration", type=int, default=None,
-        help="load this iteration's rule files from under the arm (paths.armrules, "
-             "DESIGN §5.3): results/.../{porting}/rules/iter{N}/{lang}.yaml, one per "
-             "language the corpus loads. This is what an arm's own run uses. Without it "
-             "the bootstrap rules/{lang}.yaml is read, which is the format example and "
-             "the state a first iteration starts from.",
+        help="this is round N of the arm. Reads round N's rule files from under the arm "
+             "(paths.armrules, DESIGN §5.3): results/.../{porting}/rules/iter{N}/"
+             "{lang}.yaml, one per language the corpus loads — and writes round N's "
+             "record: iter{N}/spans.jsonl, iter{N}/metrics.json, iter{N}/errors.jsonl, "
+             "plus the un-iterated pair (DESIGN §5.5). Without it the bootstrap "
+             "rules/{lang}.yaml is read, which is the format example and the state a "
+             "first iteration starts from, and only the un-iterated pair is written.",
     )
     parser.add_argument(
         "--rules", type=Path, default=None,
@@ -588,6 +724,12 @@ def main(argv: Sequence[str] | None = None) -> int:
             corpus=args.corpus, detector=args.detector,
             supervision=args.supervision, porting=args.porting,
             split=args.split, rules=override,
+            # One flag for reading round N's rules and writing round N's record. Splitting
+            # it into `--iteration` and a second `--write-iteration` would make the state
+            # this module refuses expressible from the command line: round 4's rules scored
+            # into round 3's directory, or into no round's at all — which is the arm-wide
+            # overwrite §5.5 corrected. The round is one fact about the run.
+            iteration=args.iteration,
         )
     except (FoldRunError, ScorerError, RuleError, CorpusError) as exc:
         print(f"{exc}", file=sys.stderr)
@@ -605,6 +747,14 @@ def main(argv: Sequence[str] | None = None) -> int:
           f"{_pct(lower['value'])} ({lower['mode']}) as the lower bound")
     print(f"spans   {spans_file.relative_to(ROOT)}")
     print(f"metrics {metrics_file.relative_to(ROOT)}")
+    if args.iteration is not None:
+        # The round's directory, named once rather than its three files listed. `errors.jsonl`
+        # is deny-listed and this output goes to a terminal and into shell history, so the
+        # directory is what a reader needs and the filenames are in `naming.yaml`.
+        round_dir = iter_metrics_path(
+            corpus=args.corpus, detector=args.detector, supervision=args.supervision,
+            porting=args.porting, iteration=args.iteration, root=ROOT).parent
+        print(f"round   {round_dir.relative_to(ROOT)}/")
     return 0
 
 

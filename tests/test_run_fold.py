@@ -552,25 +552,28 @@ def test_an_empty_rule_set_still_produces_a_score(tmp_path, corpus_present):
     assert json.loads(metrics.read_text(encoding="utf-8"))["counts"]["pred"] == 0
 
 
-# ─── errors.jsonl: the round's error list (DESIGN §5.5) ──────────────────────
+# ─── the round's three files (DESIGN §5.5) ───────────────────────────────────
 
 
-def rel_errors(iteration: int) -> str:
-    """The repository-relative `paths.itererrors` for the probe arm, from the template.
+def rel_round(key: str, iteration: int) -> str:
+    """The repository-relative iteration-scoped path for the probe arm, from the template.
 
     Formatted from `naming.yaml` rather than assembled here, so a template that loses an
     axis fails these tests instead of being reproduced by them.
     """
     from src.corpora.base import path_template
-    return path_template("itererrors").format(**ARM, iteration=iteration)
+    return path_template(key).format(**ARM, iteration=iteration)
+
+
+def rel_errors(iteration: int) -> str:
+    return rel_round("itererrors", iteration)
 
 
 @pytest.fixture
 def ran_with_errors(tmp_path, probe_file, corpus_present):
-    """The same run as `ran`, with the round-3 export asked for."""
+    """The same run as `ran`, scored as round 3 of an iterating arm."""
     spans, metrics, scored = rf.run_fold(
-        **ARM, rules={"es": probe_file}, root=tmp_path,
-        export_errors_for_iteration=3)
+        **ARM, rules={"es": probe_file}, root=tmp_path, iteration=3)
     return spans, metrics, scored, tmp_path / rel_errors(3)
 
 
@@ -578,7 +581,7 @@ def error_rows(path: Path) -> list[dict]:
     return [json.loads(l) for l in path.read_text(encoding="utf-8").splitlines()]
 
 
-def test_no_error_list_is_written_unless_it_is_asked_for(ran, tmp_path):
+def test_no_error_list_is_written_unless_the_arm_iterates(ran, tmp_path):
     """Opt-in, and asserted over the whole tree rather than at one path.
 
     The file is a map of the residual identifiers in the fold and only an iterating arm
@@ -591,28 +594,138 @@ def test_no_error_list_is_written_unless_it_is_asked_for(ran, tmp_path):
     assert not list(tmp_path.rglob("errors.jsonl"))
 
 
-def test_the_round_s_error_list_lands_beside_that_round_s_files(ran_with_errors):
+def test_a_non_iterating_arm_writes_no_round_directory_at_all(ran, tmp_path):
+    """**`iteration=None` means the un-iterated pair and nothing else** (DESIGN §5.5).
+
+    The alternative — every arm writes `iter1/` too — was available and is refused, and the
+    reason is on `run_fold`. `port-oneshot-nofence`'s `metrics.json` and `spans.jsonl` are
+    committed at four axes, so an unconditional `iter1/` would put a second copy of a
+    published result beside them, created by a feature that arm does not have; `iter1/` under
+    an arm with no rounds is a false statement about the arm; and `iter1/errors.jsonl` would
+    then be written by every arm on every corpus.
+
+    Asserted by walking the tree, like the error-list test above, because the strong claim is
+    that no round directory exists — not that the one directory this test could name is
+    absent.
+    """
+    assert not [p for p in tmp_path.rglob("iter*") if p.is_dir()]
+
+
+def test_the_round_s_three_files_land_together(ran_with_errors, tmp_path):
+    """Predictions, score and errors, one directory, one record (DESIGN §5.5).
+
+    The failure this guards is the partial scoping the un-widened design would have had: a
+    round's score under `iter{N}/` with its predictions overwritten arm-wide every round,
+    which leaves `iter3/errors.jsonl` derived from spans nothing still holds.
+    """
     _, metrics, _, errors = ran_with_errors
-    assert errors.exists()
-    assert errors.name == "errors.jsonl"
-    assert errors.parent.name == "iter3"
-    # Under the same arm as the score, one level down. The round's own metrics and spans
-    # are `paths.itermetrics`/`iterspans` in that directory; this asserts the arm.
+    round_dir = tmp_path / rel_errors(3)
+    assert round_dir.parent.name == "iter3"
+    for name in ("spans.jsonl", "metrics.json", "errors.jsonl"):
+        assert (round_dir.parent / name).exists(), f"{name} missing from the round"
+    # And the round sits under the arm the un-iterated score is in.
     assert errors.parent.parent == metrics.parent
 
 
-def test_the_export_is_not_returned(ran_with_errors):
-    """`run_fold` still returns (spans, metrics, scored) — the third path is derivable.
+def test_the_round_scoped_paths_are_not_returned(ran_with_errors):
+    """`run_fold` still returns (spans, metrics, scored) — the un-iterated pair.
 
-    A fourth element would make every caller unpack a value that is `None` for every arm
-    but one, and the path is a pure function of the four axes and the round, so the driver
-    that asked for the export can name it (`errors_path`).
+    A five-element return would make every caller unpack values that are `None` for every
+    arm but the iterating ones, and each round path is a pure function of the four axes and
+    the round, so the driver that asked for them can name them (`iter_spans_path`,
+    `errors_path`, `scorer.iter_metrics_path`).
     """
     returned = rf.run_fold.__annotations__["return"]
     assert "tuple[Path, Path, dict]" in str(returned)
     spans, metrics, scored, _ = ran_with_errors
     assert isinstance(spans, Path) and isinstance(metrics, Path)
     assert isinstance(scored, dict)
+    # The returned pair is the un-iterated one, which is what makes every arm's headline
+    # readable at one path (DESIGN §5.5's argument against final-score-only-at-iterN).
+    assert spans.parent.name == ARM["porting"]
+    assert metrics.parent.name == ARM["porting"]
+
+
+def test_the_final_rounds_duplicate_is_byte_identical_to_the_round_copy(ran_with_errors,
+                                                                       tmp_path):
+    """**One scoring pass, two paths** (DESIGN §5.5) — the property the duplication rests on.
+
+    Two `score()` calls could differ (a rule file edited between them, a non-deterministic
+    detector added later) and *neither file would look wrong*, because each would be
+    internally consistent with the pass that produced it. Byte equality is the strongest
+    available check on that from the outside, and it holds for `metrics.json` too because the
+    round is a path component and never a field: a payload that named its own round could not
+    be duplicated at all.
+    """
+    spans, metrics, _, _ = ran_with_errors
+    round_spans = tmp_path / rel_round("iterspans", 3)
+    round_metrics = tmp_path / rel_round("itermetrics", 3)
+    assert round_spans.read_bytes() == spans.read_bytes()
+    assert round_metrics.read_bytes() == metrics.read_bytes()
+    # Non-empty, or the two assertions above are b"" == b"".
+    assert spans.read_bytes()
+    # And the two are genuinely two files rather than one path built twice.
+    assert round_metrics != metrics and round_spans != spans
+
+
+def test_the_fold_is_detected_once_and_scored_once(monkeypatch, tmp_path, probe_file,
+                                                   corpus_present):
+    """**The guarantee §5.5's duplication rests on, stated as the thing it actually is.**
+
+    Byte equality of the two copies is what a reader can check afterwards, and it is not the
+    guarantee: two deterministic passes produce identical bytes, so a second `score()` call
+    would pass that test on every corpus in the repository today. The guarantee is that there
+    is one pass, which is why this counts calls.
+
+    What the counting buys is the case that has not happened yet. A rule file edited mid-run,
+    a corpus re-exported, or a detector with any non-determinism in it — the `RT` and `T` arms
+    are on the ladder — and the round's copy and the un-iterated copy would disagree with
+    *neither file looking wrong*: each internally consistent with its own pass, the run, cost
+    and termination blocks identical in both, and nothing recording which pass produced which.
+    A second pass also doubles every round's detection cost, which `cost.wall_seconds` would
+    report faithfully as the fold getting slower.
+
+    Asserted on the iterating call, which is the one that writes four files from one pass.
+    """
+    from src.eval import run_fold as module
+
+    calls = Counter()
+    real_score, real_detect = module.score, module.detect_fold
+
+    def counting_score(*args, **kwargs):
+        calls["score"] += 1
+        return real_score(*args, **kwargs)
+
+    def counting_detect(*args, **kwargs):
+        calls["detect"] += 1
+        return real_detect(*args, **kwargs)
+
+    monkeypatch.setattr(module, "score", counting_score)
+    monkeypatch.setattr(module, "detect_fold", counting_detect)
+    rf.run_fold(**ARM, rules={"es": probe_file}, root=tmp_path, iteration=3)
+    assert calls["detect"] == 1, "the fold was detected more than once"
+    assert calls["score"] == 1, (
+        "the fold was scored more than once — the round's copy and the un-iterated copy "
+        "must come from one pass (DESIGN §5.5)")
+
+
+def test_the_round_number_is_a_path_component_and_not_a_field(ran_with_errors, tmp_path):
+    """It is recoverable from the path, so nothing in the payload records it.
+
+    A round number inside the run block would be a premise of the numbers that
+    `metrics_path` could later be asked to format — §4's fifth-path-component rejection
+    arriving from the other side — and it would make the final round's two copies unequal,
+    which is what the duplication rule forbids. `termination.iterations` already carries how
+    many rounds an arm has run, and that is a different quantity from which round this is.
+    """
+    _, metrics, _, _ = ran_with_errors
+    written = json.loads((tmp_path / rel_round("itermetrics", 3)).read_text(
+        encoding="utf-8"))
+    assert not [k for k in written["run"] if "iter" in k.lower()]
+    assert "iteration" not in written
+    # The path says 3; the block says how many rounds ran, which for this probe is the
+    # non-iterating default and deliberately not 3.
+    assert written["termination"]["iterations"] == 1
 
 
 def test_every_row_is_a_reference_and_nothing_else(ran_with_errors):
@@ -731,9 +844,9 @@ def test_the_file_is_sorted_and_byte_identical_across_runs(tmp_path, probe_file,
     whose byte content depends on a dict rebuild cannot be diffed between rounds.
     """
     a, _, _ = rf.run_fold(**ARM, rules={"es": probe_file}, root=tmp_path / "a",
-                          export_errors_for_iteration=1)
+                          iteration=1)
     b, _, _ = rf.run_fold(**ARM, rules={"es": probe_file}, root=tmp_path / "b",
-                          export_errors_for_iteration=1)
+                          iteration=1)
     first = (tmp_path / "a" / rel_errors(1))
     second = (tmp_path / "b" / rel_errors(1))
     assert first.read_bytes() == second.read_bytes()
@@ -768,43 +881,77 @@ def test_the_writer_sorts_what_it_is_given(tmp_path):
     assert [r["doc_id"] for r in error_rows(path)] == ["d1", "d2"]
 
 
+#: The round-scoped path builders this module exposes, so the checks below run on each
+#: rather than on whichever one was written first. `scorer.iter_metrics_path` is the third
+#: of the round's files and is checked in `test_scorer.py` — it raises `ScorerError`, which
+#: is the type that module's callers catch, and the split is deliberate (see `_round_path`).
+ROUND_BUILDERS = ("errors_path", "iter_spans_path")
+
+
+@pytest.mark.parametrize("builder", ROUND_BUILDERS)
 @pytest.mark.parametrize("key,bad", [
     ("corpus", "es-meddocan-dev"), ("detector", "R+T"), ("supervision", "supfree"),
     ("porting", "port-agentic"),
 ])
-def test_errors_path_refuses_an_axis_value_naming_no_cell(key, bad):
+def test_a_round_path_refuses_an_axis_value_naming_no_cell(builder, key, bad):
     with pytest.raises(rf.FoldRunError, match="naming.yaml"):
-        rf.errors_path(**{**ARM, key: bad}, iteration=1)
+        getattr(rf, builder)(**{**ARM, key: bad}, iteration=1)
 
 
+@pytest.mark.parametrize("builder", ROUND_BUILDERS)
 @pytest.mark.parametrize("bad", [0, -1, 1.5, True, "1", None])
-def test_errors_path_refuses_a_round_that_is_not_a_round(bad):
+def test_a_round_path_refuses_a_round_that_is_not_a_round(builder, bad):
     """`iter0/` and `iter1.0/` put a round's record where nothing looks for it.
 
     `True` is in the list because `isinstance(True, int)` holds: a boolean reaching here is
     a caller that passed a flag, and `iter1/` is the round it would silently name.
+
+    Parametrized over both builders because the shared `_round_path` is what makes them
+    agree, and a later edit that gave one of them its own copy of the check would pass a
+    test written against a single function.
     """
     with pytest.raises(rf.FoldRunError, match="iteration"):
-        rf.errors_path(**ARM, iteration=bad)
+        getattr(rf, builder)(**ARM, iteration=bad)
 
 
-def test_the_round_is_a_directory_and_the_axes_are_above_it():
-    """`paths.itererrors`' shape, asserted through the function (DESIGN §5.3, §5.5)."""
-    path = rf.errors_path(**ARM, iteration=4, root=Path("/r"))
-    assert path == Path("/r/results/es-meddocan/R/sup-free/port-oneshot/iter4/errors.jsonl")
+@pytest.mark.parametrize("builder,filename", [
+    ("errors_path", "errors.jsonl"), ("iter_spans_path", "spans.jsonl"),
+])
+def test_the_round_is_a_directory_and_the_axes_are_above_it(builder, filename):
+    """`paths.itererrors` and `paths.iterspans`' shape, through the functions
+    (DESIGN §5.3, §5.5)."""
+    path = getattr(rf, builder)(**ARM, iteration=4, root=Path("/r"))
+    assert path == Path(
+        f"/r/results/es-meddocan/R/sup-free/port-oneshot/iter4/{filename}")
+
+
+def test_the_refusal_names_which_of_the_rounds_files_was_misplaced():
+    """One shared check, and the message still says which call to look at.
+
+    `_round_path` exists so the three components are validated in one place; the cost of
+    that is a message with two callers, and `artefact` is what pays it. A refusal reading
+    only "iteration must be an integer >= 1" would send a reader to whichever of the
+    round's writes they thought of first.
+    """
+    with pytest.raises(rf.FoldRunError, match="error list"):
+        rf.errors_path(**ARM, iteration=0)
+    with pytest.raises(rf.FoldRunError, match="prediction list"):
+        rf.iter_spans_path(**ARM, iteration=0)
 
 
 def test_nothing_is_written_when_the_round_is_not_a_round(tmp_path, probe_file,
                                                          corpus_present):
     """Validated before the first write, like the arm's name.
 
-    A run that wrote `spans.jsonl` and then raised on the third file would leave an arm's
-    directory holding predictions with no score beside them, which is the half-written
-    results directory `FoldRunError` exists to prevent.
+    A run that wrote `iter{N}/spans.jsonl` and then raised on the error list would leave the
+    round's directory holding predictions with no score beside them, which is the
+    half-written results directory `FoldRunError` exists to prevent. Nothing at all is
+    written, including the un-iterated pair: the refusal is about the round, and a run that
+    left a four-deep `metrics.json` behind would put a score in the arm's directory for a
+    round that has no directory of its own.
     """
     with pytest.raises(rf.FoldRunError, match="iteration"):
-        rf.run_fold(**ARM, rules={"es": probe_file}, root=tmp_path,
-                    export_errors_for_iteration=0)
+        rf.run_fold(**ARM, rules={"es": probe_file}, root=tmp_path, iteration=0)
     assert not (tmp_path / "results").exists()
 
 
@@ -867,6 +1014,73 @@ def test_the_cli_reports_the_leak_rate_and_not_f1(probe_file, corpus_present,
         assert (out_dir / "spans.jsonl").exists()
     finally:
         shutil.rmtree(out_dir, ignore_errors=True)
+
+
+def test_the_cli_round_flag_says_where_to_read_and_where_to_write(monkeypatch, tmp_path):
+    """**One `--iteration`, both jobs** (DESIGN §5.3, §5.5).
+
+    The flag already chose which rule files to read. Passing it to `run_fold` as well is what
+    makes it also choose where the round's record goes, and a second flag for the write is
+    what would make the broken state expressible from a shell: round 4's rules scored into
+    round 3's directory, or into no round's directory at all — the arm-wide overwrite §5.5
+    corrected.
+
+    Monkeypatched rather than run as a subprocess: what is under test is the argument reaching
+    the call, and a real run would need round 4's rule files to exist and would write into the
+    live results tree.
+    """
+    from src.eval import run_fold as module
+
+    seen = {}
+
+    def spy(**kwargs):
+        seen.update(kwargs)
+        return (tmp_path / "spans.jsonl", tmp_path / "metrics.json",
+                {"headline": {"leak_rate": {"value": 1.0, "mode": "fully_covered"},
+                              "leak_rate_lower_bound": {"value": 1.0, "mode": "relaxed"}},
+                 "counts": {"documents": {"total": 0}, "gold": {"in_scope": 0},
+                            "pred": 0}})
+
+    monkeypatch.setattr(module, "run_fold", spy)
+    monkeypatch.setattr(module, "ROOT", tmp_path)
+    module.main(["--corpus", CORPUS, "--detector", "R", "--supervision", "sup-free",
+                 "--porting", "port-loop", "--iteration", "4"])
+    assert seen["iteration"] == 4
+    # And the same 4 chose the input path, so the two cannot name different rounds.
+    assert "iter4" in str(seen["rules"]["es"])
+
+
+def test_the_cli_names_the_round_directory_only_when_there_is_one(monkeypatch, tmp_path,
+                                                                 capsys):
+    """Printed as a directory, not as three filenames — one of them is deny-listed.
+
+    `errors.jsonl` is `paths.itererrors`, and this output goes to a terminal, into CI logs and
+    into shell history, which are the paths `release_screen.py` does not reach (CLAUDE.md). A
+    directory is what a reader needs; the filenames are in `naming.yaml`.
+    """
+    from src.eval import run_fold as module
+
+    def spy(**kwargs):
+        return (tmp_path / "spans.jsonl", tmp_path / "metrics.json",
+                {"headline": {"leak_rate": {"value": 1.0, "mode": "fully_covered"},
+                              "leak_rate_lower_bound": {"value": 1.0, "mode": "relaxed"}},
+                 "counts": {"documents": {"total": 0}, "gold": {"in_scope": 0},
+                            "pred": 0}})
+
+    monkeypatch.setattr(module, "run_fold", spy)
+    monkeypatch.setattr(module, "ROOT", tmp_path)
+    base = ["--corpus", CORPUS, "--detector", "R", "--supervision", "sup-free",
+            "--porting", "port-loop"]
+
+    module.main([*base, "--iteration", "4"])
+    printed = capsys.readouterr().out
+    assert "iter4" in printed
+    assert "errors.jsonl" not in printed
+
+    # A non-iterating run has no round to name, and a line reading `iter1/` would be the
+    # printed form of the artefact this arm deliberately does not write.
+    module.main(base)
+    assert "iter" not in capsys.readouterr().out
 
 
 def test_the_cli_help_names_the_sealed_path(corpus_present):

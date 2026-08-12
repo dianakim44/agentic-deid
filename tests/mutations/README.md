@@ -1171,16 +1171,60 @@ optimising. Every file stays internally consistent, because the export agrees wi
 why `ERROR_MODE` is *derived* from `HEADLINE_MODE` rather than written as two literals: the
 headline choice belongs to the reporting layer and may move, and the window has to follow it.
 
-`the_error_export_is_written_by_every_arm` is the only one in `run_fold`, and it needs two
-edits together (`also=`) to be faithful to its name — the bare `if True:` fails on
-`iter{iteration}` formatted with `None`, and `export_errors_for_iteration or 1` is what makes
-it silent. Then every arm on every corpus writes `iter1/errors.jsonl`: a list of the
-positions of every missed identifier in the fold, as a permanent by-product of a feature only
-the iterating arms use, in a directory whose `iter1` is a lie about an arm with no rounds.
-The deny rule and the `.gitignore` entry hold, so nothing is published — the cost is a file
-on disk that should not exist, which is `rule_author.md` §6's rule about rendered windows one
-artefact over. The test walks the whole results tree rather than checking one path, because
-an export written to an un-iterated path satisfies the narrower assertion.
+### Three on the round's record, and two of them look like the tidier design
+
+Added 2026-08-12 with the `paths.itermetrics` / `paths.iterspans` writer (DESIGN §5.5). An
+iterating arm's round produces three files — predictions, score, errors — and they are one
+record: scoped together, or the record has a hole in it. All three mutations here are ways of
+producing a tree that looks complete.
+
+`the_round_s_files_are_written_by_every_arm` is opt-in becoming always-on, in the silent
+form, and it needs four edits together (`also=`) to be faithful to its name — the bare
+`if True:` fails on `iter{iteration}` formatted with `None`, and `or 1` at each of the three
+writes is what makes it quiet. Then every arm on every corpus grows an `iter1/` directory
+holding a copy of its score, a copy of its predictions, and a list of the positions of every
+missed identifier in the fold. `port-oneshot-nofence`'s `metrics.json` and `spans.jsonl` are
+committed at four axes, so this puts a second copy of a published result beside them, and
+`iter1` under an arm with no rounds is a false statement about the arm. The error list stays
+unpublished — the deny rule and the `.gitignore` entry hold — but the other two are
+*allowed*, which makes them the worse half: a duplicate of a committed result reaches a
+commit with nothing objecting. This is the direction §5.5 decided against, and the decision
+is recorded on `run_fold` rather than in a commit message because both readings are
+defensible (a uniform tree is the argument for). Two tests walk the whole results tree rather
+than checking a path either could name.
+
+`only_the_score_is_scoped_to_the_round` is the design §5.5 corrected before either key was
+implemented, restored: scope `metrics.json`, leave `spans.jsonl` arm-wide. It is the smaller
+change and it loses more than scoping nothing would. Every round's score survives and every
+round's error list survives, so the record reads as complete — but `iter{N}/errors.jsonl` is
+*derived* from round N's predictions against gold, and those predictions are overwritten by
+round N+1. From round 2 onward the arm holds a list of missed identifiers that nothing can
+re-derive or check against the spans it came from, and the one file that could contradict it
+is gone. Nothing about what remains looks wrong: each round's `metrics.json` is internally
+consistent, and the arm-wide `spans.jsonl` is a valid prediction file for *some* round. That
+is §5.3's rule-file argument one artefact over — an overwritten record is visibly gone, an
+overwritten premise leaves a complete file behind whose input no longer exists.
+
+`the_final_rounds_duplicate_comes_from_a_second_scoring` **changes no byte of any output on
+any corpus in this repository**, and it is here because that is the failure. §5.5 duplicates
+the final round's score and spans at the un-iterated paths, and the guarantee is not "the two
+copies happen to match" — it is "there is one scoring pass, so they cannot differ". A second
+detection and a second scoring for the un-iterated pair removes the guarantee and leaves the
+property, because detection is deterministic today. The day something moves — a rule file
+edited mid-run, a corpus re-exported, or a detector with any non-determinism in it, and the
+`RT` and `T` arms are on the ladder — the two files disagree with **neither looking wrong**:
+each internally consistent with its own pass, run and cost and termination blocks identical
+in both, nothing recording which pass produced which. There is then no way to say which
+number is the arm's headline, which is exactly what §5.5's duplication was for.
+
+So this one is **not** caught by
+`test_the_final_rounds_duplicate_is_byte_identical_to_the_round_copy`, which is what a reader
+can check on a finished run and which passes under the mutation. It is caught by
+`test_the_fold_is_detected_once_and_scored_once`, which counts the calls. Both tests stay: the
+byte comparison is the property §5.5 promises, the call count is the mechanism that delivers
+it, and the mutation is the reason to know which is which. Written this way after the first
+draft of the mutation — a second pass spelled out inline — was about to be filed as caught by
+a test that cannot see it.
 
 ### The Auditor's validator: four mutations, and each one makes the report look better
 

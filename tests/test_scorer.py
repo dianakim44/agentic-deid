@@ -60,6 +60,7 @@ from src.eval.scorer import (
     dedupe,
     error_spans,
     from_documents,
+    iter_metrics_path,
     metrics_path,
     score,
     write_metrics,
@@ -1406,6 +1407,86 @@ def test_metrics_path_refuses_an_undefined_axis_value(key, bad, tmp_path):
 def test_metrics_path_refuses_a_partly_specified_arm(key, tmp_path):
     with pytest.raises(ScorerError, match=key):
         metrics_path({**RUN, key: ""}, root=tmp_path)
+
+
+# ─── the round's score (paths.itermetrics, DESIGN §5.5) ─────────────────────
+
+
+ROUND_AXES = dict(corpus="es-meddocan", detector="RT", supervision="sup-free",
+                  porting="port-loop")
+
+
+def test_the_round_is_a_directory_beneath_the_arm(tmp_path):
+    """`paths.itermetrics`' shape: the four axes above, `iter{N}/` below (DESIGN §5.3, §5.5).
+
+    A filename suffix — `metrics_iter3.json` — was the alternative and §5.3 refused it for
+    the rule files: reading which rounds exist becomes parsing filenames, and the round's
+    three files stop being one directory.
+    """
+    assert iter_metrics_path(**ROUND_AXES, iteration=3, root=tmp_path) == (
+        tmp_path / "results/es-meddocan/RT/sup-free/port-loop/iter3/metrics.json")
+
+
+def test_the_round_scoped_score_sits_under_the_un_iterated_one(tmp_path):
+    """Both from `PATH_AXES`, so a round's score cannot land in another arm's directory.
+
+    This is the property that makes §5.5's duplication checkable rather than a convention:
+    the two paths differ in exactly one component, and it is the round.
+    """
+    plain = metrics_path(RUN, root=tmp_path)
+    scoped = iter_metrics_path(**ROUND_AXES, iteration=3, root=tmp_path)
+    assert scoped.parent.parent == plain.parent
+    assert scoped.name == plain.name == "metrics.json"
+
+
+def test_the_run_block_can_ask_for_a_round(tmp_path):
+    """`metrics_path(run, iteration=N)` routes to the same place, from a validated block.
+
+    The routing exists so `write_metrics` has one path builder rather than a branch of its
+    own, and it must agree with the keyword form — two ways to name one file that could
+    differ is the defect the single template lookup exists to prevent.
+    """
+    assert metrics_path(RUN, root=tmp_path, iteration=3) == iter_metrics_path(
+        **ROUND_AXES, iteration=3, root=tmp_path)
+
+
+@pytest.mark.parametrize("key,bad", [
+    ("corpus", "meddocan"), ("detector", "R+T"), ("supervision", "supfree"),
+    ("porting", "port-agentic"),
+])
+def test_the_round_scoped_path_refuses_an_undefined_axis_value(key, bad, tmp_path):
+    with pytest.raises(ScorerError, match="axis"):
+        iter_metrics_path(**{**ROUND_AXES, key: bad}, iteration=1, root=tmp_path)
+
+
+@pytest.mark.parametrize("bad", [0, -1, 1.5, True, "1", None])
+def test_the_round_scoped_path_refuses_a_round_that_is_not_a_round(bad, tmp_path):
+    """`iter0/` puts a round's score where the stopping rule cannot find it.
+
+    δ/k is computed over the sequence of per-round dev leak rates (`src/termination.py`), so
+    a score written outside the sequence is a round the rule reads as absent. `True` is in
+    the list because `isinstance(True, int)` holds — a caller that passed a flag would
+    silently name round 1.
+    """
+    with pytest.raises(ScorerError, match="iteration"):
+        iter_metrics_path(**ROUND_AXES, iteration=bad, root=tmp_path)
+
+
+def test_the_round_number_reaches_no_payload(scored, tmp_path):
+    """**The round is a path component and never a field**, which is what lets §5.5's two
+    copies be byte-identical.
+
+    A round inside the run block would also be a premise `metrics_path` could later be asked
+    to format — §4's fifth-path-component rejection arriving from the other side. Asserted by
+    comparing the two files the same call would write, so a field added anywhere in the
+    payload fails here rather than only where a reader thought to look.
+    """
+    plain = write_metrics(scored, run=RUN, cost=COST, termination=TERMINATION,
+                          root=tmp_path / "a")
+    scoped = write_metrics(scored, run=RUN, cost=COST, termination=TERMINATION,
+                           root=tmp_path / "b", iteration=3)
+    assert scoped.parent.name == "iter3"
+    assert plain.read_bytes() == scoped.read_bytes()
 
 
 # ─── model_id: recorded, required, and not an axis (DESIGN §4) ───────────────

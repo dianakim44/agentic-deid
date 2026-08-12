@@ -1305,6 +1305,51 @@ are the artefact and plumbing questions the two of those leave open.
   round produces — predictions, score, errors — are one record and they are scoped together
   or the record has a hole in it. Same duplication rule as `metrics`: the final round's spans
   exist at both paths, written from one pass.
+
+  ##### What a non-iterating arm writes, and how the final round's duplicate is reached
+
+  Two questions the writer forced, settled while implementing it (2026-08-12) and recorded
+  here because both have a defensible other answer.
+
+  **A non-iterating arm writes the un-iterated pair and no `iter1/` at all.** The uniform
+  alternative — every arm writes `iter1/` too, so the tree has one shape — is refused for
+  three costs that point the same way. `port-oneshot-nofence`'s `metrics.json` and
+  `spans.jsonl` are **committed** at four axes, so it would gain an `iter1/` duplicate of a
+  published result beside them, created by a feature that arm does not have. `iter1/` under
+  an arm with no rounds is a false statement about the arm: the directory answers "what did
+  round *n* look like", and an arm with one pass has no round 1 to distinguish from a round
+  2. And `iter1/errors.jsonl` would then be written by every arm on every corpus — a map of
+  the residual identifiers in the fold as a by-product of a feature only the iterating arms
+  use, which is the objection above to widening `score()`'s return, arriving at the file
+  layer.
+
+  This does not weaken the duplication rule, because that rule runs in one direction: the
+  final round's score is *also* at `paths.metrics`, so every arm's headline is at one path.
+  A non-iterating arm already satisfies it — its single pass writes there. The rule asks
+  that `paths.metrics` hold every arm's final score, not that `iter{N}/` hold every arm's
+  only score.
+
+  **The un-iterated pair is rewritten every round, not written once at the end.** The
+  obvious implementation of "the final round is duplicated" is a `final=True` argument, and
+  no caller can be given a correct value for it: whether round *n* is the last is
+  `should_stop(corpus, leak_rates)`'s verdict, and that verdict needs round *n*'s leak rate,
+  which does not exist until the round has been scored and written. The flag would therefore
+  carry a guess or a re-derivation of the stopping rule, and a wrong guess leaves the arm's
+  headline at round *n − 1* with nothing anywhere saying so — §3's objection to a second
+  implementation of the rule, in the writer. Rewriting each round reaches the same end state
+  without anyone knowing the future. Mid-run the file then holds an unfinished arm's latest
+  round, which is legible rather than misleading: its `termination` block says
+  `reason: null`, and a run in progress has no final score to hold instead.
+
+  What both answers rest on is that **`run_fold` scores once**. The round's copy and the
+  un-iterated copy are written from the same `predictions` and the same `scored` object, so
+  the agreement is a property of the code path and not of a convention. Two scoring passes
+  would agree today — detection is deterministic — and would diverge the day a rule file is
+  edited mid-run or a non-deterministic detector joins the ladder, with *neither file looking
+  wrong*: each internally consistent, run and cost and termination blocks identical, nothing
+  recording which pass produced which. So the property is tested as one call
+  (`test_the_fold_is_detected_once_and_scored_once`) and not only as byte equality of the two
+  copies, which a second deterministic pass satisfies.
 - **The loop driver is a new module, not a widened `orchestrate.py`.** That file's
   `PORTING = "port-oneshot"` and `ITERATION = 1` are module-level constants and its
   `run_arm()` is one call from start to finish. Widening it would put both arms' control flow

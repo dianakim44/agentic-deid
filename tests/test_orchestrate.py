@@ -811,6 +811,31 @@ def test_the_rule_file_goes_under_the_arm_and_not_to_the_bootstrap_path(arm,
     assert not (arm / "rules" / "es.yaml").exists()
 
 
+def test_the_rule_file_is_round_scoped_and_the_results_are_not(arm, corpus_present):
+    """**The asymmetry, pinned** (DESIGN §5.3, §5.5). It reads as an inconsistency and is not.
+
+    This arm's rule file goes to `iter1/` and its score and predictions go to the un-iterated
+    paths. The rule path is round-scoped for *every* arm because `port-oneshot` and `port-loop`
+    would otherwise share one file and the second to run would overwrite the first's input.
+    The results path is round-scoped only for arms that have rounds: `iter1/` under an arm with
+    one pass is a false statement about the arm, and `port-oneshot-nofence`'s committed
+    `metrics.json` would gain a duplicate beside it.
+
+    Pinned as a test rather than left to the comment at the call site, because the tidying edit
+    in either direction is one argument long — pass `ITERATION` to `run_fold`, or drop it from
+    `_write_rules` — and each looks like removing an inconsistency.
+    """
+    out = run_arm(**ARM_KW, model_id=MODEL, client=an_answer(GOOD_RULES))
+    assert "iter1" in out["rules_path"].as_posix()
+    assert out["metrics_path"].parent.name == "port-oneshot"
+    assert out["spans_path"].parent.name == "port-oneshot"
+    # And no round directory anywhere under the arm — the error list is the one that matters
+    # (deny-listed, DESIGN §5.5), so the assertion is about the tree rather than one path.
+    results = arm / "results" / "es-meddocan" / "R" / "sup-free" / "port-oneshot"
+    assert not [p for p in results.glob("iter*") if p.is_dir()]
+    assert not list(results.rglob("errors.jsonl"))
+
+
 def test_the_response_is_written_verbatim(arm, corpus_present):
     """No fence stripping, no newline repair, no YAML round-trip. §10 A2 fixes format
     retries at zero, and a normalisation step is a retry with the count still reading
