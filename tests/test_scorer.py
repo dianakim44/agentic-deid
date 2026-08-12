@@ -129,6 +129,18 @@ RUN = {
 COST = {"llm_calls": 0, "prompt_tokens": 0, "completion_tokens": 0,
         "wall_seconds": 0.0}
 
+#: Required since schema 6 (DESIGN §3). A literal rather than
+#: `src.termination.not_applicable(...)`, and the reason is this file's subject: the scorer
+#: validates a block another module produced, so building it from that module here would
+#: make every test pass or fail on the two agreeing rather than on the scorer's own checks.
+#: The rule itself is tested in `tests/test_termination.py`, which is where the numbers are
+#: derived rather than written down.
+TERMINATION = {
+    "reason": "not_applicable", "converged": False, "iterations": 1,
+    "delta": 0.005, "delta_spans": 26, "delta_floor": 0.005, "k": 2, "ceiling": 8,
+    "n_dev": 5254, "improvements": [],
+}
+
 
 @pytest.fixture(scope="module")
 def scored():
@@ -1136,7 +1148,7 @@ def test_model_id_is_required(scored, tmp_path):
     """
     with pytest.raises(ScorerError, match="model_id"):
         write_metrics(scored, run={k: v for k, v in RUN.items() if k != "model_id"},
-                      cost=COST, root=tmp_path)
+                      cost=COST, termination=TERMINATION, root=tmp_path)
 
 
 def test_model_id_is_not_an_axis_and_is_not_validated_as_one():
@@ -1171,7 +1183,7 @@ def test_a_rule_only_arm_records_the_explicit_absent_value(scored, tmp_path):
     """The R arm calls no model and says so — the cost block's zeros, one field over."""
     from src.corpora.base import model_id_absent
     run = {**RUN, "detector": "R", "model_id": model_id_absent()}
-    path = write_metrics(scored, run=run, cost=COST, root=tmp_path)
+    path = write_metrics(scored, run=run, cost=COST, termination=TERMINATION, root=tmp_path)
     written = json.loads(path.read_text(encoding="utf-8"))
     assert written["run"]["model_id"] == "none"
     # And the string is the config's, not this test's or the scorer's.
@@ -1204,7 +1216,7 @@ def test_a_run_without_the_provenance_fields_is_refused(scored, tmp_path, key):
     """Presence first: the mitigation is worth nothing if a run block may omit it."""
     run = {k: v for k, v in RUN.items() if k != key}
     with pytest.raises(ScorerError, match=key):
-        write_metrics(scored, run=run, cost=COST, root=tmp_path)
+        write_metrics(scored, run=run, cost=COST, termination=TERMINATION, root=tmp_path)
 
 
 @pytest.mark.parametrize("bad", ["2026-08-09", "today", "2026-08-09 12:00:00",
@@ -1218,7 +1230,7 @@ def test_generated_must_be_a_utc_instant(scored, tmp_path, bad):
     carry instants sort against each other as text.
     """
     with pytest.raises(ScorerError, match="generated|no 'generated'"):
-        write_metrics(scored, run={**RUN, "generated": bad}, cost=COST, root=tmp_path)
+        write_metrics(scored, run={**RUN, "generated": bad}, cost=COST, termination=TERMINATION, root=tmp_path)
 
 
 def test_generated_accepts_the_format_the_other_writers_produce():
@@ -1234,7 +1246,7 @@ def test_tree_must_be_one_of_the_three_documented_states(scored, tmp_path, bad):
     """`tree` is what makes `commit` mean anything, so an unreadable value is worse than
     an absent one — a reader cannot act on a fourth possibility."""
     with pytest.raises(ScorerError, match="tree"):
-        write_metrics(scored, run={**RUN, "tree": bad}, cost=COST, root=tmp_path)
+        write_metrics(scored, run={**RUN, "tree": bad}, cost=COST, termination=TERMINATION, root=tmp_path)
 
 
 def test_the_tree_vocabulary_is_the_one_tree_state_produces():
@@ -1259,7 +1271,7 @@ def test_an_unreadable_repository_can_still_be_recorded(scored, tmp_path):
     validator must not be what forces one.
     """
     path = write_metrics(scored, run={**RUN, "commit": None, "tree": "unknown"},
-                         cost=COST, root=tmp_path)
+                         cost=COST, termination=TERMINATION, root=tmp_path)
     assert json.loads(path.read_text(encoding="utf-8"))["run"]["commit"] is None
 
 
@@ -1274,7 +1286,7 @@ def test_the_null_hash_is_accepted_only_with_an_unknown_tree(scored, tmp_path):
     for state in ("clean", "dirty"):
         with pytest.raises(ScorerError, match="commit"):
             write_metrics(scored, run={**RUN, "commit": None, "tree": state},
-                          cost=COST, root=tmp_path)
+                          cost=COST, termination=TERMINATION, root=tmp_path)
 
 
 def test_the_commit_key_is_required_even_though_its_value_may_be_null():
@@ -1292,7 +1304,7 @@ def test_only_the_hash_is_nullable(scored, tmp_path, key):
     null in either is an unwritten field rather than a recorded absence."""
     assert key not in scorer.NULLABLE_RUN
     with pytest.raises(ScorerError, match=key):
-        write_metrics(scored, run={**RUN, key: None}, cost=COST, root=tmp_path)
+        write_metrics(scored, run={**RUN, key: None}, cost=COST, termination=TERMINATION, root=tmp_path)
 
 
 def test_all_three_are_required_and_not_just_the_hash():
@@ -1325,8 +1337,13 @@ def test_the_schema_version_moved_with_the_new_required_fields():
     most easily made without touching the counter, and then an absent block cannot be told
     apart from a writer that never had one. Failing here is the reminder to bump, not a
     reason to edit the number until the constant's own note says what changed.
+
+    Schema 6 is a new *required* block (`termination`, DESIGN §3) — the opposite call from 5,
+    and the constant's note says why: an absent `model_lifecycle` is itself a fact ("no probe
+    was made"), and there is no analogous state for a stopping rule, because an arm that does
+    not iterate records `not_applicable`.
     """
-    assert scorer.SCHEMA_VERSION == 5
+    assert scorer.SCHEMA_VERSION == 6
     assert scorer.SCORER_VERSION == 1
 
 
@@ -1348,7 +1365,7 @@ def test_write_metrics_requires_cost(scored, tmp_path):
 
 def test_write_metrics_requires_run(scored, tmp_path):
     with pytest.raises(TypeError):
-        write_metrics(scored, cost=COST, root=tmp_path)    # type: ignore[call-arg]
+        write_metrics(scored, cost=COST, termination=TERMINATION, root=tmp_path)    # type: ignore[call-arg]
 
 
 @pytest.mark.parametrize("key", ["llm_calls", "prompt_tokens", "completion_tokens",
@@ -1356,22 +1373,139 @@ def test_write_metrics_requires_run(scored, tmp_path):
 def test_write_metrics_refuses_a_partial_cost_block(scored, tmp_path, key):
     with pytest.raises(ScorerError, match=key):
         write_metrics(scored, run=RUN, cost={k: v for k, v in COST.items()
-                                            if k != key}, root=tmp_path)
+                                            if k != key},
+                      termination=TERMINATION, root=tmp_path)
 
 
 def test_zero_cost_is_accepted_and_absent_cost_is_not(scored, tmp_path):
     """The R arm makes no LLM calls and says so. Zero is a measurement."""
-    path = write_metrics(scored, run=RUN, cost=COST, root=tmp_path)
+    path = write_metrics(scored, run=RUN, cost=COST, termination=TERMINATION, root=tmp_path)
     written = json.loads(path.read_text(encoding="utf-8"))
     assert written["cost"] == {"llm_calls": 0, "prompt_tokens": 0,
                               "completion_tokens": 0, "wall_seconds": 0.0}
     with pytest.raises(ScorerError):
         write_metrics(scored, run=RUN, cost={**COST, "llm_calls": None},
+                      termination=TERMINATION, root=tmp_path)
+
+
+# ─── the termination block (DESIGN §3) ──────────────────────────────────────
+# The rule itself is `tests/test_termination.py`'s subject. What is checked here is the
+# writer's side: the block is required, its shape is validated, and the one property §3
+# forbids violating is refused at the boundary a hand-assembled block would come through.
+
+
+def test_write_metrics_requires_termination(scored, tmp_path):
+    """Required, not optional — the opposite call from `model_lifecycle` (schema 6's note).
+
+    An arm that does not iterate passes `not_applicable`, so there is no state this block
+    could be legitimately absent for, and a block some arms carried would be uncomparable
+    across arms.
+    """
+    with pytest.raises(TypeError):
+        write_metrics(scored, run=RUN, cost=COST, root=tmp_path)  # type: ignore[call-arg]
+
+
+@pytest.mark.parametrize("key", list(scorer.REQUIRED_TERMINATION))
+def test_write_metrics_refuses_a_partial_termination_block(scored, tmp_path, key):
+    with pytest.raises(ScorerError, match=key):
+        write_metrics(scored, run=RUN, cost=COST,
+                      termination={k: v for k, v in TERMINATION.items() if k != key},
                       root=tmp_path)
 
 
+def test_a_ceiling_stop_may_not_be_recorded_as_converged(scored, tmp_path):
+    """**DESIGN §3's prohibition, at the writer.**
+
+    `Termination.converged` is a property, so the contradiction cannot be constructed
+    upstream — but `write_metrics` takes a mapping, and a hand-assembled block is exactly
+    the path around the dataclass. A run that stopped at 8 with the leak rate still falling
+    is a different claim from one that stopped at 5 having converged, and this is where the
+    file is stopped from saying both.
+    """
+    forged = {**TERMINATION, "reason": "ceiling", "converged": True}
+    with pytest.raises(ScorerError, match="may not be described as converged"):
+        write_metrics(scored, run=RUN, cost=COST, termination=forged, root=tmp_path)
+
+
+def test_a_converged_run_may_not_record_converged_false(scored, tmp_path):
+    """The same check in the other direction — the flag is derived, so disagreement either
+    way means the block was not built by the module that decides."""
+    forged = {**TERMINATION, "reason": "converged", "converged": False}
+    with pytest.raises(ScorerError, match="may not be described as converged"):
+        write_metrics(scored, run=RUN, cost=COST, termination=forged, root=tmp_path)
+
+
+def test_a_running_arm_records_a_null_reason_and_is_not_converged(scored, tmp_path):
+    path = write_metrics(scored, run=RUN, cost=COST,
+                         termination={**TERMINATION, "reason": None, "converged": False},
+                         root=tmp_path)
+    assert json.loads(path.read_text(encoding="utf-8"))["termination"]["reason"] is None
+
+
+def test_a_null_reason_with_converged_true_is_refused(scored, tmp_path):
+    with pytest.raises(ScorerError, match="may not be described as converged"):
+        write_metrics(scored, run=RUN, cost=COST,
+                      termination={**TERMINATION, "reason": None, "converged": True},
+                      root=tmp_path)
+
+
+def test_a_reason_outside_the_vocabulary_is_refused(scored, tmp_path):
+    """naming.yaml is the definition site; a reason invented at a call site is refused
+    before it reaches a published file."""
+    with pytest.raises(Exception, match="not a termination reason"):
+        write_metrics(scored, run=RUN, cost=COST,
+                      termination={**TERMINATION, "reason": "gave_up", "converged": False},
+                      root=tmp_path)
+
+
+def test_an_extra_termination_field_is_refused(scored, tmp_path):
+    """A field this module does not know would be published unvalidated, and a reader
+    cannot tell such a field from part of the pre-registration."""
+    with pytest.raises(ScorerError, match="unexpected key"):
+        write_metrics(scored, run=RUN, cost=COST,
+                      termination={**TERMINATION, "patience": 3}, root=tmp_path)
+
+
+def test_a_non_boolean_converged_is_refused(scored, tmp_path):
+    with pytest.raises(ScorerError, match="not a bool"):
+        write_metrics(scored, run=RUN, cost=COST,
+                      termination={**TERMINATION, "converged": "false"}, root=tmp_path)
+
+
+def test_the_termination_block_is_top_level_and_not_in_the_run_block(scored, tmp_path):
+    """Beside `cost`, for `model_lifecycle`'s reason turned around: a threshold is a
+    property of how the arm was run, not a coordinate of which arm it is. `run` is what
+    `metrics_path` formats, so δ there would be one edit away from minting a cell."""
+    path = write_metrics(scored, run=RUN, cost=COST, termination=TERMINATION,
+                         root=tmp_path)
+    written = json.loads(path.read_text(encoding="utf-8"))
+    assert written["termination"] == TERMINATION
+    for key in scorer.REQUIRED_TERMINATION:
+        assert key not in written["run"]
+
+
+def test_the_termination_block_does_not_change_the_path(scored, tmp_path):
+    """The path names the cell. Two δ values on one corpus are not two cells."""
+    a = write_metrics(scored, run=RUN, cost=COST, termination=TERMINATION,
+                      root=tmp_path)
+    b = write_metrics(scored, run=RUN, cost=COST,
+                      termination={**TERMINATION, "delta": 0.08, "n_dev": 324},
+                      root=tmp_path)
+    assert a == b
+
+
+def test_the_written_delta_is_recoverable_from_the_block(scored, tmp_path):
+    """§3 requires the threshold to travel with the result: a run whose δ nobody can
+    recover is a run whose stopping point cannot be checked."""
+    path = write_metrics(scored, run=RUN, cost=COST, termination=TERMINATION,
+                         root=tmp_path)
+    block = json.loads(path.read_text(encoding="utf-8"))["termination"]
+    assert block["delta"] == max(block["delta_floor"],
+                                 block["delta_spans"] / block["n_dev"])
+
+
 def test_written_file_records_the_run_and_the_versions(scored, tmp_path):
-    path = write_metrics(scored, run=RUN, cost=COST, root=tmp_path)
+    path = write_metrics(scored, run=RUN, cost=COST, termination=TERMINATION, root=tmp_path)
     written = json.loads(path.read_text(encoding="utf-8"))
     assert written["schema_version"] == scorer.SCHEMA_VERSION
     assert written["run"]["scorer_version"] == scorer.SCORER_VERSION
@@ -1385,7 +1519,7 @@ def test_written_file_records_the_run_and_the_versions(scored, tmp_path):
 
 def test_the_written_file_is_the_scored_result(scored, tmp_path):
     """Nothing is recomputed on the way out."""
-    path = write_metrics(scored, run=RUN, cost=COST, root=tmp_path)
+    path = write_metrics(scored, run=RUN, cost=COST, termination=TERMINATION, root=tmp_path)
     written = json.loads(path.read_text(encoding="utf-8"))
     for key in ("counts", "headline", "modes", "false_positive_opportunity"):
         assert written[key] == json.loads(json.dumps(scored[key]))
@@ -1404,7 +1538,7 @@ def test_the_lifecycle_block_is_top_level_and_not_in_the_run_block(scored, tmp_p
     """The run block is what the paper's premises are read off. A lifecycle timestamp
     beside `model_id_resolution` would read as corroborating a verdict it cannot support —
     `start_of_life_time` is when the *id* appeared, not what answered (DESIGN §4)."""
-    path = write_metrics(scored, run=RUN, cost=COST, model_lifecycle=LIFECYCLE,
+    path = write_metrics(scored, run=RUN, cost=COST, termination=TERMINATION, model_lifecycle=LIFECYCLE,
                          root=tmp_path)
     written = json.loads(path.read_text(encoding="utf-8"))
     assert written["model_lifecycle"] == LIFECYCLE
@@ -1417,7 +1551,7 @@ def test_an_absent_probe_omits_the_block_rather_than_nulling_it(scored, tmp_path
     """`model_lifecycle()` returns an `unavailable` record for every failure, so the two
     states here are "a probe happened" and "there was nothing to probe" — the R arm calls
     no model. A null would be a third state no reader can act on."""
-    path = write_metrics(scored, run=RUN, cost=COST, root=tmp_path)
+    path = write_metrics(scored, run=RUN, cost=COST, termination=TERMINATION, root=tmp_path)
     written = json.loads(path.read_text(encoding="utf-8"))
     assert "model_lifecycle" not in written
 
@@ -1427,14 +1561,14 @@ def test_an_empty_lifecycle_mapping_is_refused(scored, tmp_path):
     which is the opposite of what a caller passing one meant. Refused rather than
     normalised, because the caller that built it lost a distinction on the way."""
     with pytest.raises(ScorerError, match="empty"):
-        write_metrics(scored, run=RUN, cost=COST, model_lifecycle={}, root=tmp_path)
+        write_metrics(scored, run=RUN, cost=COST, termination=TERMINATION, model_lifecycle={}, root=tmp_path)
 
 
 def test_the_lifecycle_block_does_not_change_the_path(scored, tmp_path):
     """Same rule as `model_id` and `generated`: the path names the cell of the experiment,
     and anything formatted into it mints a cell."""
-    a = write_metrics(scored, run=RUN, cost=COST, root=tmp_path)
-    b = write_metrics(scored, run=RUN, cost=COST, model_lifecycle=LIFECYCLE,
+    a = write_metrics(scored, run=RUN, cost=COST, termination=TERMINATION, root=tmp_path)
+    b = write_metrics(scored, run=RUN, cost=COST, termination=TERMINATION, model_lifecycle=LIFECYCLE,
                       root=tmp_path)
     assert a == b
 
@@ -1463,7 +1597,7 @@ def test_nothing_in_the_written_file_derives_a_resolution_from_the_lifecycle(sco
     """The one thing this block must never become. `model_id_resolution` comes from the
     response the call returned; a writer that could compute it from a catalogue timestamp
     would be asserting the causal link the sixth mutation family is about."""
-    path = write_metrics(scored, run=RUN, cost=COST, model_lifecycle=LIFECYCLE,
+    path = write_metrics(scored, run=RUN, cost=COST, termination=TERMINATION, model_lifecycle=LIFECYCLE,
                          root=tmp_path)
     written = json.loads(path.read_text(encoding="utf-8"))
     # RUN carries no resolution field, and writing a lifecycle block does not invent one.

@@ -55,6 +55,7 @@ from ..corpora.base import (
     ROOT, CorpusError, Document, axis, model_id_absent, path_template,
 )
 from ..rules import RuleError, RuleSet, load_for_corpus
+from ..termination import Termination, not_applicable
 from . import sealed_log
 from .scorer import (
     PATH_AXES, REQUIRED_COST, ScorerError, check_run, from_documents, score,
@@ -227,6 +228,7 @@ def run_fold(
     model_record: Mapping[str, str | None] | None = None,
     model_lifecycle: Mapping[str, str | None] | None = None,
     cost: Mapping[str, float] | None = None,
+    termination: Termination | None = None,
 ) -> tuple[Path, Path, dict]:
     """Detect over the fold, score it, write both files. Returns (spans, metrics, scored).
 
@@ -277,6 +279,20 @@ def run_fold(
     wall clock are different quantities, and the distinct name is what stops an aggregation
     summing them). Reporting only the call would put a rule pass's cost at zero seconds in
     an arm whose comparison is against `port-loop`'s many calls.
+
+    **`termination` is how an iterating arm reports where it stopped**, and it is an argument
+    for `cost`'s and `model_record`'s reason: this function scores one fold, and whether that
+    fold's rules came from iteration 1 of 8 or from a converged loop is invisible from here.
+    Omitted, it gives the record of an arm the stopping rule does not apply to —
+    `termination.not_applicable(corpus)`, which is `R`'s and the `port-oneshot` rungs' true
+    state and not a placeholder for a measurement. `port-loop` will pass
+    `termination.should_stop(corpus, leak_rates)`.
+
+    The default is built here rather than left to the scorer because the scorer *requires* the
+    block: an arm that does not iterate still records that fact, for the reason the cost block
+    writes zeros. That default reads `splits/{corpus}.json` for `n_dev`, so δ appears in a
+    non-iterating arm's file too — deliberately, so a reader comparing `port-oneshot`'s single
+    leak rate against `port-loop`'s stopping point finds the threshold in both files.
     """
     docs = load_fold(corpus, split)
     ruleset = load_for_corpus(corpus, paths=rules)
@@ -347,6 +363,9 @@ def run_fold(
     metrics_file = write_metrics(
         scored, run=run,
         cost={**NO_LLM_COST, **dict(cost or {}), "wall_seconds": seconds},
+        # An arm that does not iterate records that it does not, rather than omitting the
+        # block (DESIGN §3, and the cost block's zeros one argument over).
+        termination=(termination or not_applicable(corpus)).record(),
         model_lifecycle=model_lifecycle,
         root=root,
     )

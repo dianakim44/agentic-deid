@@ -1025,6 +1025,54 @@ writing it as absent files the arm as having called no model. It is also the rea
 `SCHEMA_VERSION` moved for an *optional* field: absence has to stay readable, and it only
 does if every writer means the same thing by it.
 
+### The termination mutations: a rule with no wrong number today
+
+Added 2026-08-12 with `src/termination.py`, and the group has a property none of the others
+do: **two of the three produce no wrong number on any corpus that currently exists.** The
+stopping rule was pre-registered before `port-loop`'s first call (DESIGN §3), so at the time
+these were written there was no run for them to corrupt. That is the argument for mutating it
+now rather than when the arm runs — a pre-registration that only becomes checkable after the
+arm has run is a pre-registration whose code nobody verified while it still mattered.
+
+`delta_reverts_to_the_constant_half_point` collapses `max(delta_floor, delta_spans / n_dev)`
+back to the bare `0.005`, and **the number does not change.** es-meddocan's dev fold holds
+5,254 in-scope spans, above the 5,200 crossover, so the floor branch is binding there and both
+versions return 0.005. Every test that asks the real split file passes. What the edit removes
+is the invariant §3 pre-registered: the standard held constant across corpora is a span
+*count*, and the rate is derived from it. A single fixed rate demands 26 spans on
+es-meddocan and 1.62 on GraSCCo's 1,297-span corpus — a strict standard on the large fold and
+none at all on the small one, where 1.62 spans is inside the fold's own noise, so the arm
+there would terminate on variation and report it as convergence. It is the seal mutations'
+shape moved into a threshold: the figures are real, they are simply computed against a
+standard that means something different on each corpus, and nothing in the output
+distinguishes them. Only tests on synthetic fold sizes can see it, which is why
+`test_delta_is_the_span_count_on_every_fold_size` exists in that form — a δ test that only
+ever asks es-meddocan is a test this edit passes.
+
+`a_ceiling_stop_is_recorded_as_converged` changes one word in the `elif`, and the mutated
+file is **internally consistent**. `Termination.converged` is a property derived from
+`reason`, so it agrees; `check_termination`'s cross-check compares the two and finds them
+agreeing; the block is schema-valid and `iterations` still says 8. Nothing in the published
+file contradicts anything else in it. This is why the §3 prohibition is tested in three
+places rather than one: the derived property prevents a *contradictory* record and does
+nothing about a *wrong* one, and the scorer's consistency check is satisfied by this edit
+too. Only a test that reads the verdict for a still-improving arm at the cap sees it. The
+repair for it must not be "check the ceiling first" —
+`test_convergence_wins_when_both_are_true` pins the other direction, because an arm whose
+k-th thin iteration happens to be its 8th did converge, and reclassifying it as a budget
+exhaustion would understate the rule in the opposite direction.
+
+`k_drops_to_one_so_consecutive_means_nothing` is the one with an argument on its side, and
+the argument is cost. Each k is a full RuleAuthor + Auditor + scorer pass spent purely to
+confirm a stop — roughly 135k tokens by §3's estimate — so k = 1 reads as saving one
+iteration in every run. What it buys is arms that stop on sampling variance: the error sample
+is a seeded draw of 40 spans stratified by type, so one iteration can land on a stratum the
+current rules already cover and produce a below-δ improvement for reasons unrelated to the
+arm running out of ideas. It also makes the word "consecutive" vacuous while leaving it in
+the spec's wording. The edit is in `config/naming.yaml` rather than in a module, which is the
+rule about vocabulary going into the config first doing its job: the collision is visible in
+one committed file rather than distributed across callers.
+
 ## What the seal cost, and what carries the difference
 
 Sealing 250 documents removed checks that cannot be replaced, and pretending

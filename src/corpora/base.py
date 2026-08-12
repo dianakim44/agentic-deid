@@ -274,6 +274,112 @@ def check_model_resolution(value: str) -> str:
     return value
 
 
+def termination_reasons() -> dict[str, str]:
+    """The ways an iterating arm can stop, from `config/naming.yaml`.
+
+    Three values, and the reason there are three rather than two is DESIGN §3's
+    requirement that a ceiling-terminated run may not be described as converged: an arm
+    that ran out of iterations has *not* satisfied the convergence test, and a run that
+    stopped at 8 with the leak rate still falling is a different claim from one that
+    stopped at 5 having converged. `not_applicable` is the third because an arm that does
+    not iterate still has to record that fact — `model_id_absent`'s argument one field
+    over, and the cost block's zeros one further over.
+
+    A **closed** vocabulary and not an axis, for `model_id_resolution`'s reason: it does
+    not name a cell of the experiment, it names the kind of ending observed. This function
+    only says which words exist. Which word attaches to which branch is
+    `src/termination.py`'s job, and keeping that here would put the §3 prohibition in the
+    module every caller reads for vocabulary rather than in the one function that decides.
+    """
+    value = naming().get("termination_reason")
+    if not isinstance(value, dict) or not value:
+        raise CorpusError(
+            "config/naming.yaml has no `termination_reason` mapping. It is the closed "
+            "vocabulary for how an iterating arm stopped, it lands in metrics.json, and "
+            "CLAUDE.md keeps such values out of the modules."
+        )
+    bad = [key for key in value if not isinstance(key, str) or not key]
+    if bad:
+        raise CorpusError(
+            f"config/naming.yaml `termination_reason` has {len(bad)} non-string or "
+            "empty key(s). Each key is a value written to metrics.json."
+        )
+    return dict(value)
+
+
+def check_termination_reason(value: str) -> str:
+    """Return `value` if it is a declared termination reason; raise otherwise.
+
+    A checked accessor for `check_model_resolution`'s reason: a reason invented at a call
+    site would be written to metrics.json and compared against nothing. Here the stakes
+    are one step higher, because the vocabulary's whole content is a distinction §3
+    forbids collapsing — a caller that could write `"converged (at the cap)"` would have
+    reinstated the collapse in a field that looks validated.
+    """
+    reasons = termination_reasons()
+    if value not in reasons:
+        raise CorpusError(
+            f"{value!r} is not a termination reason in config/naming.yaml "
+            f"(have: {sorted(reasons)}). Add it there before a module writes it."
+        )
+    return value
+
+
+@lru_cache(maxsize=1)
+def termination_params() -> dict[str, int | float]:
+    """The pre-registered δ/k/ceiling constants, from `config/naming.yaml`. DESIGN §3.
+
+    **δ is not among them, and its absence is the design.** What is stored is
+    `delta_spans` and `delta_floor` — the two constants δ is *computed* from — because δ
+    itself is per-corpus (`max(delta_floor, delta_spans / n_dev)`) and `n_dev` comes from
+    `splits/{corpus}.json`. A δ written here would be a number that does not say which
+    corpus's fold it was evaluated on, and §3's per-corpus block exists because that
+    number silently demanded 26 spans on one corpus and 1.6 on another.
+
+    Validated on read for `sample.config()`'s reason: these are experimental parameters
+    that reach `metrics.json`, so a `k` arriving as the string `"2"` would compare
+    unequal to every integer and stop nothing, in a way no caller can notice. `delta_spans`
+    and `k` must be positive integers — a `k` of 0 stops on the first iteration and a
+    `delta_spans` of 0 makes every iteration productive; `ceiling` likewise, since a
+    ceiling of 0 is an arm that cannot run. `delta_floor` is a rate and so may be a float,
+    and must be positive: at 0 the floor branch never binds and a large fold gets a δ
+    below its own one-span noise, which is the thing the floor was derived to prevent.
+    """
+    value = naming().get("termination")
+    if not isinstance(value, dict) or not value:
+        raise CorpusError(
+            "config/naming.yaml has no `termination` block. It holds the pre-registered "
+            "δ/k/ceiling constants (DESIGN §3), they are recorded in metrics.json, and "
+            "CLAUDE.md keeps such values out of the modules."
+        )
+    for key in ("delta_spans", "k", "ceiling"):
+        got = value.get(key)
+        if not isinstance(got, int) or isinstance(got, bool) or got <= 0:
+            raise CorpusError(
+                f"config/naming.yaml `termination.{key}` must be a positive integer, got "
+                f"{got!r}. It is a pre-registered experimental parameter recorded in the "
+                "results (DESIGN §3), so it is validated here rather than coerced at the "
+                "point of use."
+            )
+    floor = value.get("delta_floor")
+    if isinstance(floor, bool) or not isinstance(floor, (int, float)) or floor <= 0:
+        raise CorpusError(
+            f"config/naming.yaml `termination.delta_floor` must be a positive number, got "
+            f"{floor!r}. It is δ's lower bound and the reason a fold larger than "
+            "`delta_spans / delta_floor` does not get a δ beneath its own noise floor "
+            "(DESIGN §3)."
+        )
+    extra = sorted(set(value) - {"delta_spans", "delta_floor", "k", "ceiling"})
+    if extra:
+        raise CorpusError(
+            f"config/naming.yaml `termination` has unexpected key(s) {extra}. The block is "
+            "closed: a fifth parameter would be read by nothing and would look "
+            "pre-registered."
+        )
+    return {"delta_spans": value["delta_spans"], "delta_floor": float(floor),
+            "k": value["k"], "ceiling": value["ceiling"]}
+
+
 def path_template(key: str) -> str:
     """One `paths` template from naming.yaml, e.g. `path_template("humanlog")`.
 

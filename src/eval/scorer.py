@@ -43,7 +43,8 @@ from pathlib import Path
 from typing import Iterable, Mapping, Sequence
 
 from ..corpora.base import (
-    ROOT, axis, family_of, layer_families, model_id_absent, naming,
+    ROOT, axis, check_termination_reason, family_of, layer_families, model_id_absent,
+    naming,
 )
 
 #: Bumped when the meaning of an output field changes, so a results directory holding
@@ -63,7 +64,14 @@ SCORER_VERSION = 1
 #: two files needs to know whether an absent block means "this writer did not have one" or
 #: "this version had no such field". Top-level and not inside `run` on purpose — see
 #: `write_metrics`.
-SCHEMA_VERSION = 5
+#: 6 adds a **required** top-level `termination` block (DESIGN §3's stopping rule, per-corpus
+#: δ, 2026-08-12). Required and not optional, which is the opposite call from 5 and for a
+#: reason that distinguishes the two: an absent `model_lifecycle` means "no probe was made",
+#: a real state a reader needs to tell from "this writer had no such field". There is no
+#: corresponding state here — every arm either iterated or did not, and the one that did not
+#: records `not_applicable`. A block some arms carried and others omitted would be a field
+#: that cannot be compared across arms, which is `model_id`'s argument at schema 3.
+SCHEMA_VERSION = 6
 
 FULLY_COVERED = "fully_covered"
 RELAXED = "relaxed"
@@ -132,6 +140,23 @@ AXIS_VALUED = PATH_AXES + ("split",)
 REQUIRED_RUN = ("corpus", "detector", "supervision", "porting", "split", "model_id",
                 "generated", "commit", "tree")
 REQUIRED_COST = ("llm_calls", "prompt_tokens", "completion_tokens", "wall_seconds")
+
+#: Required in the `termination` block — `src.termination.Termination.record()`'s keys.
+#: Checked for presence and not for content: this module validates the *shape* of a record
+#: another module produced, and re-deriving the verdict here would be a second implementation
+#: of the stopping rule. §3's substantive prohibition — a ceiling stop is not convergence — is
+#: enforced where the verdict is made (`Termination.converged` is a property, so the
+#: contradictory state cannot be constructed), and the one cross-check this module *can* make
+#: without reimplementing anything is that the two agree, which `check_termination` does.
+#:
+#: `improvements` is here because §3's difference-versus-level distinction is invisible in a
+#: leak rate alone: a file recording only the final rate and a reason cannot be checked
+#: against the rule that produced it. `delta` and `n_dev` both, for the reason `rules_version`
+#: and `rules_source` are both required — the rate is what the rule compared against and the
+#: count is what makes it comparable across corpora, and neither can be recovered from the
+#: other without the corpus's split file in hand.
+REQUIRED_TERMINATION = ("reason", "converged", "iterations", "delta", "delta_spans",
+                        "delta_floor", "k", "ceiling", "n_dev", "improvements")
 
 #: Required to be *written* and permitted to be null — the key must be in the block and
 #: its value may be `None`, under the condition `check_run` enforces.
@@ -961,6 +986,74 @@ def check_run(run: Mapping[str, str]) -> None:
         )
 
 
+def check_termination(termination: Mapping) -> None:
+    """The `termination` block is complete, and its reason and `converged` flag agree.
+
+    **What this does not do: re-decide the stopping rule.** The verdict is
+    `src.termination.should_stop()`'s, and recomputing it here would be a second
+    implementation of a pre-registered rule — two implementations of one rule are two rules,
+    and the day they disagree the published file is whichever one wrote it. So this checks
+    shape, vocabulary, and one consistency property, and nothing about whether the arm
+    *should* have stopped.
+
+    **The consistency property is DESIGN §3's prohibition, checked at the boundary it
+    crosses.** A ceiling-terminated run may not be described as converged. That is made
+    unconstructible upstream — `Termination.converged` is a property derived from `reason`,
+    so no dataclass instance can hold the contradiction — but `write_metrics` takes a
+    mapping, and a caller that assembled the block by hand is exactly the path around the
+    dataclass. Checking here means the guarantee holds for the file rather than for one
+    code path to it. This is the shape `tests/mutations/README.md` calls a guard whose
+    precondition was never asked: the property was true of the producer and unchecked at the
+    writer.
+
+    `reason` may be null, and only with `converged` false — an arm still running has no
+    reason, and `should_stop()` returns that state. Null with `converged` true is the same
+    contradiction from the other side.
+    """
+    if not isinstance(termination, Mapping):
+        raise ScorerError(
+            f"termination must be a mapping, got {type(termination).__name__}. Pass "
+            "`src.termination.Termination.record()`, or `not_applicable(corpus).record()` "
+            "for an arm that does not iterate (DESIGN §3)."
+        )
+    missing = [k for k in REQUIRED_TERMINATION if k not in termination]
+    if missing:
+        raise ScorerError(
+            f"termination block is missing {missing}. Every field is a premise of the "
+            "stopping point: δ and `n_dev` are the threshold and the fold it was derived "
+            "from, `improvements` is what makes §3's difference rule auditable from the "
+            "file, and `reason` is what distinguishes a converged run from one that hit "
+            "the cap. Build it with `src.termination.Termination.record()` rather than by "
+            "hand."
+        )
+    extra = sorted(set(termination) - set(REQUIRED_TERMINATION))
+    if extra:
+        raise ScorerError(
+            f"termination block has unexpected key(s) {extra}. The block is closed: a field "
+            "this module does not know about would be published unvalidated, and a reader "
+            "cannot tell such a field from part of the pre-registration."
+        )
+    reason = termination["reason"]
+    converged = termination["converged"]
+    if not isinstance(converged, bool):
+        raise ScorerError(
+            f"termination['converged'] is {converged!r}, not a bool. It is derived from "
+            "`reason` and exists so a reader need not know the vocabulary; a non-boolean "
+            "there means the block was assembled by hand."
+        )
+    if reason is not None:
+        check_termination_reason(str(reason))
+    if converged != (reason == "converged"):
+        raise ScorerError(
+            f"termination['reason'] is {reason!r} but ['converged'] is {converged!r}. "
+            "DESIGN §3: an arm that stopped at the iteration ceiling has not satisfied the "
+            "convergence test and may not be described as converged — a run that stopped at "
+            "8 with the leak rate still falling is a different claim from one that stopped "
+            "at 5 having converged. `Termination.converged` is a property precisely so the "
+            "two cannot disagree; a block where they do was not built by it."
+        )
+
+
 def metrics_path(run: Mapping[str, str], root: Path | None = None) -> Path:
     """The results path for this arm, from naming.yaml's `paths.metrics`.
 
@@ -979,10 +1072,11 @@ def write_metrics(
     *,
     run: Mapping,
     cost: Mapping,
+    termination: Mapping,
     model_lifecycle: Mapping | None = None,
     root: Path | None = None,
 ) -> Path:
-    """Assemble and write metrics.json. `run` and `cost` are required.
+    """Assemble and write metrics.json. `run`, `cost` and `termination` are required.
 
     CLAUDE.md requires cost beside quality — LLM calls, tokens, wall time per arm —
     because a gain that costs 2x is a different result from one that costs 1.05x. It
@@ -1018,6 +1112,27 @@ def write_metrics(
     `SCHEMA_VERSION` was bumped for an *optional* addition precisely so that absence is
     legible — without the bump, a reader diffing two files cannot tell "this arm made no
     call" from "this writer had no such field".
+
+    **`termination` is required, and the contrast with `model_lifecycle` is the reasoning.**
+    DESIGN §3's stopping rule decides how many iterations an arm runs and hence its cost, so
+    the threshold and the reason it stopped are premises of the numbers in the same way
+    `split` and `model_id` are. `model_lifecycle` is optional because its absence is itself a
+    fact — no probe was made — and there is no analogous state here: an arm either iterated
+    or did not, and one that did not passes `termination.not_applicable(corpus).record()`,
+    which is a measurement rather than a gap. A block some arms carried and others omitted
+    would be uncomparable across arms, which is exactly `model_id`'s argument.
+
+    It sits at the top level beside `cost` rather than inside `run`, for `model_lifecycle`'s
+    reason turned around. `run` is what the paper's premises are read off and it is what
+    `metrics_path` formats — putting δ there would make a threshold look like a coordinate of
+    the arm, and the day someone adds it to `PATH_AXES` the same corpus at two δ values
+    becomes two cells. `cost` is the right neighbour: both are properties of how the arm was
+    run rather than of what it is, and §3 asks for the reason and the iteration count to be
+    reported *beside* the leak rate.
+
+    This function does not evaluate the rule. It validates the block's shape and the one
+    property §3 forbids violating (`check_termination`), and the verdict itself comes from
+    `src/termination.py` — see that module's note on why the rule is not in the loop driver.
     """
     missing = [k for k in REQUIRED_COST if cost.get(k) is None]
     if missing:
@@ -1037,12 +1152,17 @@ def write_metrics(
             "and arm-free by construction, and a dependency on the LLM client for one "
             "word would end that.)"
         )
+    check_termination(termination)
     path = metrics_path(run, root=root)
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = {
         "schema_version": SCHEMA_VERSION,
         "run": {**dict(run), "scorer_version": SCORER_VERSION},
         "cost": dict(cost),
+        # DESIGN §3. Top level beside `cost` and never inside `run` — see the docstring:
+        # a threshold is a property of how the arm was run, not a coordinate of which arm
+        # it is, and `run` is what gets formatted into the results path.
+        "termination": dict(termination),
         # Top level, not inside `run` — see the docstring. Omitted when there is nothing
         # to probe rather than written as null.
         **({"model_lifecycle": dict(model_lifecycle)} if model_lifecycle else {}),

@@ -55,6 +55,7 @@ TEST_FILES = [
     "tests/test_check_bedrock_logging.py",
     "tests/test_structure.py",
     "tests/test_orchestrate.py",
+    "tests/test_termination.py",
 ]
 
 #: Repository directories the loader tests need. `splits/` is here because the
@@ -198,6 +199,10 @@ BEDROCK = "src/llm/bedrock.py"
 #: here does not lose evidence, it manufactures it.
 CHECK_LOGGING = "tools/check_bedrock_logging.py"
 PATCH_CHECK = "tools/check_patched_guarantees.py"
+#: The pre-registered stopping rule (DESIGN §3). Separated from any loop driver on purpose —
+#: see the module's own note — which is also what makes it mutable in isolation here: a
+#: mutation to δ or to the ceiling branch cannot be confused with a bug in the thing it stops.
+TERMINATION = "src/termination.py"
 
 MUTATIONS = [
     Mutation(
@@ -2718,6 +2723,115 @@ MUTATIONS = [
             "quoted line leaked, and the marker is what makes the assertion about content."
         ),
         min_kills=1,
+    ),
+    Mutation(
+        name="delta_reverts_to_the_constant_half_point",
+        path=TERMINATION,
+        anchor='    d = max(params["delta_floor"], params["delta_spans"] / size)',
+        replacement='    d = params["delta_floor"]',
+        also=((
+            TERMINATION,
+            '    return max(params["delta_floor"], params["delta_spans"] / n_dev(corpus))',
+            '    return params["delta_floor"]',
+        ),),
+        breaks=(
+            "**δ becomes the constant 0.005 again, and on the corpus that exists today the "
+            "number does not change.** es-meddocan's dev fold is 5,254 in-scope spans, above "
+            "the `delta_spans / delta_floor` = 5,200 crossover, so the floor branch is the "
+            "binding one there and `delta('es-meddocan')` returns 0.005 either way. Every "
+            "test that exercises the real split file passes.\n"
+            "\n"
+            "What is lost is the thing DESIGN §3 pre-registered: the invariant is a **span "
+            "count**, and the rate is derived from it. A fold five times smaller must show a "
+            "rate five times larger to represent the same amount of found PHI, so a single "
+            "fixed rate silently demands 26 spans on one corpus and 1.62 on GraSCCo's "
+            "1,297-span corpus — a strict standard on the large fold and no standard at all "
+            "on the small one, where 1.62 spans is inside the fold's own noise. The arm on "
+            "the small corpus would then terminate on variation and report it as "
+            "convergence.\n"
+            "\n"
+            "It is the sharpest mutation in this file for the reason the seal ones are: it "
+            "produces **no wrong number at all today**. It becomes wrong on the corpus that "
+            "has not been split yet, which is precisely why §3 pre-registered the formula "
+            "before `de-grascco`'s split existed and why the four table rows are the formula "
+            "evaluated in advance.\n"
+            "\n"
+            "Caught by `test_delta_is_the_span_count_on_every_fold_size` and "
+            "`test_the_four_pre_registered_grascco_rows`, which work on synthetic fold sizes "
+            "for exactly this reason — a δ test that only ever asks es-meddocan cannot see "
+            "this edit."
+        ),
+        min_kills=2,
+    ),
+    Mutation(
+        name="a_ceiling_stop_is_recorded_as_converged",
+        path=TERMINATION,
+        anchor="    if len(gains) >= k and all(g < d for g in gains[-k:]):\n"
+               "        reason = CONVERGED\n"
+               "    elif iterations >= ceiling:\n"
+               "        reason = CEILING",
+        replacement="    if len(gains) >= k and all(g < d for g in gains[-k:]):\n"
+                    "        reason = CONVERGED\n"
+                    "    elif iterations >= ceiling:\n"
+                    "        reason = CONVERGED",
+        breaks=(
+            "**DESIGN §3's one prohibition, undone in one word.** An arm that ran out of "
+            "iterations has not satisfied the convergence test, and §3 states that a "
+            "ceiling-terminated run may not be described as converged — a run that stopped at "
+            "8 with the leak rate still falling is a different claim from one that stopped at "
+            "5 having converged.\n"
+            "\n"
+            "The mutated file is internally consistent, which is what makes it dangerous. "
+            "`Termination.converged` is a property derived from `reason`, so it agrees; "
+            "`check_termination` compares the two and finds them agreeing; the block is "
+            "schema-valid and `iterations` still says 8. Nothing in the published file "
+            "contradicts anything else in it. A reader would have to know the ceiling is 8 "
+            "and *infer* that an 8-iteration convergence is suspicious — and the honest and "
+            "the dishonest record differ only in a word whose meaning §3 supplies.\n"
+            "\n"
+            "This is why the guarantee is tested in three places rather than one. The "
+            "property being derived from `reason` prevents a *contradictory* record; it does "
+            "nothing about a wrong `reason`, and the scorer's cross-check is satisfied by "
+            "this edit too. Only a test that reads the verdict for a still-improving arm at "
+            "the cap can see it: `test_a_ceiling_stop_is_not_converged`, "
+            "`test_the_ceiling_terminates_an_arm_that_is_still_improving`, and "
+            "`test_convergence_wins_when_both_are_true` (which is what stops the fix from "
+            "being 'check the cap first' — that would reclassify a real convergence as a "
+            "budget exhaustion and understate the rule)."
+        ),
+        min_kills=2,
+    ),
+    Mutation(
+        name="k_drops_to_one_so_consecutive_means_nothing",
+        path=NAMING,
+        anchor="  k: 2",
+        replacement="  k: 1",
+        breaks=(
+            "**The stopping rule fires on a single thin iteration.** §3's k = 2 exists "
+            "because the error sample is a seeded draw of 40 spans stratified by type (§1.4), "
+            "so one iteration can land on a stratum the current rules already cover and "
+            "produce a below-δ improvement for a reason unrelated to the arm having run out "
+            "of ideas. k = 2 requires two independent draws to come back thin; k = 1 makes "
+            "sampling variance indistinguishable from convergence.\n"
+            "\n"
+            "It also makes 'consecutive' vacuous — §3 records that k = 2 is the smallest "
+            "value for which the word means anything at all, so this edit removes a clause "
+            "from the pre-registration while leaving its wording in place.\n"
+            "\n"
+            "**Cost is where it would be argued for, and that is the trap.** Each k is a full "
+            "RuleAuthor + Auditor + scorer pass spent purely to confirm a stop, roughly 135k "
+            "tokens by §3's estimate, so k = 1 looks like a saving of one iteration in every "
+            "run. What it actually buys is arms that stop early and report converged-looking "
+            "results, and the run that was cut short is the one whose leak rate the paper "
+            "quotes.\n"
+            "\n"
+            "The edit is in the config rather than a module, which is the point of the rule "
+            "that a new value goes into `naming.yaml` first: the collision is visible in one "
+            "committed file. Caught by `test_the_constants_are_the_pre_registered_ones`, "
+            "`test_one_below_delta_iteration_is_not_convergence` and "
+            "`test_convergence_needs_k_plus_one_iterations`."
+        ),
+        min_kills=3,
     ),
 ]
 
