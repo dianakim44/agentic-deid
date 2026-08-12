@@ -44,7 +44,9 @@ from src.llm.prompt import (                                     # noqa: E402
     render_window,
 )
 from src.rules import rule_layers                                # noqa: E402
-from src.sample import MISSED, ErrorSpan, non_target_types       # noqa: E402
+from src.sample import (                                         # noqa: E402
+    MISSED, WINDOW_FILES, ErrorSpan, non_target_types,
+)
 
 MODULE = ROOT / "src" / "llm" / "prompt.py"
 
@@ -435,14 +437,21 @@ def test_the_reference_form_carries_references_and_no_text():
     assert ref["text_sha256"].startswith("sha256:")
 
 
-def test_the_reference_form_records_both_window_files():
-    """The prompt template and the sampling config, hashed.
+def test_the_reference_form_records_every_window_file():
+    """The two prompt templates and the sampling config, hashed.
 
-    Both, for `src/sample.py`'s reason: a record naming only the template would agree with
-    a doubled `n` as readily as with 40.
+    All of them, for `src/sample.py`'s reason: a record naming only the RuleAuthor template
+    would agree with a doubled `n` as readily as with 40, and — since 2026-08-12 — with a
+    rewritten Auditor as readily as with the frozen one.
+
+    Read off `WINDOW_FILES` rather than listed, deliberately. This assertion is about the
+    reference form carrying *the whole window*, not about which files are in it; the window's
+    membership is DESIGN §5.5's and is pinned by `tests/test_sample.py`. A literal list here
+    would be a second copy that has to be edited on the same day.
     """
     files = a_prompt().reference()["window_files"]
-    assert set(files) == {"docs/prompts/rule_author.md", "config/sampling.yaml"}
+    assert set(files) == set(WINDOW_FILES)
+    assert len(files) == 3
     assert all(v.startswith("sha256:") for v in files.values())
 
 

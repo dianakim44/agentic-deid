@@ -29,9 +29,9 @@ from src.porting import human_arm                              # noqa: E402
 from src.corpora.base import axis                               # noqa: E402
 from src.llm.prompt import render_window                        # noqa: E402
 from src.porting.human_arm import (                            # noqa: E402
-    CONSULTED_AXIS, EVENTS, FIELDS, IN_HISTORY, IN_WORKTREE, SCOPES, VIOLATION,
-    PortHumanError, append, arm_has_started, draw_iteration, freeze_path, freeze_window,
-    initial_error_pool, log_line, log_path, practice_pool,
+    CONSULTED_AXIS, EVENTS, FIELDS, HUMAN_WINDOW_FILES, IN_HISTORY, IN_WORKTREE, SCOPES,
+    VIOLATION, PortHumanError, append, arm_has_started, draw_iteration, freeze_path,
+    freeze_window, initial_error_pool, log_line, log_path, practice_pool,
     started_where, summarise, window_drift,
 )
 from src.sample import (                                       # noqa: E402
@@ -59,6 +59,17 @@ def err(doc_id: str, index: int, phi_type: str = "NAME",
         start: int = 1000) -> ErrorSpan:
     return ErrorSpan(doc_id=doc_id, span_index=index, phi_type=phi_type,
                      kind=MISSED, start=start, end=start + 6)
+
+
+def human_hashes():
+    """This arm's window hashes — two files, not today's three.
+
+    A helper rather than a bare `window_hashes()` at each site, because the default moved
+    underneath this arm on 2026-08-12 (DESIGN §5.5) and a test that follows the default
+    would assert whatever the default becomes. What this arm's lines must carry is fixed by
+    `HUMAN_WINDOW_FILES`, and that is what these tests check against.
+    """
+    return window_hashes(HUMAN_WINDOW_FILES)
 
 
 # ─── the initial pool is the dev fold, in scope, and nothing else ───────────
@@ -123,10 +134,11 @@ def test_the_empty_pool_message_quotes_no_surface(monkeypatch):
 def test_the_freeze_record_holds_both_hashes_and_the_arm(tmp_path, monkeypatch):
     monkeypatch.setattr(human_arm, "ROOT", tmp_path)
     record = freeze_window("es-meddocan", "R", "sup-free")
-    assert record["prompt_sha256"] == window_hashes()["prompt_sha256"]
-    assert record["sampling_sha256"] == window_hashes()["sampling_sha256"]
+    assert record["prompt_sha256"] == human_hashes()["prompt_sha256"]
+    assert record["sampling_sha256"] == human_hashes()["sampling_sha256"]
     assert record["porting"] == "port-human"
-    assert record["files"] == list(WINDOW_FILES)
+    assert record["files"] == list(HUMAN_WINDOW_FILES)
+    assert "auditor_sha256" not in record
 
 
 def test_freezing_twice_returns_the_first_record_and_does_not_rewrite(tmp_path,
@@ -210,7 +222,7 @@ def test_re_freezing_is_permitted_before_any_minutes_are_recorded(tmp_path,
     append(log_line(1, "read_sample", "none"), "es-meddocan", "R", "sup-free")
     human_arm.freeze_path("es-meddocan", "R", "sup-free").unlink()
     again = freeze_window("es-meddocan", "R", "sup-free")
-    assert again["prompt_sha256"] == window_hashes()["prompt_sha256"]
+    assert again["prompt_sha256"] == human_hashes()["prompt_sha256"]
 
 
 def test_zero_minutes_counts_as_started(tmp_path, monkeypatch):
@@ -674,8 +686,8 @@ def test_the_window_hashes_are_filled_by_the_line_not_the_caller():
     """A caller that has to remember them is a caller that forgets on the line that
     matters."""
     record = log_line(1, "read_sample", "none")
-    assert record["prompt_sha256"] == window_hashes()["prompt_sha256"]
-    assert record["sampling_sha256"] == window_hashes()["sampling_sha256"]
+    assert record["prompt_sha256"] == human_hashes()["prompt_sha256"]
+    assert record["sampling_sha256"] == human_hashes()["sampling_sha256"]
     assert record["prompt_sha256"].startswith("sha256:")
 
 

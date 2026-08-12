@@ -1265,6 +1265,58 @@ Adding `_check_tags` failed a test that had passed for as long as it existed: a 
 that line — and it would have produced a wrong offset on the day a flag landed there. The check
 found a latent inconsistency in the tests before it ever saw the masker's output.
 
+### One on the widened window, where the damage is a false alarm
+
+`drift_is_checked_against_todays_window_not_the_recorded_one`, added 2026-08-12 with the
+widening of `WINDOW_FILES` to three files (`auditor.md` joined it — DESIGN §5.5). It restores
+the pre-widening line in `orchestrate.window_drift()`: iterate the fields of today's
+`window_hashes()` rather than the fields the record itself names.
+
+The interesting thing about this one is that it produces no wrong number and no crash. It
+produces a *report*, and the report is a false alarm on both frozen agent arms
+(`port-oneshot`, `port-oneshot-nofence`): permanent drift on `auditor_sha256`, a file neither
+of their calls ever saw. What makes that worse than a crash is what `window_drift()` is
+documented to mean — the record and the files disagree about a call that has already happened.
+A reader who trusts that reads it as the record being wrong, and the record is the only thing
+in the repository that still says what those calls were held to. The repair such a reader
+reaches for is re-freezing, which hashes today's files onto a record about last week's call:
+DESIGN §6.3's objection, arrived at by way of a helpful-looking warning.
+`docs/notes/window-freeze-history.md` is a record of that exact sequence happening for other
+reasons, three times.
+
+**It was first written against the wrong line, and that is worth recording.** The first version
+targeted `recorded_window_fields()`, replacing its `record.get("files")` with `None` to force
+the fallback branch — and it survived, killed by nothing. The reason is that the fallback
+answers correctly on every record that exists: it returns the hash fields *present* in the
+record, and the committed two-file records hold exactly two. So the `files` list is not what
+makes the widening local; it is a second, stricter authority for records that will be written
+later. The line that actually holds the guarantee is the one in `window_drift()` that chooses
+which list to iterate. A surviving mutation is usually a missing test; this one was a wrong
+belief about where a guarantee lived, and only running it distinguished the two.
+
+`the_recorded_files_list_is_ignored_in_favour_of_the_fields_present` is that first version,
+kept rather than discarded, because the branch it removes does do something — just not
+anything the committed records can show. The two branches diverge on a record with two files
+named and three hashes written, which is what a widened writer produces against an old freeze
+record. `test_the_files_list_outranks_the_hash_fields_present` is that synthetic record; the
+committed ones stay in the file above, testing the thing they can test. The pair is a small
+lesson about coverage from real artefacts: they are the only evidence for what *did* happen and
+no evidence at all for a branch that exists so something does not.
+
+Caught by `tests/test_window_widening.py`, which reads the committed `window_freeze.json`
+files rather than building any. That coupling to committed data is deliberate and is the whole
+test: every other freeze-record test in the suite builds its record under a redirected `ROOT`,
+and a record created inside the test cannot fail to be retroactively rewritten. A
+fixture-based version of this test passes with the mutation applied.
+
+The second half of the widening — `human_arm.log_line()` writing three hashes onto a retired
+arm's line — is not mutated here, because it is not silent: `log_line()` asserts its own field
+order against `FIELDS`, and the naive widening failed 39 tests immediately. Worth noting that
+that assertion was written for an unrelated reason (a reader diffing two lines should see
+field changes rather than reordering) and caught this by accident. A guard that catches what
+it was not aimed at is luck, not coverage, which is why the freeze records get a test of their
+own rather than being left to it.
+
 ## What the seal cost, and what carries the difference
 
 Sealing 250 documents removed checks that cannot be replaced, and pretending

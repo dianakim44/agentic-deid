@@ -249,6 +249,42 @@ Nothing is at risk in either direction: `arm_has_started()` is still `False`, so
 would have been permitted and a revival's re-freeze will be too. This is a choice about what
 the record is a history *of*, not about what the guard allows.
 
+### 2026-08-12: the window gained a third file, and this arm's window did not
+
+Not a revision — no hash on this record moved and the record was not written. What changed is
+what "the window" *means* for the arms that are live: `docs/prompts/auditor.md` joined
+`WINDOW_FILES`, because `port-loop`'s Auditor prompt decides what the RuleAuthor is shown at
+§1.3 and a record naming only the RuleAuthor's template would agree with a rewritten Auditor as
+readily as with the frozen one (DESIGN §5.5).
+
+This arm did not follow, and the argument is revision 7's one file over. A human author read
+`rule_author.md` under `sampling.yaml`'s numbers and **there was no Auditor**; a third hash on
+this record would attest to a prompt that did not exist when the reading happened. Revision 7
+established that this record is a history of *this arm's* window rather than of every edit to
+files it shares — and a file it never had is further from its window than a paragraph it never
+read.
+
+The part worth recording is that following was the *default*, and inheriting it would have been
+silent. `human_arm.log_line()` filled its hash fields from `window_hashes()` with no argument,
+so widening a constant in `src/sample.py` would have put `auditor_sha256` on this arm's next log
+line with no edit to `human_arm.py` and nothing to review. It is named now:
+`HUMAN_WINDOW_FILES`, declared in that module, passed explicitly at all three sites that write
+a hash. The rule this makes concrete: **an arm whose window is not today's window says so in
+its own module, because a constant that moves underneath it fails without a diff.**
+
+Two consequences a revival inherits, both stated here so neither is re-derived:
+
+- `window_drift()` compares the fields the *record* names, not today's three. Without that,
+  every arm frozen before this date would report permanent drift on `auditor_sha256` — and
+  `window_drift()`'s documented meaning is that the record and the files disagree about a call
+  that has already happened, so the report would read as the record being wrong. The repair a
+  reader reaches for is re-freezing, which is the sequence the first half of this note is about.
+  Pinned by `tests/test_window_widening.py` against the committed records, and by the mutation
+  `drift_is_checked_against_todays_window_not_the_recorded_one`.
+- A revival re-freezes as its first act, and *that* is where the window gets re-decided —
+  including whether the revived arm reads an Auditor at all. Deciding it now would be a
+  forecast, and this note has recorded two of those already.
+
 ## What is guaranteed now
 
 `freeze_window()` keeps the `exists()` branch and gains a second condition that a

@@ -509,18 +509,51 @@ def test_a_hash_moves_when_the_content_moves(tmp_path):
     assert prompt_hash(str(a)) != first
 
 
-def test_window_hashes_name_both_files():
-    """n and the context width live in the config, not the prompt (DESIGN §11.2)."""
+def test_window_hashes_name_all_three_files():
+    """The window is three files, and this is the one place that says which (DESIGN §5.5).
+
+    n and the context width live in the config, not the prompt (DESIGN §11.2), and the
+    Auditor prompt is a third input the agent arm reads — an arm whose Auditor was rewritten
+    mid-run is a different arm, so the record has to be able to say so.
+
+    Spelled out as literals here on purpose. Everywhere else the file list is read off
+    `WINDOW_FILES`; this assertion is the one that would fail if a fourth file were added
+    without a decision, which is the event worth failing on.
+    """
     got = window_hashes()
-    assert set(got) == {"prompt_sha256", "sampling_sha256"}
+    assert set(got) == {"prompt_sha256", "auditor_sha256", "sampling_sha256"}
     assert got["prompt_sha256"] == file_hash("docs/prompts/rule_author.md")
+    assert got["auditor_sha256"] == file_hash("docs/prompts/auditor.md")
     assert got["sampling_sha256"] == file_hash("config/sampling.yaml")
 
 
-def test_the_two_window_hashes_are_distinct():
-    """One hash for both files would be a record that cannot say which changed."""
+def test_the_three_window_hashes_are_distinct():
+    """One hash over the three files would be a record that cannot say which changed."""
     got = window_hashes()
-    assert got["prompt_sha256"] != got["sampling_sha256"]
+    assert len(set(got.values())) == 3
+
+
+def test_a_narrower_window_can_be_asked_for_by_name():
+    """`port-human`'s window is two files and must stay two (DESIGN §6.3).
+
+    The retired arm's freeze record names `rule_author.md` and `sampling.yaml`; a third hash
+    appearing on a revived line would claim a window that never applied. So the file list is
+    a parameter, and `src/porting/human_arm.py` passes its own.
+    """
+    got = window_hashes(("docs/prompts/rule_author.md", "config/sampling.yaml"))
+    assert set(got) == {"prompt_sha256", "sampling_sha256"}
+    assert got == {k: window_hashes()[k] for k in got}
+
+
+def test_an_unknown_window_file_has_no_field_to_write_to():
+    """A file with no entry in `WINDOW_HASH_FIELDS` must fail, not invent a field name.
+
+    The two original field names predate the third file and follow no derivable rule
+    (`prompt_sha256`, not `rule_author_sha256`), so the mapping is explicit — and an
+    explicit mapping asked for a key it does not have should say so rather than guess.
+    """
+    with pytest.raises(KeyError):
+        window_hashes(("docs/prompts/rule_author.md", "README.md"))
 
 
 def test_window_hashes_are_json_serialisable():

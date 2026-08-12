@@ -33,7 +33,7 @@ import hashlib
 import random
 from dataclasses import dataclass
 from functools import lru_cache
-from typing import Iterable
+from typing import Iterable, Sequence
 
 import yaml
 
@@ -402,12 +402,36 @@ def provenance(corpus: str, iteration: int, *, n: int | None = None,
 
 
 
-#: The two files that together fix a rule author's dev window. Hashed onto every
-#: `human_log.jsonl` line (DESIGN §11.2). Both, because the prompt describes the
-#: window in prose and the config holds the numbers — a record naming only the first
-#: would agree with a doubled `n` as readily as with 40.
+#: The files that together fix an agent's dev window. Hashed onto every
+#: `human_log.jsonl` and `agent_calls.jsonl` line (DESIGN §11.2, §5.5). All of them,
+#: because the prompts describe the window in prose and the config holds the numbers —
+#: a record naming only the first would agree with a doubled `n` as readily as with 40.
+#:
+#: **Three since 2026-08-12, and `auditor.md` is the third** (DESIGN §5.5). The Auditor's
+#: prompt decides what the RuleAuthor is shown in `rule_author.md` §1.3's audit block, so
+#: it is part of the window by the same argument that puts `sampling.yaml` there: a record
+#: naming only the RuleAuthor's template would agree with a rewritten Auditor as readily as
+#: with this one.
+#:
+#: **The frozen arms are not re-hashed.** `port-oneshot`, `port-oneshot-nofence` and
+#: `port-human` recorded two files, which is what existed when their calls were made, and a
+#: third hash added retroactively would be a claim about a window that never applied
+#: (DESIGN §6.3, `docs/notes/window-freeze-history.md`). That is why `window_drift()` reads
+#: the field list off the record it is checking instead of off this tuple — see there.
 PROMPT_TEMPLATE = "docs/prompts/rule_author.md"
-WINDOW_FILES = (PROMPT_TEMPLATE, "config/sampling.yaml")
+AUDITOR_TEMPLATE = "docs/prompts/auditor.md"
+WINDOW_FILES = (PROMPT_TEMPLATE, AUDITOR_TEMPLATE, "config/sampling.yaml")
+
+#: `WINDOW_FILES` entry -> the field its hash is written to. A mapping rather than a
+#: derivation from the filename: the two existing field names (`prompt_sha256`,
+#: `sampling_sha256`) predate the third file and do not follow one rule, and inventing a
+#: rule that reproduced them would be a rule with two exceptions. The names are what a
+#: reader greps for, so they are declared.
+WINDOW_HASH_FIELDS = {
+    PROMPT_TEMPLATE: "prompt_sha256",
+    AUDITOR_TEMPLATE: "auditor_sha256",
+    "config/sampling.yaml": "sampling_sha256",
+}
 
 
 def file_hash(path: str) -> str:
@@ -430,14 +454,40 @@ def prompt_hash(path: str | None = None) -> str:
     return file_hash(path or PROMPT_TEMPLATE)
 
 
-def window_hashes() -> dict:
-    """The `prompt_sha256` / `sampling_sha256` pair for a `human_log.jsonl` line.
+def window_hashes(files: Sequence[str] | None = None) -> dict:
+    """One hash field per window file, for a log line or a freeze record.
 
     Returned as the fields rather than as a list, so a caller writes them onto the
     line without choosing names — the names are what a reader greps for, and two
     callers inventing two spellings would be two logs.
+
+    Three fields by default since 2026-08-12 (`auditor_sha256`). Built from `WINDOW_FILES`
+    rather than written out, so widening the window is one edit: a fourth file listed there
+    and not here would be hashed into `files` and compared against nothing.
+
+    **`files` exists for an arm whose window is not today's window**, which is
+    `port-human`: it is retired, its window was two files, and hashing a third onto a
+    revived line would claim a window that never applied (DESIGN §6.3). The parameter makes
+    that arm state its own window instead of inheriting a constant that moved underneath it.
     """
-    return {
-        "prompt_sha256": file_hash(PROMPT_TEMPLATE),
-        "sampling_sha256": file_hash("config/sampling.yaml"),
-    }
+    return {WINDOW_HASH_FIELDS[name]: file_hash(name)
+            for name in (WINDOW_FILES if files is None else files)}
+
+
+def recorded_window_fields(record: dict) -> list[str]:
+    """Which hash fields a freeze record or log line actually carries, in window order.
+
+    **Read off the record, not off `WINDOW_FILES`, and that is what keeps a widening from
+    reaching backwards.** `port-oneshot`, `port-oneshot-nofence` and `port-human` froze two
+    files; comparing them against today's three-field tuple would report a permanent drift
+    on `auditor_sha256` — a file those calls never saw — and the honest reading of that
+    report is that the record is wrong, which it is not.
+
+    A record's `files` list is the authority for what its window *was*. Falls back to the
+    field names present when `files` is absent, which is `port-human`'s early shape.
+    """
+    files = record.get("files")
+    if isinstance(files, list):
+        return [WINDOW_HASH_FIELDS[name] for name in files
+                if name in WINDOW_HASH_FIELDS]
+    return [field for field in WINDOW_HASH_FIELDS.values() if field in record]

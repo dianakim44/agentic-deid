@@ -37,7 +37,8 @@ from pathlib import Path
 from ..corpora import load
 from ..corpora.base import ROOT, CorpusError, axis, path_template
 from ..sample import (
-    MISSED, WINDOW_FILES, ErrorSpan, draw, provenance, window_hashes,
+    MISSED, PROMPT_TEMPLATE, ErrorSpan, draw, provenance, recorded_window_fields,
+    window_hashes,
 )
 
 #: The two files this arm writes, both from `config/naming.yaml`'s `paths` block and
@@ -53,11 +54,24 @@ FREEZE_KEY = "humanfreeze"
 #: is a guard someone removes.
 GIT_TIMEOUT = 10
 
+#: **This arm's window, which is not today's window.** `src/sample.py`'s `WINDOW_FILES`
+#: became three files on 2026-08-12 when `auditor.md` joined it (DESIGN §5.5). This arm did
+#: not follow, and the reason is the same one that keeps `port-human` in the `porting` axis
+#: after its retirement: its record has to keep saying what was true of it. A human author
+#: read `rule_author.md` under `sampling.yaml`'s numbers and there was no Auditor, so a
+#: third hash on a revived line would sit beside the frozen record's two and claim a window
+#: that never applied — DESIGN §6.3's objection to a retroactive hash, one file over.
+#:
+#: Named and frozen here rather than inherited, because the failure of inheriting is silent:
+#: the widening would have added `auditor_sha256` to this arm's lines with no edit to this
+#: file and nothing to review. Reviving the arm is where the window gets re-decided.
+HUMAN_WINDOW_FILES = (PROMPT_TEMPLATE, "config/sampling.yaml")
+
 #: The fields every line carries, in this order. DESIGN §11.2's table plus the two
 #: window hashes. Order is fixed so a reader diffing two lines sees field changes
 #: rather than reordering, and `null` is written rather than omitted — an absent key
 #: and a key whose value is unknown are different facts, and only one of them is
-#: recoverable later.
+#: recoverable later. Two hashes, per `HUMAN_WINDOW_FILES`.
 FIELDS = (
     "iteration",
     "event",
@@ -325,8 +339,8 @@ def freeze_window(corpus: str, detector: str, supervision: str) -> dict:
         "detector": detector,
         "supervision": supervision,
         "porting": "port-human",
-        "files": list(WINDOW_FILES),
-        **window_hashes(),
+        "files": list(HUMAN_WINDOW_FILES),
+        **window_hashes(HUMAN_WINDOW_FILES),
     }
     path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, "w", encoding="utf-8") as fh:
@@ -362,8 +376,12 @@ def window_drift(corpus: str, detector: str, supervision: str) -> list[str]:
         )
     with open(path, encoding="utf-8") as fh:
         frozen = json.load(fh)
-    now = window_hashes()
-    return [field for field in ("prompt_sha256", "sampling_sha256")
+    now = window_hashes(HUMAN_WINDOW_FILES)
+    # The compared fields come from the record (`recorded_window_fields()`). This arm is
+    # retired and its freeze record names two files; `WINDOW_FILES` became three on
+    # 2026-08-12, and checking a two-file record against three fields would report drift on
+    # `auditor.md` — a prompt this arm never had and a human author never read.
+    return [field for field in recorded_window_fields(frozen)
             if frozen.get(field) != now[field]]
 
 
@@ -527,7 +545,7 @@ def log_line(iteration: int, event: str, model_consulted: str, *, human_minutes=
         "evidence": evidence,
         "model_consulted": model_consulted,
         "rules_commit": rules_commit,
-        **window_hashes(),
+        **window_hashes(HUMAN_WINDOW_FILES),
     }
     assert tuple(record) == FIELDS, "field order drifted from FIELDS"
     return record

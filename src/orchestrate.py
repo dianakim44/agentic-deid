@@ -95,7 +95,7 @@ from .llm.prompt import assemble_task_prompt
 # format-failure record answers the same question about the same kind of path, and a
 # private name imported across two modules of one package is cheaper than two answers.
 from .rules import RuleError, _relative as rules_relative, arm_rules_path, load_rules
-from .sample import WINDOW_FILES, window_hashes
+from .sample import WINDOW_FILES, recorded_window_fields, window_hashes
 
 #: The three `paths` keys this arm writes and reads, all from `config/naming.yaml` and none
 #: as a literal here (DESIGN §11.2 requires it of an output path: a module holding its own
@@ -555,7 +555,11 @@ def window_drift(corpus: str, detector: str, supervision: str,
     with open(path, encoding="utf-8") as fh:
         frozen = json.load(fh)
     now = window_hashes()
-    return [field for field in ("prompt_sha256", "sampling_sha256")
+    # The compared fields come from the record, not from `WINDOW_FILES` — see
+    # `recorded_window_fields()`. This arm's two frozen records name two files, and
+    # checking them against today's three would report a permanent drift on a file their
+    # calls never saw.
+    return [field for field in recorded_window_fields(frozen)
             if frozen.get(field) != now[field]]
 
 

@@ -59,6 +59,7 @@ TEST_FILES = [
     "tests/test_agent_role.py",
     "tests/test_audit.py",
     "tests/test_masked_tag.py",
+    "tests/test_window_widening.py",
 ]
 
 #: Repository directories the loader tests need. `splits/` is here because the
@@ -3249,6 +3250,59 @@ MUTATIONS = [
             "touching tags would refuse ordinary documents."
         ),
         min_kills=3,
+    ),
+    Mutation(
+        name="drift_is_checked_against_todays_window_not_the_recorded_one",
+        path=ORCHESTRATE,
+        anchor="    return [field for field in recorded_window_fields(frozen)",
+        replacement="    return [field for field in now",
+        breaks=(
+            "**A widening of the window reaches backwards, and it reports the frozen arms as "
+            "wrong.** This is the pre-2026-08-12 line, restored: the compared fields come from "
+            "today's `window_hashes()` instead of from the record. Every arm frozen under the "
+            "two-file window is then compared against `auditor_sha256`, a file its call never "
+            "saw, and `window_drift()` reports permanent drift on `port-oneshot` and "
+            "`port-oneshot-nofence`.\n"
+            "\n"
+            "The damage is not the false alarm, it is what the false alarm means. "
+            "`window_drift()` is documented as saying that the record and the files disagree "
+            "about a call that has already happened; a reader who trusts that reads it as the "
+            "record being wrong. It is not wrong — it is the only thing in the repository "
+            "that still says what those calls were held to (DESIGN §6.3, "
+            "`docs/notes/window-freeze-history.md`). The repair a reader would reach for is "
+            "re-freezing, which hashes today's files onto a record about last week's call.\n"
+            "\n"
+            "Caught by `tests/test_window_widening.py`, against the committed records rather "
+            "than fixtures: a record built under a redirected root cannot fail to be "
+            "retroactively rewritten, so a fixture-based test of this would pass either way."
+        ),
+        min_kills=2,
+    ),
+    Mutation(
+        name="the_recorded_files_list_is_ignored_in_favour_of_the_fields_present",
+        path=SAMPLE,
+        anchor="    files = record.get(\"files\")",
+        replacement="    files = None",
+        breaks=(
+            "**The record's own claim about its window stops being read, and the fallback "
+            "answers from whatever keys happen to be there.** Two hash fields on a record "
+            "naming two files is the same answer either way, which is why this mutation "
+            "survived the whole suite when it was first written — the committed records cannot "
+            "distinguish the branches.\n"
+            "\n"
+            "They differ on the record a widened writer produces against an old window: two "
+            "files named, three hashes written. The `files` list is what the record *claims* "
+            "and a stray field is not a claim, so the strict branch compares two fields and "
+            "the fallback compares three — reporting drift on `auditor_sha256` for a call that "
+            "never saw it. That record does not exist yet, and the point of the branch is that "
+            "it never has to.\n"
+            "\n"
+            "Caught by `test_the_files_list_outranks_the_hash_fields_present`, which is the "
+            "synthetic record the committed ones are not. The survival is recorded in this "
+            "file: a surviving mutation is usually a missing test, and that one was a wrong "
+            "belief about which line held the guarantee."
+        ),
+        min_kills=1,
     ),
 ]
 
