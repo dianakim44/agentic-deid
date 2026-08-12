@@ -27,9 +27,17 @@ of residual identifiers that `paths.auditreport` is deny-listed for being.
 
 **No surface form, anywhere, on any path** (`auditor.md` §3, CLAUDE.md). The flag schema has
 no free-text field, `_refuse()` quotes no text, and every error message here names a line
-number, a column, a length or a type — never a slice of the document. This module holds
-masked *and* unmasked text at once, which makes it the one place where a debugging `print`
-would publish both, so `tests/test_audit.py` asserts structurally that it writes nothing.
+number, a column, a length or a type — never a slice of the document.
+
+**No corpus text reaches this module at all, and the types are what guarantee it.** The
+guarantee used to be about the functions: none of them wrote or logged. That left
+`MaskedLine.text` holding masked corpus text on a dataclass whose generated `repr` renders
+it — the state DESIGN §3's "the masker returns `FilledPrompt` and never a `str`" exists to
+prevent, reintroduced by the type the masker has to hand over. It bought one `len()` call.
+So `MaskedLine` carries a geometry (`length`, `doc_offset`, `tags`) and the masked text stays
+inside the masker behind its two named exits. `tests/test_audit.py` asserts this over the
+*types* and not only over the functions, because a function-level assertion is satisfied by a
+module that holds the text and merely has not printed it yet.
 """
 from __future__ import annotations
 
@@ -69,30 +77,121 @@ class AuditError(CorpusError):
 
     The distinction is the module's shape: a flag the agent got wrong is *data*, recorded
     in `refused` and counted, because the report's job includes saying that it happened. A
-    caller passing a mask map that disagrees with the text it masked is a *bug*, and
-    turning it into a refusal would file it under the agent's mistakes.
+    caller passing a mask map this module cannot read — tags out of order, a tag past the
+    end of its line, a document extent that is empty (`_check_tags`) — is a *bug*, and
+    turning it into a refusal would file it under the agent's mistakes and leave the
+    masker's defect looking like a bad round.
     """
+
+
+def _check_tags(
+    length: int,
+    doc_offset: int,
+    tags: tuple[tuple[int, int, int, int], ...],
+) -> None:
+    """Refuse a mask map that `_to_document` would misread. **Never sorts it.**
+
+    `_to_document` walks the tags left to right and stops at the first one ending after the
+    column it is translating. That walk is correct for tags ascending by column and
+    non-overlapping, and *silently wrong* for any other order — given the same two tags
+    reversed it returns a different offset and raises nothing.
+
+    **Sorting here would be the wrong fix, and the reason is the direction the bug travels.**
+    The masker applies replacements right-to-left (DESIGN §3), so its natural emission order
+    is descending — the order that breaks this. A sort would repair that emission on every
+    call and the masker would ship with the defect permanently hidden: a caller could emit
+    tags in any order forever and no test, no run and no report would say so. A caller bug
+    goes back to the caller, which is `AuditError`'s existing division — a refused *flag* is
+    the agent's mistake and is data, a broken *mask map* is the harness's and is an
+    exception.
+
+    Every field is checked, not only the order, because each of these makes `_to_document`
+    return a plausible number rather than fail: a tag past the end of its line means the walk
+    consumes columns the line does not have, and a tag whose document extent is empty or
+    inverted means the offset it contributes is a length nothing has.
+    """
+    if not isinstance(length, int) or isinstance(length, bool) or length < 0:
+        raise AuditError(
+            f"a masked line's length must be a non-negative integer, got {length!r}."
+        )
+    if not isinstance(doc_offset, int) or isinstance(doc_offset, bool) or doc_offset < 0:
+        raise AuditError(
+            f"a masked line's doc_offset must be a non-negative integer, got "
+            f"{doc_offset!r}. It is where the line starts in the document."
+        )
+    previous_end = 0
+    for index, tag in enumerate(tags):
+        if not isinstance(tag, tuple) or len(tag) != 4:
+            raise AuditError(
+                f"mask tag {index} is not a 4-tuple (column, length, doc_start, doc_end); "
+                f"got {type(tag).__name__} of length "
+                f"{len(tag) if isinstance(tag, tuple) else '?'}."
+            )
+        col, tag_length, doc_start, doc_end = tag
+        if any(not isinstance(v, int) or isinstance(v, bool) for v in tag):
+            raise AuditError(f"mask tag {index} has a non-integer field.")
+        if col < 0 or tag_length <= 0:
+            raise AuditError(
+                f"mask tag {index} has column {col} and length {tag_length}. A tag occupies "
+                "at least one column at a non-negative one."
+            )
+        if col + tag_length > length:
+            raise AuditError(
+                f"mask tag {index} ends at column {col + tag_length} on a line of "
+                f"{length} characters. A tag past the end of its line makes "
+                "_to_document consume columns the line does not have, and the offset it "
+                "returns is wrong rather than absent."
+            )
+        if doc_end <= doc_start or doc_start < 0:
+            raise AuditError(
+                f"mask tag {index} spans document [{doc_start}, {doc_end}), which is empty, "
+                "inverted or negative. It stands for at least one document character — that "
+                "is what makes it a replacement."
+            )
+        if col < previous_end:
+            raise AuditError(
+                f"mask tag {index} starts at column {col}, before tag {index - 1} ends at "
+                f"{previous_end}. Tags must be ascending by column and non-overlapping: "
+                "_to_document walks them once and stops at the first tag ending after its "
+                "column, so any other order returns a different offset and raises nothing. "
+                "Not sorted here — the masker emits right-to-left (DESIGN §3), so a sort "
+                "would hide exactly the order this check exists to catch."
+            )
+        previous_end = col + tag_length
 
 
 @dataclass(frozen=True, slots=True)
 class MaskedLine:
-    """One line of masked text, with what it takes to translate a column back.
+    """One masked line's *geometry*. **No text**, and that is the whole design of the type.
 
-    `offset` is where the line starts in the masked text and is what the prompt prints as
-    its prefix. `tags` are the mask tags on this line as `(column, length, doc_start,
-    doc_end)`: a flag overlapping one is refused, and the columns before and after are
-    translated by walking them.
+    `length` is how many characters the masked line has, `doc_offset` is where the line
+    starts in the **document**, and `tags` are the mask tags on the line as `(column,
+    length, doc_start, doc_end)`.
 
-    `doc_offset` is where the line starts in the **document**. Both offsets are carried
-    because neither is derivable from the other without the tags, and a line with no tags
-    is the case where they happen to agree — which is exactly the case a test would pass
-    while the arithmetic was wrong.
+    **The masker returns `FilledPrompt` and never a `str`** (DESIGN §3), and a `text: str`
+    field here would have handed masked corpus text to this module through the back door —
+    on a dataclass whose generated `repr` renders it, which is precisely the state
+    `FilledPrompt` exists to prevent. It bought one `len()`. So the masked text stays inside
+    the masker and what crosses the boundary is a geometry: enough to validate coordinates
+    and translate them, and nothing that could be quoted.
+
+    The masked-text offset of the line is *not* carried either. It is what the prompt prints
+    as a line's prefix, so it belongs to the renderer; this module never needed it, and a
+    field nothing reads is a field the next caller populates wrongly with nobody noticing.
+
+    **`tags` must be ascending by column and non-overlapping, and construction refuses
+    anything else** — see `_check_tags`. `doc_offset` is carried rather than derived because
+    it is not derivable from a masked offset without the tags, and a line with no tags is
+    the case where the two would agree, which is exactly the case a test passes while the
+    arithmetic is wrong.
     """
 
-    text: str
-    offset: int
+    length: int
     doc_offset: int
     tags: tuple[tuple[int, int, int, int], ...] = ()
+
+    def __post_init__(self) -> None:
+        _check_tags(self.length, self.doc_offset, self.tags)
 
 
 @dataclass(frozen=True, slots=True)
@@ -236,7 +335,7 @@ def _one_flag(
     line = lines[line_no]
     if end <= start:
         return _refuse(doc_id, CROSSES_A_LINE)
-    if end > len(line.text):
+    if end > line.length:
         # Past the end of its own line. `crosses_a_line` rather than `out_of_range`, and
         # the distinction is what a reader does about it: the line existed and was sent, so
         # this is a flag whose span the line cannot contain (auditor.md §1.3 — a flag does
@@ -267,6 +366,11 @@ def _to_document(line: MaskedLine, column: int) -> int:
     Walks the line's tags left to right, adding each tag's document length and subtracting
     the tag's own. Only tags that end at or before `column` are applied: a flag overlapping
     a tag was refused before this is reached, so a column inside a tag cannot arrive here.
+
+    **The single pass is why `MaskedLine` validates tag order at construction.** The loop
+    stops at the first tag ending after `column`, which is correct for ascending
+    non-overlapping tags and silently wrong for anything else. That precondition is checked
+    by `_check_tags` and not restored by a sort here — see its docstring.
 
     Not the inverse of the masker's own arithmetic re-derived — the tag carries its document
     span, so this reads the map rather than reconstructing it. A reconstruction would be a

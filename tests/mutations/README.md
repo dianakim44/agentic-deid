@@ -1227,6 +1227,44 @@ question the field answers, and it breaks in the flattering direction: the arm a
 audited fresher output than it did. The permissive form is exactly what a caller reaches for
 while wiring the loop driver and unsure which round number they are holding.
 
+### Two more on the mask map, guarding a component that does not exist yet
+
+Added 2026-08-12, when checking the validator's contract from the masker's side found that
+`_to_document()` had a precondition nothing enforced. Both mutations target `_check_tags`, and
+what makes them worth having is that **the bug they catch belongs to a module nobody has
+written**. The masker is next; these are the two ways its output can be wrong while producing
+a report that reads correctly.
+
+`tags_out_of_order_are_sorted_instead_of_refused` replaces the ascending check with a
+`sorted()` in `MaskedLine.__post_init__`. Every existing call still returns the right offsets,
+because sorting *is* the repair — that is what makes it the tempting edit and the wrong one.
+`_to_document()` walks the tags once, left to right, stopping at the first tag ending after its
+column; measured before the check existed, the same two tags reversed translated column 5 to
+document 5 rather than 12, silently. **The masker applies replacements right-to-left**
+(DESIGN §3), so descending is its *natural* emission order — precisely the one the walk reads
+wrongly. A sort fixes that emission on every call and thereby hides it permanently: the masker
+can emit in any order forever and no test, no run and no report will say so, until something
+else consumes the same map and does not sort. Refusing sends a caller bug back to the caller,
+which is the division `AuditError` already draws between an agent's mistake (data, counted)
+and the harness's (an exception).
+
+`overlapping_mask_tags_are_accepted` keeps the ascending check and disables the non-overlap
+half. Two tags may then share columns, `_to_document()` double-counts the shared ones, and
+every column past the overlap translates too far by exactly its width — a number, not a
+failure, on flags that look like all the others. The input that produces overlapping tags is a
+specific and likely masker bug: emitting one tag per overlapping *span* rather than one per
+union of extents, which is the rule DESIGN §3 fixes exactly because `RuleSet.detect` preserves
+overlaps by design. `test_adjacent_tags_are_not_refused` guards the other side, and it is not
+a formality: es-meddocan's dev fold has 393 gold pairs within one character of each other, so
+tag-abutting-tag is the ordinary case and a check that refused touching tags would refuse
+ordinary documents.
+
+One incidental result worth recording, because it is the argument for writing the check at all.
+Adding `_check_tags` failed a test that had passed for as long as it existed: a fixture built a
+6-character tag on a 5-character line. It was wrong and inert — nothing translated a column on
+that line — and it would have produced a wrong offset on the day a flag landed there. The check
+found a latent inconsistency in the tests before it ever saw the masker's output.
+
 ## What the seal cost, and what carries the difference
 
 Sealing 250 documents removed checks that cannot be replaced, and pretending

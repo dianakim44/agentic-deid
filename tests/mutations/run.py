@@ -58,6 +58,7 @@ TEST_FILES = [
     "tests/test_termination.py",
     "tests/test_agent_role.py",
     "tests/test_audit.py",
+    "tests/test_masked_tag.py",
 ]
 
 #: Repository directories the loader tests need. `splits/` is here because the
@@ -3111,10 +3112,10 @@ MUTATIONS = [
     Mutation(
         name="an_out_of_range_column_is_snapped_to_the_line",
         path=AUDIT,
-        anchor="    if end > len(line.text):",
+        anchor="    if end > line.length:",
         replacement="    if False:  # end is clamped below instead\n"
                     "        pass\n"
-                    "    end = min(end, len(line.text))\n"
+                    "    end = min(end, line.length)\n"
                     "    if end <= start:",
         breaks=(
             "**Repair instead of refusal, in the form that looks like robustness.** A flag "
@@ -3190,6 +3191,64 @@ MUTATIONS = [
             "`test_masked_from_iteration_must_be_the_previous_round`."
         ),
         min_kills=1,
+    ),
+    Mutation(
+        name="tags_out_of_order_are_sorted_instead_of_refused",
+        path=AUDIT,
+        anchor="        _check_tags(self.length, self.doc_offset, self.tags)",
+        replacement="        object.__setattr__(self, 'tags', tuple(sorted(self.tags)))\n"
+                    "        _check_tags(self.length, self.doc_offset, self.tags)",
+        breaks=(
+            "**The masker's likeliest bug is silently repaired, and the contract stops being "
+            "a contract.** `_to_document()` walks the tags once, left to right, and stops at "
+            "the first tag ending after the column it is translating. That is correct for "
+            "ascending non-overlapping tags and *silently wrong* for any other order: "
+            "measured before the check existed, the same two tags reversed translated column "
+            "5 to document 5 instead of 12, raising nothing.\n"
+            "\n"
+            "Sorting looks strictly better than refusing, and it is the wrong fix because of "
+            "the direction the defect travels. **The masker applies replacements "
+            "right-to-left** (DESIGN §3), so descending is its natural emission order — "
+            "exactly the one that breaks the walk. A sort makes that emission produce correct "
+            "offsets on every call, so the masker ships with the defect permanently hidden: "
+            "it can emit in any order forever, and no test, no run and no report says so. "
+            "The first time it matters is the first time something *else* consumes that map "
+            "and does not sort.\n"
+            "\n"
+            "This is the same division `AuditError` already draws — a refused flag is the "
+            "agent's mistake and is data, a broken mask map is the harness's and is an "
+            "exception — applied to the one precondition that has no symptom. Caught by "
+            "`test_tags_out_of_order_are_refused_and_not_sorted`, and by "
+            "`test_the_refusal_says_why_it_is_not_a_sort`, which pins the argument into the "
+            "message because `sorted()` is the repair a reader reaches for."
+        ),
+        min_kills=2,
+    ),
+    Mutation(
+        name="overlapping_mask_tags_are_accepted",
+        path=AUDIT,
+        anchor="        if col < previous_end:",
+        replacement="        if col < previous_end and False:",
+        breaks=(
+            "**Ascending order is still checked; the non-overlap half is not.** Two tags may "
+            "then share columns, and `_to_document()` double-counts the shared ones — every "
+            "column after the overlap translates too far by exactly the overlap's width. A "
+            "number, not a failure, and the flags carrying it look like every other flag.\n"
+            "\n"
+            "The input that produces overlapping tags is a specific and likely masker bug: "
+            "emitting one tag per overlapping *span* instead of one per union of extents, "
+            "which is the rule DESIGN §3 fixes precisely because `RuleSet.detect` preserves "
+            "overlaps by design (§4, §9.3). So this check is what stands between that "
+            "mistake and a report of wrong offsets — and the mistake is in the component "
+            "that has not been written yet, which is why the check exists before it.\n"
+            "\n"
+            "Caught by `test_overlapping_tags_are_refused`, parametrised over the three ways "
+            "two tags can share a column, and guarded from the other side by "
+            "`test_adjacent_tags_are_not_refused` — adjacency is the common case (393 gold "
+            "pairs within one character on es-meddocan dev), so a check that refused "
+            "touching tags would refuse ordinary documents."
+        ),
+        min_kills=3,
     ),
 ]
 

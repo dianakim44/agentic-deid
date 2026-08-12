@@ -23,6 +23,7 @@ Three properties dominate the file:
 from __future__ import annotations
 
 import ast
+import dataclasses
 import json
 from pathlib import Path
 
@@ -103,8 +104,16 @@ def test_a_malformed_block_is_refused(monkeypatch, block):
 # ─── helpers ─────────────────────────────────────────────────────────────────
 
 
-def line(text: str, *, offset: int = 0, doc_offset: int = 0, tags=()) -> MaskedLine:
-    return MaskedLine(text=text, offset=offset, doc_offset=doc_offset, tags=tuple(tags))
+def line(shape: int | str, *, doc_offset: int = 0, tags=()) -> MaskedLine:
+    """A `MaskedLine` from a length, or from a string that is **measured and discarded**.
+
+    `MaskedLine` carries no text (see the module and the structural tests), and a bare
+    integer is what the masker will pass. The string form exists only so that a test showing
+    `"ab [NAME] cd"` can show where its tag sits; `len()` is taken here and the characters go
+    no further, which is the same reduction the masker performs at its own boundary.
+    """
+    length = shape if isinstance(shape, int) else len(shape)
+    return MaskedLine(length=length, doc_offset=doc_offset, tags=tuple(tags))
 
 
 def flag(**kw) -> dict:
@@ -217,21 +226,30 @@ def test_a_column_between_two_tags_applies_only_the_tags_before_it():
     assert one(flag(start=16, end=17), [masked]).flags[0].start == 34
 
 
-def test_the_line_s_own_offset_is_not_the_document_offset():
-    """Two offsets on `MaskedLine`, and this is why neither is derivable from the other.
+def test_the_translation_uses_the_document_offset_and_not_the_masked_one():
+    """`doc_offset` is carried and the masked-text offset is not carried at all.
 
-    `offset` is where the line starts in the *masked* text — what the prompt prints as its
-    prefix — and `doc_offset` is where it starts in the document. They differ by every tag
-    on every earlier line, so a translation that used the printed prefix would drift down
-    the document.
+    The masked offset is what the prompt prints as a line's prefix, so it belongs to the
+    renderer. The two differ by every tag on every earlier line, and a translation that used
+    the printed prefix would drift further down the document with each tag — which is why the
+    field this module needs is the document one, and why the other is absent rather than
+    present and unread.
     """
-    masked = line("abcd", offset=10, doc_offset=40)
+    masked = line("abcd", doc_offset=40)
     assert one(flag(start=1, end=3), [masked]).flags[0].start == 41
+    assert set(MaskedLine.__slots__) == {"length", "doc_offset", "tags"}
 
 
 def test_a_flag_on_a_later_line_uses_that_line_s_offsets():
+    """The third line's tag fills it, which is why its text is `[NAME]` and not `third`.
+
+    Written as `line("third", tags=[(0, 6, 20, 30)])` when the tag map was unchecked — a
+    6-character tag on a 5-character line, wrong and inert, since nothing translated a column
+    on that line. `_check_tags` refuses it now, and this is the class of latent inconsistency
+    the check exists for: it did no harm here and would have on the line a flag landed on.
+    """
     lines = [line("first", doc_offset=0), line("second", doc_offset=6),
-             line("third", doc_offset=20, tags=[(0, 6, 20, 30)])]
+             line("[NAME]", doc_offset=20, tags=[(0, 6, 20, 30)])]
     result = validate_flags({"flags": [flag(line=1, start=0, end=6)]},
                             doc_id="d1", lines=lines)
     assert (result.flags[0].start, result.flags[0].end) == (6, 12)
@@ -408,6 +426,133 @@ def test_a_missing_doc_id_is_a_harness_bug(bad):
 def test_a_call_over_zero_lines_is_a_harness_bug():
     with pytest.raises(AuditError, match="zero lines"):
         validate_flags({"flags": []}, doc_id="d1", lines=[])
+
+
+# ─── the mask map is a checked contract, not a sorted one ────────────────────
+
+
+def test_tags_out_of_order_are_refused_and_not_sorted():
+    """**The mutation-worthy one.** A sort here would hide the masker's likeliest bug.
+
+    The masker applies replacements right-to-left (DESIGN §3), so descending emission is its
+    *natural* order and precisely the one `_to_document`'s single left-to-right pass reads
+    wrongly. Measured before the check existed: the same two tags reversed translated column
+    5 to 5 instead of 12, with no error and no symptom.
+
+    A sort would have made that call correct and every future one silently uncontracted — the
+    masker could emit in any order forever and nothing would say so. A caller bug goes back
+    to the caller.
+    """
+    ascending = [(0, 3, 0, 10), (8, 3, 15, 40)]
+    assert MaskedLine(length=13, doc_offset=0, tags=tuple(ascending)).tags[0][0] == 0
+    with pytest.raises(AuditError, match="ascending by column"):
+        MaskedLine(length=13, doc_offset=0, tags=tuple(reversed(ascending)))
+
+
+def test_the_refusal_says_why_it_is_not_a_sort():
+    """The message carries the argument, because the fix a reader reaches for is `sorted()`.
+
+    A message naming only the symptom ("tags out of order") invites exactly the repair that
+    disables the check.
+    """
+    with pytest.raises(AuditError) as excinfo:
+        MaskedLine(length=13, doc_offset=0, tags=((8, 3, 15, 40), (0, 3, 0, 10)))
+    message = str(excinfo.value)
+    assert "Not sorted here" in message
+    assert "right-to-left" in message
+
+
+@pytest.mark.parametrize("tags", [
+    ((0, 5, 0, 10), (3, 4, 12, 20)),      # second starts inside the first
+    ((0, 5, 0, 10), (4, 4, 12, 20)),      # one column of overlap
+    ((0, 5, 0, 10), (0, 5, 12, 20)),      # identical columns
+])
+def test_overlapping_tags_are_refused(tags):
+    """Two tags cannot share a column: the masked text has one character there.
+
+    Overlapping tags make `_to_document` double-count the shared columns, so the offsets it
+    returns are wrong by the overlap — a number, not a failure. And the input that produces
+    them is a masker that emitted a tag per overlapping *span* instead of one per union
+    (DESIGN §3), which is the mistake this check will actually meet.
+    """
+    with pytest.raises(AuditError, match="before tag"):
+        MaskedLine(length=20, doc_offset=0, tags=tags)
+
+
+def test_adjacent_tags_are_not_refused():
+    """The guard from the other side, so the fix cannot become "refuse anything touching".
+
+    Adjacency is the common case, not the exotic one: es-meddocan's dev fold has 393 gold
+    pairs separated by one character or none (DESIGN §3), so tag-abutting-tag is ordinary and
+    a check that refused it would refuse ordinary documents.
+    """
+    masked = MaskedLine(length=11, doc_offset=100,
+                        tags=((0, 3, 100, 110), (3, 3, 110, 125)))
+    result = one(flag(line=0, start=6, end=9), [masked])
+    assert result.refused == ()
+    assert result.flags[0].start == 125
+
+
+@pytest.mark.parametrize("tags", [
+    ((0, 6, 0, 10),),                     # ends exactly one past
+    ((3, 3, 0, 10),),                     # ends past
+    ((5, 1, 0, 10),),                     # starts at the end
+])
+def test_a_tag_past_the_end_of_its_line_is_refused(tags):
+    """A tag the line cannot contain, which `_to_document` reads as columns to consume.
+
+    Latent rather than loud: it does nothing until a flag lands on that line, and then it
+    returns an offset that is wrong rather than absent. One of the fixtures in this file was
+    this shape before the check existed.
+    """
+    with pytest.raises(AuditError, match="on a line of"):
+        MaskedLine(length=5, doc_offset=0, tags=tags)
+
+
+@pytest.mark.parametrize("tags", [
+    ((0, 3, 10, 10),),                    # empty document extent
+    ((0, 3, 20, 10),),                    # inverted
+    ((0, 3, -1, 10),),                    # negative
+])
+def test_a_tag_standing_for_no_document_text_is_refused(tags):
+    """A tag replaces at least one document character — that is what makes it a replacement.
+
+    An empty extent contributes 0 to the walk, so every column after it translates short by
+    the tag's own width, and `Span.__post_init__` refuses the same shape one file over.
+    """
+    with pytest.raises(AuditError, match="document"):
+        MaskedLine(length=10, doc_offset=0, tags=tags)
+
+
+@pytest.mark.parametrize("tags", [
+    ((0, 3),),                            # too short
+    ((0, 3, 0, 10, 99),),                 # too long
+    ([0, 3, 0, 10],),                     # a list, not a tuple
+    (("0", 3, 0, 10),),                   # a string column
+    ((0, 3, 0, True),),                   # a bool, which is an int in Python
+])
+def test_a_malformed_tag_is_refused(tags):
+    with pytest.raises(AuditError, match="mask tag 0"):
+        MaskedLine(length=10, doc_offset=0, tags=tags)
+
+
+@pytest.mark.parametrize("kwargs", [
+    {"length": -1, "doc_offset": 0},
+    {"length": 5, "doc_offset": -1},
+    {"length": "5", "doc_offset": 0},
+    {"length": 5, "doc_offset": None},
+    {"length": True, "doc_offset": 0},
+])
+def test_a_malformed_line_geometry_is_refused(kwargs):
+    with pytest.raises(AuditError):
+        MaskedLine(tags=(), **kwargs)
+
+
+def test_a_tagless_line_needs_no_tags():
+    """Most lines have none, and the empty tuple is the default rather than a special case."""
+    masked = MaskedLine(length=10, doc_offset=7)
+    assert masked.tags == ()
+    assert one(flag(start=1, end=3), [masked]).flags[0].start == 8
 
 
 # ─── the raw response ────────────────────────────────────────────────────────
@@ -614,17 +759,27 @@ def test_the_module_never_reads_a_document_s_text():
         assert forbidden not in source, forbidden
 
 
-def test_no_flag_type_has_a_text_field():
-    """`ErrorSpan`'s guarantee, one type over (DESIGN §5.5.1).
+def test_no_type_in_the_module_has_a_text_field():
+    """`ErrorSpan`'s guarantee, extended to **every** type here (DESIGN §5.5.1, §3).
 
     The guarantee is *no surface form exists in the object*, and it is a property of the
     schema rather than of a wrapper — so it is asserted over the fields rather than trusted
     to the annotations that say so.
+
+    **`MaskedLine` was the exception and is not one any more.** It carried `text: str` — a
+    slice of the masked document, on a dataclass whose generated `repr` renders it, which is
+    the state DESIGN §3's "the masker returns `FilledPrompt` and never a `str`" exists to
+    prevent. What it bought was one `len()`. The exception is gone rather than documented,
+    because a documented exception is what the next type copies.
+
+    Asserted over every dataclass in the module rather than a list written out here, so a
+    type added later is covered on the day it is added.
     """
-    for cls in (Flag, audit.Refusal, MaskedLine):
-        fields = set(getattr(cls, "__slots__", ()))
-        assert not fields & {"surface", "snippet", "context", "phrase"}, cls
-    # `MaskedLine.text` is the exception and it is why the type is not written to disk:
-    # it is a slice of the masked document, held in memory for the length of one call.
-    assert "text" in set(MaskedLine.__slots__)
-    assert "text" not in set(Flag.__slots__)
+    forbidden = {"text", "surface", "snippet", "context", "phrase", "line", "excerpt"}
+    types = [obj for obj in vars(audit).values()
+             if isinstance(obj, type) and dataclasses.is_dataclass(obj)]
+    assert {t.__name__ for t in types} == {"MaskedLine", "Flag", "Refusal", "DocumentAudit"}
+    for cls in types:
+        fields = {f.name for f in dataclasses.fields(cls)}
+        assert not fields & forbidden, (cls.__name__, sorted(fields & forbidden))
+    assert set(MaskedLine.__slots__) == {"length", "doc_offset", "tags"}
