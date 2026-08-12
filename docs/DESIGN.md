@@ -946,6 +946,87 @@ before it was a paragraph:
   not fail the run — failing would pressure someone into deleting an entry to get a
   green run, and deleting entries is how a list stops describing reality.
 
+**The `rule_id` vocabulary has been widened twice, and a third time triggers a review of the
+mechanism rather than a third widening — recorded 2026-08-12.** Both widenings were made
+against an agent arm's output, and both were judged correct on their merits at the time. The
+commitment here is not to stop widening; it is that **the third occurrence is evidence about
+the design and has to be treated as such**, because two data points cannot distinguish "a
+closed set being completed" from "a closed set that cannot be completed", and three begin to.
+
+**Were the two the same cause? Partly — and the difference is the useful part.**
+
+- **First widening (`ebac362`, 2026-08-11, first `port-oneshot` run).** 23 of 28 rule names
+  were SUSPECT, every one for a single reason: the agent named rules after **target-language
+  clinical formulae** (`paciente_cue`, `calle_cue`, `firmado_cue`) against a vocabulary that
+  was English-only. Prohibition 2 permits clinical formulae and forbids designating an
+  individual, so the names were compliant and the vocabulary was wrong. The fix was structural
+  — `RULE_ID_VOCAB_BY_LANG` (es · cat · de · ko · en), keyed on `lang` from the *file path*
+  rather than the id prefix, with three categories excluded in every language. That commit
+  also placed `dmy`/`postal`/`years`/`months`/`spanish` in the English vocabulary as mechanism
+  and structure words, and `nuss` in `RULE_ID_ALLOWED_TOKENS` as a national identifier
+  abbreviation.
+- **Second widening (`cca0cf3`, 2026-08-12, `port-oneshot-nofence`).** Two names, both
+  **abbreviations**: `nass` — the same Spanish social-security scheme as `nuss`, the other
+  spelling in circulation, i.e. the identical category to an entry the *first* widening had
+  itself just added — and `gaz`, the short form of `gazetteer`, a word already in the English
+  vocabulary and also a value on the `layer` axis.
+
+So the shared cause is narrower than "target-language tokens": it is **abbreviation and
+inflection of concepts the vocabulary already contains**. `nuss`/`nass` and
+`gazetteer`/`gaz` are the same relation as `year`/`years` and `abbreviation`/`abbrev`, both
+of which the first widening had to repair in the same way. The genuinely
+target-language-specific failure happened once and was answered structurally; what has now
+recurred is the *closed-set-of-surface-forms* failure, which the per-language layers did not
+address because they are also closed sets of surface forms. That is the pattern to watch, and
+it predicts the third occurrence will again be a spelling variant rather than a new language.
+
+**Options for a root fix, if the third arrives — recorded, not chosen, and nothing is changed
+now.** The constraints any of them must respect: the screener imports only the standard
+library and runs before every commit (so no YAML, no model call, no network); the check is the
+only enforcement Prohibition 2 has (§5.3); and the vocabulary must not be bound into
+`docs/prompts/rule_author.md`, because that changes call 1's bytes and makes every existing
+arm a different arm (§6.3), besides testing naming compliance instead of rule authoring.
+
+- **Normalise before matching.** Strip a small set of derivational relations — plural `-s`,
+  and a prefix-of-a-listed-word rule with a minimum length (`gaz` ⊂ `gazetteer`, `abbrev` ⊂
+  `abbreviation`) — so one entry covers its own variants. Cheapest, and it removes the class
+  that has actually recurred. The cost is real and is the reason it was not done first:
+  prefix matching is *substring* membership, and `the_language_layer_is_a_substring_test` is
+  already a mutation on this file — its whole point is that tolerance for inflection is what a
+  containment test looks like from the outside, while `ana` then passes on `anos` and `mar` on
+  `marzo`. A prefix rule is a deliberately narrowed version of what that mutation forbids, so
+  it needs an anchor at the start, a minimum length, and a mutation of its own proving the
+  narrowing is what holds.
+- **Invert the check for a named class: an identifier-abbreviation *shape* instead of a
+  list.** `nuss`/`nass`/`dni`/`nie`/`nhc` are all 3–4 letter uppercase administrative
+  acronyms; a rule admitting short all-consonant-ish tokens in that shape would cover the
+  whole class without enumerating it. This is the option that most reduces future widening and
+  the one that most weakens the guarantee — a surname initialism has the same shape, and the
+  check's entire premise is that a name assembled only from mechanism words cannot designate
+  an individual. Would need the exclusion categories restated as a positive test.
+- **Make the widening cheap and visible instead of rare.** Keep the closed set, but have the
+  screener emit, for an unrecognised token, a one-line proposed entry with the file and rule
+  it came from, so the reviewer's job is to judge a category rather than to reconstruct one.
+  Does not reduce the number of widenings at all; reduces the chance that a widening is done
+  carelessly under a red baseline, which is the actual risk. The second widening was made with
+  `test_every_current_false_positive_is_covered` failing and the mutation harness refusing to
+  run on a red baseline; the first was too, by inference rather than observation — that test
+  already existed at `ebac362^` and the arm's rule file was in the working tree, so the arm's
+  output turns the suite red the moment it lands, and the fix and the green suite are the same
+  commit. A widening under a red baseline is a change made while the harness that would check
+  it is unavailable, which is the least favourable moment to be judging a category.
+- **Move the check off names and onto the thing it is protecting.** The concern is a surname
+  reaching a public `metrics.json` through `by_rule`. A check on the published *keys* at
+  publication time, rather than on the ids at authoring time, would not need a vocabulary of
+  mechanism words at all. Largest change, and it relocates enforcement from the pre-commit
+  gate to the writer, which is the direction §6.1 argues against (a gate people run vs. a
+  property a writer must remember).
+
+**What the review would actually decide** is whether "a closed vocabulary of mechanism words,
+maintained by hand, per language" is a check that converges. If widening three is again a
+spelling variant, the answer is no and the first option is the minimum response. If it is a
+genuinely new category, the vocabulary is doing its job and the entry is just an entry.
+
 **Dirty working tree.** A sealed evaluation run with uncommitted changes produces a
 log row whose commit hash does not describe the code that ran. Three options were
 considered and the choice is: **refuse by default, `--allow-dirty` proceeds and
@@ -2064,6 +2145,82 @@ be one:
 - **The token counts**, which are circumstantial: a re-run whose `prompt_tokens` differ on a
   byte-identical prompt met a different tokeniser and therefore probably a different model.
   It can raise suspicion and cannot confirm identity, and equal counts prove nothing.
+
+**Every agent arm records `tree: dirty`, and it means "the arm wrote its own output" —
+observed 2026-08-11 on `port-oneshot-nofence`, not fixed.** The run block said `dirty` on a
+run made from a committed tree: `git diff --name-only` was empty before the call and the
+dry-run printed `tree clean` seconds earlier. `sealed_log.tree_state()` reads
+`git status --porcelain`, which **counts untracked files**, and by the time `_run_block()`
+is reached the arm has already created its own results directory — `agent_calls.jsonl` is
+deny-listed and gitignored, but the window record, the rule file and the directories holding
+them are untracked at that instant and become tracked only at the commit afterwards. So the
+field is measuring the arm's own artefacts. This is structural, not incidental: an arm that
+writes a record before it scores cannot be in a tree that has no new files in it, and every
+rung — `port-loop`, `port-multi` — will record the same value for the same reason.
+
+**Untracked-counts-as-dirty is deliberate and stays.** The mutation
+`only_tracked_modifications_count_as_dirty` exists precisely to stop this being "fixed" by
+switching to `git diff --name-only`: under that reading an untracked file *and* a staged one
+both come back `clean`, which silences the one case a person checks by hand. Given a choice
+between a field that over-reports and a field that under-reports the state of a tree, this
+project takes over-reporting, and §6.1's dirty-tree paragraph is the same choice made about
+a different consumer.
+
+**What is actually wrong is the field's readability, and it is a Methods obligation.** §10's
+mitigation paragraph above defines `tree` as what says whether `commit` describes the code
+that executed. A reader — reasonably, from that definition — reads `dirty` as *someone had
+uncommitted source changes when this ran, so the hash may not be the code*. On every agent
+arm it means something weaker and unrelated: *the writer had already written its own outputs*.
+The value is not false; its meaning is narrower than the definition invites, and the
+mitigation is worth less than it appears on exactly the runs the paper's agentic claims rest
+on. So **the paper's Methods needs one line**: that agent arms record `tree: dirty` because
+the arm creates its untracked output directory before the run block is written, that the
+recorded `commit` is the committed state the call was made from, and that the field therefore
+does not distinguish a modified source tree on those runs. Saying this in prose is cheap;
+having a reader discover it is not, because the natural inference is that the ladder was run
+off uncommitted code.
+
+**Why it is not being fixed here.** Every available fix reaches into a component the sealed
+evaluation depends on. `tree_state()` is called by `run_sealed_eval.py` (§6.1's gate, which
+refuses a dirty tree by default), by `run_fold.py`, by `orchestrate.py` and by
+`tools/run_arm.py`; `scorer.REQUIRED_RUN`/`NULLABLE_RUN` pin the vocabulary and the
+`commit`-null pairing, and three mutations hold its current behaviour — with the number of
+tests that catch each one measuring how far the behaviour has spread:
+`an_unreadable_tree_state_reads_as_clean` 58, `a_dirty_tree_reads_as_clean` 7,
+`only_tracked_modifications_count_as_dirty` 2. Changing what `dirty` means changes what the seal gate refuses on, and
+**moving the sealed-evaluation gate as a side effect of improving a metrics field is the wrong
+order of operations** — the gate is the thing with the fewest permitted changes in this
+project, and a change to it should be the subject of a decision, not a consequence of one.
+A run already recorded under the current semantics is also not re-writable: `port-oneshot-nofence`'s
+block is committed and its arm's window is frozen, so any fix produces a ladder whose rungs
+disagree about what the field means unless it is applied before the first rung, which it now
+cannot be.
+
+**Options, if it is fixed later — recorded, not chosen.** All four are stated with what they
+cost, and none is adopted here:
+
+- **Add a fourth vocabulary value, e.g. `dirty-untracked-only`,** distinguishing "untracked
+  files exist" from "tracked files are modified", with plain `dirty` reserved for the latter.
+  This is the only option that makes the field say what a reader thinks it says. It widens
+  `scorer.TREE_STATES`, so it is a schema change with a version bump, and it must decide what
+  the seal gate refuses on — the honest answer is probably still "both", which means the gate
+  keeps its behaviour while the metrics field gains resolution.
+- **Have the arm capture `tree_state()` before it writes anything** and pass it into
+  `_run_block()`, so the value describes the tree the call was made from. Cheapest change,
+  and it makes `tree` answer the question §10 asks of it. The cost is that the writer then
+  reports a state it observed earlier than the write, which is a small lie of a different
+  kind — and the scorer would need to accept a run block whose `tree` was not measured at
+  scoring time, i.e. the provenance of the field becomes arm-dependent.
+- **Exclude the arm's own results directory from the porcelain read.** Rejected on sight for
+  the record: a path-scoped exclusion inside the function every gate calls is the shape
+  `allowlist_may_name_corpus_paths` is aimed at one level up, and a check that ignores a
+  directory is a check somebody will widen.
+- **Leave the code and document it only** — the current state, which is a decision and not an
+  omission provided the Methods line above is actually written. What makes it defensible is
+  that the field over-reports rather than under-reports; what makes it unsatisfying is that a
+  permanently-`dirty` field is a field readers stop reading, which is the exact argument §6.1
+  used to split the `SEALED` line out of `BLOCKED`. That parallel is the reason this is
+  recorded as unfinished business rather than as settled.
 
 **`model_id_reported` and `model_id_resolution` do not join `REQUIRED_RUN` — decided
 2026-08-09, with the orchestrator.** The argument for was real and is the one this section
