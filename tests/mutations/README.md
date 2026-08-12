@@ -1361,6 +1361,61 @@ field changes rather than reordering) and caught this by accident. A guard that 
 it was not aimed at is luck, not coverage, which is why the freeze records get a test of their
 own rather than being left to it.
 
+### Two on the masker, and the component whose absence the section above predicted
+
+Added 2026-08-12 with `llm/prompt.mask_document()`. The section two above wrote its two
+mutations against `_check_tags` for a module nobody had written yet and named the two ways its
+output could be wrong while reading correctly. These are those two ways, now written from the
+masker's side — one for each — and the pairing is the point: the validator refuses, and these
+say what it refuses.
+
+`a_heterogeneous_union_prints_one_of_its_types` replaces the tag decision in `_close()` with
+`sorted(phi_types)[0]`. A union whose spans disagreed then prints the alphabetically first type
+instead of the tag that names none. **Nothing downstream notices.** The tag is bracketed, the
+geometry is untouched, `_check_tags` passes, the Auditor reads it as a tag and does not flag it
+(`auditor.md` §1.2 — a tag is not a candidate), and no offset moves. The masked text looks
+correct and one component has quietly started resolving overlaps, which is the failure DESIGN §3
+was written to prevent before there was a masker to prevent it in. `RuleSet.detect` preserves
+overlapping matches exactly so merge policy stays a replaceable strategy compared on identical
+detections (§4, §9.3); a policy baked in here runs inside every `port-loop` arm no matter which
+policy that arm was configured with, and the arm's record would not say so. `sorted(...)[0]` is
+the shape the accident really takes — not a considered precedence order, just whichever type the
+implementation reached first.
+
+What makes it worth having is which of the two guards catches it. `n_heterogeneous_tags` is
+computed from `phi_types`, not from the tag text, so the mutant reports the right number while
+printing the wrong string: the count says one heterogeneous union and the text names a type. A
+suite that checked only the counts would pass. Both are asserted for that reason, along with
+`test_the_heterogeneous_tag_is_read_from_the_config` — `tests/test_masked_tag.py` already
+forbids `[PHI]` as a literal anywhere in `src/`, and `TAG_FORM` is deliberately not derived from
+the config value, so the two strings cannot drift into agreement by construction.
+
+`the_mask_tags_are_emitted_in_the_order_they_were_applied` drops the `reversed()` in
+`mask_document`'s single conversion from the right-to-left walk to left-to-right columns. The
+tags then come out descending. Every offset is still correct; only the order is wrong. This is
+precisely the input `tags_out_of_order_are_sorted_instead_of_refused` exists to refuse, and the
+two mutations together close the loop: with the sort in place this one produces silently wrong
+translations, and with the refusal in place it produces an `AuditError` — a caller bug sent back
+to the caller rather than repaired into a double-counted column.
+
+**It survives most tests, and the reason is the one worth recording.** On a line with one tag or
+none the output is byte-identical — which is most lines of any real document and almost every
+small fixture. Only a line carrying two tags distinguishes mutant from original. So the ordering
+test is paired with
+`test_the_masker_emits_more_than_one_tag_per_line_so_the_order_is_testable`, which asserts the
+fixture actually puts two tags on one line. Without it every ordering assertion and every
+round-trip passes on the mutant and the whole check measures nothing. That guard-on-the-guard is
+the same shape as `test_adjacent_tags_are_not_refused` in the section two above: a test whose
+job is to keep another test from becoming vacuous.
+
+One thing neither mutation can be aimed at yet. The masker's overlap handling is the union rule,
+and on es-meddocan dev today there is nothing to union: the committed 3-rule `rules/es.yaml`
+predicts 0 spans over the 250 dev documents, so 0 overlapping pairs. Gold cannot stand in
+either — 5254 in-scope dev spans, 0 overlapping pairs, 0 type disagreements, because annotations
+do not overlap by construction. Both mutations are therefore killed by fixtures alone until a
+`port-loop` arm runs, and `n_overlapping_pairs` is on the `MaskedDocument` counts so that the
+first arm measures it rather than a later reader assuming it. Recorded in DESIGN §3.
+
 ## What the seal cost, and what carries the difference
 
 Sealing 250 documents removed checks that cannot be replaced, and pretending

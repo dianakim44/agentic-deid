@@ -181,6 +181,22 @@ measured on its own predictions and reported** — the second is the number that
 this rule actually fires, and a rule pre-registered without that follow-up is a rule nobody
 ever learns the cost of.
 
+**Confirmed at the masker's implementation (2026-08-12), in both directions.** `detect_fold`
+over the 250 es-meddocan dev documents with the committed `rules/es.yaml` returns **0 predicted
+spans and 0 overlapping pairs** — vacuous exactly as pre-registered above, so the paragraph
+stands rather than being replaced by a number. **Gold cannot substitute for it either**, and
+that was worth checking rather than assuming: 5254 in-scope dev spans, **0 overlapping pairs,
+0 type disagreements**. Annotations do not overlap by construction, so gold overlap is a
+property of the annotation guidelines and carries no information about what a union of
+*predictions* from two independent layers will look like. There is therefore no proxy available
+today, and the honest state is "unmeasured", not "measured as rare". `MaskedDocument.counts`
+exposes `n_overlapping_pairs` and `n_heterogeneous_tags` per document for that reason — the
+first arm to run measures them as a side effect of masking, rather than a later reader
+inferring the rate from an empty dev fold. The two mutations
+`a_heterogeneous_union_prints_one_of_its_types` and
+`the_mask_tags_are_emitted_in_the_order_they_were_applied` are consequently killed by fixtures
+alone until then (`tests/mutations/README.md`).
+
 **Masked text is a *larger* corpus exposure than §1.4, not a smaller one, and it inherits
 `FilledPrompt`'s treatment.** This is the part that is easy to get backwards on the intuition
 that masked text is safe text. On es-meddocan's dev fold the masked input is on the order of

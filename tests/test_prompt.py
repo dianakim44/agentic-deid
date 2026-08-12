@@ -26,7 +26,9 @@ private function would otherwise satisfy a check that only looked at the public 
 from __future__ import annotations
 
 import ast
+import dataclasses
 import io
+import itertools
 import json
 import sys
 import tempfile
@@ -37,12 +39,16 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from src.corpora.base import Document, Span, axis                # noqa: E402
+from src.corpora.base import (                                   # noqa: E402
+    Document, Span, axis, masked_tag_heterogeneous,
+)
 from src.llm import prompt as prompt_module                      # noqa: E402
 from src.llm.prompt import (                                     # noqa: E402
-    EMPTY_SECTIONS, FILLED_SECTIONS, FilledPrompt, PromptError, assemble_task_prompt,
+    COUNT_KEYS, EMPTY_SECTIONS, FILLED_SECTIONS, LINE_OFFSET_WIDTH, LINE_SEPARATOR,
+    FilledPrompt, MaskedDocument, PromptError, assemble_task_prompt, mask_document,
     render_window,
 )
+from src.porting.audit import MaskedLine, validate_flags         # noqa: E402
 from src.rules import rule_layers                                # noqa: E402
 from src.sample import (                                         # noqa: E402
     MISSED, WINDOW_FILES, ErrorSpan, non_target_types,
@@ -468,6 +474,520 @@ def test_two_renders_of_the_same_window_are_equal_without_holding_text():
     assert a_prompt() == a_prompt()
     other = render_window([err(start=500)], {"dev1": doc()}, 120)
     assert a_prompt() != other
+
+
+# ─── the masker: DESIGN §3's union rule, and the geometry `_check_tags` wants ─
+
+
+def masked(text: str, spans, doc_id: str = "dev1") -> MaskedDocument:
+    """Mask a document built from an invented string. No corpus is read here."""
+    return mask_document(
+        Document(doc_id=doc_id, corpus_id="es-meddocan", text=text, split="dev"), spans)
+
+
+def pred(start: int, end: int, phi_type: str, text: str) -> Span:
+    """One *prediction*, with the provenance a detected span carries (DESIGN §3)."""
+    return Span(start=start, end=end, surface=text[start:end], subtype="rule",
+                phi_type=phi_type, layer="context_cue", detector="R",
+                rule_id=f"es:r{start}")
+
+
+class _Row:
+    """A deserialised `spans.jsonl` row: the three attributes the masker reads.
+
+    Not a `Span`, and that is the point of it. `Span` validates its offsets and its type at
+    construction, so a test building one cannot reach the masker's own checks — but the
+    caller that *can* is the loop driver, which reads rows back from a file and hands over
+    whatever they say. This is that shape.
+    """
+
+    def __init__(self, start, end, phi_type):
+        self.start, self.end, self.phi_type = start, end, phi_type
+
+
+def row(start, end, phi_type) -> _Row:
+    return _Row(start, end, phi_type)
+
+
+def block_of(m: MaskedDocument) -> str:
+    """The rendered block, through the exit named for a destination.
+
+    `for_transport()` rather than a `FakeTerminal`, because that is the exit the loop
+    driver uses for this block and a test asserting over the other one would be asserting
+    about the path nothing takes.
+    """
+    return m.block.for_transport()
+
+
+def masked_lines(m: MaskedDocument) -> list[str]:
+    """The block's lines with `auditor.md` §1.3's prefix stripped — column 0 onward."""
+    return [line.split(LINE_SEPARATOR, 1)[1] for line in block_of(m).split("\n")]
+
+
+def round_trip(m: MaskedDocument, text: str) -> None:
+    """Every column outside a tag translates to the document character it stands for.
+
+    **The strongest available check on the map, and it is a check on the *pair* of
+    components rather than on the masker alone.** The masker's tags are fed to the real
+    `validate_flags()`, which runs `_check_tags` at construction and `_to_document` per
+    flag, so a wrong column, a wrong document extent or a wrong order fails here — and
+    fails as the arithmetic a flag would actually get, not as a shape assertion.
+
+    One column at a time rather than a whole span: a translation that was wrong by a
+    constant would still map some span to some plausible extent, and per-character
+    comparison has no room for that.
+    """
+    lines = masked_lines(m)
+    assert len(lines) == len(m.lines)
+    for index, (raw, line) in enumerate(zip(lines, m.lines)):
+        assert len(raw) == line.length, (
+            f"line {index}: the block renders {len(raw)} characters and MaskedLine says "
+            f"{line.length}. The Auditor's columns are counted over what it was shown.")
+        for column, character in enumerate(raw):
+            if any(col <= column < col + length for col, length, _, _ in line.tags):
+                continue
+            result = validate_flags(
+                {"flags": [{"line": index, "start": column, "end": column + 1,
+                            "phi_type": "NAME"}]},
+                doc_id=m.doc_id, lines=list(m.lines))
+            assert not result.refused, (index, column, result.refused)
+            flag = result.flags[0]
+            assert text[flag.start:flag.end] == character, (
+                f"line {index} column {column} translated to document offset "
+                f"{flag.start}, which holds a different character.")
+
+
+def test_the_masker_returns_a_filled_prompt_and_not_a_string():
+    """DESIGN §3, `auditor.md` §6 — and here the exposure is the largest in the project.
+
+    The masked dev fold is about 40× §1.4's window and most of the identifiers in it are
+    *unmasked*, because unmasked is what "leaked" means. So this is the case the type was
+    made for rather than the case that could be excused from it.
+    """
+    m = masked("Ana vive aqui", [pred(0, 3, "NAME", "Ana vive aqui")])
+    assert isinstance(m.block, FilledPrompt)
+    assert not isinstance(m.block, str)
+
+
+def test_the_masked_document_holds_the_text_nowhere_but_the_block():
+    """`MaskedLine.text` was this mistake one level down and is gone (`audit.py`).
+
+    Asserted over the dataclass's fields and slots rather than over its docstring: the
+    plausible edit is a `masked: str` added "so a test can read it", and it would satisfy
+    every annotation here.
+    """
+    fields = {f.name for f in dataclasses.fields(MaskedDocument)}
+    assert fields == {"doc_id", "block", "lines"}
+    assert set(MaskedDocument.__slots__) == fields
+
+
+def test_a_detected_span_becomes_its_type_tag():
+    text = "Paciente Ana, 40 anos"
+    m = masked(text, [pred(9, 12, "NAME", text), pred(14, 16, "AGE", text)])
+    assert masked_lines(m) == ["Paciente [NAME], [AGE] anos"]
+    round_trip(m, text)
+
+
+def test_nothing_else_is_changed():
+    """`auditor.md` §1.2: the tags and nothing else.
+
+    Newlines survive — unlike `render_window()`, which flattens them because one block is
+    one span there. Here the line structure *is* the coordinate scheme.
+    """
+    text = "linea uno\n\nAna\tPerez  y  otros\n"
+    m = masked(text, [pred(11, 20, "NAME", text)])
+    assert masked_lines(m) == ["linea uno", "", "[NAME]  y  otros", ""]
+    round_trip(m, text)
+
+
+def test_a_document_with_no_predictions_is_masked_to_itself():
+    """Iteration 2 after a round that predicted nothing — today's rule file on dev, in fact.
+
+    Not an error and not an empty block: the Auditor reads a document with no tags, which
+    is the state where *every* identifier in it is residual.
+    """
+    text = "Ana vive aqui"
+    m = masked(text, [])
+    assert masked_lines(m) == [text]
+    assert m.counts == {"n_input_spans": 0, "n_tags": 0, "n_heterogeneous_tags": 0,
+                        "n_overlapping_pairs": 0}
+    round_trip(m, text)
+
+
+# ─── the union rule (DESIGN §3), both halves ─────────────────────────────────
+
+
+def test_overlapping_spans_of_one_type_are_one_tag_naming_that_type():
+    """Homogeneous: nothing is being decided, so the type prints."""
+    text = "abcdefghij"
+    m = masked(text, [pred(2, 6, "NAME", text), pred(4, 8, "NAME", text)])
+    assert masked_lines(m) == ["ab[NAME]ij"]
+    assert m.counts["n_tags"] == 1
+    assert m.counts["n_heterogeneous_tags"] == 0
+    round_trip(m, text)
+
+
+def test_overlapping_spans_of_different_types_print_no_type():
+    """**The load-bearing half.** DESIGN §3's example: `NAME` [10,25) and `ORGANISATION`
+    [20,34) mask as one tag over [10,34) that names neither.
+
+    Naming either would give the masker a merge policy, which is the thing `RuleSet.detect`
+    preserves overlaps in order *not* to do (§4, §9.3) — and it would make a heterogeneous
+    union indistinguishable in the masked text from a homogeneous one.
+    """
+    text = "." * 40
+    m = masked(text, [pred(10, 25, "NAME", text), pred(20, 34, "ORGANISATION", text)])
+    tag = masked_tag_heterogeneous()
+    assert masked_lines(m) == ["." * 10 + tag + "." * 6]
+    assert "NAME" not in block_of(m) and "ORGANISATION" not in block_of(m)
+    assert m.counts["n_heterogeneous_tags"] == 1
+    round_trip(m, text)
+
+
+def test_the_heterogeneous_tag_is_read_from_the_config(monkeypatch, request):
+    """Not spelled in the masker — CLAUDE.md, and `test_masked_tag.py` asserts it of `src/`.
+
+    Monkeypatched to an unmistakable value so that a literal in the module would leave the
+    block showing the old one. The value names no type, or the accessor would refuse it.
+    """
+    from src.corpora import base
+
+    # `naming()` is `lru_cache`d, so the cache is cleared before the patch and after it —
+    # `test_masked_tag.py` does the same through an autouse fixture. Cleared through the
+    # captured function rather than through `base.naming`, which is the patched name by then.
+    cached = base.naming
+    cached.cache_clear()
+    request.addfinalizer(cached.cache_clear)
+    real = cached()
+    invented = "[REDACTED_BY_CONFIG]"
+    monkeypatch.setattr(base, "naming",
+                        lambda: {**real, "masked_tag_heterogeneous": invented})
+    text = "." * 20
+    m = masked(text, [pred(2, 8, "NAME", text), pred(6, 12, "DATE", text)])
+    assert invented in block_of(m)
+
+
+def test_a_chain_of_overlaps_is_one_tag_however_the_spans_arrive():
+    """Transitive, and order-independent — both halves of DESIGN §3's first clause.
+
+    A-B and B-C overlap while A and C do not touch. Every permutation of the three has to
+    give one tag over the whole chain: an implementation that compared each span only to
+    the previous one in arrival order would produce two tags for some orderings, and each
+    of those maskings is well-formed and wrong.
+    """
+    text = "." * 30
+    spans = [pred(0, 10, "NAME", text), pred(8, 18, "NAME", text),
+             pred(16, 26, "NAME", text)]
+    seen = set()
+    for permutation in itertools.permutations(spans):
+        m = masked(text, list(permutation))
+        assert m.counts["n_tags"] == 1
+        assert masked_lines(m) == ["[NAME]" + "." * 4]
+        seen.add(block_of(m))
+        round_trip(m, text)
+    assert len(seen) == 1, "the masking depended on the order the spans arrived in"
+
+
+def test_the_type_of_a_chain_is_heterogeneous_if_any_link_disagrees():
+    """The chain's types are collected across the whole chain, not pairwise.
+
+    A `NAME`-`NAME`-`DATE` chain is one tag and it is heterogeneous, because the union it
+    covers is one extent the arm's detectors gave two types to.
+    """
+    text = "." * 30
+    m = masked(text, [pred(0, 10, "NAME", text), pred(8, 18, "NAME", text),
+                      pred(16, 26, "DATE", text)])
+    assert m.counts["n_tags"] == 1
+    assert m.counts["n_heterogeneous_tags"] == 1
+    assert masked_lines(m) == [masked_tag_heterogeneous() + "." * 4]
+
+
+def test_two_identical_predictions_of_different_types_are_one_heterogeneous_tag():
+    """Two rules matching the same extent and disagreeing about it.
+
+    Not a degenerate case to be filtered: it is exactly the disagreement the rule is for,
+    and it is what `RuleSet.detect` returns when two rules fire on one string.
+    """
+    text = "abcdef"
+    m = masked(text, [pred(1, 4, "NAME", text), pred(1, 4, "ORGANISATION", text)])
+    assert masked_lines(m) == ["a" + masked_tag_heterogeneous() + "ef"]
+    assert (m.counts["n_tags"], m.counts["n_heterogeneous_tags"],
+            m.counts["n_overlapping_pairs"]) == (1, 1, 1)
+    round_trip(m, text)
+
+
+def test_touching_spans_are_two_tags():
+    """Adjacency is the common case and is not overlap.
+
+    393 gold pairs sit within one character on es-meddocan dev (DESIGN §3), so a masker
+    that unioned abutting spans would collapse ordinary pairs into one tag and would report
+    a type disagreement wherever they differed — inventing heterogeneity out of adjacency.
+    """
+    text = "abcdefgh"
+    m = masked(text, [pred(0, 4, "ID", text), pred(4, 8, "NAME", text)])
+    assert masked_lines(m) == ["[ID][NAME]"]
+    assert (m.counts["n_tags"], m.counts["n_heterogeneous_tags"],
+            m.counts["n_overlapping_pairs"]) == (2, 0, 0)
+    round_trip(m, text)
+
+
+def test_a_span_nested_inside_another_is_one_tag():
+    text = "." * 20
+    m = masked(text, [pred(2, 14, "NAME", text), pred(5, 8, "NAME", text)])
+    assert masked_lines(m) == [".." + "[NAME]" + "." * 6]
+    assert m.counts["n_tags"] == 1
+    round_trip(m, text)
+
+
+# ─── the geometry `_check_tags` requires, and the descending emission order ──
+
+
+def test_the_tags_are_ascending_and_non_overlapping_on_every_line():
+    """The contract `audit._check_tags` enforces, asserted through construction.
+
+    `MaskedLine.__post_init__` runs that check, so the masker building one at all is the
+    assertion — this test states it in the direction a reader looks for it and covers the
+    multi-tag, multi-line case where a descending emission would actually be visible.
+    """
+    text = "Ana y Beto\nel 3/4 con Caro\n"
+    m = masked(text, [pred(0, 3, "NAME", text), pred(6, 10, "NAME", text),
+                      pred(14, 17, "DATE", text), pred(22, 26, "NAME", text)])
+    for line in m.lines:
+        columns = [(col, col + length) for col, length, _, _ in line.tags]
+        assert columns == sorted(columns)
+        for (_, previous_end), (start, _) in zip(columns, columns[1:]):
+            assert start >= previous_end
+    round_trip(m, text)
+
+
+def test_the_masker_emits_more_than_one_tag_per_line_so_the_order_is_testable():
+    """A guard on the test above, not on the masker.
+
+    Every ordering assertion in this file passes trivially on lines with one tag or none,
+    and one tag per line is what most small fixtures produce. So the fixture that checks
+    order has to be known to contain a line with two.
+    """
+    text = "Ana y Beto\nel 3/4 con Caro\n"
+    m = masked(text, [pred(0, 3, "NAME", text), pred(6, 10, "NAME", text),
+                      pred(14, 17, "DATE", text), pred(22, 26, "NAME", text)])
+    assert max(len(line.tags) for line in m.lines) >= 2
+
+
+def test_the_tags_are_within_their_line():
+    """`_check_tags`'s "a tag past the end of its line" case, from the producing side."""
+    text = "Ana\nBeto y Caro\n"
+    m = masked(text, [pred(0, 3, "NAME", text), pred(11, 15, "NAME", text)])
+    for line in m.lines:
+        for col, length, _, _ in line.tags:
+            assert 0 <= col and col + length <= line.length
+
+
+def test_a_tag_carries_the_document_extent_it_replaced():
+    """The map `audit._to_document` reads rather than reconstructs.
+
+    Checked against the *document*, which is the one thing the geometry cannot be
+    self-consistently wrong about: the extent is where the prediction was.
+    """
+    text = "Paciente Ana Perez, 40 anos"
+    m = masked(text, [pred(9, 18, "NAME", text), pred(20, 22, "AGE", text)])
+    extents = [(doc_start, doc_end)
+               for line in m.lines for _, _, doc_start, doc_end in line.tags]
+    assert extents == [(9, 18), (20, 22)]
+    assert text[9:18] == "Ana Perez"
+
+
+def test_a_prediction_spanning_a_newline_becomes_one_tag_on_one_line():
+    """The tag has no newline in it, so the line count *changes* — and that is correct.
+
+    `auditor.md` §1.3 says a flag does not cross a line boundary; a tag that swallowed a
+    newline would make the line the tag sits on stand for two document lines, which is
+    consistent and is what the coordinate scheme means. The document offsets are what has
+    to stay right, and `round_trip` is what says they did.
+    """
+    text = "Ana\nPerez trabaja aqui"
+    m = masked(text, [pred(0, 9, "NAME", text)])
+    assert masked_lines(m) == ["[NAME] trabaja aqui"]
+    assert m.lines[0].tags == ((0, 6, 0, 9),)
+    round_trip(m, text)
+
+
+@pytest.mark.parametrize("text,spans_at", [
+    ("Ana vive", [(0, 3)]),                      # at the very start
+    ("vive Ana", [(5, 8)]),                      # at the very end
+    ("Ana", [(0, 3)]),                           # the whole document
+    ("Ana\n", [(0, 3)]),                         # ending in a newline
+    ("\nAna", [(1, 4)]),                         # starting with one
+    ("a\n\nb", [(3, 4)]),                        # a blank line before the tag
+    ("Ana y Ana", [(0, 3), (6, 9)]),             # two tags, one line
+    ("Ana\nAna\nAna", [(0, 3), (4, 7), (8, 11)]),  # one per line
+])
+def test_the_map_holds_at_the_boundaries(text, spans_at):
+    """The offsets where an off-by-one lives, each translated character by character."""
+    round_trip(masked(text, [pred(a, b, "NAME", text) for a, b in spans_at]), text)
+
+
+def test_an_empty_document_is_one_empty_line():
+    """Zero is a measurement here too: a document with no characters is still a document.
+
+    The alternative — no lines at all — would make `validate_flags()` raise `AuditError`
+    for a caller bug (its "no masked lines" branch) on a document that was simply empty.
+    """
+    m = masked("", [])
+    assert m.lines == (MaskedLine(length=0, doc_offset=0),)
+    assert masked_lines(m) == [""]
+
+
+def test_the_line_prefix_is_the_masked_offset_and_is_not_part_of_the_line():
+    """`auditor.md` §1.3's rendering: the offset is in the **masked** text, and column 0 is
+    the character after the separator.
+
+    A prefix carrying the *document* offset is the plausible mistake and it would be
+    invisible on a document with no tags — where the two agree, which is most fixtures.
+    """
+    text = "Ana Perez y Beto\nsegunda linea"
+    m = masked(text, [pred(0, 9, "NAME", text)])
+    lines = block_of(m).split("\n")
+    assert lines[0].startswith("0".zfill(LINE_OFFSET_WIDTH) + LINE_SEPARATOR)
+    # First line masked: "[NAME] y Beto" — 13 characters, so the second starts at 14,
+    # while in the document it starts at 17. The prefix is the masked number.
+    assert lines[1].startswith("14".zfill(LINE_OFFSET_WIDTH) + LINE_SEPARATOR)
+    assert m.lines[1].doc_offset == 17
+    assert m.lines[0].length == len("[NAME] y Beto")
+
+
+# ─── what the masker refuses, and what it never reads ────────────────────────
+
+
+def test_gold_is_never_read():
+    """**The property the whole role rests on** (DESIGN §3): the Auditor cannot see gold.
+
+    The document carries gold spans and the masker is given a different, smaller set of
+    predictions. A masker reading `document.spans` would mask the gold — handing the agent
+    the answer by masking exactly what it is being asked to find.
+    """
+    text = "Ana vive con Beto"
+    document = Document(
+        doc_id="dev1", corpus_id="es-meddocan", text=text, split="dev",
+        spans=[Span(start=0, end=3, surface="Ana", subtype="X", phi_type="NAME"),
+               Span(start=13, end=17, surface="Beto", subtype="X", phi_type="NAME")])
+    m = mask_document(document, [pred(0, 3, "NAME", text)])
+    assert masked_lines(m) == ["[NAME] vive con Beto"]
+    assert m.counts["n_input_spans"] == 1
+
+
+def test_a_prediction_past_the_end_of_the_document_is_refused():
+    """Predictions and document from different folds — every offset after it would be wrong.
+
+    The span is well-formed against a longer text, which is how this arrives: the loop
+    driver reads `iter{n-1}/spans.jsonl` and pairs it with a document set. Refused rather
+    than clipped, because a clipped tag stands for characters the prediction did not cover.
+    """
+    longer = "Ana Perez"
+    with pytest.raises(PromptError, match="different folds"):
+        masked("Ana", [pred(0, 9, "NAME", longer)])
+
+
+def test_a_prediction_with_a_type_outside_the_axis_is_refused():
+    """The tag is printed into the prompt, so its type is a `naming.yaml` value.
+
+    `Span` refuses an unknown `phi_type` at construction, so the masker's own check is
+    reached by a caller that built its spans some other way — reading `spans.jsonl` back,
+    which is exactly what the loop driver does.
+    """
+    with pytest.raises(PromptError, match="phi_type axis"):
+        masked("Ana vive", [row(0, 3, "NOMBRE")])
+
+
+@pytest.mark.parametrize("start,end", [(3, 3), (5, 2), (-1, 3)])
+def test_an_empty_inverted_or_negative_prediction_is_refused(start, end):
+    """A masked extent stands for at least one character — `_check_tags`'s rule, upstream.
+
+    Built as a bare object for the reason above: `Span` refuses these, and the caller that
+    can produce one is the one deserialising rows.
+    """
+    with pytest.raises(PromptError, match="empty, inverted or negative"):
+        masked("abcdefgh", [row(start, end, "NAME")])
+
+
+def test_no_message_quotes_the_document():
+    """CLAUDE.md, applied to the largest text in the project.
+
+    Every refusal above names an index, an offset or a length. Asserted over the module's
+    own source rather than by triggering each branch: the check is that no message *can*
+    interpolate a slice, and a triggered-branch test only covers the branches someone
+    remembered.
+    """
+    source = MODULE.read_text(encoding="utf-8")
+    for forbidden in ("{text[", "{masked[", "{document.text", "text[:20]", "{raw!r}",
+                      "{chunks", "{character"):
+        assert forbidden not in source, forbidden
+
+
+def test_the_counts_are_the_numbers_design_promised_to_report():
+    """DESIGN §3 pre-registers the overlapping-pair count and the heterogeneous-union
+    count, to be measured when the first `port-loop` arm runs.
+
+    `counts` is the accessor a driver puts in `metrics.json`, so the keys are pinned: a
+    renamed key is a number that silently stops being reported.
+    """
+    text = "." * 40
+    m = masked(text, [pred(0, 10, "NAME", text), pred(5, 15, "DATE", text),
+                      pred(20, 25, "AGE", text)])
+    assert set(COUNT_KEYS) == set(m.counts)
+    assert m.counts == {"n_input_spans": 3, "n_tags": 2, "n_heterogeneous_tags": 1,
+                        "n_overlapping_pairs": 1}
+
+
+def test_the_counts_come_from_the_block_and_not_from_a_second_field():
+    """One storage site, so a log line and `metrics.json` cannot disagree.
+
+    The reference form is what may be recorded (`FilledPrompt.reference()`), and `counts`
+    reads from it — asserted rather than trusted, because the tidier-looking edit is to
+    keep the counts as fields on `MaskedDocument` and hand `reference()` a copy.
+    """
+    text = "." * 20
+    m = masked(text, [pred(0, 5, "NAME", text)])
+    reference = m.block.reference()
+    assert all(reference[key] == m.counts[key] for key in COUNT_KEYS)
+    assert {f.name for f in dataclasses.fields(MaskedDocument)}.isdisjoint(COUNT_KEYS)
+
+
+def test_the_reference_form_carries_no_text():
+    """What may be recorded about the largest prompt in the project: counts and hashes.
+
+    Every word of the document is long and invented, for `SURFACE`'s reason: a short word
+    like `de` occurs inside a hex digest by coincidence, so an assertion of its absence
+    would fail on a correct reference form and would have to be weakened until it measured
+    nothing.
+    """
+    text = f"Zzyzxpaciente {SURFACE} Qxwvunosenta Vurblesmith"
+    m = masked(text, [pred(14, 14 + len(SURFACE), "NAME", text)])
+    reference = m.block.reference()
+    body = json.dumps(reference)
+    for word in [SURFACE, *text.split()]:
+        assert word not in body, word
+    assert reference["document_chars"] == len(text)
+    assert reference["masked_chars"] == len(text) - len(SURFACE) + len("[NAME]")
+    assert reference["n_tags"] == 1
+    assert reference["tags_by_phi_type"] == {"NAME": 1}
+    assert reference["text_sha256"].startswith("sha256:")
+
+
+def test_the_block_is_hashed_against_the_window_files():
+    """The Auditor's template is a window file since 2026-08-12 (DESIGN §5.5), so this
+    block's record names the same three files every other prompt's does."""
+    text = "Ana vive"
+    reference = masked(text, [pred(0, 3, "NAME", text)]).block.reference()
+    assert set(reference["window_files"]) == set(WINDOW_FILES)
+
+
+def test_the_masked_text_is_not_reachable_from_the_masked_document():
+    """No public accessor beyond the block, whose own exits are the two named ones."""
+    text = "Ana vive"
+    m = masked(text, [pred(0, 3, "NAME", text)])
+    assert text not in str(m.block) and text not in repr(m.block)
+    with pytest.raises(PromptError, match="not a terminal"):
+        m.block.to_terminal(io.StringIO())
 
 
 # ─── structure: the module writes nothing, and that includes the renderer ────

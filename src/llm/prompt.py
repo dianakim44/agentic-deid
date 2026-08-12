@@ -65,15 +65,36 @@ It does not call `render_window()` and it does not draw anything. DESIGN §4 def
 first call as carrying §§1.1–1.2 with §§1.3–1.4 empty, in `port-oneshot` and in
 `port-loop`'s iteration 1 alike, so the two arms' call 1 is shown the same thing; the
 error-span block enters from iteration 2 through the renderer above.
+
+**`mask_document()` is the masker, and it is in this module because the discipline is
+per-module and not per-type.** `docs/prompts/auditor.md` §6 calls it "the second function in
+the project that slices document text for a prompt — `render_window()` is the first — so it
+lives inside the same discipline rather than beside it". A new module would have satisfied
+the *type* half of that sentence and not the structural half: `tests/test_prompt.py` asserts
+over this file's syntax tree that no function in it writes, logs or prints, and those checks
+walk every function here, including ones added later. A masker in its own file would need
+its own copy of them — "a second place the non-recording discipline has to be re-established
+by hand", which is the cost the paragraph above gives for a second renderer. So the masker
+is here, and the checks it needs already exist and already cover it.
+
+The masked document is the **largest** corpus exposure in the project — about 40× §1.4's
+window, and mostly *unmasked* identifiers, because unmasked is what "leaked" means
+(DESIGN §3, `auditor.md` §6). It is the strongest case for the type rather than an exception
+to it: `MaskedDocument` carries a `FilledPrompt` and a geometry, and the masked text exists
+nowhere else.
 """
 from __future__ import annotations
 
 import hashlib
+from dataclasses import dataclass
 from pathlib import Path
 from typing import IO, Mapping, Sequence
 
 from .. import sample as sample_module
-from ..corpora.base import CorpusError, Document, axis, corpus_ids, rule_langs
+from ..corpora.base import (
+    CorpusError, Document, axis, corpus_ids, masked_tag_heterogeneous, rule_langs,
+)
+from ..porting.audit import MaskedLine
 from ..rules import rule_layers
 from ..sample import ErrorSpan, WINDOW_FILES, file_hash, non_target_types
 
@@ -506,3 +527,358 @@ def assemble_task_prompt(
         "text_sha256": _digest(text),
         "window_files": {name: file_hash(name) for name in WINDOW_FILES},
     })
+
+
+# ─── the masker: the Auditor's §1.2 block (DESIGN §3) ────────────────────────
+
+
+#: The mask tag for a union whose spans agree on the type. The `phi_type` comes from
+#: `config/naming.yaml`'s axis and only the brackets are spelled here — the notation
+#: `auditor.md` §1.1 tells the agent to recognise as a tag.
+#:
+#: **Not derived from `masked_tag_heterogeneous()` and not the source of it.** Deriving
+#: either from the other would make an edit to one silently agree with the other, and the
+#: property that has to hold between them is that they are *distinguishable*: the
+#: heterogeneous tag names no type (`src/corpora/base.py` refuses one that does), and that
+#: check is what keeps this form and that value apart.
+TAG_FORM = "[{phi_type}]"
+
+#: `auditor.md` §1.3's line prefix: the line's start offset **in the masked text**,
+#: zero-padded to a fixed width, then a separator. The prompt's example is `0000000 | …`,
+#: and the width is fixed rather than computed per document so that two documents' blocks
+#: look the same to the agent and a column is countable by eye.
+#:
+#: **The prefix is not part of the line** (`auditor.md` §1.3) — column 0 is the character
+#: after the separator, and neither the offset nor the separator is in `MaskedLine.length`.
+LINE_OFFSET_WIDTH = 7
+LINE_SEPARATOR = " | "
+
+#: What `MaskedDocument.counts` publishes, and the reason it is a named subset rather than
+#: the whole reference form: these are the numbers DESIGN §3 promises to report when the
+#: first `port-loop` arm runs — the overlapping-pair count and the heterogeneous-union
+#: count, which are currently vacuous (0 predictions on es-meddocan dev, §3). A caller
+#: putting them in `metrics.json` should not have to pick them out of a dict of hashes.
+COUNT_KEYS = (
+    "n_input_spans", "n_tags", "n_heterogeneous_tags", "n_overlapping_pairs",
+)
+
+
+@dataclass(frozen=True, slots=True)
+class _Union:
+    """One masked extent: the union of a transitive overlap chain, and its tag.
+
+    `phi_types` is what the spans in the chain claimed, so `len(phi_types) == 1` is the
+    homogeneous case. Kept rather than reduced to a boolean because the tag is chosen from
+    it and the count of heterogeneous unions is reported from it.
+    """
+
+    start: int
+    end: int
+    tag: str
+    phi_types: frozenset[str]
+
+    @property
+    def heterogeneous(self) -> bool:
+        return len(self.phi_types) > 1
+
+
+@dataclass(frozen=True, slots=True)
+class _Piece:
+    """One stretch of the masked text: kept document characters, or one tag.
+
+    **`from_right` is how many masked characters follow this piece**, and it is what makes
+    the right-to-left walk self-sufficient. A piece's offset from the *left* depends on
+    every replacement to its left, which a right-to-left walk has not made yet; its offset
+    from the right depends only on what the walk has already done. So the walk records
+    distances from the right and one subtraction at the end converts them, rather than a
+    second left-to-right pass that would be a second implementation of the same arithmetic
+    (`audit._to_document`'s reason for reading the map instead of rebuilding it).
+
+    No text: a piece is a length and a document extent. The characters are in the string
+    being assembled and nowhere else.
+    """
+
+    length: int
+    doc_start: int
+    doc_end: int
+    is_tag: bool
+    from_right: int
+
+
+@dataclass(frozen=True, slots=True)
+class MaskedDocument:
+    """One masked document: the block to send, and the geometry to translate flags with.
+
+    `block` is the `FilledPrompt` — **the only place the masked text exists.** A `text`
+    field here would be the `MaskedLine.text` mistake at the level above it
+    (`src/porting/audit.py`): a dataclass field holding masked corpus text, on a type whose
+    `repr` renders it. `FilledPrompt`'s own `repr` is its reference form, so a
+    `MaskedDocument` in a traceback prints counts and a hash.
+
+    `lines` is what `validate_flags()` takes: one `MaskedLine` per line of the masked text,
+    with the tags on it ascending by column. No masked offsets on those — the line's own
+    offset is the prompt's line prefix and belongs to the renderer (that type's docstring),
+    which is this function.
+
+    The counts are in the block's `reference()` and reachable through `counts`, rather than
+    duplicated as fields here: one storage site, so the number in `metrics.json` and the
+    number in a log line cannot disagree.
+    """
+
+    doc_id: str
+    block: FilledPrompt
+    lines: tuple[MaskedLine, ...]
+
+    @property
+    def counts(self) -> dict:
+        """The measurement DESIGN §3 pre-registered, for `metrics.json`."""
+        reference = self.block.reference()
+        return {key: reference[key] for key in COUNT_KEYS}
+
+
+def _check_input_span(index: int, span: object, doc_chars: int) -> tuple[int, int, str]:
+    """One prediction, checked into `(start, end, phi_type)`. No surface form in any message.
+
+    Reads three attributes and no more — the three `spans.jsonl` carries (DESIGN §3), so
+    the masker's input is a prediction and not a `Document`'s gold. Checked rather than
+    trusted even though `corpora.base.Span` validates most of it at construction: the
+    masker's caller is a loop driver that may have read rows back from a file, and a span
+    past the end of the text would make every column after it wrong rather than absent.
+    """
+    start, end, phi_type = (
+        getattr(span, "start", None), getattr(span, "end", None),
+        getattr(span, "phi_type", None),
+    )
+    if any(not isinstance(v, int) or isinstance(v, bool) for v in (start, end)):
+        raise PromptError(
+            f"prediction {index} has non-integer offsets. The masker reads `start`, `end` "
+            "and `phi_type` and nothing else (DESIGN §3)."
+        )
+    if end <= start or start < 0:
+        raise PromptError(
+            f"prediction {index} spans [{start}, {end}), which is empty, inverted or "
+            "negative. A masked extent stands for at least one document character."
+        )
+    if end > doc_chars:
+        raise PromptError(
+            f"prediction {index} ends at {end} in a document of {doc_chars} characters. "
+            "The predictions and the document disagree, which means they came from "
+            "different folds — no offset in this document can be trusted."
+        )
+    if not isinstance(phi_type, str) or phi_type not in axis("phi_type"):
+        raise PromptError(
+            f"prediction {index} carries phi_type {phi_type!r}, which is not in "
+            f"config/naming.yaml's phi_type axis (have: {sorted(axis('phi_type'))}). The "
+            "tag is printed into the Auditor's prompt, so it is a value of that axis or it "
+            "is a vocabulary item invented in code (CLAUDE.md)."
+        )
+    return start, end, phi_type
+
+
+def _unions(spans: Sequence, doc_chars: int) -> tuple[list[_Union], int]:
+    """Overlapping predictions -> masked extents, plus the overlapping-pair count.
+
+    **DESIGN §3's rule, both halves.** The extent is the union of a *transitive* chain of
+    pairwise overlaps, so masking does not depend on the order the spans arrive in; the tag
+    prints a `phi_type` only where every span in the chain agrees, and otherwise prints
+    `masked_tag_heterogeneous()`, which names no type. Nothing here ranks types, lengths or
+    scores: a masker that picked a winner would hold a merge policy, and merge policy is a
+    replaceable strategy that must not be baked into a component every arm runs through
+    (§4, §9.3).
+
+    Touching is not overlapping. Adjacency is the ordinary case — 393 gold pairs within one
+    character on es-meddocan dev (§3) — so a span starting exactly where the previous one
+    ends is two tags, and `[NAME][DATE]` is a correct rendering of two abutting detections.
+
+    The pair count is every pair that genuinely overlaps, including two byte-identical
+    predictions from different rules: that pair is not degenerate for this purpose, it is
+    precisely the case where two detectors disagree about the type of one extent.
+    """
+    checked = sorted(
+        (_check_input_span(i, span, doc_chars) for i, span in enumerate(spans)),
+        key=lambda s: (s[0], s[1]),
+    )
+    pairs = 0
+    for i, (start, end, _) in enumerate(checked):
+        for other_start, _, _ in checked[i + 1:]:
+            if other_start >= end:
+                break
+            pairs += 1
+
+    unions: list[_Union] = []
+    start = end = -1
+    types: set[str] = set()
+    for span_start, span_end, phi_type in checked:
+        if span_start < end:
+            # Transitive: the chain extends as long as the next span starts inside what the
+            # chain covers so far, so A-B and B-C become one tag without C ever being
+            # compared to A.
+            end = max(end, span_end)
+            types.add(phi_type)
+            continue
+        if end >= 0:
+            unions.append(_close(start, end, types))
+        start, end, types = span_start, span_end, {phi_type}
+    if end >= 0:
+        unions.append(_close(start, end, types))
+    return unions, pairs
+
+
+def _close(start: int, end: int, types: set[str]) -> _Union:
+    """One chain -> one `_Union`, choosing the tag and nothing else."""
+    phi_types = frozenset(types)
+    tag = (TAG_FORM.format(phi_type=next(iter(phi_types))) if len(phi_types) == 1
+           else masked_tag_heterogeneous())
+    return _Union(start=start, end=end, tag=tag, phi_types=phi_types)
+
+
+def mask_document(document: Document, spans: Sequence) -> MaskedDocument:
+    """The Auditor's input: this document with every detected span replaced by its tag.
+
+    **Contains corpus text, and more of it than anything else here** — DESIGN §3 puts the
+    masked dev fold at about 40× §1.4's window, and most of the identifiers in it are
+    *unmasked*, because unmasked is what "leaked" means. Returns a `FilledPrompt` inside a
+    `MaskedDocument`, never a `str`, writes nothing, and quotes nothing in any message. It
+    is the §1.2 block rather than a whole prompt, which is `render_window()`'s shape: the
+    call's other blocks are assembled by the driver.
+
+    `spans` are the arm's own predictions — the previous round's, for the loop
+    (`auditor.md` banner). **`document.spans` is never read**, and that is not a detail:
+    those are gold, and masking gold would hand the Auditor the answer it exists not to
+    have (DESIGN §3).
+
+    Applied **right-to-left** (DESIGN §3, `auditor.md` §1.2), and the consequence is the
+    one thing to be careful about here: the walk visits the last union first, so its
+    natural emission order is *descending*, which is the order `audit._check_tags` refuses.
+    The pieces are reversed once — reversed and not sorted, for the reason that check gives
+    for not sorting either. A reverse of a descending walk is provably ascending, and if
+    the walk were ever not monotone, `MaskedLine` raises; a sort would accept any order
+    forever and the defect would ship hidden.
+
+    No inference, so no error rate to measure: the extent is the union of what the arm
+    detected and the tag states a type only where the arm's own detectors agreed. It also
+    makes no decision about *which* types deserve masking — every prediction is masked,
+    including one the RuleAuthor may not act on, because a tag is a statement that
+    something was detected and not a statement that it mattered.
+    """
+    text = document.text
+    unions, pairs = _unions(spans, len(text))
+
+    # ── right to left ────────────────────────────────────────────────────────
+    chunks: list[str] = []          # masked text, suffix first
+    walk: list[_Piece] = []         # descending, with distances from the right
+    from_right = 0
+    cursor = len(text)
+    for union in reversed(unions):
+        kept = cursor - union.end
+        if kept:
+            chunks.append(text[union.end:cursor])
+            walk.append(_Piece(kept, union.end, cursor, False, from_right))
+            from_right += kept
+        chunks.append(union.tag)
+        walk.append(
+            _Piece(len(union.tag), union.start, union.end, True, from_right))
+        from_right += len(union.tag)
+        cursor = union.start
+    if cursor:
+        chunks.append(text[:cursor])
+        walk.append(_Piece(cursor, 0, cursor, False, from_right))
+        from_right += cursor
+
+    masked = "".join(reversed(chunks))
+    if from_right != len(masked):
+        raise PromptError(
+            f"the mask walk accounted for {from_right} characters and the masked text has "
+            f"{len(masked)}. Every column the Auditor returns is translated through those "
+            "distances, so a disagreement here makes each translated offset a plausible "
+            "wrong number rather than a failure."
+        )
+
+    # **The one reversal.** `walk` is descending because the application is right-to-left;
+    # every tag below is emitted from this list, so this is where ascending order comes
+    # from and `MaskedLine` is what refuses if it does not.
+    pieces = [(piece, len(masked) - piece.from_right - piece.length)
+              for piece in reversed(walk)]
+
+    # ── lines ────────────────────────────────────────────────────────────────
+    raw_lines = masked.split("\n")
+    line_starts: list[int] = []
+    at = 0
+    for raw in raw_lines:
+        line_starts.append(at)
+        at += len(raw) + 1
+
+    doc_offsets: list[int | None] = [None] * len(raw_lines)
+    line_tags: list[list[tuple[int, int, int, int]]] = [[] for _ in raw_lines]
+    index = 0
+    for piece, masked_start in pieces:
+        masked_end = masked_start + piece.length
+        while index < len(line_starts) and line_starts[index] < masked_end:
+            # A line starting inside this piece takes its document offset from it. Inside a
+            # tag that offset is the tag's own start: the tag replaced those characters, so
+            # every column on such a line is measured from where the replacement began.
+            inside = line_starts[index] - masked_start
+            doc_offsets[index] = piece.doc_start + (0 if piece.is_tag else inside)
+            index += 1
+        if piece.is_tag:
+            # `index - 1` is this tag's line: a tag holds no newline, so no line can start
+            # inside one, and the line it sits on was consumed either just now (a tag at
+            # column 0) or by an earlier piece.
+            line = index - 1
+            line_tags[line].append(
+                (masked_start - line_starts[line], piece.length,
+                 piece.doc_start, piece.doc_end))
+    while index < len(line_starts):
+        # Only a line start at the very end of the masked text can be left, and only
+        # because the document ends with a newline: the pieces tile [0, len(masked))
+        # contiguously, and a tag cannot end a line.
+        if line_starts[index] != len(masked):
+            raise PromptError(
+                f"line {index} starts at masked offset {line_starts[index]} and no piece "
+                f"of the masked text covers it ({len(masked)} characters, "
+                f"{len(pieces)} pieces). The coordinate map is incomplete, so the columns "
+                "on that line would translate to document offsets nothing stands at."
+            )
+        doc_offsets[index] = len(text)
+        index += 1
+
+    lines = tuple(
+        MaskedLine(length=len(raw), doc_offset=offset, tags=tuple(tags))
+        for raw, offset, tags in zip(raw_lines, doc_offsets, line_tags)
+    )
+
+    # ── the block ────────────────────────────────────────────────────────────
+    rendered = "\n".join(
+        f"{start:0{LINE_OFFSET_WIDTH}d}{LINE_SEPARATOR}{raw}"
+        for start, raw in zip(line_starts, raw_lines)
+    )
+    by_type: dict[str, int] = {}
+    for union in unions:
+        if not union.heterogeneous:
+            by_type[next(iter(union.phi_types))] = (
+                by_type.get(next(iter(union.phi_types)), 0) + 1)
+    return MaskedDocument(
+        doc_id=document.doc_id,
+        block=FilledPrompt(rendered, {
+            "block": "masked_document",
+            "doc_id": document.doc_id,
+            "corpus": document.corpus_id,
+            "n_input_spans": len(spans),
+            "n_lines": len(lines),
+            "n_tags": len(unions),
+            "n_heterogeneous_tags": sum(1 for u in unions if u.heterogeneous),
+            # Every pair that overlaps, which is what DESIGN §3 said it would measure once
+            # an arm predicts anything. `n_tags` below it is the count after unioning, so
+            # the two together say how much collapsing happened.
+            "n_overlapping_pairs": pairs,
+            "tags_by_phi_type": dict(sorted(by_type.items())),
+            "document_chars": len(text),
+            "masked_chars": len(masked),
+            # The rendered block, which is what was sent: the line prefixes are part of it.
+            # `masked_chars` beside it is the corpus-exposure number §3 quotes.
+            "text_chars": len(rendered),
+            "text_sha256": _digest(rendered),
+            "window_files": {name: file_hash(name) for name in WINDOW_FILES},
+        }),
+        lines=lines,
+    )

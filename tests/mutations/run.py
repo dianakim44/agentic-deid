@@ -3399,6 +3399,73 @@ MUTATIONS = [
         ),
         min_kills=1,
     ),
+    Mutation(
+        name="a_heterogeneous_union_prints_one_of_its_types",
+        path=PROMPT,
+        anchor=(
+            "    tag = (TAG_FORM.format(phi_type=next(iter(phi_types))) if len(phi_types) == 1\n"
+            "           else masked_tag_heterogeneous())"
+        ),
+        replacement="    tag = TAG_FORM.format(phi_type=sorted(phi_types)[0])",
+        breaks=(
+            "**The masker acquires a merge policy, and it is a well-formed one.** A union "
+            "whose spans disagreed now prints the alphabetically first type instead of the "
+            "tag that names none. Every downstream property still holds: the tag is "
+            "bracketed, the geometry is unchanged, `_check_tags` passes, the Auditor reads "
+            "it as a tag and does not flag it (`auditor.md` §1.2 — a tag is not a "
+            "candidate), and no offset moves. The masked text is *correct-looking* and one "
+            "component has silently started resolving overlaps.\n"
+            "\n"
+            "That is the failure DESIGN §3 was written before the masker existed to "
+            "prevent. `RuleSet.detect` preserves overlapping matches precisely so that merge "
+            "policy stays a replaceable strategy comparable on identical detections (§4, "
+            "§9.3); a policy baked in here runs inside every `port-loop` arm regardless of "
+            "the policy that arm was configured with, and the arm's record would not say so. "
+            "`sorted(...)[0]` is the shape the accident actually takes — not a considered "
+            "precedence order, just whichever type the implementation happened to reach "
+            "first.\n"
+            "\n"
+            "Caught by the tests that assert the heterogeneous tag prints and that it is "
+            "read from the config, and by the two count tests: `n_heterogeneous_tags` is "
+            "computed from `phi_types` and stays right, so what changes is the *text* while "
+            "the number that reports it does not — which is why both are asserted."
+        ),
+        min_kills=3,
+    ),
+    Mutation(
+        name="the_mask_tags_are_emitted_in_the_order_they_were_applied",
+        path=PROMPT,
+        anchor=(
+            "    pieces = [(piece, len(masked) - piece.from_right - piece.length)\n"
+            "              for piece in reversed(walk)]"
+        ),
+        replacement=(
+            "    pieces = [(piece, len(masked) - piece.from_right - piece.length)\n"
+            "              for piece in walk]"
+        ),
+        breaks=(
+            "**The one reversal is dropped, so the tags come out descending by column.** "
+            "The masker applies replacements right-to-left (DESIGN §3), so its natural "
+            "emission order is the reverse of the order `audit._check_tags` requires — the "
+            "point that check's docstring makes about why it refuses instead of sorting, "
+            "written before this module existed. This is that mistake.\n"
+            "\n"
+            "Every offset in the map is still correct; only the order is wrong. On a line "
+            "with one tag or none the output is byte-identical, which is most lines and "
+            "almost every small fixture — so this survives any test whose document has one "
+            "tag per line. Where two tags share a line, `MaskedLine.__post_init__` raises "
+            "`AuditError` and the masker fails loudly, which is the intended outcome: a "
+            "caller bug goes back to the caller rather than being repaired into a "
+            "double-counted column.\n"
+            "\n"
+            "Caught by the ordering test and by every round-trip over a two-tag line, and "
+            "guarded from the other side by "
+            "`test_the_masker_emits_more_than_one_tag_per_line_so_the_order_is_testable` — "
+            "without a fixture known to put two tags on one line, all of those pass on the "
+            "mutant and the check would be measuring nothing."
+        ),
+        min_kills=3,
+    ),
 ]
 
 COUNT_RE = re.compile(r"(\d+) (passed|failed|error|errors)")
