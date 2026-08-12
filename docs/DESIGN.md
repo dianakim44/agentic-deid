@@ -1188,12 +1188,46 @@ are the artefact and plumbing questions the two of those leave open.
   for and what `port-oneshot` could not exercise with one line. `sections_shown` on the freeze
   record describes the arm, and the per-iteration truth of which blocks were filled is the
   prompt's own `reference()` on each line.
-- **`paths.metrics` gains `{iteration}`.** δ/k is computed over the sequence of per-iteration
-  dev leak rates, so that sequence *is* the experimental record — and one `metrics.json` per
-  arm keeps only the last, reducing the arm to its final state. This is §5.3's argument about
-  rule files applied to scores, and the two must move together: a rule file at `iter3/` whose
-  score was overwritten is a rule set nobody can price. The un-iterated path stays valid for
-  the single-call arms, so the key is templated rather than replaced.
+- **The per-iteration score gets a second key, `paths.itermetrics` — not a widened
+  `paths.metrics`.** δ/k is computed over the sequence of per-iteration dev leak rates, so
+  that sequence *is* the experimental record, and one `metrics.json` per arm keeps only the
+  last, reducing the arm to its final state. This is §5.3's argument about rule files applied
+  to scores, and the two must move together: a rule file at `iter3/` whose score was
+  overwritten is a rule set nobody can price.
+
+  **The bullet this replaces said "`paths.metrics` gains `{iteration}`" and also "the
+  un-iterated path stays valid", and those two cannot both hold of one template.** A template
+  is either formatted with an `iteration` or it is not. Corrected on 2026-08-12, before
+  either was implemented, because the contradiction resolves in a direction with a
+  precedent: this is the fifth-path-component rejection of §4 and the
+  `armfreeze`/`humanfreeze` split of §6.3, arriving a third time. `port-oneshot-nofence`'s
+  `metrics.json` and `spans.jsonl` are **committed** at four axes deep. A widened key makes
+  them matched by no `ALLOW_PATTERNS` entry and unreachable from `metrics_path()` — and
+  migrating them is not open, for §4's reason: a relocated result would sit at a deeper path
+  while nothing in its content records the move.
+
+  So `paths.metrics` stays exactly as it is, at four axes, and is what an arm's **final**
+  score is written to by every arm including `port-loop`. `paths.itermetrics` adds
+  `iter{iteration}/` beneath the same directory, in `armrules`'s shape and for its reason —
+  `{iteration}` a directory rather than a filename suffix (§5.3) — and only the iterating
+  arms write it. The end state of `port-loop` is therefore readable at the same path as every
+  other rung, which is what makes the ladder's table a table, and its history is beside it.
+
+  **The duplication is deliberate and it is the cheaper error.** The final iteration's
+  score exists twice, at `iterN/metrics.json` and at `metrics.json`. The alternative — final
+  score only at `iterN/` — makes reading any arm's headline number a directory listing plus a
+  max, which is the filename-parsing objection of §5.3 relocated rather than answered, and it
+  makes the un-iterated arms and `port-loop` incomparable at the path layer for a reason that
+  has nothing to do with either. Two identical files whose `termination` blocks agree are
+  checkable; a headline that has to be computed is not. `run_fold` writes both from one
+  scoring pass, so they cannot disagree by construction.
+
+  **Both keys carry the same `ALLOW_PATTERNS` treatment,** since both hold what
+  `metrics.json` holds — offsets, types and scores — and the screener's existing entry is
+  widened to reach the iteration-scoped path in the commit that declares the key. That is the
+  same coupling §5.3 fixed for `armrules`: a path declared in one commit and screened in a
+  later one is a path that goes unscreened in between, and unscreened here means the file
+  passes without the check ever running.
 - **The loop driver is a new module, not a widened `orchestrate.py`.** That file's
   `PORTING = "port-oneshot"` and `ITERATION = 1` are module-level constants and its
   `run_arm()` is one call from start to finish. Widening it would put both arms' control flow
