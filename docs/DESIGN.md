@@ -156,7 +156,7 @@ becomes out of scope.
 consecutive iterations, or the call budget is exhausted. Never "until it looks
 good enough".
 
-#### The termination rule, pre-registered — δ = 0.005, k = 2, ceiling = 8 iterations (2026-08-12)
+#### The termination rule, pre-registered — δ = `max(0.005, 26/n_dev)`, k = 2, ceiling = 8 iterations (2026-08-12)
 
 **Pre-registered before `port-loop`'s first call, and that timing is the whole point.** δ
 and k decide how many iterations the arm runs, hence its cost, hence whether it clears
@@ -195,22 +195,132 @@ upward, not from any observed value:
   fold (`splits/es-meddocan.json`: 5,254 in-scope gold spans). A δ at or below that is
   meaningless — every iteration that moves one span clears it — so the floor sets a hard
   lower bound and δ must be some multiple of it.
-- **δ = 0.005 is ~26 spans.** The multiple is chosen so that "improved" means *a pattern was
-  found*, not *a span was memorised*: Prohibition 2 and §9.4 both turn on the difference
-  between a rule that generalises and a rule written from one or two examples, and a
-  threshold in the low single-digit spans would score the memorised rule as progress. 26
-  spans on a 250-document fold is about a tenth of a span per document — small enough that a
-  genuinely productive iteration clears it easily, large enough that clearing it is not
-  achievable by enumeration within one 40-span window.
-- **It survives a smaller corpus.** The δ has to be one number across corpora or the arms
-  are not comparable, and dev folds elsewhere will be smaller. At 1,000 in-scope spans
-  δ = 0.005 is 5 spans, which is still above that fold's own 0.1-point noise floor. Below
-  about 500 spans the two collide, and a corpus that small needs a recorded exception rather
-  than a silently different rule.
+- **δ = 0.005 is ~26 spans, which is 26× the noise floor.** The multiple is chosen so that
+  "improved" means *a measurable amount of gold moved*, not *the fold twitched*: a threshold
+  in the low single-digit spans would let ordinary iteration-to-iteration variation read as
+  progress. 26 spans on a 250-document fold is about a tenth of a span per document — small
+  enough that a genuinely productive iteration clears it easily, far enough above one span
+  that clearing it is a statement about the fold rather than about the draw.
+- **Correction — δ is not, and cannot be, the guard against memorisation.** As first written
+  this bullet claimed 26 spans was "large enough that clearing it is not achievable by
+  enumeration within one 40-span window". That is false, including on the corpus it was
+  derived from: the §1.4 window is **40 spans on every corpus**, so an iteration that wrote
+  one rule per span it had just been shown would move `40/5254` = **0.76 percentage points**
+  on es-meddocan, which clears δ = 0.005 with room to spare. Memorisation-proofing would
+  require δ > `40/n_dev` — 0.0076 here, and **12.3 points** on a 1,297-span fold, a
+  threshold no honest iteration could ever clear. The guard against memorisation is
+  Prohibition 2 and §9.4's screening of rule *shape*, which is where it belongs; δ's job is
+  only to sit clear of the measurement floor. The rest of the derivation is unaffected —
+  0.005 was fixed by the floor, not by this clause — but the clause was load-bearing in the
+  wrong direction and would have been carried into the per-corpus rule below.
+- **Smaller dev folds get a larger δ by formula, not by exception.** The δ has to be
+  *derived the same way* across corpora or the arms are not comparable, which is not the
+  same as being the same number: a fixed 0.005 collides with the noise floor of any fold
+  under about 500 spans. The rule is therefore `δ_corpus = max(0.005, 26/n_dev)`, specified
+  immediately below.
 - **It is not tuned to a leak-rate level.** 0.005 is a distance, and the same distance is
   demanded of an iteration moving from 0.60 to 0.595 as from 0.20 to 0.195. That is the
   intended reading: the rule asks whether the loop is still finding things, not whether it
   has reached anywhere in particular.
+
+#### δ is per-corpus: `δ_corpus = max(0.005, 26 / n_dev)` — pre-registered 2026-08-12
+
+**The problem, computed before any arm ran on the corpus that has it.** GraSCCo ships 1,436
+gold entities over 63 documents, of which 139 `NAME_TITLE` are out of scope (§9.1), leaving
+**1,297 in-scope canonical spans**. A dev fold is a fraction of that, so δ = 0.005 there is
+**1.62 spans** at a 25% dev fraction — below the two-span mark, i.e. inside the fold's own
+noise. Any dev fraction up to about 38% leaves the fold under 500 spans, which is exactly the
+collision the derivation above flagged as needing a recorded exception. It is recorded **now**,
+before `de-grascco`'s split exists and long before its first call, because deciding it when
+that arm runs would be choosing a stopping rule with that arm's numbers in view — the same
+post-hoc selection §11.3 and the block above exist to prevent.
+
+**The rule.** For every corpus, `δ_corpus = max(0.005, 26 / n_dev)`, where `n_dev` is the
+in-scope canonical gold span count of that corpus's dev fold as recorded in
+`splits/{corpus}.json` (`folds.dev.n_spans_in_scope`). The floor branch binds above
+`n_dev` = 5,200; the ratio branch binds below it.
+
+| Corpus | `n_dev` | δ_corpus | as pp | as spans |
+|--------|---------|----------|-------|----------|
+| es-meddocan | 5,254 (`splits/es-meddocan.json`) | **0.005** (floor branch) | 0.50 | 26.3 |
+| de-grascco | 324 (25% of 1,297) | **0.0802** | 8.02 | 26.0 |
+| de-grascco | 432 (⅓) | **0.0602** | 6.02 | 26.0 |
+| de-grascco | 519 (40%) | **0.0501** | 5.01 | 26.0 |
+| de-grascco | 648 (50%) | **0.0401** | 4.01 | 26.0 |
+| es-carmen · ko-surro · en-n2c2 | not yet split | computed at split time | — | 26.0 |
+
+**de-grascco appears at four fractions because its split does not exist yet, and the fraction
+is not this block's decision.** Nothing in this document or `src/split.py` fixes fold
+proportions — es-meddocan's came from that corpus's own official split, adopted unchanged
+(`splits/es-meddocan.json`: `seed: None`, `stratification: None`). Whichever fraction the
+GraSCCo split takes, δ follows from the formula, and **the binding value is the one computed
+from the split file, not a number chosen alongside it.** The rows above are the formula
+evaluated in advance so that no fraction can later be picked for the δ it produces. The same
+holds for es-carmen, ko-surro and en-n2c2: their δ is computed **at split time** from
+`n_spans_in_scope`, recorded in the run's `metrics.json` beside the leak rate, and not
+selected.
+
+**26 spans is the invariant; the rate is the derived value.** Every ratio-branch row above
+lands on exactly 26.0 spans — that is the point of the formula rather than a coincidence of
+the numbers. The standard being held constant across corpora is *how much gold has to move
+for an iteration to count as productive*, and that is a count. A rate is that count divided
+by a fold size, so a fold five times smaller must show a rate five times larger to represent
+the same amount of found PHI. **A single fixed rate would be the thing that wobbles**: it
+would silently demand 26 spans on one corpus and 1.6 on another, i.e. a strict standard on
+the large fold and no standard at all on the small one. The per-corpus rates differ because
+the folds differ, not because the criterion does.
+
+**Where 26 comes from, restated because the formula hides it.** 26 is not an independent
+quantity. It is `0.005 × 5254` — δ = 0.005 evaluated on **es-meddocan's dev fold** — so the
+formula has that corpus baked in as its reference fold, and this must be acknowledged rather
+than presented as a derivation from first principles. **A different reference would not have
+given 26.** Had the ladder started on GraSCCo, the same reasoning (some tens of times the
+one-span noise floor, small enough that a productive iteration clears it) would plausibly have
+produced a different count, and every other corpus's δ would differ accordingly. What is
+defensible is narrower than "26 is the right number": es-meddocan is the corpus whose split
+was fixed first and whose derivation was done from its measured noise floor, so it is the one
+fold on which the count has an argument behind it, and holding the count constant from there
+is at least a *stated* choice with a traceable origin. The alternative — re-deriving a fresh
+count per corpus — would let each corpus's threshold be chosen with that corpus in view,
+which is the failure mode this whole block guards against. **The floor branch is the second
+place the reference shows through:** `max(0.005, …)` keeps 0.005 from shrinking on folds
+larger than 5,200, because below the noise-floor argument there is nothing left to justify a
+smaller distance.
+
+**k = 2 and the ceiling of 8 stay corpus-independent, and only δ is per-corpus because only
+δ has a fold size in its denominator.** k counts consecutive draws of the §1.4 error sample,
+which is 40 spans on every corpus (`config/sampling.yaml: n_error_spans`) — the sampling
+variance k is meant to average over does not change with `n_dev`, so neither does k. The
+ceiling is derived from cost (tokens per iteration against the call budget), and cost per
+iteration is a property of the prompt and the masked fold, not of the gold count. δ alone
+converts a span count into a rate, and a rate is the one quantity here that fold size can
+distort.
+
+**Three alternatives rejected, recorded so the choice is not re-opened as if it were open.**
+
+- **Terminate on a span count directly** ("fewer than 26 newly-covered spans for k
+  iterations"). Substantively identical — it is the same invariant stated in its own unit,
+  and arguably the more honest statement of it. Rejected on blast radius rather than on
+  substance: the termination rule is written in leak-rate terms in §3, referenced in those
+  terms by §11.3, and `metrics.json` reports a leak rate, so switching units moves the spec,
+  the cross-reference and the recorded fields together, for a result obtainable with no spec
+  change at all. `max(0.005, 26/n)` yields the span-count criterion exactly, in the unit
+  everything downstream already speaks.
+- **Give GraSCCo a larger dev fraction so 0.005 stays viable.** Reaching 26 spans at
+  δ = 0.005 needs `n_dev` ≥ 5,200, which GraSCCo cannot supply at any fraction — 1,297 spans
+  in total. Even setting that aside, `splits/{corpus}.json` is a **shared schema read by one
+  loader**, and one corpus at a different ratio means a smaller test fold on the corpus that
+  singly carries the document-type axis, weakening the evaluation the split exists to
+  protect. Bending the split to preserve a threshold's numeral inverts the dependency: the
+  split is the measurement apparatus and δ is a parameter of the stopping rule.
+- **Do not run `port-loop` on GraSCCo.** The cheapest option and the most damaging.
+  GraSCCo **alone** carries the note-type axis (§7 — 63 documents across radiology,
+  pathology, outpatient, progress and discharge material), and German is the **only filled
+  cell** in §7's language × note-type product hypothesis. Dropping it leaves the whole ladder
+  standing on Spanish, so "the port generalises across languages and note types" would rest
+  on es-meddocan and es-carmen — one language, and CARMEN-I explicitly does not supply the
+  note-type axis either (§7). A missing arm would not be a smaller claim; it would be the
+  claim with its evidence removed.
 
 **k = 2 consecutive iterations.** One below-δ iteration is not evidence of convergence — the
 error sample is a seeded draw of 40 spans stratified by type (§1.4 of the prompt), so a
@@ -262,8 +372,13 @@ beside the leak rate. **What it does not:** a claim that δ = 0.005 is where ret
 diminish. It is a threshold chosen from a measurement floor and a cost structure, which is
 the best available basis before the arm has run and is not the same as a measured
 inflection point. If a later corpus shows the rule stopping arms that were still improving
-steeply, that is a finding to report — not a value to retune mid-ladder, since a δ changed
-between rungs makes the rungs incomparable exactly as a mid-ladder model change would (§4).
+steeply, that is a finding to report — not a value to retune mid-ladder. **"Fixed" means the
+formula and its 26-span invariant are fixed, not that every arm sees the same numeral:** δ
+varies across corpora by `max(0.005, 26/n_dev)` and only by that, so two rungs on the same
+corpus always face the same threshold, and a rung on a smaller corpus faces the same
+underlying standard expressed in its own fold's units. Editing the 26, the floor, or a
+corpus's δ by hand after a run makes the rungs incomparable exactly as a mid-ladder model
+change would (§4).
 
 ### Span provenance
 
