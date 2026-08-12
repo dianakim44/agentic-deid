@@ -26,19 +26,22 @@ figure leads is recorded in the `headline` block and decided by the reporting la
 Per-rule attribution (`by_rule`) is computed here rather than joined on afterwards,
 for the reason DESIGN §9.3 records: a join outside the scorer needs its own copy of
 the matching, and the moment the two copies disagree there are two answers to "which
-rule fired" with nothing to say which is right.
+rule fired" with nothing to say which is right. `error_spans()` is the same argument
+applied to the per-span error list an iterating arm draws its next window from — it is
+here, beside the matchings, and not in the loop driver.
 
 Usage:
 
     pairs, excluded = from_documents(docs, predictions)
     scored = score(pairs, excluded_gold=excluded)
     write_metrics(scored, run={...}, cost={...})
+    errors = error_spans(pairs)      # iterating arms only; `run_fold` writes them
 """
 from __future__ import annotations
 
 import json
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Iterable, Mapping, Sequence
 
@@ -46,6 +49,22 @@ from ..corpora.base import (
     ROOT, axis, check_termination_reason, family_of, layer_families, model_id_absent,
     naming,
 )
+#: `ErrorSpan` and the two error kinds, from the module that defines them. Imported
+#: rather than re-spelled, and the direction is deliberate: this module *produces* errors
+#: and `src/sample.py` consumes them, while the vocabulary is declared there ("fixed here
+#: so a caller cannot introduce a third kind"). A `"missed"` written as a literal in this
+#: file would be a second definition site of a closed vocabulary, which is the rule
+#: CLAUDE.md states for `naming.yaml` values applied to one that is deliberately not in it.
+#:
+#: The type, not a dict, for the reason `Mark` has no `surface` field: `ErrorSpan` cannot
+#: hold a surface form, and the export is what an iterating arm's prompt window is built
+#: from. A mapping with the same six keys would put that guarantee back in the hands of
+#: whoever writes the next writer.
+#:
+#: This does not make the scorer arm-aware. `sample` is the *procedure* both arms share
+#: (DESIGN §11.1), nothing here calls its config, and no function in this module knows
+#: which arm asked.
+from ..sample import FALSE_POSITIVE, MISSED, ErrorSpan
 
 #: Bumped when the meaning of an output field changes, so a results directory holding
 #: two versions is detectable rather than silently mixed.
@@ -91,6 +110,23 @@ HEADLINE_MODE = {
     "recall": RELAXED,
     "f1": RELAXED,
 }
+
+#: Which mode each half of `error_spans()` is read from, **derived from `HEADLINE_MODE`
+#: rather than written down**. An iterating arm is trying to move two numbers — the leak
+#: rate and precision — and the errors it is shown at the next round have to be the errors
+#: those two numbers are made of. Spelling the two modes as literals here would let the
+#: headline choice move (it is the reporting layer's, per this module's docstring) while
+#: the window kept showing the old one, and the symptom would be an arm optimising
+#: something nobody reports.
+#:
+#: `missed` is therefore the `fully_covered` leak set, which is what
+#: `docs/prompts/rule_author.md` §1.4 already tells the author it is ("missed = leaked
+#: under fully_covered"), and what DESIGN §3's stopping rule is computed on. `false_positive`
+#: is the `relaxed` assignment's unmatched predictions: under `fully_covered` a prediction
+#: that covers most of a gold span is unmatched and would be shown to an author as a false
+#: positive, while the precision figure that gets published counts it as a hit.
+ERROR_MODE = {MISSED: HEADLINE_MODE["leak_rate"],
+              FALSE_POSITIVE: HEADLINE_MODE["precision"]}
 
 #: The components of `paths.metrics`, in the template's own order. Each is an axis
 #: value and each is validated against its axis, because a typo here mints a directory
@@ -227,6 +263,23 @@ class Mark:
     (DESIGN §5.2) and an unprefixed `doctor_prefix` from each would land in one
     `by_rule` bucket — two rules' counts added together with nothing in the output
     saying so.
+
+    `span_index` is the span's position **in the list it arrived in** — the document's own
+    `Span` list for a gold mark, the document's prediction list for a predicted one. It is
+    the reference DESIGN §11.2 fixes, and it is a field rather than something a caller
+    recovers by enumeration because the information is destroyed at this boundary: gold
+    marks are the *in-scope* subset (§9.1), so a position in `DocPair.gold` is not a
+    position in `Document.spans` for any document holding an excluded span before an
+    in-scope one — and MEDDOCAN's excluded types are common enough that the two disagree
+    on most documents. `src.porting.human_arm.initial_error_pool` produces the same
+    reference for iteration 1 by enumerating the unfiltered list; the two producers have to
+    mean one thing by `(doc_id, span_index)` or an iteration-4 reference resolves to the
+    wrong span in anyone's hands.
+
+    None when nothing filled it — a mark built directly rather than through
+    `from_documents`. Every number in this module is computable without it, so it is
+    optional here and *required* by `error_spans()`, which is the one consumer that
+    exports references (see its message). It is an integer and never text.
     """
 
     start: int
@@ -234,6 +287,7 @@ class Mark:
     phi_type: str
     layer: str | None = None
     rule_id: str | None = None
+    span_index: int | None = None
 
     def __post_init__(self) -> None:
         if self.end <= self.start:
@@ -250,6 +304,19 @@ class Mark:
             raise ScorerError(
                 f"{self.layer!r} is not a layer in config/naming.yaml "
                 f"(have: {sorted(axis('layer'))})"
+            )
+        if self.span_index is not None and (
+            not isinstance(self.span_index, int) or isinstance(self.span_index, bool)
+            or self.span_index < 0
+        ):
+            # A position in a list, checked for what a position can be. `True` is refused
+            # explicitly: it is an `int` in Python and it would index element 1 of every
+            # document, which resolves to a real span and to the wrong one.
+            raise ScorerError(
+                f"span_index must be a non-negative integer or None, got "
+                f"{self.span_index!r}. It is a reference into a document's own span list "
+                "(DESIGN §11.2) and is resolved by whoever holds the corpus, so a value "
+                "that indexes the wrong element is wrong silently."
             )
         self._check_rule_id()
 
@@ -307,20 +374,34 @@ class DocPair:
     pred: tuple[Mark, ...] = ()
 
 
-def _mark(obj) -> Mark:
+def _mark(obj, span_index: int | None = None) -> Mark:
     """Adapt anything with the four attributes into a Mark.
 
     Accepts `corpora.base.Span`, which *does* carry a surface — and drops it here.
     That is the point of the conversion: the surface stops existing at the scorer
     boundary rather than being carried along unused.
+
+    `span_index` is supplied by the caller and never read off `obj`, because a `Span` does
+    not know where in its document's list it sits — the position is the caller's knowledge
+    and this is the only point where it is still available.
+
+    **A `Mark` that arrives already carrying an index has it replaced, not kept.** The
+    caller is `from_documents`, which is reading the list the index refers to; an index
+    already on the object came from some other list, and the two cannot both be the
+    reference §11.2 fixes. Passing the object through unchanged was the first
+    implementation and it made the field silently absent for every caller that builds
+    `Mark`s rather than `Span`s — which is the test suites, so the export's own tests would
+    have run on two hand-built documents.
     """
     if isinstance(obj, Mark):
-        return obj
+        return obj if obj.span_index == span_index else replace(
+            obj, span_index=span_index)
     try:
         return Mark(
             start=obj.start, end=obj.end, phi_type=obj.phi_type,
             layer=getattr(obj, "layer", None),
             rule_id=getattr(obj, "rule_id", None),
+            span_index=span_index,
         )
     except AttributeError as exc:
         raise ScorerError(
@@ -346,17 +427,25 @@ def from_documents(
     A document with no predictions is a document with no predictions — absent from
     the mapping and present in the output with an empty tuple. Not an error: a
     detector that finds nothing in a note is a result.
+
+    **Each mark carries its position in the list it came from** (`Mark.span_index`), and
+    for gold that is the position in `doc.spans` — the unfiltered list, counting the
+    excluded spans this function is dropping. The filtered position is the one that is easy
+    to produce here and it is the wrong referent: `initial_error_pool()` enumerates the
+    unfiltered list for iteration 1, so a filtered index would make iteration 1 and
+    iteration 4 mean different things by `(doc_id, span_index)` while both looked correct.
     """
     pairs: list[DocPair] = []
     excluded = 0
     for doc in docs:
         gold = []
-        for span in doc.spans:
+        for i, span in enumerate(doc.spans):
             if not span.in_scope:
                 excluded += 1
                 continue
-            gold.append(_mark(span))
-        pred = tuple(_mark(p) for p in predictions.get(doc.doc_id, ()))
+            gold.append(_mark(span, i))
+        pred = tuple(_mark(p, i)
+                     for i, p in enumerate(predictions.get(doc.doc_id, ())))
         pairs.append(DocPair(doc_id=doc.doc_id, gold=tuple(gold), pred=pred))
     return pairs, excluded
 
@@ -566,7 +655,16 @@ def _rule_tally(
 
 @dataclass(frozen=True, slots=True)
 class _GoldRecord:
-    """One gold span's verdict under one mode. The unit everything aggregates from."""
+    """One gold span's verdict under one mode. The unit everything aggregates from.
+
+    `span_index`, `start` and `end` are carried so that `error_spans()` reads its
+    references off *these* records rather than re-deriving them from a second pass over
+    the pairs. Nothing in the aggregation uses the three, and that is the point: DESIGN
+    §9.3's rule is that the matching is computed once, so the object that holds a verdict
+    also has to hold enough to say which span the verdict is about. A caller that had the
+    verdict and had to look the span up would be joining on the scorer's output, and a
+    join is where the second matching gets written.
+    """
 
     doc_id: str
     phi_type: str
@@ -574,6 +672,9 @@ class _GoldRecord:
     matched: bool                   # assignment matching
     families: frozenset[str]        # families whose own union covers it
     layers: frozenset[str]          # layers whose own union covers it
+    span_index: int | None          # position in the document's own span list (§11.2)
+    start: int
+    end: int
 
 
 def _f1(precision: float, recall: float) -> float:
@@ -593,13 +694,27 @@ def _prf(tp: int, fp: int, fn: int) -> dict:
 
 def _records(
     pairs: Sequence[DocPair], mode: str
-) -> tuple[list[_GoldRecord], dict, int, dict]:
-    """Per-gold verdicts, per-type FPs, duplicate count and per-rule tally, one mode."""
+) -> tuple[list[_GoldRecord], dict, int, dict, list[tuple[str, Mark]]]:
+    """Per-gold verdicts, per-type FPs, duplicate count, per-rule tally, FP marks. One mode.
+
+    The last element is what `error_spans()` needs and no aggregate can supply: *which*
+    predictions were unmatched, not how many. It is produced here, from this loop's own
+    assignment result, for DESIGN §9.3's reason — the alternative is a caller that re-runs
+    `assign()` to find out, and two copies of a matching are two matchings.
+
+    The marks are the **deduplicated** predictions (`dedupe`), so two rules emitting the
+    byte-identical span contribute one false positive and one entry here. `span_index` on a
+    surviving mark is the first-kept copy's position, which is a real reference into the
+    document's prediction list; the collapsed copy's position is not recorded because the
+    two name one span, and showing an author the same span twice in a 40-span window would
+    spend two slots on one error.
+    """
     families = layer_families()
     records: list[_GoldRecord] = []
     fp_by_type: dict[str, int] = {}
     duplicates = 0
     by_rule: dict[str, dict] = {}
+    fp_marks: list[tuple[str, Mark]] = []
 
     for pair in pairs:
         cov = coverage(pair.gold, pair.pred, mode)
@@ -612,6 +727,7 @@ def _records(
         for pi in fp:
             key = distinct[pi].phi_type
             fp_by_type[key] = fp_by_type.get(key, 0) + 1
+            fp_marks.append((pair.doc_id, distinct[pi]))
 
         # Per-rule attribution rides on the same assignment result — it is not a
         # second matching and there is no join outside this loop (DESIGN §9.3).
@@ -649,8 +765,11 @@ def _records(
                 doc_id=pair.doc_id, phi_type=g.phi_type,
                 covered=cov[gi], matched=gi in matched,
                 families=fams, layers=layers,
+                # `g.span_index`, not `gi`. `gi` is the position in the in-scope subset and
+                # the reference is into the document's own list — see `from_documents`.
+                span_index=g.span_index, start=g.start, end=g.end,
             ))
-    return records, fp_by_type, duplicates, by_rule
+    return records, fp_by_type, duplicates, by_rule, fp_marks
 
 
 def _complementarity(records: Sequence[_GoldRecord]) -> dict:
@@ -821,16 +940,13 @@ def _mean(values: Iterable[float]) -> float | None:
     return sum(vals) / len(vals) if vals else None
 
 
-def score(pairs: Sequence[DocPair], *, excluded_gold: int = 0) -> dict:
-    """The metrics block: counts, headline, and both modes in full.
+def _check_layers(pairs: Sequence[DocPair]) -> None:
+    """Every predicted span carries its provenance layer (DESIGN §3).
 
-    Pure and deterministic. No agent is called, no file is read beyond
-    `config/naming.yaml`, and the result depends on the input spans only — not on
-    their order (see `assign`).
-
-    `excluded_gold` is the §9.1 volume from `from_documents`. Passed in rather than
-    recomputed because by this point the excluded spans are gone, and a number that
-    cannot be recomputed is a number that has to be carried.
+    Factored out of `score()` when `error_spans()` arrived, so the two entry points check
+    the same precondition rather than one of them relying on the other having been called.
+    `error_spans()` needs it for a reason of its own: it runs `_records()`, which groups
+    predictions by layer, and a `None` layer there falls silently into no group.
     """
     for pair in pairs:
         for p in pair.pred:
@@ -842,9 +958,29 @@ def score(pairs: Sequence[DocPair], *, excluded_gold: int = 0) -> dict:
                     "breakdown has nowhere to put the span."
                 )
 
+
+def score(pairs: Sequence[DocPair], *, excluded_gold: int = 0) -> dict:
+    """The metrics block: counts, headline, and both modes in full.
+
+    Pure and deterministic. No agent is called, no file is read beyond
+    `config/naming.yaml`, and the result depends on the input spans only — not on
+    their order (see `assign`).
+
+    `excluded_gold` is the §9.1 volume from `from_documents`. Passed in rather than
+    recomputed because by this point the excluded spans are gone, and a number that
+    cannot be recomputed is a number that has to be carried.
+
+    **The return is `metrics.json`'s content and is deliberately not widened.** The
+    per-span error list an iterating arm needs comes from `error_spans()` instead
+    (DESIGN §5.5): put here, a list of the positions of every missed identifier in the fold
+    would be published by every arm that scores, on every corpus, as a permanent by-product
+    of a feature only the iterating arms use.
+    """
+    _check_layers(pairs)
+
     modes = {}
     for mode in MODES:
-        records, fp_by_type, duplicates, by_rule = _records(pairs, mode)
+        records, fp_by_type, duplicates, by_rule, _fp_marks = _records(pairs, mode)
         modes[mode] = _mode_block(records, fp_by_type, pairs, duplicates, by_rule)
 
     gold_total = sum(len(p.gold) for p in pairs)
@@ -889,6 +1025,62 @@ def score(pairs: Sequence[DocPair], *, excluded_gold: int = 0) -> dict:
             "predictions_in_those_documents": sum(len(p.pred) for p in no_gold),
         },
     }
+
+
+def error_spans(pairs: Sequence[DocPair]) -> list[ErrorSpan]:
+    """Every error as an `ErrorSpan`, from the same matchings the metrics came from.
+
+    The per-span half of what `score()` aggregates, and the input an iterating arm's next
+    window is drawn from (`src.sample.draw`, `docs/prompts/rule_author.md` §1.4). Returned
+    as data and written by nobody here — `run_fold` owns the write, which is where DESIGN
+    §5.0 already puts the decision about what closing an arm produces.
+
+    **`missed` is the coverage verdict and `false_positive` is the assignment verdict**
+    (`ERROR_MODE`, derived from `HEADLINE_MODE`). A missed span is one the union of
+    same-type predictions did not cover under `fully_covered` — a *leak*, which is the
+    number §3's stopping rule watches and what §1.4 promises the author the word means. It
+    is emphatically not "the assignment found no partner for it": `assignment_slack` counts
+    the gold spans that are covered and unmatched, and every one of those is an identifier
+    that is hidden. Shown to a rule author as missed, each would ask for a rule against
+    text that is already masked, and the arm would spend its iterations moving a number
+    nobody publishes as the headline.
+
+    **This is inside the scorer and not in the loop driver** (DESIGN §9.3). Computing the
+    verdicts outside would need a second copy of both matchings, and a merge policy is
+    scored on precisely the difference between "one wide prediction" and "two adjacent
+    ones" — a recomputation that got either matching subtly different would make every
+    merge policy score the same, which is the whole comparison of §4.
+
+    `span_index` is required on every mark this touches, and refused rather than defaulted:
+    an `ErrorSpan` whose index is a guess is a reference that resolves, in the corpus
+    holder's hands, to the wrong span. Build pairs with `from_documents`, which fills it.
+
+    No text, by construction twice over — `Mark` has no surface field and neither does
+    `ErrorSpan`. Sorted by `ErrorSpan.key` so two runs over the same fold produce the same
+    list, for the reason `write_spans` sorts: stability that comes from an upstream
+    iteration order is not stability.
+    """
+    _check_layers(pairs)
+    out: list[ErrorSpan] = []
+    for kind, mode in ERROR_MODE.items():
+        records, _fp_by_type, _dupes, _by_rule, fp_marks = _records(pairs, mode)
+        source = ([(r.doc_id, r) for r in records if not r.covered]
+                  if kind == MISSED else fp_marks)
+        for doc_id, item in source:
+            if item.span_index is None:
+                raise ScorerError(
+                    f"{doc_id}: a {kind} span at [{item.start}, {item.end}) has no "
+                    "span_index, so it cannot be exported as a reference (DESIGN §11.2). "
+                    "`from_documents` fills it from the document's own span list; a Mark "
+                    "built directly carries None and there is nothing here to substitute "
+                    "— an index guessed from position in the in-scope subset resolves to a "
+                    "real span and to the wrong one."
+                )
+            out.append(ErrorSpan(
+                doc_id=doc_id, span_index=item.span_index, phi_type=item.phi_type,
+                kind=kind, start=item.start, end=item.end,
+            ))
+    return sorted(out, key=lambda e: e.key)
 
 
 # ─── output ─────────────────────────────────────────────────────────────────

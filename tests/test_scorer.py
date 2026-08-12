@@ -42,6 +42,7 @@ from __future__ import annotations
 
 import json
 import random
+import re
 from pathlib import Path
 
 import pytest
@@ -57,11 +58,13 @@ from src.eval.scorer import (
     assign,
     coverage,
     dedupe,
+    error_spans,
     from_documents,
     metrics_path,
     score,
     write_metrics,
 )
+from src.sample import FALSE_POSITIVE, MISSED, ErrorSpan
 
 # ─── fixtures ───────────────────────────────────────────────────────────────
 
@@ -76,43 +79,54 @@ GAZ = "es:area_gazetteer"
 AGE_RULE = "es:age_cue"
 RULE_IDS = {CUE, DATE_RULE, ID_RULE, GAZ, AGE_RULE}
 
+#: Every fixture mark carries its `span_index` — the position in the list it would have
+#: arrived in, as `from_documents` fills it. Written out rather than left None because
+#: `error_spans()` requires it (a reference that resolves to the wrong span is wrong
+#: silently), and a fixture corpus that could not be exported would make the export tests
+#: run on two hand-built documents instead of on the eight cases the rest of this file is
+#: built from. Nothing in `score()` reads the field; the aggregate assertions below are
+#: unchanged by its presence, which `test_the_index_does_not_enter_any_metric` asserts.
 D1 = DocPair(
     doc_id="adjacent-gold-one-wide-pred",
-    gold=(Mark(0, 4, "NAME"), Mark(5, 10, "NAME")),
-    pred=(Mark(0, 10, "NAME", "tagger"),),
+    gold=(Mark(0, 4, "NAME", span_index=0), Mark(5, 10, "NAME", span_index=1)),
+    pred=(Mark(0, 10, "NAME", "tagger", span_index=0),),
 )
 D2 = DocPair(
     doc_id="one-gold-split-by-two-preds",
-    gold=(Mark(0, 10, "NAME"),),
+    gold=(Mark(0, 10, "NAME", span_index=0),),
     # Contiguous, not overlapping: 0-4 and 4-10 leave no uncovered character.
-    pred=(Mark(0, 4, "NAME", "context_cue", CUE), Mark(4, 10, "NAME", "tagger")),
+    pred=(Mark(0, 4, "NAME", "context_cue", CUE, span_index=0),
+          Mark(4, 10, "NAME", "tagger", span_index=1)),
 )
 D3 = DocPair(
     doc_id="partial-overlap-both-ways",
-    gold=(Mark(100, 110, "DATE"), Mark(200, 210, "ID")),
-    pred=(Mark(105, 115, "DATE", "regex_checksum", DATE_RULE),
-          Mark(195, 205, "ID", "regex_checksum", ID_RULE)),
+    gold=(Mark(100, 110, "DATE", span_index=0), Mark(200, 210, "ID", span_index=1)),
+    pred=(Mark(105, 115, "DATE", "regex_checksum", DATE_RULE, span_index=0),
+          Mark(195, 205, "ID", "regex_checksum", ID_RULE, span_index=1)),
 )
 D4 = DocPair(
     doc_id="layers-agree",
-    gold=(Mark(0, 5, "NAME"), Mark(10, 15, "NAME"), Mark(20, 25, "NAME")),
-    pred=(Mark(0, 5, "NAME", "context_cue", CUE),
-          Mark(10, 15, "NAME", "context_cue", CUE),
-          Mark(10, 15, "NAME", "tagger"),      # same span, second layer
-          Mark(20, 25, "NAME", "tagger")),
+    gold=(Mark(0, 5, "NAME", span_index=0), Mark(10, 15, "NAME", span_index=1),
+          Mark(20, 25, "NAME", span_index=2)),
+    pred=(Mark(0, 5, "NAME", "context_cue", CUE, span_index=0),
+          Mark(10, 15, "NAME", "context_cue", CUE, span_index=1),
+          # same span, second layer — index 2 of the prediction list
+          Mark(10, 15, "NAME", "tagger", span_index=2),
+          Mark(20, 25, "NAME", "tagger", span_index=3)),
 )
 D5 = DocPair(
     doc_id="type-mismatch",
-    gold=(Mark(0, 5, "NAME"),),
-    pred=(Mark(0, 5, "LOCATION_AREA", "gazetteer", GAZ),),
+    gold=(Mark(0, 5, "NAME", span_index=0),),
+    pred=(Mark(0, 5, "LOCATION_AREA", "gazetteer", GAZ, span_index=0),),
 )
 D6 = DocPair(
     doc_id="no-gold-with-preds",
     gold=(),
-    pred=(Mark(0, 5, "NAME", "tagger"),
-          Mark(10, 12, "AGE", "context_cue", AGE_RULE)),
+    pred=(Mark(0, 5, "NAME", "tagger", span_index=0),
+          Mark(10, 12, "AGE", "context_cue", AGE_RULE, span_index=1)),
 )
-D7 = DocPair(doc_id="gold-no-preds", gold=(Mark(0, 5, "PROFESSION"),), pred=())
+D7 = DocPair(doc_id="gold-no-preds", gold=(Mark(0, 5, "PROFESSION", span_index=0),),
+             pred=())
 D8 = DocPair(doc_id="no-gold-no-preds", gold=(), pred=())
 
 CORPUS = [D1, D2, D3, D4, D5, D6, D7, D8]
@@ -175,7 +189,7 @@ def test_from_documents_drops_the_surface_it_is_given():
     )
     pairs, excluded = from_documents([doc], {})
     assert excluded == 0
-    assert pairs[0].gold == (Mark(0, 4, "NAME"),)
+    assert pairs[0].gold == (Mark(0, 4, "NAME", span_index=0),)
     assert not hasattr(pairs[0].gold[0], "surface")
 
 
@@ -1110,6 +1124,263 @@ def test_from_documents_accepts_a_document_with_no_predictions():
     doc = Document(doc_id="d", corpus_id="es-meddocan", text="x" * 10)
     pairs, excluded = from_documents([doc], {})
     assert pairs == [DocPair("d", (), ())] and excluded == 0
+
+
+# ─── error_spans: the per-gold verdicts as references (DESIGN §5.5) ───────────
+#
+# The list an iterating arm's next window is drawn from. Everything here is about two
+# properties: which matching each verdict comes from, and that a reference means one thing.
+
+
+def test_error_spans_reports_the_leak_set_as_missed():
+    """`missed` is coverage under `fully_covered` — a leak. §1.4 promises the author that
+    word means exactly that, and §3's stopping rule watches the same number.
+
+    D3 is the case: two gold spans, each half-covered by an off-by-five prediction. Both
+    leak, and both predictions are also unmatched under the credit question.
+    """
+    errors = error_spans([D3])
+    missed = [e for e in errors if e.kind == MISSED]
+    assert {(e.start, e.end) for e in missed} == {(100, 110), (200, 210)}
+    assert {e.doc_id for e in missed} == {D3.doc_id}
+
+
+def test_a_covered_but_unmatched_gold_span_is_not_reported_as_missed():
+    """**The distinction the whole function turns on.** D1's gold [0,4) is covered by the
+    one wide prediction and loses the assignment to gold [5,10) — `assignment_slack` 1.
+
+    Every character of it is hidden. Reported as missed, it would ask a rule author for a
+    rule against text that is already masked, and the arm would spend its rounds moving a
+    number nobody publishes as the headline. The scorer already computes both verdicts; this
+    asserts the export reads the right one.
+    """
+    assert score([D1])["modes"][FULLY_COVERED]["assignment_slack"] == 1
+    assert score([D1])["modes"][FULLY_COVERED]["overall"]["fn"] == 1
+    assert [e for e in error_spans([D1]) if e.kind == MISSED] == []
+
+
+def test_a_jointly_covered_gold_span_is_not_missed_either():
+    """D2: one gold span, two adjacent predictions, no uncovered character. `joint_only` in
+    the complementarity breakdown and a false negative in the credit numbers. Not a leak,
+    so not the author's problem."""
+    assert score([D2])["modes"][FULLY_COVERED]["complementarity"]["families"][
+        "joint_only"] == 1
+    assert [e for e in error_spans([D2]) if e.kind == MISSED] == []
+
+
+def test_false_positives_come_from_the_relaxed_assignment():
+    """The mode that produces the published precision (`HEADLINE_MODE`).
+
+    D3's two predictions each overlap a gold span of the right type. Under `fully_covered`
+    they are unmatched — two false positives — and under `relaxed` both are matched and
+    precision is 1.0. Exported from the strict mode, an author would be shown two spans as
+    wrong that the reported figure counts as right.
+    """
+    assert score([D3])["modes"][RELAXED]["overall"] == {
+        "tp": 2, "fp": 0, "fn": 0, "precision": 1.0, "recall": 1.0, "f1": 1.0}
+    assert score([D3])["modes"][FULLY_COVERED]["overall"]["fp"] == 2
+    assert [e for e in error_spans([D3]) if e.kind == FALSE_POSITIVE] == []
+
+
+def test_a_prediction_of_the_wrong_type_is_a_false_positive():
+    """D5: gold NAME, prediction LOCATION_AREA over the same bytes. Unmatched in either
+    mode, since assignment is within a type."""
+    fps = [e for e in error_spans([D5]) if e.kind == FALSE_POSITIVE]
+    assert [(e.phi_type, e.start, e.end) for e in fps] == [("LOCATION_AREA", 0, 5)]
+    # And the gold span leaks: no same-type prediction covers it.
+    assert [(e.kind, e.phi_type) for e in error_spans([D5]) if e.kind == MISSED] == [
+        (MISSED, "NAME")]
+
+
+def test_the_two_modes_are_derived_from_the_headline_and_not_written_down():
+    """`ERROR_MODE` is built from `HEADLINE_MODE`. Spelling the modes as literals would let
+    the reported headline move while the window kept showing the old one — an arm optimising
+    something nobody publishes, with no symptom."""
+    assert scorer.ERROR_MODE == {
+        MISSED: scorer.HEADLINE_MODE["leak_rate"],
+        FALSE_POSITIVE: scorer.HEADLINE_MODE["precision"],
+    }
+    src = (ROOT / "src" / "eval" / "scorer.py").read_text(encoding="utf-8")
+    block = src.split("ERROR_MODE = ")[1].split("\n\n")[0]
+    assert "HEADLINE_MODE" in block and '"fully_covered"' not in block
+
+
+def test_the_export_carries_no_text_and_could_not():
+    """Two guarantees, both structural. `Mark` has no surface field and neither does
+    `ErrorSpan`, so there is no path by which this list holds note text."""
+    for e in error_spans(CORPUS):
+        assert not hasattr(e, "text") and not hasattr(e, "surface")
+        assert isinstance(e.span_index, int) and isinstance(e.start, int)
+    assert "text" not in ErrorSpan.__dataclass_fields__
+
+
+def test_span_index_is_the_documents_own_list_and_not_the_in_scope_subset():
+    """**The referent, and the one that is easy to get wrong** (DESIGN §11.2).
+
+    The excluded span sits *first*, so a filtered index would name span 0 for a gold span
+    that is span 1 of the document. `initial_error_pool()` enumerates the unfiltered list
+    for iteration 1, so a filtered index here would make iteration 1 and iteration 4 mean
+    different things by `(doc_id, span_index)` while both looked correct — and the wrongness
+    is only visible to someone holding the corpus.
+    """
+    doc = Document(
+        doc_id="d", corpus_id="es-meddocan", text="x" * 40,
+        spans=[
+            Span(start=0, end=4, surface="xxxx", subtype="SEXO_SUJETO_ASISTENCIA",
+                 excluded=True),
+            Span(start=10, end=14, surface="xxxx", subtype="NOMBRE_SUJETO",
+                 phi_type="NAME"),
+        ],
+    )
+    pairs, excluded = from_documents([doc], {})
+    assert excluded == 1
+    (only,) = error_spans(pairs)
+    assert only.kind == MISSED and (only.start, only.end) == (10, 14)
+    assert only.span_index == 1, (
+        "the index is into the document's own span list, counting the excluded spans "
+        "from_documents drops"
+    )
+
+
+def test_from_documents_replaces_an_index_a_mark_arrived_with():
+    """`from_documents` is reading the list the reference is into, so it is authoritative.
+
+    An index already on an incoming `Mark` came from some other list, and the two cannot
+    both be the referent §11.2 fixes. This is also what makes the export testable at all: a
+    `Mark` passed through unchanged carries no index for any caller that builds `Mark`s
+    rather than `Span`s.
+    """
+    pairs, _ = from_documents(
+        [Document(doc_id="d", corpus_id="es-meddocan", text="x" * 40)],
+        {"d": [Mark(0, 4, "NAME", "tagger", span_index=97),
+               Mark(20, 24, "NAME", "tagger")]},
+    )
+    assert [m.span_index for m in pairs[0].pred] == [0, 1]
+
+
+def test_a_false_positives_index_is_into_the_prediction_list():
+    """The other half of `ErrorSpan`'s documented referent. Prediction 1 is the unmatched
+    one here, so an index counted over exported errors rather than over the input would say
+    0."""
+    doc = Document(
+        doc_id="d", corpus_id="es-meddocan", text="x" * 40,
+        spans=[Span(start=0, end=4, surface="xxxx", subtype="NOMBRE_SUJETO",
+                    phi_type="NAME")],
+    )
+    pairs, _ = from_documents([doc], {"d": [Mark(0, 4, "NAME", "tagger"),
+                                            Mark(20, 24, "NAME", "tagger")]})
+    (fp,) = [e for e in error_spans(pairs) if e.kind == FALSE_POSITIVE]
+    assert (fp.start, fp.end) == (20, 24) and fp.span_index == 1
+
+
+def test_a_mark_without_an_index_is_refused_rather_than_defaulted():
+    """A reference that resolves to the wrong span is wrong silently, in the hands of the
+    only person who can resolve it. There is nothing to substitute — the position in the
+    in-scope subset is a real index and the wrong one."""
+    pair = DocPair(doc_id="d", gold=(Mark(0, 4, "NAME"),), pred=())
+    with pytest.raises(ScorerError, match="span_index"):
+        error_spans([pair])
+    # And the message locates the span without quoting it (CLAUDE.md).
+    try:
+        error_spans([pair])
+    except ScorerError as exc:
+        assert "[0, 4)" in str(exc)
+
+
+@pytest.mark.parametrize("bad", [-1, 1.5, True, "0"])
+def test_a_span_index_that_is_not_a_position_is_refused(bad):
+    """`True` is in the list on purpose: it is an `int` in Python and would index element 1
+    of every document, which resolves to a real span and to the wrong one."""
+    with pytest.raises(ScorerError, match="span_index"):
+        Mark(0, 4, "NAME", span_index=bad)
+
+
+def test_error_spans_is_deterministic_and_order_independent():
+    """Same fold, shuffled, same list — for `write_spans`'s reason: this list becomes a
+    file, and stability inherited from an upstream iteration order is not stability. It is
+    also the seeded draw's premise (`src/sample.py`: sorting before drawing is what makes
+    the sample independent of the order the scorer emitted errors in)."""
+    rng = random.Random(20260812)
+    shuffled = list(CORPUS)
+    rng.shuffle(shuffled)
+    assert error_spans(CORPUS) == error_spans(shuffled)
+    assert error_spans(CORPUS) == sorted(error_spans(CORPUS), key=lambda e: e.key)
+
+
+def test_the_export_and_the_metrics_agree_on_the_counts_they_share():
+    """One matching, so the two views cannot disagree (DESIGN §9.3). This is the assertion
+    that would fail if the verdicts were ever recomputed outside the scorer.
+
+    `false_positive` is compared against the *relaxed* `fp` and `missed` against the
+    *fully_covered* `leaked` — each half against the mode it is drawn from. The
+    false-positive count is compared with `duplicate_predictions` allowed for, since the
+    export is of deduplicated predictions and so is `fp`.
+    """
+    scored = score(CORPUS)
+    errors = error_spans(CORPUS)
+    assert sum(1 for e in errors if e.kind == MISSED) == \
+        scored["modes"][FULLY_COVERED]["leak"]["leaked"]
+    assert sum(1 for e in errors if e.kind == FALSE_POSITIVE) == \
+        scored["modes"][RELAXED]["overall"]["fp"]
+
+
+def test_two_layers_emitting_one_span_export_one_false_positive():
+    """`dedupe`'s consequence, carried into the export. D4's duplicate pair is matched, so
+    this builds the unmatched case: two rules on the same bytes, no gold at all.
+
+    Two entries would spend two of the author's 40 slots on one error, and the second is not
+    a second thing found."""
+    pair = DocPair(
+        doc_id="d", gold=(),
+        pred=(Mark(0, 5, "ORGANISATION", "gazetteer", GAZ, span_index=0),
+              Mark(0, 5, "ORGANISATION", "gazetteer", GAZ, span_index=1)),
+    )
+    assert score([pair])["modes"][RELAXED]["duplicate_predictions"] == 1
+    fps = [e for e in error_spans([pair]) if e.kind == FALSE_POSITIVE]
+    assert len(fps) == 1 and fps[0].span_index == 0
+
+
+def test_a_prediction_without_a_layer_is_refused_here_too():
+    """`score()` checks it and so does this: two entry points, one precondition. Grouping by
+    layer puts a `None` in no group, silently."""
+    pair = DocPair(doc_id="d", gold=(), pred=(Mark(0, 5, "NAME", span_index=0),))
+    with pytest.raises(ScorerError, match="no layer"):
+        error_spans([pair])
+
+
+def test_the_index_does_not_enter_any_metric():
+    """`Mark.span_index` is a reference and never a quantity. Scoring the same fold with the
+    field stripped must give byte-identical numbers, or the field has become an input to a
+    measurement and two callers who filled it differently would get different scores."""
+    bare = [DocPair(doc_id=p.doc_id,
+                    gold=tuple(Mark(m.start, m.end, m.phi_type, m.layer, m.rule_id)
+                               for m in p.gold),
+                    pred=tuple(Mark(m.start, m.end, m.phi_type, m.layer, m.rule_id)
+                               for m in p.pred))
+            for p in CORPUS]
+    assert score(bare) == score(CORPUS)
+
+
+def test_score_does_not_carry_the_error_list():
+    """**The return is `metrics.json`'s content** (DESIGN §5.5). A per-span error list there
+    would be published by every arm that scores, on every corpus, as a by-product of a
+    feature only the iterating arms use — and it is the positions of every missed identifier
+    in the fold.
+
+    Checked on the payload rather than on the source, because what must not carry the list
+    is the published file.
+    """
+    scored = score(CORPUS)
+    flat = json.dumps(scored)
+    assert "span_index" not in flat
+    # No error *kind* is written anywhere. `false_positive_opportunity` is a key of the
+    # payload and contains the string, so the check is on whole JSON tokens rather than on
+    # substrings — a substring test here would have to be weakened to pass and would then
+    # stop noticing a `"kind": "false_positive"` on a per-span row.
+    tokens = set(re.findall(r'"([^"]*)"', flat))
+    assert MISSED not in tokens and FALSE_POSITIVE not in tokens
+    for key in ("errors", "error_spans", "leaks", "missed"):
+        assert key not in scored
 
 
 # ─── output ─────────────────────────────────────────────────────────────────

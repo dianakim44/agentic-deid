@@ -2913,6 +2913,165 @@ MUTATIONS = [
         ),
         min_kills=2,
     ),
+
+    # ─── the per-span error export (DESIGN §5.5, §9.3) ─────────────────────
+    Mutation(
+        name="the_export_index_is_the_in_scope_position",
+        path=SCORER,
+        anchor="                span_index=g.span_index, start=g.start, end=g.end,",
+        replacement="                span_index=gi, start=g.start, end=g.end,",
+        breaks=(
+            "**The referent moves and every value stays a valid index.** `gi` is the gold "
+            "span's position in the *in-scope* list — what `_records` is looping over "
+            "— and the reference DESIGN §11.2 fixes is a position in the "
+            "document's own `spans` list, which `from_documents` counts including the "
+            "§9.1-excluded types. On a document whose first span is a "
+            "`SEXO_SUJETO_ASISTENCIA` the two differ by one; on MEDDOCAN that is most "
+            "documents, and the offset varies per document with how many excluded spans "
+            "came before.\n"
+            "\n"
+            "Nothing anywhere looks wrong. `errors.jsonl` is well-formed, every "
+            "`span_index` is a non-negative integer that resolves to a real span in the "
+            "document, the offsets beside it are untouched and correct, and no metric "
+            "changes at all — the index enters no numerator or denominator "
+            "(`test_the_index_does_not_enter_any_metric`). The wrongness is visible only "
+            "to whoever holds the corpus and resolves the reference, which is the property "
+            "that made this the referent: inert to everyone else.\n"
+            "\n"
+            "What it costs is that iteration 1 and iteration 4 stop meaning the same thing "
+            "by `(doc_id, span_index)`. `initial_error_pool()` enumerates the unfiltered "
+            "list, so the bootstrap pool and every later round's pool would index two "
+            "different lists while both files validated — and the sample drawn from "
+            "them is deduplicated and diffed across rounds by exactly that pair. Caught by "
+            "`test_span_index_is_the_documents_own_list_and_not_the_in_scope_subset`, "
+            "which puts the excluded span *first* so a filtered index names span 0 for a "
+            "span that is span 1."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="the_export_reads_the_missing_index_as_zero",
+        path=SCORER,
+        anchor="            if item.span_index is None:",
+        replacement="            if False:",
+        breaks=(
+            "The refusal becomes a default. With the check gone, `ErrorSpan` is "
+            "constructed with `span_index=None`, `__post_init__` compares it with `<` and "
+            "raises a `TypeError` — which is *this* mutation's tell and not the "
+            "guarantee: swap the constructor for `item.span_index or 0` and the same edit "
+            "is silent. That is what the anchor is protecting. Every span with no index "
+            "would be exported as span 0 of its document, which resolves to a real span "
+            "and to the wrong one, and 40 window slots would be spent on references to "
+            "whatever sits first in each document.\n"
+            "\n"
+            "The reason to refuse rather than substitute is that there is nothing to "
+            "substitute *from*: at this point the in-scope position is the only number in "
+            "hand and it is the wrong list (see "
+            "`the_export_index_is_the_in_scope_position`). A `Mark` reaching here without "
+            "an index means it was built directly rather than by `from_documents`, which "
+            "is a caller bug and not a missing value. Caught by "
+            "`test_a_mark_without_an_index_is_refused_rather_than_defaulted`, which also "
+            "asserts the message locates the span as `[0, 4)` without quoting it "
+            "(CLAUDE.md)."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="missed_is_the_unmatched_gold_rather_than_the_uncovered",
+        path=SCORER,
+        anchor="        source = ([(r.doc_id, r) for r in records if not r.covered]",
+        replacement="        source = ([(r.doc_id, r) for r in records if not r.matched]",
+        breaks=(
+            "**The verdict computed on the assignment instead of on coverage — the "
+            "one substitution that makes the export bigger and reads as more thorough.** "
+            "`matched` is one-to-one credit and `covered` is whether the union of same-type "
+            "predictions hid the span, and DESIGN §9.3's whole point is that these are "
+            "two matchings answering two questions. Every uncovered span is unmatched, so "
+            "the mutated export is a superset: the leak set plus `assignment_slack`.\n"
+            "\n"
+            "Every span it adds is an identifier that **is already hidden**. D1's gold "
+            "`[0, 4)` is covered by one wide prediction and loses the assignment to its "
+            "neighbour; shown to a rule author as missed, it asks for a rule against text "
+            "that is already masked. So the arm spends its rounds writing rules for "
+            "non-leaks, the leak rate — the headline §3's stopping rule is "
+            "computed on — stops moving, and the run terminates on δ having "
+            "improved nothing. The window's own header still says \"missed = leaked under "
+            "fully_covered\" (`rule_author.md` §1.4), so the prompt asserts the "
+            "definition the data no longer satisfies.\n"
+            "\n"
+            "It is invisible in `metrics.json`, which is not widened and reports "
+            "`assignment_slack` as its own figure either way. Caught by "
+            "`test_a_covered_but_unmatched_gold_span_is_not_reported_as_missed`, "
+            "`test_a_jointly_covered_gold_span_is_not_missed_either` and "
+            "`test_the_export_and_the_metrics_agree_on_the_counts_they_share`, which "
+            "compares each half against the mode it is drawn from rather than against a "
+            "stored count."
+        ),
+        min_kills=3,
+    ),
+    Mutation(
+        name="both_halves_of_the_export_use_one_mode",
+        path=SCORER,
+        anchor="ERROR_MODE = {MISSED: HEADLINE_MODE[\"leak_rate\"],\n"
+               "              FALSE_POSITIVE: HEADLINE_MODE[\"precision\"]}",
+        replacement="ERROR_MODE = {MISSED: HEADLINE_MODE[\"leak_rate\"],\n"
+                    "              FALSE_POSITIVE: HEADLINE_MODE[\"leak_rate\"]}",
+        breaks=(
+            "One mode for both halves, which is the tidier-looking constant: two matchings "
+            "over one mode instead of two. It leaves `missed` correct, so the leak rate the "
+            "stopping rule watches still moves and the arm still converges.\n"
+            "\n"
+            "What changes is the other half. Under `fully_covered` a prediction that covers "
+            "most of a gold span is unmatched, so it is exported as a false positive while "
+            "the *published* precision — `relaxed`, per `HEADLINE_MODE` — counts "
+            "it as a hit. The author is then shown correct predictions as errors and asked "
+            "to narrow rules that are already scoring, and the arm degrades the number it "
+            "is optimising while every file involved stays internally consistent: the "
+            "export agrees with `modes.fully_covered.overall.fp`, which is a real figure in "
+            "the same `metrics.json`.\n"
+            "\n"
+            "This is why `ERROR_MODE` is derived from `HEADLINE_MODE` rather than written "
+            "as two literals — the headline choice belongs to the reporting layer and "
+            "may move, and the window has to follow it. Caught by "
+            "`test_false_positives_come_from_the_relaxed_assignment` and "
+            "`test_the_two_modes_are_derived_from_the_headline_and_not_written_down`."
+        ),
+        min_kills=2,
+    ),
+    Mutation(
+        name="the_error_export_is_written_by_every_arm",
+        path=RUN_FOLD,
+        anchor="    if export_errors_for_iteration is not None:\n"
+               "        # From `pairs`",
+        replacement="    if True:\n"
+                    "        # From `pairs`",
+        also=((
+            RUN_FOLD,
+            "        write_errors(error_spans(pairs), run, export_errors_for_iteration, "
+            "root=root)",
+            "        write_errors(error_spans(pairs), run, "
+            "export_errors_for_iteration or 1, root=root)",
+        ),),
+        breaks=(
+            "Opt-in becomes always-on, in the silent form. The bare `if True:` would fail "
+            "loudly on `iter{iteration}` formatted with `None`, so the `or 1` goes in "
+            "with it: every arm on every corpus then writes `iter1/errors.jsonl`, a list "
+            "of the positions of every missed identifier in the fold, as a permanent "
+            "by-product of a feature only the iterating arms use. `port-oneshot`'s "
+            "directory grows an artefact whose `iter1` is a lie about an arm that has no "
+            "rounds, and `port-loop`'s round 4 would overwrite it.\n"
+            "\n"
+            "The deny rule and the `.gitignore` entry hold either way, so nothing is "
+            "published — the cost is a file on disk that should not exist, which is "
+            "`rule_author.md` §6's rule about rendered windows one artefact over, and "
+            "the same argument §5.5 gives for not widening `score()`'s return: an "
+            "iterating arm's input should not be every arm's output. Caught by "
+            "`test_no_error_list_is_written_unless_it_is_asked_for`, which walks the whole "
+            "results tree rather than checking one path — an export written to an "
+            "un-iterated path would satisfy the narrower assertion."
+        ),
+        min_kills=1,
+    ),
 ]
 
 COUNT_RE = re.compile(r"(\d+) (passed|failed|error|errors)")

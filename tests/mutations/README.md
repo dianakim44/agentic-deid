@@ -1114,6 +1114,74 @@ by no ALLOW entry and reachable from no `metrics_path()` call, which is exactly 
 the seal mutations further up: nothing it produces is malformed, and the damage is to files
 that already exist and are not being looked at.
 
+### The per-span error export: five mutations, and none of them changes a number
+
+Added 2026-08-12 with `scorer.error_spans()` and `run_fold.write_errors()` (DESIGN §5.5).
+The export is the pool an iterating arm's next window is drawn from, so its failure mode is
+unlike the rest of the scorer's: **nothing in `metrics.json` moves.** `score()`'s return is
+deliberately not widened, so the published numbers are computed from the same matchings
+either way and stay correct under every edit below. What breaks is what the agent is shown,
+and the arm then spends its rounds — each one a full RuleAuthor + Auditor + scorer pass —
+moving something else.
+
+Two of the five attack the **referent** and two attack the **verdict**, which is the split
+the step's instruction named.
+
+`the_export_index_is_the_in_scope_position` swaps `g.span_index` for the loop variable `gi`,
+and every value it produces is a valid index. `gi` counts the in-scope subset; the reference
+DESIGN §11.2 fixes counts the document's own `spans` list, excluded types included. On
+MEDDOCAN the two differ on most documents and the offset varies per document with how many
+§9.1 spans came before. The file validates, the offsets beside each index are untouched and
+correct, no metric changes at all — the index enters no numerator or denominator — and the
+wrongness is visible only to whoever holds the corpus and resolves the reference. That is
+the same property that made this the referent in the first place: inert to everyone else,
+and therefore un-noticeable by anyone else. The cost is that `(doc_id, span_index)` stops
+meaning one thing across rounds, since `initial_error_pool()` enumerates the unfiltered list
+for iteration 1. The test that catches it puts the excluded span **first**, so a filtered
+index names span 0 for a span that is span 1 — a fixture whose excluded spans all sit last
+passes this mutation.
+
+`the_export_reads_the_missing_index_as_zero` turns the refusal into a default. In the form
+written here it fails loudly, on a `TypeError` from `ErrorSpan.__post_init__` comparing
+`None` with `<`; that is the mutation's tell and not the guarantee, because
+`item.span_index or 0` is the same edit silently. Every span with no index would then be
+exported as span 0 of its document, which resolves to a real span and to the wrong one. The
+reason to refuse is that there is nothing to substitute *from*: the only number in hand at
+that point is the in-scope position, which is the mutation above.
+
+`missed_is_the_unmatched_gold_rather_than_the_uncovered` is the verdict computed on the
+assignment instead of on coverage, and it is the one that reads as **more thorough**: every
+uncovered span is unmatched, so the export grows to the leak set plus `assignment_slack`.
+Every span it adds is an identifier that is already hidden. D1's gold `[0, 4)` is covered by
+one wide prediction and loses the assignment to its neighbour; shown to a rule author as
+missed, it asks for a rule against text that is already masked. So the arm writes rules for
+non-leaks, the leak rate stops moving, and the run terminates on δ having improved nothing —
+while the window's own header still tells the author "missed = leaked under fully_covered"
+(`rule_author.md` §1.4). The prompt asserts the definition the data no longer satisfies.
+This is DESIGN §9.3's two-matchings argument arriving in a place that is not a metric.
+
+`both_halves_of_the_export_use_one_mode` is the tidier-looking constant — two matchings over
+one mode instead of two — and it leaves `missed` correct, so the stopping rule still works.
+The other half inverts: under `fully_covered` a prediction covering most of a gold span is
+unmatched and would be exported as a false positive, while the *published* precision
+(`relaxed`, per `HEADLINE_MODE`) counts it as a hit. The author is shown correct predictions
+as errors, narrows rules that are already scoring, and the arm degrades the number it is
+optimising. Every file stays internally consistent, because the export agrees with
+`modes.fully_covered.overall.fp`, which is a real figure in the same `metrics.json`. This is
+why `ERROR_MODE` is *derived* from `HEADLINE_MODE` rather than written as two literals: the
+headline choice belongs to the reporting layer and may move, and the window has to follow it.
+
+`the_error_export_is_written_by_every_arm` is the only one in `run_fold`, and it needs two
+edits together (`also=`) to be faithful to its name — the bare `if True:` fails on
+`iter{iteration}` formatted with `None`, and `export_errors_for_iteration or 1` is what makes
+it silent. Then every arm on every corpus writes `iter1/errors.jsonl`: a list of the
+positions of every missed identifier in the fold, as a permanent by-product of a feature only
+the iterating arms use, in a directory whose `iter1` is a lie about an arm with no rounds.
+The deny rule and the `.gitignore` entry hold, so nothing is published — the cost is a file
+on disk that should not exist, which is `rule_author.md` §6's rule about rendered windows one
+artefact over. The test walks the whole results tree rather than checking one path, because
+an export written to an un-iterated path satisfies the narrower assertion.
+
 ## What the seal cost, and what carries the difference
 
 Sealing 250 documents removed checks that cannot be replaced, and pretending

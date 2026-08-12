@@ -9,6 +9,12 @@ Writes two files under `results/{corpus}/{detector}/{supervision}/{porting}/`:
 could be written and counted, but a dev-wide score — the number every comparison in
 DESIGN §4 is made of — had nowhere to come from.
 
+An iterating arm asks for a third (`export_errors_for_iteration`): `iter{N}/errors.jsonl`,
+the round's per-span error list, which is what the next round's §1.4 window is drawn from.
+Opt-in, deny-listed, and written from the same scoring pass as the other two — see
+`write_errors` and DESIGN §5.5. It is not returned: the path is a pure function of the four
+axes and the round (`errors_path`), so the driver that asked for it can name it.
+
 **This is the execution path, and `tools/check_rules.py` is a sample view of it.**
 The tool calls `detect_fold()` from here rather than iterating rules itself. Two
 implementations of detection drift, and the shape the drift takes is the worst
@@ -58,8 +64,8 @@ from ..rules import RuleError, RuleSet, load_for_corpus
 from ..termination import Termination, not_applicable
 from . import sealed_log
 from .scorer import (
-    PATH_AXES, REQUIRED_COST, ScorerError, check_run, from_documents, score,
-    write_metrics,
+    PATH_AXES, REQUIRED_COST, ScorerError, check_run, error_spans, from_documents,
+    score, write_metrics,
 )
 
 #: The fold this runs on unless told otherwise. Named rather than defaulted inline so
@@ -165,6 +171,103 @@ def spans_path(run: Mapping[str, str], root: Path | None = None) -> Path:
     return (root or ROOT) / template.format(**{k: run[k] for k in PATH_AXES})
 
 
+def errors_path(
+    *, corpus: str, detector: str, supervision: str, porting: str, iteration: int,
+    root: Path | None = None,
+) -> Path:
+    """`paths.itererrors` for one round — `iter{N}/errors.jsonl` beside that round's spans.
+
+    Iteration-scoped and not arm-scoped, which is the whole point of the file: "which
+    errors was the agent shown at iteration 4" has to be answerable after the run, and one
+    path per arm leaves only the last round's list (DESIGN §5.5, §5.3's argument for
+    per-iteration rule files).
+
+    **Keyword axes rather than a run block, unlike `spans_path`, and the difference is the
+    number of interested parties.** A spans file has one — this module writes it and nobody
+    looks it up. This file has two: `run_fold` writes it from a run block it assembled, and
+    the loop driver *reads* it to build the next round's pool, holding the four axes and no
+    run block. Handing the driver a run block to assemble would make it a second assembler
+    of the thing one-writer-per-record exists to prevent, so the signature is
+    `rules.arm_rules_path()`'s — the other iteration-scoped path, for the same reason.
+
+    Every component is validated, axes against `naming.yaml` and the round for being a
+    round, because a results path names the cell an artefact belongs to: an unknown
+    component mints a cell instead of failing, and `iter1.0/` or `iter0/` puts a round's
+    record somewhere nothing looks for it.
+    """
+    for value, ax in ((corpus, "corpus"), (detector, "detector"),
+                      (supervision, "supervision"), (porting, "porting")):
+        if value not in axis(ax):
+            raise FoldRunError(
+                f"{value!r} is not a {ax} in config/naming.yaml (have: "
+                f"{sorted(axis(ax))}). This path names the cell of the experiment the "
+                "round's error list belongs to, so an unknown component would create a "
+                "cell rather than fail (DESIGN §5.3, §5.5)."
+            )
+    if not isinstance(iteration, int) or isinstance(iteration, bool) or iteration < 1:
+        raise FoldRunError(
+            f"iteration must be an integer >= 1, got {iteration!r}. It is a path "
+            "component (paths.itererrors), and the sequence of an iterating arm's error "
+            "lists is what makes the window at round n checkable afterwards "
+            "(DESIGN §5.5)."
+        )
+    return (root or ROOT) / path_template("itererrors").format(
+        corpus=corpus, detector=detector, supervision=supervision, porting=porting,
+        iteration=iteration,
+    )
+
+
+def write_errors(
+    errors: Sequence, run: Mapping[str, str], iteration: int,
+    root: Path | None = None,
+) -> Path:
+    """The round's per-span error list: offsets, types and verdicts. One JSON object each.
+
+    **Deny-listed, and that is not in tension with carrying no surface forms** — both hold,
+    for different reasons. `ErrorSpan` has no text field by construction (`src/sample.py`),
+    which is what makes the file safe to *exist* on a DUA corpus. The deny rule is about
+    what it is even so: a list of the offsets of every missed identifier in the fold, drawn
+    from gold, is a map of residual identifiers, and offsets plus a corpus resolve to the
+    text. `config/naming.yaml` records the classification and `tools/release_screen.py`
+    enforces it; this function just writes what it was given.
+
+    Fields are enumerated rather than dumped from `asdict()`, for `write_spans`'s reason: a
+    whitelist stays correct when `ErrorSpan` gains a field, and a dump would publish the
+    new field the day it is added — and on this file that field would be published into the
+    window that §1.4 builds.
+
+    Sorted by `ErrorSpan.key`, which `error_spans()` has already done; done again here
+    because this writer's output is the file, and a caller that assembled a list itself
+    would otherwise decide the file's byte content by its iteration order.
+
+    `run` is validated before the path is built (`check_run`), as `write_spans` does through
+    `spans_path`. The axes then go to `errors_path` individually, which is the signature the
+    loop driver needs — see that function.
+    """
+    check_run(run)
+    path = errors_path(
+        corpus=run["corpus"], detector=run["detector"],
+        supervision=run["supervision"], porting=run["porting"],
+        iteration=iteration, root=root,
+    )
+    path.parent.mkdir(parents=True, exist_ok=True)
+    rows = [
+        {
+            "doc_id": e.doc_id,
+            "span_index": e.span_index,
+            "phi_type": e.phi_type,
+            "kind": e.kind,
+            "start": e.start,
+            "end": e.end,
+        }
+        for e in sorted(errors, key=lambda e: e.key)
+    ]
+    with open(path, "w", encoding="utf-8") as fh:
+        for row in rows:
+            fh.write(json.dumps(row, ensure_ascii=False, sort_keys=False) + "\n")
+    return path
+
+
 def write_spans(
     predictions: Mapping[str, Sequence], run: Mapping[str, str],
     root: Path | None = None,
@@ -229,6 +332,7 @@ def run_fold(
     model_lifecycle: Mapping[str, str | None] | None = None,
     cost: Mapping[str, float] | None = None,
     termination: Termination | None = None,
+    export_errors_for_iteration: int | None = None,
 ) -> tuple[Path, Path, dict]:
     """Detect over the fold, score it, write both files. Returns (spans, metrics, scored).
 
@@ -293,6 +397,21 @@ def run_fold(
     writes zeros. That default reads `splits/{corpus}.json` for `n_dev`, so δ appears in a
     non-iterating arm's file too — deliberately, so a reader comparing `port-oneshot`'s single
     leak rate against `port-loop`'s stopping point finds the threshold in both files.
+
+    **`export_errors_for_iteration` writes the round's error list, and it is opt-in.** Given a
+    round number, this writes `paths.itererrors` beside the other two from the same scoring
+    pass (DESIGN §5.5); omitted, nothing is written. Opt-in rather than always, and the
+    argument is not cost: the file is a map of the residual identifiers in the fold, it is
+    deny-listed for that reason, and only an iterating arm has a use for it. A `port-oneshot`
+    run that produced one anyway would leave that artefact in every arm's directory as a
+    by-product of a feature it does not use — which is `score()`'s objection to widening its
+    own return, one layer out.
+
+    It is a **number and not a flag**, for the reason `arm_rules_path` takes one: the round is
+    a path component, and a boolean here would need the iteration from somewhere else — the
+    `termination` block's `iterations` is the nearest candidate and it is the wrong one, since
+    it counts the rounds *so far* and this file belongs to the round being scored. Two
+    quantities that coincide until an arm resumes.
     """
     docs = load_fold(corpus, split)
     ruleset = load_for_corpus(corpus, paths=rules)
@@ -322,6 +441,16 @@ def run_fold(
                 "tokens without calls, or calls without time, is an arm whose cost cannot "
                 "be compared to another's."
             )
+
+    if export_errors_for_iteration is not None:
+        # Validated before the first write rather than at the third. `errors_path` refuses
+        # a round that is not a round, and a run that had written `spans.jsonl` and then
+        # raised would leave the arm's directory holding predictions with no score beside
+        # them — the partially written results directory `FoldRunError` exists to avoid.
+        # The path is a pure function of its arguments, so building it here and again in
+        # `write_errors` cannot give two answers.
+        errors_path(corpus=corpus, detector=detector, supervision=supervision,
+                    porting=porting, iteration=export_errors_for_iteration, root=root)
 
     commit, tree = sealed_log.tree_state()
     run = {
@@ -356,6 +485,11 @@ def run_fold(
         "tree": tree,
     }
     spans_file = write_spans(predictions, run, root=root)
+    if export_errors_for_iteration is not None:
+        # From `pairs` — the same objects `score()` read, so the exported list and the
+        # published counts come from one scoring of one set of spans (DESIGN §9.3). The
+        # matchings are inside `error_spans`; nothing here recomputes one.
+        write_errors(error_spans(pairs), run, export_errors_for_iteration, root=root)
     # The detection pass's own time, added to whatever the caller spent calling a model.
     # Both are this arm's compute; see the docstring on why they are summable and
     # `human_minutes` is not.

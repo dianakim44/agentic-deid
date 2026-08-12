@@ -33,6 +33,7 @@ being checked is behaviour over a fold rather than over a fixture of two documen
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 import sys
 from collections import Counter, defaultdict
@@ -549,6 +550,296 @@ def test_an_empty_rule_set_still_produces_a_score(tmp_path, corpus_present):
     assert spans.read_text(encoding="utf-8") == ""
     assert scored["headline"]["leak_rate"]["value"] == 1.0
     assert json.loads(metrics.read_text(encoding="utf-8"))["counts"]["pred"] == 0
+
+
+# ─── errors.jsonl: the round's error list (DESIGN §5.5) ──────────────────────
+
+
+def rel_errors(iteration: int) -> str:
+    """The repository-relative `paths.itererrors` for the probe arm, from the template.
+
+    Formatted from `naming.yaml` rather than assembled here, so a template that loses an
+    axis fails these tests instead of being reproduced by them.
+    """
+    from src.corpora.base import path_template
+    return path_template("itererrors").format(**ARM, iteration=iteration)
+
+
+@pytest.fixture
+def ran_with_errors(tmp_path, probe_file, corpus_present):
+    """The same run as `ran`, with the round-3 export asked for."""
+    spans, metrics, scored = rf.run_fold(
+        **ARM, rules={"es": probe_file}, root=tmp_path,
+        export_errors_for_iteration=3)
+    return spans, metrics, scored, tmp_path / rel_errors(3)
+
+
+def error_rows(path: Path) -> list[dict]:
+    return [json.loads(l) for l in path.read_text(encoding="utf-8").splitlines()]
+
+
+def test_no_error_list_is_written_unless_it_is_asked_for(ran, tmp_path):
+    """Opt-in, and asserted over the whole tree rather than at one path.
+
+    The file is a map of the residual identifiers in the fold and only an iterating arm
+    has a use for it (DESIGN §5.5). A run that produced one anyway would leave that
+    artefact in every arm's directory as a by-product of a feature the arm does not use,
+    which is `score()`'s objection to widening its own return, one layer out. Checked by
+    walking the tree because "not at the path I expected" is the weaker claim: an export
+    written to an un-iterated path would satisfy it.
+    """
+    assert not list(tmp_path.rglob("errors.jsonl"))
+
+
+def test_the_round_s_error_list_lands_beside_that_round_s_files(ran_with_errors):
+    _, metrics, _, errors = ran_with_errors
+    assert errors.exists()
+    assert errors.name == "errors.jsonl"
+    assert errors.parent.name == "iter3"
+    # Under the same arm as the score, one level down. The round's own metrics and spans
+    # are `paths.itermetrics`/`iterspans` in that directory; this asserts the arm.
+    assert errors.parent.parent == metrics.parent
+
+
+def test_the_export_is_not_returned(ran_with_errors):
+    """`run_fold` still returns (spans, metrics, scored) — the third path is derivable.
+
+    A fourth element would make every caller unpack a value that is `None` for every arm
+    but one, and the path is a pure function of the four axes and the round, so the driver
+    that asked for the export can name it (`errors_path`).
+    """
+    returned = rf.run_fold.__annotations__["return"]
+    assert "tuple[Path, Path, dict]" in str(returned)
+    spans, metrics, scored, _ = ran_with_errors
+    assert isinstance(spans, Path) and isinstance(metrics, Path)
+    assert isinstance(scored, dict)
+
+
+def test_every_row_is_a_reference_and_nothing_else(ran_with_errors):
+    """CLAUDE.md: offsets, types and verdicts. The fields are whitelisted in the writer;
+    this asserts the result, so a field added to `ErrorSpan` cannot arrive here silently.
+
+    Stronger than the same test on `spans.jsonl` needs to be, because this file's rows come
+    from *gold*: every `missed` row is the position of an identifier the pipeline left in
+    the text, and this file is the input to the §1.4 window.
+    """
+    from src.sample import ERROR_KINDS
+
+    _, _, _, errors = ran_with_errors
+    rows = error_rows(errors)
+    assert rows, "the probe arm leaked nothing and matched nothing — vacuous"
+    phi = set(naming()["axes"]["phi_type"])
+    for row in rows:
+        assert set(row) == {"doc_id", "span_index", "phi_type", "kind", "start", "end"}, (
+            "an unreviewed field reached the file the next round's window is built from")
+        assert row["kind"] in ERROR_KINDS
+        assert row["phi_type"] in phi
+        for field in ("span_index", "start", "end"):
+            assert isinstance(row[field], int) and not isinstance(row[field], bool)
+        assert row["start"] <= row["end"]
+
+
+def test_the_rows_carry_no_slice_of_any_dev_document(ran_with_errors, corpus_present):
+    """The structural check is not enough on its own: `doc_id` is a string field.
+
+    `write_errors` enumerates its fields, so a surface form could only arrive by way of a
+    value — and the one string value here is an identifier the corpus assigns. Checked
+    against the fold itself for `test_the_error_messages_hold_no_corpus_text`'s reason:
+    what must not appear is whatever this particular corpus says, and MEDDOCAN being
+    synthetic is not a reason to write the check as though it were.
+    """
+    from src.eval.run_fold import load_fold
+
+    _, _, _, errors = ran_with_errors
+    texts = [d.text for d in load_fold(CORPUS, "dev")]
+    blob = errors.read_text(encoding="utf-8")
+    for i in range(0, len(blob) - 16):
+        window = blob[i:i + 16]
+        for text in texts:
+            assert window not in text, (
+                f"the error list carries a {len(window)}-character slice of a dev "
+                f"document (offset {i})")
+
+
+def test_the_file_is_what_the_scorer_returned_for_the_same_fold(ran_with_errors,
+                                                                probe_file):
+    """One scoring pass: the file's rows are `error_spans()` over the same pairs.
+
+    Re-derived here through the same public path rather than compared against a stored
+    expectation, because what has to hold is that `run_fold` wrote *the scoring it
+    published* — a writer that re-ran detection, or scored a second `from_documents`, would
+    produce a plausible file that the metrics beside it are not about.
+    """
+    from src.eval.scorer import error_spans, from_documents
+
+    _, _, _, errors = ran_with_errors
+    docs = load_fold_docs()
+    ruleset = load_rules_for(probe_file)
+    pairs, _excluded = from_documents(docs, rf.detect_fold(docs, ruleset, detector="R"))
+    expected = [
+        {"doc_id": e.doc_id, "span_index": e.span_index, "phi_type": e.phi_type,
+         "kind": e.kind, "start": e.start, "end": e.end}
+        for e in error_spans(pairs)
+    ]
+    assert error_rows(errors) == expected
+    assert expected
+
+
+def load_fold_docs():
+    from src.eval.run_fold import load_fold
+    return load_fold(CORPUS, "dev")
+
+
+def load_rules_for(probe_file: Path) -> RuleSet:
+    from src.rules import load_for_corpus
+    return load_for_corpus(CORPUS, paths={"es": probe_file})
+
+
+def test_the_two_halves_agree_with_the_two_published_numbers(ran_with_errors):
+    """`missed` is the `fully_covered` leak set and `false_positive` is the `relaxed`
+    assignment's — the two numbers an iterating arm is trying to move (DESIGN §9.3, §5.5).
+
+    Asserted against `metrics.json` rather than against the scorer's constants, because the
+    failure this guards is the export and the report drifting apart: an arm shown the
+    `relaxed` leak set would spend its rounds on a number nobody publishes as the headline,
+    and nothing in either file would look wrong.
+    """
+    _, metrics, _, errors = ran_with_errors
+    written = json.loads(metrics.read_text(encoding="utf-8"))
+    rows = error_rows(errors)
+    kinds = Counter(r["kind"] for r in rows)
+
+    assert kinds["missed"] == written["modes"]["fully_covered"]["leak"]["leaked"]
+    assert kinds["false_positive"] == written["modes"]["relaxed"]["overall"]["fp"]
+    # Both halves non-empty, or one of the two assertions above is 0 == 0.
+    assert kinds["missed"] and kinds["false_positive"]
+    # And the leak set is the *stricter* one: relaxed leaks fewer, so an export built
+    # from the relaxed mode would pass the first assertion only by coincidence.
+    assert (written["modes"]["relaxed"]["leak"]["leaked"]
+            < written["modes"]["fully_covered"]["leak"]["leaked"]), (
+        "the two modes leak the same count on this fold, so this test cannot see which "
+        "one the export came from")
+
+
+def test_the_file_is_sorted_and_byte_identical_across_runs(tmp_path, probe_file,
+                                                           corpus_present):
+    """`ErrorSpan.key` order, so the sample drawn from it does not depend on emission order.
+
+    `src.sample.draw` sorts before drawing for exactly this reason — the seed fixes the
+    choice of indices and the caller's order fixes which spans those land on. Sorting here
+    too is not redundant: this file is the record of what the agent was shown, and a record
+    whose byte content depends on a dict rebuild cannot be diffed between rounds.
+    """
+    a, _, _ = rf.run_fold(**ARM, rules={"es": probe_file}, root=tmp_path / "a",
+                          export_errors_for_iteration=1)
+    b, _, _ = rf.run_fold(**ARM, rules={"es": probe_file}, root=tmp_path / "b",
+                          export_errors_for_iteration=1)
+    first = (tmp_path / "a" / rel_errors(1))
+    second = (tmp_path / "b" / rel_errors(1))
+    assert first.read_bytes() == second.read_bytes()
+
+    rows = error_rows(first)
+    keys = [(r["doc_id"], r["start"], r["end"], r["phi_type"], r["kind"],
+             r["span_index"]) for r in rows]
+    assert keys == sorted(keys)
+    assert len({k[0] for k in keys}) > 1, "one document cannot show an ordering"
+    assert len({k[4] for k in keys}) > 1, "one error kind cannot show this ordering"
+
+
+def test_the_writer_sorts_what_it_is_given(tmp_path):
+    """Not only what `error_spans()` hands it — the file's order is this writer's property.
+
+    `write_errors` is public and the loop driver is a caller. A writer that trusted its
+    input would make the file's bytes a function of whoever assembled the list, which is
+    the same defect one layer up from the sampler's.
+    """
+    from src.sample import ErrorSpan
+
+    run = {"corpus": CORPUS, "detector": "R", "supervision": "sup-free",
+           "porting": "port-oneshot", "split": "dev", "model_id": "none",
+           "generated": "2026-08-12T00:00:00Z", "commit": None, "tree": "unknown"}
+    spans = [
+        ErrorSpan(doc_id="d2", span_index=0, phi_type="NAME", kind="missed",
+                  start=5, end=9),
+        ErrorSpan(doc_id="d1", span_index=3, phi_type="DATE", kind="false_positive",
+                  start=1, end=4),
+    ]
+    path = rf.write_errors(spans, run, 2, root=tmp_path)
+    assert [r["doc_id"] for r in error_rows(path)] == ["d1", "d2"]
+
+
+@pytest.mark.parametrize("key,bad", [
+    ("corpus", "es-meddocan-dev"), ("detector", "R+T"), ("supervision", "supfree"),
+    ("porting", "port-agentic"),
+])
+def test_errors_path_refuses_an_axis_value_naming_no_cell(key, bad):
+    with pytest.raises(rf.FoldRunError, match="naming.yaml"):
+        rf.errors_path(**{**ARM, key: bad}, iteration=1)
+
+
+@pytest.mark.parametrize("bad", [0, -1, 1.5, True, "1", None])
+def test_errors_path_refuses_a_round_that_is_not_a_round(bad):
+    """`iter0/` and `iter1.0/` put a round's record where nothing looks for it.
+
+    `True` is in the list because `isinstance(True, int)` holds: a boolean reaching here is
+    a caller that passed a flag, and `iter1/` is the round it would silently name.
+    """
+    with pytest.raises(rf.FoldRunError, match="iteration"):
+        rf.errors_path(**ARM, iteration=bad)
+
+
+def test_the_round_is_a_directory_and_the_axes_are_above_it():
+    """`paths.itererrors`' shape, asserted through the function (DESIGN §5.3, §5.5)."""
+    path = rf.errors_path(**ARM, iteration=4, root=Path("/r"))
+    assert path == Path("/r/results/es-meddocan/R/sup-free/port-oneshot/iter4/errors.jsonl")
+
+
+def test_nothing_is_written_when_the_round_is_not_a_round(tmp_path, probe_file,
+                                                         corpus_present):
+    """Validated before the first write, like the arm's name.
+
+    A run that wrote `spans.jsonl` and then raised on the third file would leave an arm's
+    directory holding predictions with no score beside them, which is the half-written
+    results directory `FoldRunError` exists to prevent.
+    """
+    with pytest.raises(rf.FoldRunError, match="iteration"):
+        rf.run_fold(**ARM, rules={"es": probe_file}, root=tmp_path,
+                    export_errors_for_iteration=0)
+    assert not (tmp_path / "results").exists()
+
+
+def test_the_export_path_is_denied_by_the_screener():
+    """The path rule is the other half of the defence, and it is checked on the real path.
+
+    `ErrorSpan` has no text field by construction, which is what makes this file safe to
+    exist on a DUA corpus; the deny rule is about what it is even so — a list of the
+    offsets of every missed identifier in the fold, drawn from gold (DESIGN §5.5). Asserted
+    through `deny()` on the path this module actually builds, not against the pattern's
+    text: a pattern that matched nothing would be a rule reported as present and never run.
+    """
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(
+        "_screen_probe_errors", ROOT / "tools" / "release_screen.py")
+    screen = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(screen)
+
+    rel = rel_errors(3)
+    assert screen.deny(rel)
+    # And not published from the other side. `deny()` is consulted first, so an ALLOW
+    # entry reaching this path would not change the verdict today — it would make the two
+    # lists disagree, one deny-rule deletion away from publishing the file.
+    assert not any(re.search(p, rel) for p in screen.ALLOW_PATTERNS)
+
+
+def test_the_export_path_is_gitignored():
+    """Paired with the deny rule. Denied-but-not-ignored is reported as BLOCKED only once
+    somebody stages it; ignored-but-not-denied is reported as Quarantined, which reads as
+    fine. `test_every_deny_listed_path_is_also_gitignored` is the general form.
+    """
+    done = subprocess.run(
+        ["git", "check-ignore", "-q", rel_errors(3)],
+        cwd=ROOT, capture_output=True, text=True)
+    assert done.returncode == 0, f"{rel_errors(3)} is not gitignored"
 
 
 # ─── the cli ─────────────────────────────────────────────────────────────────
