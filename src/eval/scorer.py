@@ -90,7 +90,13 @@ SCORER_VERSION = 1
 #: corresponding state here — every arm either iterated or did not, and the one that did not
 #: records `not_applicable`. A block some arms carried and others omitted would be a field
 #: that cannot be compared across arms, which is `model_id`'s argument at schema 3.
-SCHEMA_VERSION = 6
+#: 7 adds a **required** top-level `cost_to_date` block (2026-08-13). `cost` becomes what
+#: *this* scoring pass's round spent and `cost_to_date` what the arm has spent through it,
+#: and for an arm with one round the two are equal — which is why the key means one thing
+#: everywhere rather than two things depending on the arm. Required for schema 6's reason:
+#: every arm has a total, so an arm carrying the block and an arm omitting it would be
+#: uncomparable at exactly the number DESIGN §11.3 is read off.
+SCHEMA_VERSION = 7
 
 FULLY_COVERED = "fully_covered"
 RELAXED = "relaxed"
@@ -1246,6 +1252,97 @@ def check_termination(termination: Mapping) -> None:
         )
 
 
+def sum_costs(costs: Iterable[Mapping]) -> dict:
+    """Add `REQUIRED_COST` blocks. One round's calls into a round total, or rounds into an arm.
+
+    **Why the summing lives here and not in the loop driver** (DESIGN §5.5, §11.3). One
+    iteration of `port-loop` makes 1 + N calls — RuleAuthor once, then the Auditor once per
+    dev document — and something has to add `Response.cost()` dicts up. `bedrock` cannot: its
+    docstring says a caller summing several responses adds these dicts and *nothing there
+    guesses at a total it did not make*, which is the same rule that keeps the lifecycle probe
+    out of `llm_calls`. The driver could, and then the arithmetic behind §11.3's 1.9× standard
+    would live in the module that also decides how many calls to make — a rung's cost computed
+    by the thing whose cost is in question. This module publishes the block, validates it, and
+    is agent-free and arm-free by construction, so it is where the addition belongs.
+
+    **Every key is added, `wall_seconds` included, and that is a claim about the calls.** The
+    Auditor's N documents are N sequential calls in a driver that makes them one after
+    another, so their wall times are additive in the same sense `run_fold`'s detection pass and
+    the caller's call time already are. A driver that ever issues them concurrently makes this
+    an overcount of elapsed time and must say so rather than quietly changing the meaning of
+    the field — the number is compute spent, which is what §11.3 compares, and not a stopwatch
+    on the run.
+
+    The block is closed on both sides: a key outside `REQUIRED_COST` is refused rather than
+    carried through, because a token count this project does not name would be published
+    unvalidated and summed into a total nobody declared. An empty sequence gives the zeros —
+    a round with no calls is `NO_LLM_COST` plus a measured zero, which is the same rule the `R`
+    arm's block follows and not a default standing in for a measurement.
+    """
+    total = {"llm_calls": 0, "prompt_tokens": 0, "completion_tokens": 0, "wall_seconds": 0.0}
+    for index, block in enumerate(costs):
+        if not isinstance(block, Mapping):
+            raise ScorerError(
+                f"costs[{index}] is a {type(block).__name__}, not a mapping. Pass "
+                "`Response.cost()` blocks, or blocks of the same shape; a total added from "
+                "anything else is a total whose parts cannot be checked."
+            )
+        missing = [k for k in REQUIRED_COST if block.get(k) is None]
+        if missing:
+            raise ScorerError(
+                f"costs[{index}] is missing {missing}. A partial block cannot be added: the "
+                "sum would carry a token count from some calls and not others, and the "
+                "result would be a smaller number that looks like a measurement. CLAUDE.md "
+                "requires all four beside quality, and zero is how a call that spent nothing "
+                "says so."
+            )
+        extra = sorted(set(block) - set(REQUIRED_COST))
+        if extra:
+            raise ScorerError(
+                f"costs[{index}] has unexpected key(s) {extra}. The cost block is closed to "
+                f"{list(REQUIRED_COST)}: a fifth field would be summed into a published total "
+                "under a name this project never declared, and a reader cannot tell such a "
+                "field from part of the cost model."
+            )
+        for key in REQUIRED_COST:
+            total[key] += block[key]
+    total["wall_seconds"] = round(total["wall_seconds"], 3)
+    return total
+
+
+def check_cost_to_date(cost: Mapping, cost_to_date: Mapping) -> None:
+    """The arm's running total is at least this round's, key by key. Both blocks, one check.
+
+    `cost` is what the round that produced these numbers spent; `cost_to_date` is what the arm
+    has spent through it (`write_metrics`). The relation between them is the one thing a reader
+    of `metrics.json` needs to be able to trust and cannot verify from a single file, so it is
+    checked at the writer: a total below the part it contains is two blocks that were built
+    from different histories, which is exactly the confusion DESIGN §11.3 forbids — the 1.9×
+    judgment is read off `cost_to_date`, and a round's own figure sitting above it means one of
+    the two is not what its name says.
+
+    Equality is allowed and is the common case: a non-iterating arm has one round, so its two
+    blocks are the same numbers, and `port-loop`'s iteration 1 is also equal by construction.
+    What is refused is only a total that is *smaller*.
+
+    Not a check that the total equals the sum of the rounds — this function sees one file and
+    the rounds are in a directory. That property is `run_fold`'s caller's, and what makes it
+    hold is that the driver accumulates rather than recomputing (`sum_costs`).
+    """
+    below = [k for k in REQUIRED_COST if cost_to_date[k] < cost[k]]
+    if below:
+        round_side = {k: cost[k] for k in below}
+        total_side = {k: cost_to_date[k] for k in below}
+        raise ScorerError(
+            f"cost_to_date is below cost at {below} (round: {round_side}, "
+            f"to date: {total_side}). "
+            "The arm's running total includes this round, so it cannot be smaller than it. "
+            "Two blocks that disagree this way were built from different histories, and "
+            "DESIGN §11.3's cost comparison is read off the total — pass the round's own "
+            "block as `cost` and the accumulated one as `cost_to_date`, in that order."
+        )
+
+
 def metrics_path(
     run: Mapping[str, str], root: Path | None = None, *, iteration: int | None = None
 ) -> Path:
@@ -1307,6 +1404,7 @@ def write_metrics(
     run: Mapping,
     cost: Mapping,
     termination: Mapping,
+    cost_to_date: Mapping | None = None,
     model_lifecycle: Mapping | None = None,
     root: Path | None = None,
     iteration: int | None = None,
@@ -1376,6 +1474,29 @@ def write_metrics(
     duplication rule requires the final round's two files to be *identical*, which they
     cannot be if one of them names its own path. The round is recoverable from the path,
     and the `termination` block already carries `iterations`.
+
+    **`cost` is the round's and `cost_to_date` is the arm's, and both are always written**
+    (schema 7, 2026-08-13). `port-loop`'s iteration makes 1 + N calls — RuleAuthor once, the
+    Auditor once per dev document — so a per-round figure and an arm total are different
+    numbers for the first time in this project, and DESIGN §11.3's comparison is against the
+    total. Two blocks rather than one, because either alone loses something a reader needs:
+    only the round's says which iteration got expensive, and only the total is what the 1.9×
+    standard is read off.
+
+    `cost_to_date` defaults to `cost` rather than being required, and the default *is* the
+    non-iterating arm's true state: `R` and the `port-oneshot` rungs run one round, so their
+    round cost and their arm total are the same measurement, and making them pass it twice
+    would be a call-site ritual whose only failure mode is passing something else. What it is
+    not is optional-in-the-file — the key is written unconditionally, for the reason schema 6
+    made `termination` required: a block some arms carried and others omitted cannot be
+    compared across arms, and this is the block the cost comparison is made on.
+
+    The two are checked against each other (`check_cost_to_date`) and the total is never
+    *derived* here. A writer that added the rounds up would be a second accumulator beside
+    the driver's, and the file it published would agree with itself while disagreeing with the
+    run — the shape §5.5's duplication rule and §3's stopping rule are both about. Summing is
+    `sum_costs`, which the driver calls; this validates the relation and writes what it is
+    given.
     """
     missing = [k for k in REQUIRED_COST if cost.get(k) is None]
     if missing:
@@ -1384,6 +1505,17 @@ def write_metrics(
             "An arm that makes no LLM calls passes 0 — a zero is a measurement and "
             "an absent key is not, and this refuses to conflate them."
         )
+    to_date = dict(cost) if cost_to_date is None else dict(cost_to_date)
+    missing = [k for k in REQUIRED_COST if to_date.get(k) is None]
+    if missing:
+        raise ScorerError(
+            f"cost_to_date block is missing {missing}. It is the arm's running total through "
+            "this round and carries the same four keys as `cost` — DESIGN §11.3's comparison "
+            "is read off it, so a partial total is a published number with a missing part. "
+            "Omit the argument entirely for an arm with one round; that writes the round's "
+            "own block, which is that arm's total."
+        )
+    check_cost_to_date(cost, to_date)
     if model_lifecycle is not None and not model_lifecycle:
         raise ScorerError(
             "model_lifecycle is an empty mapping. Pass None for 'no probe was made' and "
@@ -1402,6 +1534,10 @@ def write_metrics(
         "schema_version": SCHEMA_VERSION,
         "run": {**dict(run), "scorer_version": SCORER_VERSION},
         "cost": dict(cost),
+        # This round's cost above, the arm's total through it here (schema 7). Beside rather
+        # than nested, and always written — see the docstring. For an arm with one round the
+        # two are the same numbers, which is a fact about that arm and not a duplication.
+        "cost_to_date": to_date,
         # DESIGN §3. Top level beside `cost` and never inside `run` — see the docstring:
         # a threshold is a property of how the arm was run, not a coordinate of which arm
         # it is, and `run` is what gets formatted into the results path.

@@ -1484,6 +1484,57 @@ are the artefact and plumbing questions the two of those leave open.
   constraint stays in `report()`, where it is a fact about the Auditor's schedule rather than
   about a location; duplicating it in a path builder would put one agent's schedule where the
   next round-scoped file inherits it.
+- **`cost` becomes the round's and `metrics.json` gains a required `cost_to_date`; the
+  addition is `scorer.sum_costs` and the driver holds the accumulator** (schema 7,
+  2026-08-13). An iteration of `port-loop` makes **1 + N** calls — RuleAuthor once, the Auditor
+  once per dev document — because `Response.cost()` reports `llm_calls: 1` per response and the
+  Auditor reads the masked fold a document at a time (§3, `auditor.md`). So for the first time
+  in this project a per-round spend and an arm total are different numbers, and three things
+  had to be decided: where they are added, which of the two each block holds, and what the
+  non-iterating arms write.
+
+  **The addition is the scorer's.** `bedrock` cannot do it — its `cost()` note already says a
+  caller summing several responses adds these dicts and *nothing there guesses at a total it
+  did not make*, which is the same rule that keeps the lifecycle probe out of `llm_calls`. The
+  driver could, and that is the one placement worth refusing on principle: §11.3's 1.9×
+  standard is a judgment on a rung's cost, and a rung whose driver both decides how many calls
+  to make and computes the total is a rung pricing itself. `scorer` is agent-free and arm-free
+  by construction and already publishes and validates the block, so `sum_costs` lives there and
+  the driver calls it. It is closed to `REQUIRED_COST` on both sides — a fifth key is refused
+  rather than carried, because a token count this project never declared would be summed into a
+  published total under a name no reader can place, which is the `termination` block's rule one
+  field over. Every key adds, `wall_seconds` included: the Auditor's N calls are sequential, so
+  their seconds are additive in the sense `run_fold`'s detection pass and the caller's call
+  time already are, and a driver that ever issues them concurrently owes a statement here
+  rather than a quiet change in what the field means.
+
+  **Two blocks and not one, because either alone loses something.** Only the round's figure
+  says which iteration got expensive, and only the total is what §11.3 compares — and the
+  rounds' own files cannot substitute for the total, since the audit report and the error list
+  make `iter{N}/` a directory nobody publishes. So `cost` is what the scoring pass's round
+  spent and `cost_to_date` is what the arm has spent through it, side by side in one file.
+
+  **`cost_to_date` defaults to `cost`, and for the non-iterating arms that default is the
+  measurement.** `R` and the `port-oneshot` rungs run one round, so the round's cost *is* the
+  arm's total; requiring them to pass it twice would be a call-site ritual whose only failure
+  mode is passing something else. But the key is written **unconditionally**, for the reason
+  schema 6 made `termination` required and schema 3 made `model_id`: a block present only when
+  it differs from `cost` would be absent for every arm except `port-loop` past iteration 1 —
+  a field that cannot be compared across arms, at precisely the number the comparison is about.
+  `run_fold` adds the detection pass's seconds to **both**, since this round's detection is
+  part of this round and part of the arm, and a total missing them would be smaller than the
+  sum of the rounds it contains.
+
+  **The writer validates the relation and never derives the total.** `check_cost_to_date`
+  refuses a total below the round it contains, key by key — that state is a reset accumulator
+  or the two arguments passed the other way round, and a reader holding one file cannot check
+  it. What the writer must not do is add the rounds up itself: that would be a second
+  accumulator beside the driver's, and its file would agree with itself while disagreeing with
+  the run, with nothing recording which of the two was the arm's cost. Same shape as §5.5's
+  duplication rule and §3's stopping rule — one producer per number.
+
+  §11.3's arithmetic is therefore read off `cost_to_date` and its per-iteration breakdown off
+  the rounds, and `metrics.json` says which is which without a convention.
 
 #### 5.5.1 `errors.jsonl` is not a `FilledPrompt`, and where that stops being true
 

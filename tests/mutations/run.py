@@ -2843,6 +2843,176 @@ MUTATIONS = [
         min_kills=3,
     ),
 
+    # ─── the round's cost and the arm's total (schema 7, DESIGN §11.3) ───────
+    # `port-loop`'s iteration is 1 + N calls, so `metrics.json` carries two cost blocks and
+    # the 1.9× standard is read off one of them. Every mutation here leaves a schema-valid
+    # file with four plausible numbers in both blocks — none of them fails a shape check,
+    # and the wrong figure is only wrong against a run history the file does not contain.
+    Mutation(
+        name="the_arms_total_is_the_last_rounds_cost",
+        path=RUN_FOLD,
+        anchor='        cost_to_date={**NO_LLM_COST, **dict(cost_to_date or cost or {}),\n'
+               '                      "wall_seconds": to_date_seconds},',
+        replacement='        cost_to_date={**NO_LLM_COST, **dict(cost or {}),\n'
+                    '                      "wall_seconds": to_date_seconds},',
+        breaks=(
+            "**The arm's total becomes whatever the last round spent.** The accumulator the "
+            "driver passes is dropped and the round's own block is written in both places, so "
+            "an eight-iteration `port-loop` publishes a `cost_to_date` of roughly 135k tokens "
+            "instead of 1.1M — and DESIGN §11.3's cost comparison is read off exactly that "
+            "field.\n"
+            "\n"
+            "Nothing in the file contradicts anything else in it. Both blocks are complete and "
+            "four-keyed, `check_cost_to_date` is satisfied because they are *equal* (the "
+            "relation refuses only a total that is smaller), and equality is the correct state "
+            "for every arm on the ladder except `port-loop` past iteration 1 — which is what "
+            "makes the edit invisible to every non-iterating arm's tests. The number is wrong "
+            "only against a run history no single file holds.\n"
+            "\n"
+            "Caught by `test_the_round_and_the_arm_are_written_as_the_two_numbers_they_are` "
+            "and `test_run_fold_does_not_sum_costs_itself`, which is why those tests pass a "
+            "total that differs from the round rather than a realistic-looking one."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="the_folds_seconds_go_to_the_round_and_not_the_arm",
+        path=RUN_FOLD,
+        anchor='    to_date_seconds = round(elapsed + float((cost_to_date or cost or {})\n'
+               '                                            .get("wall_seconds", 0.0)), 3)',
+        replacement='    to_date_seconds = round(float((cost_to_date or cost or {})\n'
+                    '                                  .get("wall_seconds", 0.0)), 3)',
+        breaks=(
+            "The detection pass's time is added to the round's block and not to the arm's, so "
+            "the total is below the sum of the rounds it contains — by one fold's compute per "
+            "iteration, which on `es-meddocan` is the larger part of a rule pass. The round's "
+            "own file then reports seconds the arm's figure denies.\n"
+            "\n"
+            "`wall_seconds` is the only key `run_fold` measures rather than passes through, so "
+            "this is the one place the two blocks can drift by construction, and it drifts in "
+            "the direction that makes the iterating arm look cheaper. Both blocks stay "
+            "complete and plausible: a total above the round's calls and below their sum is "
+            "not a contradiction any single file exposes, and `check_cost_to_date` passes "
+            "because the total is still larger than the round's.\n"
+            "\n"
+            "Caught by `test_the_detection_pass_lands_in_both_blocks`, which measures the "
+            "difference each block grew by rather than asserting either number."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="the_writer_adds_the_rounds_up_itself",
+        path=SCORER,
+        anchor="    to_date = dict(cost) if cost_to_date is None else dict(cost_to_date)",
+        replacement="    to_date = sum_costs([cost] + ([] if cost_to_date is None\n"
+                    "                                  else [dict(cost_to_date)]))",
+        breaks=(
+            "**A second accumulator, in the writer.** The scorer now adds the round into the "
+            "total it was handed, so every round is counted twice — once by the driver's "
+            "accumulator and once here — and an eight-iteration arm publishes roughly double "
+            "its real spend.\n"
+            "\n"
+            "The shape is what makes it worth a mutation rather than the size of the error. "
+            "The mutated writer's file agrees with itself perfectly: `cost_to_date` is above "
+            "`cost`, both blocks are complete, and `check_cost_to_date` is satisfied *more* "
+            "comfortably than before. It disagrees only with the run, and nothing records "
+            "which of the two accumulators produced the published figure — the same shape "
+            "§5.5's duplication rule and §3's stopping rule are both about, one producer per "
+            "number.\n"
+            "\n"
+            "It also passes the non-iterating arms untouched in the one case they exercise: "
+            "with `cost_to_date` omitted the sum of a single block is that block. So `R` and "
+            "the `port-oneshot` rungs see nothing.\n"
+            "\n"
+            "Caught by `test_the_writer_does_not_derive_the_total_from_anything`, which hands "
+            "the writer a total no sum of that round could produce."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="a_total_below_its_round_is_published",
+        path=SCORER,
+        anchor="    check_cost_to_date(cost, to_date)",
+        replacement="",
+        breaks=(
+            "The one relation between the two blocks that a reader holding a single file "
+            "cannot verify stops being checked. A `cost_to_date` below the `cost` it contains "
+            "is a reset accumulator, or the two arguments passed the other way round — and "
+            "the second is the likelier: both are `REQUIRED_COST` blocks with identical "
+            "shapes, so no type error and no shape check can tell them apart.\n"
+            "\n"
+            "Swapped, the published file says round 3 spent the whole arm's budget and the arm "
+            "spent one round's, and every downstream reading of §11.3's comparison is inverted "
+            "while both blocks stay complete and well-formed. This is the guard-whose-"
+            "precondition-was-never-asked shape: the property is true of a correct driver and "
+            "unchecked at the writer, so it holds for one code path rather than for the file.\n"
+            "\n"
+            "Caught by `test_a_total_below_the_round_it_contains_is_refused`, "
+            "`test_the_relation_is_checked_key_by_key` and "
+            "`test_a_total_below_the_round_reaches_the_scorers_check`."
+        ),
+        min_kills=2,
+    ),
+    Mutation(
+        name="summing_takes_the_longest_call_as_the_wall_time",
+        path=SCORER,
+        anchor="        for key in REQUIRED_COST:\n            total[key] += block[key]",
+        replacement="        for key in REQUIRED_COST:\n"
+                    "            if key == \"wall_seconds\":\n"
+                    "                total[key] = max(total[key], block[key])\n"
+                    "            else:\n"
+                    "                total[key] += block[key]",
+        breaks=(
+            "`wall_seconds` becomes the longest single call instead of the calls' sum, so an "
+            "iteration's 1 + N calls report the time of one of them. On a dev fold of any size "
+            "the Auditor dominates the call count, and the arm's reported compute collapses to "
+            "roughly one document's worth per round.\n"
+            "\n"
+            "It is the mutation with the best argument for it, which is why it is here: taking "
+            "a maximum is what you would write if you thought the field were elapsed "
+            "wall-clock, and for a concurrent driver it would be closer to right. The driver "
+            "issues the Auditor's documents sequentially, so the sum is the honest number — "
+            "and `sum_costs` says so in prose precisely because the alternative is defensible "
+            "enough to be chosen silently. The token counts and `llm_calls` stay correct, so "
+            "every test about the call count passes and the cost block stays four-keyed.\n"
+            "\n"
+            "Caught by `test_summing_adds_every_key_including_wall_seconds`, which is written "
+            "over three calls with distinct times for this reason — two calls of equal length "
+            "could not tell a sum from a maximum."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="summing_carries_an_undeclared_key_into_the_total",
+        path=SCORER,
+        anchor="        extra = sorted(set(block) - set(REQUIRED_COST))\n"
+               "        if extra:\n"
+               "            raise ScorerError(\n"
+               "                f\"costs[{index}] has unexpected key(s) {extra}. The cost block "
+               "is closed to \"",
+        replacement="        extra: list[str] = []\n"
+                    "        if extra:\n"
+                    "            raise ScorerError(\n"
+                    "                f\"costs[{index}] has unexpected key(s) {extra}. The cost "
+                    "block is closed to \"",
+        breaks=(
+            "The cost block stops being closed on the way in. A caller passing Bedrock's own "
+            "`inputTokens`/`input_tokens` beside `prompt_tokens` — the plausible edit, since "
+            "those are the provider's names for the same quantity — now has it silently "
+            "ignored by the sum rather than refused, and the total is short by whatever that "
+            "field held.\n"
+            "\n"
+            "The failure is quiet in both directions. The sum still returns four keys, so the "
+            "published block is valid and comparable-looking; and a reader who added a fifth "
+            "key deliberately gets a total that does not include it, with nothing saying so. "
+            "This is the `termination` block's closed-set argument at the cost block: a field "
+            "this project never declared cannot be told from part of the cost model.\n"
+            "\n"
+            "Caught by `test_summing_refuses_a_key_the_cost_block_does_not_declare`."
+        ),
+        min_kills=1,
+    ),
+
     # ─── the iteration-scoped paths (DESIGN §5.5) ──────────────────────────
     Mutation(
         name="the_audit_report_is_allowed_instead_of_denied",

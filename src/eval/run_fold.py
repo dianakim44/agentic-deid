@@ -691,6 +691,7 @@ def run_fold(
     model_record: Mapping[str, str | None] | None = None,
     model_lifecycle: Mapping[str, str | None] | None = None,
     cost: Mapping[str, float] | None = None,
+    cost_to_date: Mapping[str, float] | None = None,
     termination: Termination | None = None,
     iteration: int | None = None,
 ) -> tuple[Path, Path, dict]:
@@ -743,6 +744,25 @@ def run_fold(
     wall clock are different quantities, and the distinct name is what stops an aggregation
     summing them). Reporting only the call would put a rule pass's cost at zero seconds in
     an arm whose comparison is against `port-loop`'s many calls.
+
+    **`cost` is this round's and `cost_to_date` is the arm's total through it** (schema 7,
+    2026-08-13). Until `port-loop` those were one number, because an arm was one round.
+    An iteration of the loop makes 1 + N calls — RuleAuthor once, the Auditor once per dev
+    document — so the driver adds them with `scorer.sum_costs` and passes both: the round's
+    figure here as `cost`, and its own accumulator as `cost_to_date`. DESIGN §11.3's 1.9×
+    comparison is against the total, and which iteration got expensive is only in the rounds.
+
+    Omitted, `cost_to_date` becomes `cost`, which is the non-iterating arms' true state
+    rather than a fallback — one round is the whole arm. **The detection pass's seconds are
+    added to both**, and that is deliberate: this round's detection is part of this round and
+    part of the arm, and a total that omitted it would be a total missing the compute the
+    round's own block reports.
+
+    What this function does **not** do is accumulate. It is given one round's numbers and one
+    total and writes them; a running sum kept here would be a second accumulator beside the
+    driver's, and this function is called once per round by a caller that already has the
+    history. The relation between the two blocks is checked by the writer
+    (`scorer.check_cost_to_date`).
 
     **`termination` is how an iterating arm reports where it stopped**, and it is an argument
     for `cost`'s and `model_record`'s reason: this function scores one fold, and whether that
@@ -845,6 +865,24 @@ def run_fold(
                 "tokens without calls, or calls without time, is an arm whose cost cannot "
                 "be compared to another's."
             )
+    if cost_to_date is not None:
+        missing = [k for k in REQUIRED_COST if k not in cost_to_date]
+        if missing:
+            raise FoldRunError(
+                f"the cost_to_date block passed in is missing {missing}. It is the arm's "
+                "running total through this round and carries `cost`'s four keys — DESIGN "
+                "§11.3's comparison is read off it. An arm with one round omits the argument "
+                "rather than passing a partial block; that writes the round's own cost, which "
+                "is its total."
+            )
+        if cost is None:
+            raise FoldRunError(
+                "cost_to_date was passed without cost. A total with no round beside it is "
+                "the arm's figure with nothing saying which iteration produced these numbers, "
+                "and this round's block is what makes the total's growth readable (DESIGN "
+                "§5.5, §11.3). An arm that made no calls passes neither and gets zeros for "
+                "both."
+            )
 
     if iteration is not None:
         # All three round paths, validated before the first write rather than at the third.
@@ -898,12 +936,23 @@ def run_fold(
     # Both are this arm's compute; see the docstring on why they are summable and
     # `human_minutes` is not.
     seconds = round(elapsed + float((cost or {}).get("wall_seconds", 0.0)), 3)
+    # And into the arm's total as well. This round's detection is part of this round and part
+    # of the arm; a total carrying the calls' seconds but not the fold's would be smaller than
+    # the sum of the rounds it contains (see the docstring).
+    to_date_seconds = round(elapsed + float((cost_to_date or cost or {})
+                                            .get("wall_seconds", 0.0)), 3)
     # Assembled once and passed to both writes of each file, so the round-scoped copy and
     # the un-iterated one cannot be built from two different cost or termination blocks
     # (DESIGN §5.5). `write_metrics` copies what it is given; nothing below re-derives.
     metrics_args = dict(
         run=run,
         cost={**NO_LLM_COST, **dict(cost or {}), "wall_seconds": seconds},
+        # The arm's running total through this round (schema 7). `cost_to_date or cost` and
+        # not a second default: an arm with one round has one round's cost as its total, and
+        # writing zeros here for a caller that passed a cost would publish a total below the
+        # part it contains — which `scorer.check_cost_to_date` refuses.
+        cost_to_date={**NO_LLM_COST, **dict(cost_to_date or cost or {}),
+                      "wall_seconds": to_date_seconds},
         # An arm that does not iterate records that it does not, rather than omitting the
         # block (DESIGN §3, and the cost block's zeros one argument over).
         termination=(termination or not_applicable(corpus)).record(),

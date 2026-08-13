@@ -436,6 +436,152 @@ def test_cost_is_zeros_and_wall_time_is_measured(ran):
     assert cost["wall_seconds"] >= 0
 
 
+# ─── the round's cost and the arm's total (schema 7, DESIGN §11.3) ────────────
+# `port-loop`'s iteration is 1 + N calls, so what this function is handed is one round's
+# figure and the arm's running total. The summing is `scorer.sum_costs`' — what is checked
+# here is the handover: which of the two numbers each block holds, and that the detection
+# pass lands in both.
+
+#: One iteration's calls as the driver would have added them: a RuleAuthor call and two
+#: Auditor documents. `ROUND_COST` is round 3's own, `ARM_COST` the arm's total through it.
+ROUND_COST = {"llm_calls": 3, "prompt_tokens": 131601, "completion_tokens": 3126,
+              "wall_seconds": 55.292}
+ARM_COST = {"llm_calls": 9, "prompt_tokens": 394803, "completion_tokens": 9378,
+            "wall_seconds": 165.876}
+
+
+def test_a_non_iterating_arms_total_is_its_round(ran):
+    """One round is the whole arm, so the two blocks hold the same numbers — including the
+    measured `wall_seconds`, which is what makes this an assertion rather than a tautology
+    about zeros. The key is written for every arm (schema 7): a block only `port-loop` carried
+    could not be compared to the baseline it is being compared to."""
+    _, metrics, _ = ran
+    written = json.loads(metrics.read_text(encoding="utf-8"))
+    assert written["cost_to_date"] == written["cost"]
+    assert written["cost_to_date"]["wall_seconds"] > 0
+
+
+def test_the_round_and_the_arm_are_written_as_the_two_numbers_they_are(
+        tmp_path, probe_file, corpus_present):
+    """The handover, at the one call site that has both numbers.
+
+    A driver whose accumulator ended up in `cost` would publish round 3's file claiming the
+    whole arm's spend for one round — and every arm's headline would then hold its last round's
+    total, which is the ambiguity DESIGN §11.3 forbids at exactly the number it judges on.
+    """
+    _, metrics, _ = rf.run_fold(**ARM, rules={"es": probe_file}, root=tmp_path, iteration=3,
+                                cost=ROUND_COST, cost_to_date=ARM_COST)
+    written = json.loads(metrics.read_text(encoding="utf-8"))
+    assert written["cost"]["llm_calls"] == 3
+    assert written["cost_to_date"]["llm_calls"] == 9
+    assert written["cost"]["prompt_tokens"] == ROUND_COST["prompt_tokens"]
+    assert written["cost_to_date"]["prompt_tokens"] == ARM_COST["prompt_tokens"]
+
+
+def test_the_detection_pass_lands_in_both_blocks(tmp_path, probe_file, corpus_present):
+    """This round's detection is part of this round *and* part of the arm.
+
+    Added to the total as well as to the round, because a total carrying the calls' seconds
+    and not the fold's would be below the sum of the rounds it contains — and the round's own
+    block would then report compute the arm's figure denies. `wall_seconds` is the only key
+    this function measures; the token counts it only passes through, which is why the
+    assertion is that both grew by the same amount.
+    """
+    _, metrics, _ = rf.run_fold(**ARM, rules={"es": probe_file}, root=tmp_path, iteration=3,
+                                cost=ROUND_COST, cost_to_date=ARM_COST)
+    written = json.loads(metrics.read_text(encoding="utf-8"))
+    round_detect = written["cost"]["wall_seconds"] - ROUND_COST["wall_seconds"]
+    arm_detect = written["cost_to_date"]["wall_seconds"] - ARM_COST["wall_seconds"]
+    assert round_detect > 0, "the detection pass took no time, so this asserts nothing"
+    assert abs(round_detect - arm_detect) < 0.002, (
+        "the fold's seconds went into one block and not the other. Rounding to milliseconds "
+        "is why this is a tolerance and not equality."
+    )
+
+
+def test_the_two_copies_of_a_rounds_file_carry_the_same_pair(tmp_path, probe_file,
+                                                             corpus_present):
+    """§5.5's duplication rule, over the block added to it. Both writes take one
+    `metrics_args`, so the round's copy and the un-iterated headline cannot report different
+    spends for one scoring pass."""
+    _, metrics, _ = rf.run_fold(**ARM, rules={"es": probe_file}, root=tmp_path, iteration=3,
+                                cost=ROUND_COST, cost_to_date=ARM_COST)
+    round_copy = json.loads((tmp_path / rel_round("itermetrics", 3))
+                            .read_text(encoding="utf-8"))
+    headline = json.loads(metrics.read_text(encoding="utf-8"))
+    assert round_copy["cost"] == headline["cost"]
+    assert round_copy["cost_to_date"] == headline["cost_to_date"]
+
+
+@pytest.mark.parametrize("key", ["llm_calls", "prompt_tokens", "completion_tokens",
+                                 "wall_seconds"])
+def test_a_partial_total_is_refused_here_and_not_at_the_writer(tmp_path, probe_file,
+                                                               corpus_present, key):
+    """Refused before the fold is detected, like the `cost` block one branch up: a partial
+    total that reached the scorer would fail after a detection pass had been paid for."""
+    with pytest.raises(rf.FoldRunError, match=key):
+        rf.run_fold(**ARM, rules={"es": probe_file}, root=tmp_path, cost=ROUND_COST,
+                    cost_to_date={k: v for k, v in ARM_COST.items() if k != key})
+
+
+def test_a_total_with_no_round_beside_it_is_refused(tmp_path, probe_file, corpus_present):
+    """`cost_to_date` without `cost` is the arm's figure with nothing saying which iteration
+    produced these numbers, and the default would then write the zeros as the round's cost —
+    a round that made no calls beside a total that made nine. An arm with no calls passes
+    neither and gets zeros for both."""
+    with pytest.raises(rf.FoldRunError, match="cost_to_date was passed without cost"):
+        rf.run_fold(**ARM, rules={"es": probe_file}, root=tmp_path, cost_to_date=ARM_COST)
+
+
+def test_a_total_below_the_round_reaches_the_scorers_check(tmp_path, probe_file,
+                                                           corpus_present):
+    """Not re-implemented here. The relation between the two blocks is the writer's check
+    (`scorer.check_cost_to_date`) because that is where they are published, and a second copy
+    of it in this module is the drift `corpora.base.round_path` exists to avoid one layer
+    over. What this asserts is that the state is reachable from here and refused."""
+    with pytest.raises(ScorerError, match="cost_to_date is below cost"):
+        rf.run_fold(**ARM, rules={"es": probe_file}, root=tmp_path, cost=ARM_COST,
+                    cost_to_date=ROUND_COST)
+
+
+def test_run_fold_does_not_sum_costs_itself(tmp_path, probe_file, corpus_present):
+    """It is called once per round by a caller that holds the history, so an accumulator here
+    would be a second one — and this function has no memory across calls to keep it in. Two
+    consecutive rounds passing the same total must not compound it.
+
+    Structural as well as behavioural: `sum_costs` is the scorer's, and a `run_fold` that
+    imported it would be the module that both adds the rounds up and writes them.
+
+    The structural half reads the syntax tree and not the text, for
+    `test_the_scorer_does_not_import_the_llm_client`'s reason: the docstring above names
+    `scorer.sum_costs` on purpose, and a substring search would forbid explaining the boundary
+    in order to enforce it.
+    """
+    import ast
+
+    for iteration in (3, 4):
+        _, metrics, _ = rf.run_fold(**ARM, rules={"es": probe_file}, root=tmp_path,
+                                    iteration=iteration, cost=ROUND_COST,
+                                    cost_to_date=ARM_COST)
+        written = json.loads(metrics.read_text(encoding="utf-8"))
+        assert written["cost_to_date"]["llm_calls"] == ARM_COST["llm_calls"]
+        assert written["cost"]["llm_calls"] == ROUND_COST["llm_calls"]
+
+    tree = ast.parse((ROOT / "src" / "eval" / "run_fold.py").read_text(encoding="utf-8"))
+    named = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom):
+            named.update(a.name for a in node.names)
+        elif isinstance(node, ast.Name):
+            named.add(node.id)
+        elif isinstance(node, ast.Attribute):
+            named.add(node.attr)
+    assert "sum_costs" not in named, (
+        "run_fold imports or calls sum_costs. The addition belongs to the caller that holds "
+        "the round history; this function is handed one round and one total."
+    )
+
+
 def test_the_rule_version_travels_with_the_result(ran):
     """CLAUDE.md: the rule version is recorded with the result, per file."""
     _, metrics, _ = ran

@@ -1582,6 +1582,68 @@ scorer attributes must have a row, every mode must appear, the flag table must c
 `audit.report()` assembled — and those have no mutation here because what they guard against is
 schema drift in another module, which no edit to `prompt.py` produces.
 
+### Six on the two cost blocks, where every mutated file is internally consistent
+
+Added 2026-08-13 with schema 7, and the family has one property in common that no other section
+here does: **not one of them produces a file that contradicts itself.** `metrics.json` gained
+`cost_to_date` because `port-loop`'s iteration is 1 + N calls — RuleAuthor once, the Auditor once
+per dev document — so a round's spend and an arm's total became different numbers, and DESIGN
+§11.3's 1.9× standard is read off the second one. Both blocks carry the same four keys, both are
+required, both are validated for shape. What a wrong figure disagrees with is the *run history*,
+which no single file holds.
+
+`the_arms_total_is_the_last_rounds_cost` is the one the whole block exists to prevent, and it is
+also the state the code was in before the change: `run_fold` passed one cost dict to both of its
+`write_metrics` calls, which is correct while an arm is one round and becomes the arm's headline
+holding round 8's spend the moment it is not. Dropping `cost_to_date` from the assembly restores
+exactly that. An eight-iteration arm then reports about 135k tokens where the truth is 1.1M —
+and `check_cost_to_date` is *satisfied*, because the two blocks come out equal and the relation
+refuses only a total that is smaller. Equality is the correct state for every rung except
+`port-loop` past iteration 1, which is why the tests that see this pass a total differing from
+the round rather than a realistic-looking one.
+
+`the_folds_seconds_go_to_the_round_and_not_the_arm` is the only place the two blocks can drift by
+construction, because `wall_seconds` is the one key `run_fold` measures rather than passes
+through. Adding the detection pass to the round and not to the total makes the total smaller than
+the sum of the rounds it contains, by a fold's compute per iteration, in the direction that makes
+the iterating arm look cheaper. Still no contradiction available to a reader: a total above the
+round's calls and below their sum is not a state any single file exposes.
+`test_the_detection_pass_lands_in_both_blocks` measures what each block *grew by* for this
+reason — an assertion on either number could not tell which block the seconds went to.
+
+`the_writer_adds_the_rounds_up_itself` is the placement question answered wrongly. The scorer
+adds the round into the total it was handed, so every round is counted twice and an eight-round
+arm publishes roughly double its spend — and the file agrees with itself *more* comfortably than
+before, since `cost_to_date` is now further above `cost`. It also leaves the non-iterating arms
+untouched, because the sum of a single block is that block. What it costs is the one-producer
+rule: two accumulators, one in the driver and one in the writer, and nothing recording which
+produced the published figure. Caught by
+`test_the_writer_does_not_derive_the_total_from_anything`, which hands the writer a total no sum
+of that round could yield — a behavioural test built to detect a computation rather than a value.
+
+`a_total_below_its_round_is_published` deletes the relation check, and the reason it is
+`min_kills=2` is that the reachable failure is a swap. Both arguments are `REQUIRED_COST` blocks
+with identical shapes, so no type error and no shape check distinguishes them; passed the other
+way round, the file says round 3 spent the arm's whole budget and the arm spent one round's, and
+every reading of §11.3 inverts while both blocks stay well-formed. This is the
+guard-whose-precondition-was-never-asked shape again: the property holds of a correct driver and
+was unchecked at the writer, so it held for one code path rather than for the file.
+
+`summing_takes_the_longest_call_as_the_wall_time` has the best argument of the six, which is why
+it is here. Taking a maximum is what you write if you think the field is elapsed wall-clock, and
+for a concurrent driver it would be nearer right. The driver issues the Auditor's documents
+sequentially, so the sum is the honest number — and `sum_costs` says so in prose precisely
+because the alternative is defensible enough to be adopted silently. `llm_calls` and the token
+counts stay correct under it, so every test about the call count passes and the block stays
+four-keyed; only a fixture of three calls with *distinct* times can see it.
+
+`summing_carries_an_undeclared_key_into_the_total` opens the block on the way in. The plausible
+caller is one passing Bedrock's own `inputTokens` beside `prompt_tokens` — the provider's name
+for the same quantity — and the sum silently ignores it rather than refusing, so the total is
+short by whatever it held and the published block is still valid and comparable-looking. The
+`termination` block's closed-set argument, at the cost block: a field this project never declared
+cannot be told from part of the cost model.
+
 ## What the seal cost, and what carries the difference
 
 Sealing 250 documents removed checks that cannot be replaced, and pretending

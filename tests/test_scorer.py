@@ -56,6 +56,7 @@ from src.eval.scorer import (
     Mark,
     ScorerError,
     assign,
+    check_cost_to_date,
     coverage,
     dedupe,
     error_spans,
@@ -63,6 +64,7 @@ from src.eval.scorer import (
     iter_metrics_path,
     metrics_path,
     score,
+    sum_costs,
     write_metrics,
 )
 from src.sample import FALSE_POSITIVE, MISSED, ErrorSpan
@@ -1694,8 +1696,16 @@ def test_the_schema_version_moved_with_the_new_required_fields():
     and the constant's note says why: an absent `model_lifecycle` is itself a fact ("no probe
     was made"), and there is no analogous state for a stopping rule, because an arm that does
     not iterate records `not_applicable`.
+
+    Schema 7 is a new required block (`cost_to_date`) and is the case the counter is least
+    obviously needed for, which is why it is worth naming: the block's *value* for every arm
+    written before it equals that arm's `cost`, so a reader diffing a schema-6 file against a
+    schema-7 one sees a key appear whose content they could have computed. The counter is what
+    says they could — without it, an absent `cost_to_date` is either "one round, so it is the
+    cost" or "a writer that had no such field", and the two answers differ for exactly the
+    arms §11.3 compares.
     """
-    assert scorer.SCHEMA_VERSION == 6
+    assert scorer.SCHEMA_VERSION == 7
     assert scorer.SCORER_VERSION == 1
 
 
@@ -1738,6 +1748,189 @@ def test_zero_cost_is_accepted_and_absent_cost_is_not(scored, tmp_path):
     with pytest.raises(ScorerError):
         write_metrics(scored, run=RUN, cost={**COST, "llm_calls": None},
                       termination=TERMINATION, root=tmp_path)
+
+
+# ─── the round's cost and the arm's total (schema 7, DESIGN §11.3) ───────────
+# One iteration of `port-loop` is 1 + N calls — RuleAuthor once, the Auditor once per dev
+# document — so a per-round figure and an arm total became different numbers. The summing
+# lives here rather than in the driver, because a rung whose cost decides whether it clears
+# §11.3's standard must not also own the arithmetic. Two things are checked: that adding
+# blocks is closed and total, and that the file says which of the two numbers is which.
+
+#: A RuleAuthor call and two Auditor calls, as `Response.cost()` would report them. The token
+#: figures are `port-oneshot-nofence`'s real ones scaled down, so the sums below are checkable
+#: by hand rather than only against the function.
+CALLS = [
+    {"llm_calls": 1, "prompt_tokens": 21000, "completion_tokens": 2325,
+     "wall_seconds": 32.542},
+    {"llm_calls": 1, "prompt_tokens": 55300, "completion_tokens": 400, "wall_seconds": 11.5},
+    {"llm_calls": 1, "prompt_tokens": 55301, "completion_tokens": 401, "wall_seconds": 11.25},
+]
+
+
+def test_summing_adds_every_key_including_wall_seconds():
+    """`llm_calls` is the one §11.3 is read on and it is not the only one that must add.
+
+    A sum that added calls and tokens while taking, say, the maximum wall time would be a
+    defensible-sounding choice and it would silently change what the field means — see
+    `sum_costs` on why sequential calls make the seconds additive, and on what a concurrent
+    driver would owe.
+    """
+    assert sum_costs(CALLS) == {
+        "llm_calls": 3, "prompt_tokens": 131601, "completion_tokens": 3126,
+        "wall_seconds": 55.292,
+    }
+
+
+def test_an_iterations_total_is_one_rule_author_call_plus_one_per_document():
+    """The shape the summing exists for, asserted as the count rather than as the tokens.
+
+    §11.3's judgment is on `llm_calls` before it is on anything else, and the number that has
+    to come out is 1 + N. Written with N documents' worth of Auditor calls so the assertion is
+    about the relation and not about three.
+    """
+    n_documents = 12
+    calls = [CALLS[0]] + [dict(CALLS[1]) for _ in range(n_documents)]
+    assert sum_costs(calls)["llm_calls"] == 1 + n_documents
+
+
+def test_summing_nothing_gives_the_zeros_and_not_an_empty_block():
+    """A round with no calls is `NO_LLM_COST`, which the `R` arm's block already establishes:
+    zero is a measurement and absent is not, and `write_metrics` refuses a partial block, so
+    an empty dict here would fail one call site later with a message about the wrong thing."""
+    assert sum_costs([]) == {"llm_calls": 0, "prompt_tokens": 0, "completion_tokens": 0,
+                             "wall_seconds": 0.0}
+
+
+@pytest.mark.parametrize("key", list(scorer.REQUIRED_COST))
+def test_summing_refuses_a_partial_block(key):
+    """The failure mode is a total that looks like a measurement. A block missing
+    `prompt_tokens` summed with two that have it gives a smaller number with nothing marking
+    the gap, and the arm it belongs to then looks cheaper than it was."""
+    partial = {k: v for k, v in CALLS[0].items() if k != key}
+    with pytest.raises(ScorerError, match=key):
+        sum_costs([CALLS[1], partial])
+
+
+def test_summing_names_which_block_was_partial():
+    """Index, not just the key. The driver passes a round's worth of Auditor calls and one of
+    them is the caller's bug; a message naming only the field sends a reader through N of
+    them. No corpus text is involved — this is a position in a list of cost dicts."""
+    with pytest.raises(ScorerError, match=r"costs\[2\]"):
+        sum_costs([CALLS[0], CALLS[1], {k: v for k, v in CALLS[2].items()
+                                        if k != "wall_seconds"}])
+
+
+def test_summing_refuses_a_key_the_cost_block_does_not_declare():
+    """Closed on both sides, for the `termination` block's reason one field over: a fifth key
+    would be added into a published total under a name this project never declared, and a
+    reader cannot tell it from part of the cost model. `input_tokens` is the plausible one —
+    it is Bedrock's own name for what `REQUIRED_COST` calls `prompt_tokens`."""
+    with pytest.raises(ScorerError, match="input_tokens"):
+        sum_costs([{**CALLS[0], "input_tokens": 21000}])
+
+
+def test_summing_refuses_something_that_is_not_a_mapping():
+    with pytest.raises(ScorerError, match="mapping"):
+        sum_costs([CALLS[0], 32.5])          # type: ignore[list-item]
+
+
+def test_the_written_file_carries_both_blocks(scored, tmp_path):
+    """The relation §11.3 is read off, present in one file rather than reconstructed.
+
+    Only the round's block says which iteration got expensive and only the total is what the
+    1.9× standard compares, so a file with one of them loses something no aggregation can
+    recover — the rounds' own files are deny-listed as a directory nobody publishes.
+    """
+    path = write_metrics(scored, run=RUN, cost=CALLS[0], cost_to_date=sum_costs(CALLS),
+                         termination=TERMINATION, root=tmp_path)
+    written = json.loads(path.read_text(encoding="utf-8"))
+    assert written["cost"] == CALLS[0]
+    assert written["cost_to_date"] == sum_costs(CALLS)
+    # Beside `cost` rather than nested inside it: a total under a key whose name is the
+    # round's figure is the ambiguity this block exists to remove.
+    assert "cost_to_date" not in written["cost"]
+    assert list(written).index("cost_to_date") == list(written).index("cost") + 1
+
+
+def test_an_arm_with_one_round_writes_its_cost_as_its_total(scored, tmp_path):
+    """The default, and it is the arm's true state rather than a fallback. `R` and the
+    `port-oneshot` rungs run one round, so their round cost *is* their total; making them pass
+    it twice would be a call-site ritual whose only failure mode is passing something else."""
+    path = write_metrics(scored, run=RUN, cost=CALLS[0], termination=TERMINATION,
+                         root=tmp_path)
+    written = json.loads(path.read_text(encoding="utf-8"))
+    assert written["cost_to_date"] == written["cost"] == CALLS[0]
+
+
+def test_the_total_is_written_even_when_it_equals_the_round(scored, tmp_path):
+    """Unconditional, for the reason schema 6 made `termination` required. A key present only
+    when it differs from `cost` would be absent for every arm on the ladder except `port-loop`
+    past iteration 1 — a field that cannot be compared across arms, at the one number the
+    comparison is about."""
+    path = write_metrics(scored, run=RUN, cost=COST, termination=TERMINATION, root=tmp_path)
+    assert "cost_to_date" in json.loads(path.read_text(encoding="utf-8"))
+
+
+def test_a_total_below_the_round_it_contains_is_refused(scored, tmp_path):
+    """The check that makes the two blocks' names mean something.
+
+    A reader holding one file cannot verify that the total includes this round, so the writer
+    does it. A total *below* the part it contains is two blocks built from different histories
+    — the driver's accumulator reset, or the arguments passed the other way round, which is the
+    likelier of the two and the one this message names.
+    """
+    with pytest.raises(ScorerError, match="cost_to_date is below cost"):
+        write_metrics(scored, run=RUN, cost=sum_costs(CALLS), cost_to_date=CALLS[0],
+                      termination=TERMINATION, root=tmp_path)
+
+
+@pytest.mark.parametrize("key", list(scorer.REQUIRED_COST))
+def test_the_relation_is_checked_key_by_key(key):
+    """Not on `llm_calls` alone. A total whose call count is right and whose token count is
+    below the round's is the state a partially-reset accumulator produces, and it is the one
+    that would survive a check on the headline field."""
+    with pytest.raises(ScorerError, match=key):
+        check_cost_to_date(CALLS[0], {**CALLS[0], key: CALLS[0][key] - 1})
+
+
+def test_equality_is_allowed_in_the_relation():
+    """Iteration 1 of `port-loop` and every non-iterating arm. The check refuses a total that
+    is smaller, not one that has not grown yet."""
+    check_cost_to_date(CALLS[0], dict(CALLS[0]))
+
+
+@pytest.mark.parametrize("key", list(scorer.REQUIRED_COST))
+def test_a_partial_total_is_refused(scored, tmp_path, key):
+    """`cost`'s rule, applied to the block §11.3 is actually read off."""
+    with pytest.raises(ScorerError, match=key):
+        write_metrics(scored, run=RUN, cost=CALLS[0],
+                      cost_to_date={k: v for k, v in sum_costs(CALLS).items() if k != key},
+                      termination=TERMINATION, root=tmp_path)
+
+
+def test_the_writer_does_not_derive_the_total_from_anything(scored, tmp_path):
+    """It writes what it is given. A writer that could compute the arm's total would be a
+    second accumulator beside the driver's, and its file would agree with itself while
+    disagreeing with the run — no reader could tell which of the two was the arm's cost.
+
+    Asserted by handing it a total that is larger than any sum of this round: if the writer
+    recomputed anything, this number could not survive to the file.
+    """
+    absurd = {"llm_calls": 97, "prompt_tokens": 1_100_000, "completion_tokens": 20_000,
+              "wall_seconds": 4200.0}
+    path = write_metrics(scored, run=RUN, cost=CALLS[0], cost_to_date=absurd,
+                         termination=TERMINATION, root=tmp_path)
+    assert json.loads(path.read_text(encoding="utf-8"))["cost_to_date"] == absurd
+
+
+def test_the_total_does_not_reach_the_path(scored, tmp_path):
+    """Same rule as `cost` and `model_lifecycle`: the path names the cell of the experiment,
+    and a number formatted into it would mint one."""
+    a = write_metrics(scored, run=RUN, cost=CALLS[0], termination=TERMINATION, root=tmp_path)
+    b = write_metrics(scored, run=RUN, cost=CALLS[0], cost_to_date=sum_costs(CALLS),
+                      termination=TERMINATION, root=tmp_path)
+    assert a == b
 
 
 # ─── the termination block (DESIGN §3) ──────────────────────────────────────
