@@ -107,7 +107,20 @@ from ..sample import ErrorSpan, WINDOW_FILES, file_hash, non_target_types
 TASK_FRAME = "1.1"
 CURRENT_RULES = "1.2"
 FILLED_SECTIONS = (TASK_FRAME, CURRENT_RULES)
-EMPTY_SECTIONS = ("1.3", "1.4")
+
+#: The two blocks a first call leaves empty and an iteration from 2 onward fills. Spelled
+#: as constants rather than as the bare strings they were, because `assemble_iteration_prompt`
+#: fills them and `EMPTY_SECTIONS` says they are empty — one pair of names for one pair of
+#: sections, so the two functions cannot disagree about which sections they are talking about.
+SCORES = "1.3"
+ERROR_SPANS = "1.4"
+EMPTY_SECTIONS = (SCORES, ERROR_SPANS)
+
+#: All four §1 blocks, which is what an iteration from 2 onward carries. The union of the
+#: two tuples above and stated as such: `src/orchestrate.py`'s `INPUT_BLOCKS` is the same
+#: four checked against the prompt's own headings, and this is the prompt layer's name for
+#: the same set.
+ITERATION_SECTIONS = FILLED_SECTIONS + EMPTY_SECTIONS
 
 #: Where the committed template ends and the filled blocks begin. A visible line rather
 #: than a blank one: the template is sent verbatim and the model has to be able to tell
@@ -527,6 +540,410 @@ def assemble_task_prompt(
         "text_sha256": _digest(text),
         "window_files": {name: file_hash(name) for name in WINDOW_FILES},
     })
+
+
+# ─── §§1.3–1.4: what an iteration from 2 onward adds ─────────────────────────
+
+
+def _score_block(metrics: Mapping) -> tuple[str, dict]:
+    """§1.3: the previous round's dev score, reduced to what a rule author can act on.
+
+    **Reduced and not forwarded.** `metrics.json` is a few hundred lines of nested blocks —
+    two modes, per-type tables, two complementarity views, a document breakdown, a run block
+    and a cost block — and `rule_author.md` §1.3 enumerates which parts of it the agent is
+    shown. Sending the file would be cheaper to write and would spend the prompt budget §4's
+    cost structure allocates to §1.4 on a run block the agent must not act on: `model_id`,
+    `commit` and `wall_seconds` are facts about the harness, and an agent shown its own cost
+    is an agent that can reason about the budget, which §5 puts outside its decisions.
+
+    Both modes, per §1.3's first line and CLAUDE.md's rule that the relaxed leak rate is
+    reported beside the headline as a lower bound. A block carrying one of them would make
+    the agent's target whichever one it happened to be shown.
+
+    `by_rule` is the block that makes revision possible rather than only addition (§1.3), so
+    it is carried in full — every rule that fired, with its layer, `fires`, `tp` and `fp`.
+    The two readings §1.3 requires be stated outright are stated: `fp` is
+    unmatched-in-the-assignment rather than uncovered, and `by_rule` does not sum to the
+    mode's totals. Both are in the committed template already; they are repeated here against
+    the numbers because a caution three thousand tokens above the table it applies to is a
+    caution the reader has already left behind.
+
+    Returns the block and what the reference form records — counts and a hash of the source
+    metrics, never the numbers themselves. **No corpus text is involved at any point**: this
+    block is offsets-free and text-free by construction, since `metrics.json` holds counts.
+    """
+    modes = metrics.get("modes")
+    if not isinstance(modes, Mapping) or not modes:
+        raise PromptError(
+            "the previous round's metrics carry no `modes` block, so there is no score to "
+            "show. §1.3 is the previous iteration's dev score and a round whose score "
+            "cannot be read is a round the loop cannot iterate from (rule_author.md §1.3)."
+        )
+
+    lines = [f"### {SCORES} Scores from the previous iteration", ""]
+    for mode in sorted(modes):
+        block = modes[mode]
+        leak = block["leak"]
+        overall = block["overall"]
+        lines += [
+            f"#### mode: {mode}",
+            "",
+            f"leak rate    {_num(leak['rate'])}  ({leak['leaked']} leaked of "
+            f"{leak['denominator']} in-scope gold spans)",
+            f"precision    {_num(overall['precision'])}",
+            f"recall       {_num(overall['recall'])}",
+            f"f1           {_num(overall['f1'])}",
+            f"duplicate predictions collapsed before assignment: "
+            f"{block['duplicate_predictions']}",
+            "",
+            "per phi_type — gold, leaked, leak_rate, precision / recall / f1:",
+            "",
+        ]
+        for phi_type in sorted(block["by_type"]):
+            row = block["by_type"][phi_type]
+            lines.append(
+                f"  {phi_type:<16} gold {row['gold']:>5}  leaked {row['leaked']:>5}  "
+                f"leak_rate {_num(row['leak_rate'])}  "
+                f"P {_num(row['precision'])} R {_num(row['recall'])} "
+                f"F1 {_num(row['f1'])}"
+                + ("   [sparse]" if row.get("sparse") else "")
+            )
+        families = block["complementarity"]["families"]
+        layers = block["complementarity"]["layers"]
+        lines += [
+            "",
+            "complementarity — which family covers each gold span on its own:",
+            "",
+            "  " + "  ".join(f"{k} {v}" for k, v in sorted(families.items())),
+            "",
+            f"  covered_by_union_only {layers['covered_by_union_only']}   "
+            "(covered by the union of predictions and by no single layer alone)",
+            "",
+            "per phi_type:",
+            "",
+        ]
+        for phi_type in sorted(block["complementarity"]["by_type"]):
+            view = block["complementarity"]["by_type"][phi_type]
+            lines.append(
+                f"  {phi_type:<16} "
+                + "  ".join(f"{k} {v}" for k, v in sorted(view["families"].items()))
+                + f"  covered_by_union_only {view['layers']['covered_by_union_only']}"
+            )
+        lines += [
+            "",
+            "by_rule — every rule in this file that fired, with its declared layer:",
+            "",
+        ]
+        if block["by_rule"]:
+            for rule_id in sorted(block["by_rule"]):
+                row = block["by_rule"][rule_id]
+                lines.append(
+                    f"  {rule_id:<28} layer {row['layer']:<16} "
+                    f"fires {row['fires']:>5}  tp {row['tp']:>5}  fp {row['fp']:>5}"
+                )
+        else:
+            lines.append(
+                "  No rule in the current file fired on this fold. A rule that fired "
+                "nothing has no row — the scorer never reads the rule file, so it cannot "
+                "tell a rule that matched nothing from a rule that does not exist. You hold "
+                "the file and can."
+            )
+        lines.append("")
+
+    lines += [
+        "Two properties of the tables above, because both change what to conclude from "
+        "them:",
+        "",
+        "- `fp` is unmatched-in-the-assignment, not uncovered. A rule's span that overlaps "
+        "a gold identifier but loses the 1:1 assignment to a better-overlapping prediction "
+        "is a false positive for that rule. So a rule can show `fp` on spans that did help "
+        "hide something, and that is the intended reading: the rule contributed nothing the "
+        "arm did not already have. High `fires` with near-zero `tp` across iterations is a "
+        "deletion candidate, not a near miss.",
+        "- `by_rule` totals do not sum to the mode's `tp`/`fp`. Tagger spans carry no "
+        "`rule_id` and are absent; a span two rules both emitted is credited to both. Do "
+        "not reconcile the two.",
+    ]
+    block_text = "\n".join(lines)
+    first = modes[sorted(modes)[0]]
+    return block_text, {
+        "score_modes": sorted(modes),
+        "score_types": sorted(first["by_type"]),
+        "score_rules": sorted(first["by_rule"]),
+        # **The rendered block's hash and not the source metrics'.** Hashing the source would
+        # need `json.dumps` for a canonical form, and this module deliberately does not import
+        # `json` — `test_the_module_imports_nothing_that_writes` asserts it as a closed set,
+        # because a module that cannot reach a writer cannot be edited into one. The block is
+        # what the call saw, which is the question a reference form answers; the source score
+        # is at `paths.itermetrics` under the round this block names, and `rules_sha256` one
+        # section up hashes a file for the different reason that a rule file is *input to a
+        # diff* the model emits.
+        "score_block_sha256": _digest(block_text),
+        "score_block_chars": len(block_text),
+    }
+
+
+def _num(value: object) -> str:
+    """A score for a person to read, or an explicit `n/a`.
+
+    `None` is what the scorer writes for a rate whose denominator is zero, and it means
+    "undefined" rather than "zero" (`scorer._prf`, `_mean`). Rendering it as `0.000` would
+    tell the agent a type scored nothing when in fact nothing was scored — the direction
+    that invites a rule for a type with no gold spans.
+    """
+    if value is None:
+        return "  n/a"
+    return f"{value:.3f}"
+
+
+def assemble_iteration_prompt(
+    *,
+    lang: str,
+    corpus: str,
+    iteration: int,
+    rules_path: Path | None = None,
+    metrics: Mapping | None = None,
+    errors: Sequence[ErrorSpan] | None = None,
+    docs_by_id: Mapping[str, Document] | None = None,
+    context_chars: int | None = None,
+    audit_report: Mapping | None = None,
+) -> FilledPrompt:
+    """One `port-loop` iteration's prompt. All four §1 blocks from round 2 onward.
+
+    **Iteration 1 fills §§1.1–1.2 and leaves §§1.3–1.4 empty, which is the ladder's
+    definition and not a special case in this function.** DESIGN §4: `port-oneshot` and
+    `port-loop`'s round 1 are shown the same thing, so feedback is the only difference
+    between the rungs and the comparison is about feedback rather than about two prompts that
+    differ in unrecorded ways. So round 1 delegates to `assemble_task_prompt()` — the same
+    code path, not a reimplementation of it that agrees today. Passing a score block or an
+    error pool for round 1 is refused rather than ignored: a caller holding round 0's data is
+    a caller that has computed something, and silently dropping it would make the round-1
+    prompt right while the driver was wrong.
+
+    **§1.3 comes from the audit report and the previous round's metrics — two inputs, one
+    block each, and neither is derived from the other.** The score tables are
+    `_score_block()`'s reduction of round *n−1*'s `metrics.json`. The audit block is the
+    Auditor's flags from that same round, and `rule_author.md` §5's three-case reading is
+    stated with them, because the failure mode is an agent treating a flag as ground truth:
+    the Auditor never sees gold (DESIGN §3), so its flags are suspicions. The flags carry
+    `doc_id`, `phi_type`, offsets and a score and no text, which is what
+    `src/porting/audit.py` assembled and all it assembled.
+
+    **§1.4 comes from `render_window()` over that round's `errors.jsonl`, and this function
+    does not draw the sample.** The caller draws (`sample.draw()`), because the draw is
+    seeded on (corpus, iteration) and recorded in the run's provenance block, and an
+    assembler that drew would be a second place the seed is applied — the asymmetry DESIGN
+    §11.1 rests `port-human` on is that both arms draw through one function. What arrives
+    here is the drawn sample; what this adds is the rendering, which is inside the discipline
+    (module docstring) and must not be done by a driver.
+
+    **This is the block that carries corpus text**, ±`context_chars` around every span in the
+    sample. Returns a `FilledPrompt` for that reason above all others, and the reference form
+    holds the span references, the counts and the hashes — never the window.
+    """
+    if not isinstance(iteration, int) or isinstance(iteration, bool) or iteration < 1:
+        raise PromptError(
+            f"iteration must be an integer >= 1, got {iteration!r}. Round 1 is the first "
+            "call an arm makes; 0 would mean the caller is off by one (DESIGN §4)."
+        )
+
+    if iteration == 1:
+        supplied = [name for name, value in (
+            ("metrics", metrics), ("errors", errors), ("docs_by_id", docs_by_id),
+            ("audit_report", audit_report), ("context_chars", context_chars),
+        ) if value is not None]
+        if supplied:
+            raise PromptError(
+                f"iteration 1 was given {supplied}, and round 1 shows §§1.3-1.4 empty "
+                "(DESIGN §4 — port-oneshot and port-loop's round 1 are shown the same "
+                "thing). Refused rather than ignored: there is no round 0 to score or draw "
+                "from, so a caller holding this data has computed it from somewhere else, "
+                "and dropping it here would leave the prompt correct and the driver wrong."
+            )
+        return assemble_task_prompt(lang=lang, corpus=corpus, rules_path=rules_path)
+
+    missing = [name for name, value in (
+        ("metrics", metrics), ("errors", errors), ("docs_by_id", docs_by_id),
+        ("context_chars", context_chars), ("audit_report", audit_report),
+    ) if value is None]
+    if missing:
+        raise PromptError(
+            f"iteration {iteration} is missing {missing}. From round 2 every §1 block is "
+            "filled, and a round that silently dropped one would be a weaker arm than the "
+            "one being reported — the difference between the rungs is what the agent is "
+            "shown (DESIGN §4), so an absent block is an unrecorded change of arm. Round 1 "
+            "is where these are empty, and it is `iteration=1` that says so."
+        )
+
+    frame = _task_frame(lang, corpus)
+    rules_block, rules_ref = _current_rules(lang, rules_path)
+    score_text, score_ref = _score_block(metrics)
+    audit_text, audit_ref = _audit_block(audit_report, iteration=iteration)
+    window = render_window(errors, docs_by_id, context_chars)
+    window_ref = window.reference()
+
+    text = "\n\n".join([
+        _template(),
+        INPUT_BANNER,
+        f"This is iteration {iteration}. Every §1 block below is filled: the scores and the "
+        f"error spans are from iteration {iteration - 1}.",
+        frame,
+        rules_block,
+        score_text,
+        audit_text,
+        f"### {ERROR_SPANS} Error spans — {window_ref['n_spans']} drawn from iteration "
+        f"{iteration - 1}",
+        "",
+        f"Drawn by the seeded stratified procedure of §1.5, with "
+        f"±{context_chars} characters of dev text as context. The offsets on each span are "
+        "**within its own context window**, not within the document.",
+        "",
+        # The one exit that hands text to a caller, and the caller is this function
+        # assembling one prompt. `for_transport()` names where the assembled value is going;
+        # the assembled prompt is itself a `FilledPrompt` and the text does not leave it.
+        window.for_transport(),
+        f"Emit the complete rules/{lang}.yaml and nothing else. Emit the whole file, not a "
+        "patch: revision includes deleting and narrowing rules, and a file that only grows "
+        "is the characteristic failure of this loop (§5).",
+    ])
+    return FilledPrompt(text, {
+        "block": "iteration",
+        "lang": lang,
+        "corpus": corpus,
+        "iteration": iteration,
+        # Which round the feedback came from, on the record rather than left to arithmetic —
+        # `audit.report()`'s `masked_from_iteration` for the same reason: a reader holding
+        # this reference should not have to know the loop's off-by-one convention.
+        "feedback_from_iteration": iteration - 1,
+        "sections_filled": list(ITERATION_SECTIONS),
+        # Present and empty, not omitted. A round-2 line whose reference form lacked the key
+        # could not be compared with a round-1 line that has it, which is the comparison the
+        # field exists for (`assemble_task_prompt`, and `sample_reference` in
+        # `src/orchestrate.py` one layer over).
+        "sections_empty": [],
+        **rules_ref,
+        **score_ref,
+        **audit_ref,
+        # The §1.4 block's own reference, nested rather than merged: it holds `spans`,
+        # `n_spans`, `context_chars` and its own `text_sha256`, and a merge would put a
+        # block's hash beside the whole prompt's under two keys a reader has to tell apart.
+        "error_spans": window_ref,
+        "text_chars": len(text),
+        "text_sha256": _digest(text),
+        "window_files": {name: file_hash(name) for name in WINDOW_FILES},
+    })
+
+
+def _audit_block(report: Mapping, *, iteration: int) -> tuple[str, dict]:
+    """§1.3's audit half: the Auditor's flags, with §5's three-case reading attached.
+
+    **A second opinion from a component that cannot see the answer, and the prompt says so
+    where the flags are** rather than only in the committed template. `rule_author.md` §5's
+    failure mode is an agent writing rules to satisfy a peer instead of the corpus, and the
+    instruction that guards against it has to sit beside the table it applies to.
+
+    **The report is this round's, and it audits the previous round's output.** `auditor.md`'s
+    banner fixes both halves: the Auditor runs as round *n*'s first step, so its report is
+    written to `iter{n}/audit_report.json` with `iteration: n`, and what it read was round
+    *n−1*'s `spans.jsonl`, so the same file carries `masked_from_iteration: n−1`. Two numbers
+    on one file, and this block is where the pair is read.
+
+    Both are checked. `audit.report()` validates their *relationship* on the way in and
+    cannot validate either against this call, because the round it was told is the round it
+    records — a driver off by one produces an internally consistent file. What makes the
+    report unreadable here is being the wrong round's, and only the reader knows which round
+    that is. A driver that handed round 4 the round-3 report would produce a prompt whose
+    flags describe predictions two rounds stale, with nothing in the prompt saying so; a
+    driver that passed round *n*'s report to round *n* while calling it *n−1*'s would put
+    the wrong number in the heading the agent reads.
+
+    Carries no text, for the reason `audit.py`'s docstring gives: the flag schema has no
+    free-text field, so there is nothing here to strip.
+    """
+    if not isinstance(report, Mapping):
+        raise PromptError(
+            f"the audit report must be a mapping, got {type(report).__name__}. It is "
+            "`audit.report()`'s return — the validated, translated flags (auditor.md §2.2)."
+        )
+    stated = report.get("iteration")
+    if stated != iteration:
+        raise PromptError(
+            f"the audit report is from iteration {stated!r} and this is iteration "
+            f"{iteration}. The Auditor runs as this round's first step and its report is "
+            "written under this round (auditor.md banner), so the two are the same number. "
+            "A stale report would describe spans the current rule file no longer emits "
+            "while looking exactly like a current one."
+        )
+    masked_from = report.get("masked_from_iteration")
+    if masked_from != iteration - 1:
+        raise PromptError(
+            f"the audit report says it audited iteration {masked_from!r}, and iteration "
+            f"{iteration} reads an audit of {iteration - 1}. Both numbers are checked here "
+            "rather than one: `audit.report()` validated that they agree with each other, "
+            "which an off-by-one driver satisfies — it records the round it was told."
+        )
+
+    flags = list(report.get("flags") or ())
+    counts = report.get("counts") or {}
+    lines = [
+        # The round the flags describe, not the round the file sits under. `masked_from`
+        # rather than `stated`: the agent is being told which predictions were read, and
+        # `iter{n}/audit_report.json` holding round n's audit *of* n−1 is a fact about the
+        # directory layout that no prompt sentence should depend on.
+        f"#### {SCORES} (continued) Auditor report on iteration {masked_from}'s output",
+        "",
+        "The Auditor read the **de-identified output** of that iteration — every span this "
+        "arm detected was replaced by a type tag before it saw the document. It never sees "
+        "gold. So these are **suspicions, not errors**: a flag is one component's belief "
+        "that an identifier survived masking.",
+        "",
+        f"{counts.get('flags', len(flags))} flags, "
+        f"{report.get('documents_audited', '?')} documents audited, "
+        f"{report.get('documents_with_no_flags', '?')} of them with no flags. "
+        f"{counts.get('refused', 0)} returned flags were refused as malformed or "
+        "out of range and are not shown.",
+        "",
+    ]
+    if flags:
+        lines += ["  doc_id / phi_type / offsets in the document / the Auditor's score", ""]
+        for flag in flags:
+            lines.append(
+                f"  {flag['doc_id']:<24} {flag['phi_type']:<16} "
+                f"({flag['start']}, {flag['end']})   score {_num(flag.get('score'))}"
+            )
+    else:
+        lines.append(
+            "  No flags. The Auditor found nothing it believed had survived masking, which "
+            "is a statement about the masked output and not a statement that nothing "
+            "leaked — §1.4 below is drawn from gold and is where a real miss appears."
+        )
+    lines += [
+        "",
+        "**How to read a flag** (§5), three cases:",
+        "",
+        "- **Flagged and also in the §1.4 error spans** — corroborated by gold. The "
+        "strongest signal available; act on these first.",
+        "- **Flagged and not in §1.4** — either a gold annotation gap or an Auditor false "
+        "positive. **You may not resolve this and may not write a rule on the Auditor's "
+        "word alone.** It is recorded for human review.",
+        "- **In §1.4 and not flagged** — both mechanisms missed it. These are the "
+        "highest-value cases in the loop and the easiest to skip, since nothing in this "
+        "table points at them.",
+    ]
+    block_text = "\n".join(lines)
+    return block_text, {
+        "audit_iteration": stated,
+        # Both numbers on the record, for the reason the file carries both: a reader holding
+        # this reference should not have to know the loop's convention to tell which round's
+        # predictions were audited (`audit.report()`'s docstring).
+        "audit_masked_from_iteration": masked_from,
+        "audit_flags": counts.get("flags", len(flags)),
+        "audit_refused": counts.get("refused", 0),
+        "audit_documents": report.get("documents_audited"),
+        # The rendered block, for `score_block_sha256`'s reason one function up. The report
+        # itself is at `paths.auditreport` under the round `audit_iteration` names.
+        "audit_block_sha256": _digest(block_text),
+    }
 
 
 # ─── the masker: the Auditor's §1.2 block (DESIGN §3) ────────────────────────

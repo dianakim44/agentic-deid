@@ -44,9 +44,9 @@ from src.corpora.base import (                                   # noqa: E402
 )
 from src.llm import prompt as prompt_module                      # noqa: E402
 from src.llm.prompt import (                                     # noqa: E402
-    COUNT_KEYS, EMPTY_SECTIONS, FILLED_SECTIONS, LINE_OFFSET_WIDTH, LINE_SEPARATOR,
-    FilledPrompt, MaskedDocument, PromptError, assemble_task_prompt, mask_document,
-    render_window,
+    COUNT_KEYS, EMPTY_SECTIONS, FILLED_SECTIONS, ITERATION_SECTIONS, LINE_OFFSET_WIDTH,
+    LINE_SEPARATOR, FilledPrompt, MaskedDocument, PromptError, assemble_iteration_prompt,
+    assemble_task_prompt, mask_document, render_window,
 )
 from src.porting.audit import MaskedLine, validate_flags         # noqa: E402
 from src.rules import rule_layers                                # noqa: E402
@@ -366,6 +366,750 @@ def test_the_assembler_returns_only_a_filled_prompt_call():
             "assemble_task_prompt returns something other than a FilledPrompt(...) "
             "construction."
         )
+
+
+# ─── §§1.3–1.4: what a round from 2 onward adds ──────────────────────────────
+#
+# The ladder's definition lives in two numbers, and both are asserted here: round 1 is
+# `assemble_task_prompt()` exactly, and from round 2 every §1 block is filled. The
+# in-between states — a round-1 call holding feedback, a round-3 call missing a block, a
+# round-4 call holding round 2's audit — are each refused rather than absorbed, because an
+# arm that quietly dropped a block would be a weaker rung reported as a stronger one.
+
+
+#: The previous round's score, as the scorer writes it. Built by calling `score()` on the
+#: eight-case fixture corpus rather than written out as a literal, and the reason is the one
+#: `tests/test_scorer.py` gives in reverse: that file's numbers are hand-derived because the
+#: scorer is what is under test, and here the scorer is *upstream* — what is under test is
+#: whether the block reduces a real `metrics.json` without dropping a key. A hand-written
+#: dict would agree with a renderer that had drifted from the scorer's schema, which is the
+#: single most likely way this block breaks.
+#:
+#: The fixture is duplicated from `test_scorer.py` rather than imported, so that a change to
+#: the fixture geometry there cannot silently retune the assertions here.
+FIX_RULE = "es:cue_person"
+FIX_DATE = "es:date_numeric"
+
+
+def scored_fixture() -> dict:
+    """A `modes` block from the scorer itself, on a corpus with every case in it."""
+    from src.eval.scorer import DocPair, Mark, score
+    pairs = [
+        # Two adjacent gold NAMEs under one wide tagger prediction: covered by the union,
+        # one credited by the assignment. `assignment_slack` is non-zero here.
+        DocPair(doc_id="d-adjacent",
+                gold=(Mark(0, 4, "NAME", span_index=0), Mark(5, 10, "NAME", span_index=1)),
+                pred=(Mark(0, 10, "NAME", "tagger", span_index=0),)),
+        # A rule and the tagger on the same gold span, so `both` is non-zero and `by_rule`
+        # has a row with tp.
+        DocPair(doc_id="d-agree",
+                gold=(Mark(0, 5, "NAME", span_index=0),),
+                pred=(Mark(0, 5, "NAME", "context_cue", FIX_RULE, span_index=0),
+                      Mark(0, 5, "NAME", "tagger", span_index=1))),
+        # A rule that fires and never matches: the deletion candidate §1.3 exists to make
+        # visible, so the block has to carry a row whose tp is 0.
+        DocPair(doc_id="d-misfire",
+                gold=(Mark(100, 110, "DATE", span_index=0),),
+                pred=(Mark(300, 310, "DATE", "regex_checksum", FIX_DATE, span_index=0),)),
+        # Gold nothing predicted on: a leak, and a type whose leak_rate is 1.0.
+        DocPair(doc_id="d-missed",
+                gold=(Mark(0, 5, "PROFESSION", span_index=0),), pred=()),
+        # A PHI-free document with a prediction: false-positive opportunity, and the
+        # document that keeps `by_type` holding a type with gold 0.
+        DocPair(doc_id="d-clean", gold=(),
+                pred=(Mark(0, 5, "CONTACT", "tagger", span_index=0),)),
+    ]
+    return score(pairs, excluded_gold=0)
+
+
+def audit_report(iteration: int = 3, *, flags=None, masked_from=None,
+                 documents_audited: int = 4, refused=()) -> dict:
+    """A report in `audit.report()`'s shape, built by `audit.report()`.
+
+    Built through the real function for `scored_fixture()`'s reason, and it matters more
+    here: the two ends of this handover are the two things being checked against each other,
+    so a hand-written dict would let both drift together. `masked_from` is a parameter only
+    so that the off-by-one tests can pass a value `report()` would refuse — those construct
+    the dict directly.
+    """
+    from src.porting.audit import DocumentAudit, report
+    audits = [
+        DocumentAudit(doc_id=f"dev{i}", flags=tuple(flags or ()) if i == 1 else (),
+                      refused=tuple(refused) if i == 1 else ())
+        for i in range(1, documents_audited + 1)
+    ]
+    out = report(audits, corpus="es-meddocan", iteration=iteration,
+                 masked_from_iteration=iteration - 1)
+    if masked_from is not None:
+        out["masked_from_iteration"] = masked_from
+    return out
+
+
+def a_flag(doc_id: str = "dev1", phi_type: str = "NAME", start: int = 1000,
+           end: int = 1014, score: float = 0.8):
+    from src.porting.audit import Flag
+    return Flag(doc_id=doc_id, phi_type=phi_type, start=start, end=end, score=score)
+
+
+def iterated(**kw) -> FilledPrompt:
+    """A round-3 call with every block filled, unless a keyword says otherwise."""
+    kw.setdefault("lang", "es")
+    kw.setdefault("corpus", "es-meddocan")
+    kw.setdefault("iteration", 3)
+    if kw["iteration"] > 1:
+        kw.setdefault("metrics", scored_fixture())
+        kw.setdefault("errors", [err()])
+        kw.setdefault("docs_by_id", {"dev1": doc()})
+        kw.setdefault("context_chars", 120)
+        kw.setdefault("audit_report", audit_report(kw["iteration"]))
+    return assemble_iteration_prompt(**{k: v for k, v in kw.items() if v is not _ABSENT})
+
+
+#: Passed for a keyword that must arrive as absent rather than as None, so a test can say
+#: "this argument was not given" without `None` meaning two things.
+_ABSENT = object()
+
+
+# ── round 1 is the baseline's prompt, by delegation and not by agreement ──
+
+
+def test_round_one_is_the_no_feedback_prompt_byte_for_byte():
+    """DESIGN §4: `port-oneshot` and `port-loop`'s round 1 are shown the same thing.
+
+    Compared by content hash through `__eq__`, which is the comparison the type allows and
+    is the right one here: two prompts that differ anywhere differ in the hash, and neither
+    side of the assertion holds text. A reimplementation that agreed today would pass this
+    and drift on the next edit to the frame — which is why the delegation is *also* asserted
+    structurally below.
+    """
+    assert assemble_iteration_prompt(lang="es", corpus="es-meddocan", iteration=1) == \
+        assemble_task_prompt(lang="es", corpus="es-meddocan")
+
+
+def test_round_one_delegates_rather_than_reassembling():
+    """Structural, because equality today is what a divergent copy also shows.
+
+    The check is that `assemble_iteration_prompt` reaches `assemble_task_prompt` and that
+    round 1 does not run the block builders — a function that assembled §§1.1–1.2 itself and
+    happened to match would make DESIGN §4's claim rest on two implementations staying equal
+    rather than on there being one.
+    """
+    fn = functions(tree())["assemble_iteration_prompt"]
+    reached = calls_named(fn)
+    assert "assemble_task_prompt" in reached, (
+        "assemble_iteration_prompt does not delegate round 1. Round 1 is the baseline's "
+        "prompt (DESIGN §4), and a second assembly of it is a second thing to keep equal."
+    )
+    early_return = [n for n in ast.walk(fn) if isinstance(n, ast.Return)
+                    and isinstance(n.value, ast.Call)
+                    and getattr(n.value.func, "id", "") == "assemble_task_prompt"]
+    assert early_return, "the delegation is not a return — round 1 falls through"
+
+
+def test_round_one_carries_the_rule_file_through_the_delegation():
+    """The one argument round 1 does take. A loop restarting from a written file passes it.
+
+    Dropped silently, this would send `EMPTY` to a round-1 call that had rules, and the
+    agent's own §1.2 instruction ("emit a complete file") would produce a file with the
+    existing rules deleted.
+    """
+    path = Path(tempfile.mkdtemp()) / "es.yaml"
+    path.write_text("version: 3\nlang: es\nrules: []  # round_one_probe\n", encoding="utf-8")
+    p = assemble_iteration_prompt(lang="es", corpus="es-meddocan", iteration=1,
+                                  rules_path=path)
+    assert "round_one_probe" in shown(p)
+    assert p.reference()["rules_sha256"] is not None
+
+
+@pytest.mark.parametrize("name,value", [
+    ("metrics", {"modes": {}}),
+    ("errors", []),
+    ("docs_by_id", {}),
+    ("context_chars", 0),
+    ("audit_report", {}),
+])
+def test_round_one_refuses_feedback_rather_than_ignoring_it(name, value):
+    """Refused, and the distinction is the point.
+
+    Every value here is falsy, which is the trap: `if metrics:` would drop all five and
+    produce a correct round-1 prompt from an incorrect call. The prompt would be right and
+    the driver would be wrong, and nothing in the run record would say so — a driver that
+    computed round 0's score is a driver whose iteration counter is off by one, and that is
+    a defect about the whole arm rather than about this call.
+    """
+    with pytest.raises(PromptError) as exc:
+        assemble_iteration_prompt(lang="es", corpus="es-meddocan", iteration=1,
+                                  **{name: value})
+    assert name in str(exc.value)
+    assert "DESIGN §4" in str(exc.value)
+
+
+@pytest.mark.parametrize("iteration", [0, -1, 1.0, True, "2", None])
+def test_a_round_number_that_is_not_a_round_is_refused(iteration):
+    """`True` is an `int` and would assemble round 1's prompt while meaning nothing."""
+    with pytest.raises(PromptError):
+        assemble_iteration_prompt(lang="es", corpus="es-meddocan", iteration=iteration)
+
+
+# ── from round 2 every block is filled, and a missing one is not absorbed ──
+
+
+@pytest.mark.parametrize("missing", [
+    "metrics", "errors", "docs_by_id", "context_chars", "audit_report",
+])
+def test_a_later_round_missing_any_block_is_refused(missing):
+    """The mirror of round 1's refusal, and the more consequential direction.
+
+    A round-3 prompt assembled without its score block is `port-oneshot`'s prompt with a
+    round number on it. It would run, cost what the round costs, and be reported as a rung
+    of the ladder it is not on — the unrecorded change of arm.
+    """
+    with pytest.raises(PromptError) as exc:
+        iterated(**{missing: _ABSENT})
+    assert missing in str(exc.value)
+
+
+def test_the_refusal_names_every_missing_block_at_once():
+    """One message, not one per fix-and-rerun cycle."""
+    with pytest.raises(PromptError) as exc:
+        assemble_iteration_prompt(lang="es", corpus="es-meddocan", iteration=2,
+                                  metrics=scored_fixture())
+    message = str(exc.value)
+    for name in ("errors", "docs_by_id", "context_chars", "audit_report"):
+        assert name in message
+
+
+@pytest.mark.parametrize("name,value", [
+    ("errors", []),
+    ("context_chars", 0),
+])
+def test_a_later_round_accepts_an_empty_block_that_was_supplied(name, value):
+    """The mirror of round 1's refusal, and it turns on the same two characters.
+
+    A round with no error spans is a real state: the sample can come back empty when the
+    fold has nothing left to draw, and `context_chars: 0` is a legitimate — if unlikely —
+    experimental setting. Both are falsy. A presence check written as `if value` would
+    report them as *missing* and refuse a correct call, so `is None` is load-bearing in
+    both directions and neither test alone shows it.
+    """
+    p = iterated(**{name: value})
+    assert isinstance(p, FilledPrompt)
+    assert p.reference()["sections_filled"] == list(ITERATION_SECTIONS)
+
+
+def test_round_two_is_the_first_round_with_feedback():
+    """The ladder's boundary, from the other side: round 2 fills what round 1 left empty."""
+    ref = iterated(iteration=2).reference()
+    assert ref["sections_filled"] == list(ITERATION_SECTIONS)
+    assert ref["sections_empty"] == []
+    assert ref["feedback_from_iteration"] == 1
+
+
+def test_the_filled_sections_are_the_empty_ones_of_round_one():
+    """Stated as a relation between the two constants rather than as two literals.
+
+    A section added to the template has to appear in one of the two lists, and this is what
+    makes the pair exhaustive: round 1's empty set and round 2's filled set are the same
+    four names, so a new section cannot be filled in one call and unmentioned in the other.
+    """
+    assert set(ITERATION_SECTIONS) == set(FILLED_SECTIONS) | set(EMPTY_SECTIONS)
+    assert list(ITERATION_SECTIONS) == list(FILLED_SECTIONS) + list(EMPTY_SECTIONS)
+
+
+# ── §1.3, the score half: the numbers a rule author can act on ──
+
+
+def test_the_score_block_carries_both_modes():
+    """CLAUDE.md: the relaxed leak rate is reported beside the headline as a lower bound.
+
+    A block carrying one mode would make the agent's target whichever one it was shown, and
+    the two disagree by construction — a span covered by the union of two predictions and by
+    neither alone is leaked under `fully_covered` and not under `relaxed`.
+    """
+    from src.eval.scorer import FULLY_COVERED, MODES, RELAXED
+    text = shown(iterated())
+    for mode in MODES:
+        assert f"mode: {mode}" in text
+    assert iterated().reference()["score_modes"] == sorted(MODES)
+
+
+def test_the_leak_rate_arrives_with_its_numerator_and_denominator():
+    """A rate on its own cannot be acted on: 0.5 of four spans is not 0.5 of five thousand."""
+    metrics = scored_fixture()
+    block = metrics["modes"]["fully_covered"]
+    text = shown(iterated(metrics=metrics))
+    assert f"{block['leak']['leaked']} leaked of {block['leak']['denominator']}" in text
+
+
+def test_every_rule_that_fired_has_a_row_with_its_layer():
+    """§1.3's revision half. `by_rule` is what makes deletion possible rather than addition.
+
+    Asserted against the scorer's own `by_rule` keys, so a rule the scorer attributes and
+    the block drops is a failure here rather than a quiet omission from the prompt.
+    """
+    metrics = scored_fixture()
+    by_rule = metrics["modes"]["fully_covered"]["by_rule"]
+    assert by_rule, "the fixture has no rule attribution — the geometry has drifted"
+    text = shown(iterated(metrics=metrics))
+    for rule_id, row in by_rule.items():
+        assert rule_id in text, f"{rule_id} fired and has no row in §1.3"
+        assert row["layer"] in text
+    assert iterated(metrics=metrics).reference()["score_rules"] == sorted(by_rule)
+
+
+def test_a_rule_that_fires_and_never_matches_is_visible_as_such():
+    """The deletion candidate. `fires` high and `tp` zero has to be readable off the row."""
+    metrics = scored_fixture()
+    row = metrics["modes"]["fully_covered"]["by_rule"][FIX_DATE]
+    assert row["tp"] == 0 and row["fires"] > 0, "the misfire fixture no longer misfires"
+    text = shown(iterated(metrics=metrics))
+    line = [ln for ln in text.splitlines() if FIX_DATE in ln]
+    assert line, "the misfiring rule has no row"
+    assert "fires" in text and "tp" in text
+    assert "deletion candidate" in text
+
+
+def test_the_two_readings_the_template_requires_are_stated_beside_the_numbers():
+    """§1.3's two cautions, restated where the table is.
+
+    Both are already in the committed template three thousand tokens above this block. They
+    are repeated because a caution the reader has already scrolled past is a caution that
+    did not arrive — and both change what to conclude: `fp` is unmatched-in-the-assignment
+    rather than uncovered, and `by_rule` does not sum to the mode's totals.
+    """
+    text = shown(iterated())
+    assert "unmatched-in-the-assignment" in text
+    assert "do not sum" in text.lower() or "does not sum" in text.lower()
+    assert "Do not reconcile" in text
+
+
+def test_a_sparse_type_is_marked_where_its_numbers_are():
+    """DESIGN §9.4: flagged, never dropped — and flagged in the prompt too.
+
+    The fixture's types all have single-digit gold, so every row is sparse. An agent shown
+    a leak rate of 1.000 over one gold span writes a rule for a type it has one example of,
+    which is the behaviour §9.4's flag exists to temper.
+    """
+    metrics = scored_fixture()
+    by_type = metrics["modes"]["fully_covered"]["by_type"]
+    assert any(row["sparse"] for row in by_type.values()), "no sparse type in the fixture"
+    assert "[sparse]" in shown(iterated(metrics=metrics))
+
+
+def test_an_undefined_rate_reads_as_not_available_and_not_as_zero():
+    """`None` from the scorer means undefined, and `0.000` would mean measured-and-clean.
+
+    The scorer writes `None` for a rate whose denominator is zero (`_prf`, `_mean`), which
+    is what a type with false positives and no gold has. Rendered as `0.000` it would tell
+    the agent that type leaks nothing — the direction that invites a rule for a type the
+    fold cannot score.
+    """
+    metrics = scored_fixture()
+    by_type = metrics["modes"]["fully_covered"]["by_type"]
+    undefined = [t for t, row in by_type.items() if row["leak_rate"] is None]
+    assert undefined, "no type with an undefined rate in the fixture"
+    text = shown(iterated(metrics=metrics))
+    for phi_type in undefined:
+        # Scoped to the score table: §1.1's type list also has a line starting with the
+        # type name, and matching that one would pass while the table read 0.000.
+        rows = [ln for ln in text.splitlines()
+                if ln.strip().startswith(phi_type) and "leak_rate" in ln]
+        assert rows, f"{phi_type} has no row in the score table"
+        for row in rows:
+            # Positional, not just present: this type has gold 0 and a false positive, so
+            # its P/R/F1 are a measured 0.000 and only the rate is undefined. An `n/a`
+            # anywhere in the line would also pass if `_num` were applied to the wrong field.
+            assert "leak_rate   n/a" in row, (
+                f"{phi_type}'s undefined leak_rate does not read as n/a"
+            )
+
+
+def test_the_complementarity_families_arrive_with_the_union_only_count():
+    """CLAUDE.md's headline pair, both halves.
+
+    `covered_by_union_only` is the number that says a span was hidden by the union and by no
+    single layer, which is the fact a rule author acts on differently from a plain miss.
+    """
+    families = scored_fixture()["modes"]["fully_covered"]["complementarity"]["families"]
+    text = shown(iterated())
+    for family in families:
+        assert family in text
+    assert "covered_by_union_only" in text
+
+
+def test_the_run_and_cost_blocks_are_not_forwarded():
+    """§4's cost structure, and §5's line about what the agent may reason about.
+
+    `model_id`, `commit` and `wall_seconds` are facts about the harness. An agent shown its
+    own token cost can reason about the budget, which is the orchestrator's decision and not
+    the agent's — and the prompt space is allocated to §1.4.
+    """
+    metrics = json.loads(json.dumps(scored_fixture()))
+    metrics["run"] = {"model_id": "us.anthropic.claude-opus-5", "commit": "deadbee",
+                      "tree": "clean"}
+    metrics["cost"] = {"llm_calls": 9, "prompt_tokens": 123456, "wall_seconds": 78.9}
+    text = shown(iterated(metrics=metrics))
+    for leaked in ("us.anthropic.claude-opus-5", "deadbee", "123456", "78.9"):
+        assert leaked not in text, f"the score block forwards {leaked!r} from the run block"
+
+
+def test_metrics_with_no_modes_block_is_refused():
+    """A round whose score cannot be read is a round the loop cannot iterate from."""
+    for bad in ({}, {"modes": {}}, {"modes": None}, {"modes": []}):
+        with pytest.raises(PromptError) as exc:
+            iterated(metrics=bad)
+        assert "modes" in str(exc.value)
+
+
+def test_a_fold_on_which_no_rule_fired_says_so_rather_than_showing_an_empty_table():
+    """Round 2 after a round-1 file that matched nothing — and the distinction it needs.
+
+    The scorer cannot tell a rule that fired nothing from a rule that does not exist: it
+    never reads the rule file. The agent holds the file and can, so it is told which of the
+    two facts the empty table is.
+    """
+    from src.eval.scorer import DocPair, Mark, score
+    metrics = score([DocPair(doc_id="d", gold=(Mark(0, 5, "NAME", span_index=0),),
+                             pred=(Mark(0, 5, "NAME", "tagger", span_index=0),))])
+    assert not metrics["modes"]["fully_covered"]["by_rule"]
+    text = shown(iterated(metrics=metrics))
+    assert "No rule in the current file fired" in text
+    assert iterated(metrics=metrics).reference()["score_rules"] == []
+
+
+# ── §1.3, the audit half: suspicions, and the round they belong to ──
+
+
+def test_the_audit_flags_arrive_as_offsets_and_types_and_nothing_else():
+    """`audit.py`'s schema has no free-text field, and the block adds none.
+
+    The flag table is the most concentrated residual-PHI artefact the loop produces
+    (`auditor.md` §2.2), which is why its file is deny-listed — and why what the prompt
+    prints from it is a position and a type.
+    """
+    flag = a_flag()
+    text = shown(iterated(audit_report=audit_report(3, flags=[flag])))
+    assert flag.doc_id in text and flag.phi_type in text
+    assert f"({flag.start}, {flag.end})" in text
+    assert SURFACE not in text.split("### 1.4")[0], (
+        "the audit block quotes a surface form"
+    )
+
+
+def test_the_flags_are_framed_as_suspicions_where_they_are_printed():
+    """§5's failure mode: an agent writing rules to satisfy a peer instead of the corpus.
+
+    The Auditor never sees gold (DESIGN §3), so a flag is one component's belief. The
+    framing sits beside the table rather than only in the template, for the reason the §1.3
+    cautions do.
+    """
+    text = shown(iterated(audit_report=audit_report(3, flags=[a_flag()])))
+    assert "suspicions, not errors" in text
+    assert "never sees gold" in text
+
+
+def test_the_three_cases_for_reading_a_flag_are_stated():
+    """§5's reading, including the prohibition and the highest-value case.
+
+    The case that must be prohibited is flagged-and-not-in-§1.4: unresolvable from what the
+    agent holds, so a rule written on it is a rule written on the Auditor's word. The case
+    that must be named is in-§1.4-and-not-flagged, which nothing in the table points at.
+    """
+    text = shown(iterated(audit_report=audit_report(3, flags=[a_flag()])))
+    assert "may not write a rule on the Auditor's word alone" in text
+    assert "highest-value" in text
+    assert "corroborated by gold" in text
+
+
+def test_no_flags_is_reported_as_a_measurement():
+    """Zero is a measurement, absent is not (`DocumentAudit`'s docstring).
+
+    An empty table with no sentence would read as a harness that failed to audit. It is
+    also where the block has to stop the agent from concluding too much: nothing survived
+    *in the Auditor's judgement of the masked text* is not nothing leaked.
+    """
+    report = audit_report(3, flags=[])
+    assert report["counts"]["flags"] == 0
+    text = shown(iterated(audit_report=report))
+    assert "No flags." in text
+    assert "not a statement that nothing" in text
+
+
+def test_the_counts_line_separates_audited_from_flagged_from_refused():
+    """Four numbers that a single "118 flags" would collapse into one.
+
+    A document audited with no flags and a document never audited are different facts, and
+    a refused flag is a third — it was returned and dropped, which the agent should not read
+    as the Auditor having stayed silent.
+    """
+    from src.porting.audit import OUT_OF_RANGE, Refusal
+    report = audit_report(3, flags=[a_flag()], documents_audited=4,
+                          refused=[Refusal(doc_id="dev1", reason=OUT_OF_RANGE)])
+    text = shown(iterated(audit_report=report))
+    assert "1 flags, 4 documents audited, 3 of them with no flags" in text
+    assert "1 returned flags were refused" in text
+    ref = iterated(audit_report=report).reference()
+    assert (ref["audit_flags"], ref["audit_refused"], ref["audit_documents"]) == (1, 1, 4)
+
+
+def test_a_refused_flags_position_does_not_reach_the_prompt():
+    """`auditor.md` §2.2: a refused flag keeps its doc_id and its reason and nothing else.
+
+    Half of those refusals *are* the judgement that the position cannot be trusted, and a
+    printed untrustworthy position would pass for part of the residual map.
+    """
+    from src.porting.audit import Refusal, CROSSES_A_LINE
+    report = audit_report(3, refused=[Refusal(doc_id="dev1", reason=CROSSES_A_LINE)])
+    assert all("start" not in r for r in report["refused"])
+    text = shown(iterated(audit_report=report))
+    assert "and are not shown" in text
+
+
+def test_the_report_must_be_this_rounds_and_must_audit_the_previous_one():
+    """`auditor.md`'s banner, both numbers, checked against *this* call.
+
+    The Auditor runs as round n's first step, so its report is written under round n and
+    what it read was round n−1's spans. `audit.report()` validates that the pair agrees with
+    itself, which an off-by-one driver satisfies — it records the round it was told. Only the
+    reader knows which round it is, so both numbers are checked here.
+    """
+    good = audit_report(3)
+    assert (good["iteration"], good["masked_from_iteration"]) == (3, 2)
+    assert iterated(iteration=3, audit_report=good)          # accepted
+
+    stale = audit_report(2)                                  # round 2's report, at round 3
+    with pytest.raises(PromptError) as exc:
+        iterated(iteration=3, audit_report=stale)
+    assert "iteration 2 and this is iteration 3" in str(exc.value)
+
+    # This round's file, but it audited two rounds back — internally consistent to
+    # `report()` at the round it was told, and wrong for this call.
+    with pytest.raises(PromptError) as exc:
+        iterated(iteration=3, audit_report=audit_report(3, masked_from=1))
+    assert "audited iteration 1" in str(exc.value)
+
+    # A report that audited its own round: the arm auditing its own unwritten output.
+    with pytest.raises(PromptError) as exc:
+        iterated(iteration=3, audit_report=audit_report(3, masked_from=3))
+    assert "reads an audit of 2" in str(exc.value)
+
+
+def test_the_heading_names_the_round_the_flags_describe():
+    """Which predictions were audited, not which directory the file sits in.
+
+    `iter{n}/audit_report.json` holding round n's audit *of* round n−1 is a fact about the
+    layout. The agent is being told what the flags are about, and a heading naming n would
+    make it read the flags against the file it is currently editing.
+    """
+    text = shown(iterated(iteration=4, audit_report=audit_report(4)))
+    assert "Auditor report on iteration 3's output" in text
+
+
+@pytest.mark.parametrize("bad", [[], "", 0, 3, [{"doc_id": "dev1"}]])
+def test_a_report_that_is_not_a_mapping_is_refused(bad):
+    """The type, separately from the round.
+
+    `None` is not in this list: an absent report is the missing-block refusal above, and a
+    parametrisation that mixed the two would pass on the wrong message. A list of flags is
+    here because it is the plausible mistake — passing `report["flags"]` instead of the
+    report.
+    """
+    with pytest.raises(PromptError) as exc:
+        iterated(audit_report=bad)
+    assert "must be a mapping" in str(exc.value)
+
+
+# ── §1.4: the window, through the renderer and not re-rendered ──
+
+
+def test_the_error_spans_come_through_the_renderer():
+    """Structural. §1.4 is the block with corpus text in it, and it has one renderer.
+
+    A second slicing of `doc.text` inside the assembler would be a second place the
+    context-window discipline is established by hand — the state `FilledPrompt` and
+    `test_no_other_module_slices_document_text_for_a_prompt` exist to leave. Here the
+    renderer is in the same module, so the file-level check cannot see it; the call is what
+    is asserted.
+    """
+    fn = functions(tree())["assemble_iteration_prompt"]
+    assert "render_window" in calls_named(fn)
+    for form in ast.walk(fn):
+        assert not (isinstance(form, ast.Subscript)
+                    and isinstance(form.value, ast.Attribute)
+                    and form.value.attr == "text"), (
+            "assemble_iteration_prompt slices document text itself. §1.4 is rendered by "
+            "render_window() and by nothing else."
+        )
+
+
+def test_the_assembler_does_not_draw_the_sample():
+    """The seed is applied in one place (`sample.draw()`), and this is not it.
+
+    DESIGN §11.1 rests the arm comparison on both arms drawing through one function. An
+    assembler that drew would be a second application of the seed, and the two would agree
+    until one of them was edited.
+    """
+    reached = calls_named(functions(tree())["assemble_iteration_prompt"])
+    for name in ("draw", "draw_iteration", "initial_error_pool", "error_spans"):
+        assert name not in reached, (
+            f"assemble_iteration_prompt calls {name}. The caller draws and this renders "
+            "(DESIGN §11.1)."
+        )
+
+
+def test_the_window_reaches_the_prompt_with_its_offsets_and_its_context():
+    """§1.4's four lines per span, arriving through the assembled prompt.
+
+    The window is what the rule author reads, so the assertion is that it is *in* the
+    prompt — a `render_window()` call whose result was dropped would satisfy the structural
+    check above and send a heading with nothing under it.
+    """
+    text = shown(iterated())
+    assert SURFACE in text, "the assembled prompt carries no window"
+    assert "type      NAME" in text
+    assert "within that context" in text
+
+
+def test_the_context_width_is_stated_where_the_windows_are():
+    """±n characters, and that the offsets are window-relative rather than document ones.
+
+    An agent reading document offsets goes looking for the surrounding text, which is the
+    unbounded window DESIGN §11.1 rejects.
+    """
+    text = shown(iterated(context_chars=40))
+    assert "±40 characters" in text
+    assert "within its own context window" in text
+
+
+def test_the_error_span_reference_is_nested_and_not_merged():
+    """Two hashes under two keys a reader would have to tell apart, avoided.
+
+    The window's own reference carries `text_sha256` and so does the prompt's. Merged, the
+    prompt's record would hold one of them under a name that means the other.
+    """
+    ref = iterated().reference()
+    assert ref["error_spans"]["block"] == "error_spans"
+    assert ref["error_spans"]["n_spans"] == 1
+    assert ref["error_spans"]["text_sha256"] != ref["text_sha256"]
+    assert ref["error_spans"]["context_chars"] == 120
+
+
+def test_the_window_that_was_rendered_is_the_window_that_was_passed():
+    """The reference resolves to the spans the caller drew, by `(doc_id, span_index)`.
+
+    DESIGN §11.2's referent. A block assembled from a different sample than the one the run
+    recorded would be undetectable from the record, which is the whole reason the record
+    carries the references rather than a count.
+    """
+    spans = [err(index=0, start=1000), err(index=3, start=1000)]
+    ref = iterated(errors=spans, docs_by_id={"dev1": doc()}).reference()
+    assert [s["span_index"] for s in ref["error_spans"]["spans"]] == [0, 3]
+
+
+# ── the assembled prompt is the type, and it records what it carried ──
+
+
+def test_the_iteration_prompt_is_a_filled_prompt():
+    """The premise, and here it is not incidental: this block *does* carry corpus text."""
+    p = iterated()
+    assert isinstance(p, FilledPrompt)
+    assert not isinstance(p, str)
+
+
+def test_the_iteration_assembler_returns_only_a_filled_prompt_call():
+    """Both returns: the delegation and the assembly.
+
+    The delegated one is `assemble_task_prompt`, which its own test pins to a
+    `FilledPrompt(...)` construction — so the set of allowed returns is two names and a
+    bare-string return is caught either way.
+    """
+    fn = functions(tree())["assemble_iteration_prompt"]
+    returns = [n for n in ast.walk(fn) if isinstance(n, ast.Return)]
+    assert returns
+    for node in returns:
+        value = node.value
+        assert isinstance(value, ast.Call) and isinstance(value.func, ast.Name) and \
+            value.func.id in {"FilledPrompt", "assemble_task_prompt"}, (
+            "assemble_iteration_prompt returns something other than a FilledPrompt"
+        )
+
+
+def test_the_reference_form_holds_no_text_and_serialises():
+    """What a run record may keep: counts, references, hashes, lengths.
+
+    The window is in this prompt, so this is the reference form where a leak would land.
+    Checked against the rendered JSON rather than against the values, because a surface
+    form nested three levels down inside `error_spans` is what a per-key assertion misses.
+    """
+    ref = iterated().reference()
+    blob = json.dumps(ref)
+    assert SURFACE not in blob
+    assert ref["text_chars"] == len(iterated())
+    assert ref["text_sha256"].startswith("sha256:")
+    assert ref["block"] == "iteration"
+
+
+def test_the_reference_form_names_the_round_and_the_round_the_feedback_came_from():
+    """Arithmetic a reader should not have to do, and a convention they should not have
+    to know — `audit.report()`'s `masked_from_iteration`, at the prompt layer."""
+    ref = iterated(iteration=5, audit_report=audit_report(5)).reference()
+    assert ref["iteration"] == 5
+    assert ref["feedback_from_iteration"] == 4
+    assert ref["audit_iteration"] == 5
+    assert ref["audit_masked_from_iteration"] == 4
+
+
+def test_the_reference_form_hashes_the_blocks_the_call_actually_saw():
+    """The rendered blocks, not the source artefacts — and the reason is this module's.
+
+    Hashing `metrics.json` or the report would need a canonical serialisation, and this
+    module does not import `json` (`test_the_module_imports_nothing_that_writes` holds that
+    as a closed set). The rendered block is what the call saw, which is the question a
+    reference form answers; the sources are at `paths.itermetrics` and `paths.auditreport`
+    under the rounds these fields name.
+    """
+    one, two = scored_fixture(), scored_fixture()
+    two["modes"]["fully_covered"]["leak"]["leaked"] += 1
+    assert iterated(metrics=one).reference()["score_block_sha256"] != \
+        iterated(metrics=two).reference()["score_block_sha256"]
+    assert iterated(audit_report=audit_report(3, flags=[a_flag()])) \
+        .reference()["audit_block_sha256"] != \
+        iterated(audit_report=audit_report(3)).reference()["audit_block_sha256"]
+
+
+def test_the_prompt_is_hashed_against_the_window_files():
+    """The template and the sampling config, as `window_freeze.json` records them.
+
+    An iteration prompt whose record named only the round would agree with a doubled `n`
+    as readily as with 40 — `render_window`'s reason, at the level that assembles it.
+    """
+    ref = iterated().reference()
+    assert set(ref["window_files"]) == set(WINDOW_FILES)
+    for value in ref["window_files"].values():
+        assert value.startswith("sha256:")
+
+
+def test_the_template_travels_with_every_round_and_not_only_the_first():
+    """§2's schema and §4's prohibitions, on round 7 as much as on round 1.
+
+    A later round is where dropping them would look harmless — the agent has answered this
+    prompt before — and it is where the emitted file's schema would drift with nothing
+    saying why.
+    """
+    template = (ROOT / "docs" / "prompts" / "rule_author.md").read_text(encoding="utf-8")
+    assert template in shown(iterated(iteration=7, audit_report=audit_report(7)))
+
+
+def test_every_round_says_to_emit_the_whole_file():
+    """The characteristic failure of this loop is a file that only grows (§5).
+
+    Round 1 has nothing to delete. From round 2 revision includes deleting and narrowing,
+    so the instruction is not the same sentence as round 1's and is asserted separately.
+    """
+    text = shown(iterated())
+    assert "Emit the complete rules/es.yaml" in text
+    assert "not a patch" in text
+    assert "deleting and narrowing" in text
 
 
 # ─── the text has no accessor that is not named for a destination ────────────

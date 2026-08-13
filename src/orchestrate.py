@@ -82,7 +82,9 @@ from typing import Sequence
 import regex
 
 from . import sample
-from .corpora.base import ROOT, CorpusError, axis, path_template, rule_langs
+from .corpora.base import (
+    ROOT, CorpusError, axis, check_agent_role, path_template, rule_langs,
+)
 from .eval.run_fold import DEFAULT_SPLIT, run_fold
 from .eval.scorer import check_run
 from .eval import sealed_log
@@ -165,6 +167,14 @@ CALLED = "called"
 SCORED = "scored"
 FORMAT_FAILURE = "format_failure"
 OUTCOMES = (CALLED, SCORED, FORMAT_FAILURE)
+
+#: The role `port-oneshot`'s one call carries. A default on `call_line()` rather than a
+#: literal at the call site, and it is the value the whole arm has: this file drives the
+#: RuleAuthor and calls no Auditor (DESIGN §4 — one call, and the Auditor enters at
+#: `port-loop`'s round 2). Read through `check_agent_role()` at write time, so the vocabulary
+#: is naming.yaml's and this constant is a choice of which declared value applies rather than
+#: a second place the value is defined.
+RULE_AUTHOR = "rule_author"
 
 #: The three fields `bedrock.Response.model_record()` returns, all required in the run block
 #: this module writes. `scorer.REQUIRED_RUN` names only `model_id` — see `_run_block()` and
@@ -568,8 +578,38 @@ def window_drift(corpus: str, detector: str, supervision: str,
 
 def call_line(iteration: int, *, prompt_reference: dict, model: dict,
               response_chars: int, response_sha256: str, outcome: str,
-              cost: dict, model_lifecycle: dict | None = None) -> dict:
+              cost: dict, model_lifecycle: dict | None = None,
+              role: str = RULE_AUTHOR) -> dict:
     """One `agent_calls.jsonl` line: what was sent, what answered, what it cost.
+
+    **`role` says which agent spent the call** (DESIGN §5.5). RuleAuthor and Auditor both
+    call a model and both lines land in one `agent_calls.jsonl`, so `llm_calls` sums them —
+    which is what a round cost and is the right total, and which makes "the Auditor accounts
+    for half this arm's spend" unanswerable from the file that holds the spend. Written on
+    **every** line including this arm's, per the rule `model_id_absent` and `sample_reference`
+    both follow: a key some arms omit cannot be compared across arms, and a reader who has to
+    know which arms have the field is a reader who will read a `port-oneshot` log as an
+    unattributed one rather than as a one-agent one.
+
+    Validated through `check_agent_role()`, so `"RuleAuthor"` or `"rule-author"` is refused
+    here instead of splitting one agent's calls across two spellings in a file every per-role
+    cost figure is computed from. **Nothing derives it** — not from the prompt reference, not
+    from `porting`, not from the template filename. That is DESIGN §3's layer-from-detector-
+    name prohibition one field over, and `test_no_module_derives_a_role_from_a_filename` is
+    the structural half of it.
+
+    Defaulted rather than required, and the default is this file's own arm. `port-oneshot`
+    makes one call and it is the RuleAuthor's; `port-loop`'s driver passes both values
+    explicitly, which is the asymmetry §5.5 wanted from a shared helper — the baseline's
+    driver does not change while the iterating arm is built, and the iterating arm cannot
+    inherit a default that happens to be right for one of its two agents.
+
+    **The frozen arms' existing lines are not rewritten.** This function writes what a new
+    line carries; nothing here or in `append_call()` reads or edits a line already on disk,
+    and `append_call()` opens for append for exactly that reason. `tests/test_call_role.py`
+    asserts it against the two real logs rather than against a fixture, in the shape
+    `tests/test_window_widening.py` used for `WINDOW_FILES`: a record that must not move is a
+    committed one, and a fixture cannot fail to be retroactively rewritten.
 
     **No prompt text and no response text.** The prompt's `reference()` is what may be
     recorded (`rule_author.md` §6, DESIGN §11.2) and the response is reduced to a length and
@@ -615,6 +655,10 @@ def call_line(iteration: int, *, prompt_reference: dict, model: dict,
         )
     return {
         "iteration": iteration,
+        # Which agent spent this call. Beside `iteration` rather than at the end, because the
+        # two together are what a per-round per-role cost sum groups by, and a reader scanning
+        # the file reads the first fields.
+        "role": check_agent_role(role),
         "outcome": outcome,
         **model,
         # A note about the id and not a resolution of it — see the docstring, and the field

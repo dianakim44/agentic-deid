@@ -60,6 +60,7 @@ TEST_FILES = [
     "tests/test_audit.py",
     "tests/test_masked_tag.py",
     "tests/test_window_widening.py",
+    "tests/test_call_role.py",
 ]
 
 #: Repository directories the loader tests need. `splits/` is here because the
@@ -3396,6 +3397,327 @@ MUTATIONS = [
             "synthetic record the committed ones are not. The survival is recorded in this "
             "file: a surviving mutation is usually a missing test, and that one was a wrong "
             "belief about which line held the guarantee."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="the_audit_report_gets_a_second_path_key",
+        path=NAMING,
+        anchor=(
+            '  auditreport: "results/{corpus}/{detector}/{supervision}/{porting}'
+            '/iter{iteration}/audit_report.json"'
+        ),
+        replacement=(
+            '  auditreport: "results/{corpus}/{detector}/{supervision}/{porting}'
+            '/iter{iteration}/audit_report.json"\n'
+            '  leakreport: "results/{corpus}/{detector}/{supervision}/{porting}'
+            '/iter{iteration}/audit_report.json"'
+        ),
+        breaks=(
+            "**The near-miss this repository actually had, on 2026-08-13, as a mutation.** "
+            "The loop's implementation order called for a `paths.leakreport` — DESIGN §5.5's "
+            "two bullets about `reports/leaks_{iter}.json` name a path that must be denied "
+            "and axis-scoped — and `paths.auditreport` from `c998610` is already that file. "
+            "So this is the state the repository was one commit from being in, and the "
+            "reason the test exists is that nothing else here notices it.\n"
+            "\n"
+            "**Every check that could plausibly catch it passes.** The new key formats to a "
+            "real path under a real arm at a real round. `deny()` denies it — the pattern is "
+            "anchored on the filename. `.gitignore` ignores it, for the same reason. "
+            "`test_the_four_iteration_scoped_paths_split_two_and_two` names its four keys "
+            "explicitly and does not iterate the block, so a fifth is invisible to it; the "
+            "deny-sample table is keyed on patterns rather than on keys and is unchanged; "
+            "`path_template('leakreport')` resolves. The screener reports nothing, because "
+            "there is nothing wrong with the path.\n"
+            "\n"
+            "What breaks is one layer up and only under a second writer: DESIGN §3's \"two "
+            "agents never write the same file\" is checkable only while each artefact has one "
+            "name. With two, a driver holding `leakreport` and a validator holding "
+            "`auditreport` agree on every byte until one of them moves, and no record says "
+            "which name produced the file. That is worse than §5.3's axis-free path, where "
+            "the two arms at least collide visibly on one path.\n"
+            "\n"
+            "Caught by `test_no_two_path_keys_name_one_file`, which compares formatted "
+            "results over the whole `paths` block rather than the four keys of the split "
+            "test — the difference being that a fifth key is exactly what the enumerated "
+            "test cannot see."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="the_call_role_is_written_without_being_validated",
+        path=ORCHESTRATE,
+        anchor='        "role": check_agent_role(role),',
+        replacement='        "role": role,',
+        breaks=(
+            "**One agent's calls split across two spellings, in the file every per-role cost "
+            "figure is computed from.** The field is written, the log is well-formed JSONL, "
+            "and `\"RuleAuthor\"` beside `\"rule_author\"` totals as two agents — which is the "
+            "defect `check_agent_role()` exists for and `tests/test_agent_role.py` describes "
+            "as having no symptom in the file.\n"
+            "\n"
+            "What makes it worth a mutation rather than only a unit test is where the wrong "
+            "value would come from. `port-loop`'s driver passes the Auditor's role at one "
+            "call site and the RuleAuthor's at another, in a module that also handles "
+            "`porting` and prompt template names — all strings, none of them interchangeable. "
+            "An unvalidated field there is a field the vocabulary rule in CLAUDE.md does not "
+            "reach.\n"
+            "\n"
+            "Caught by `test_a_role_outside_the_vocabulary_is_refused_at_write_time` in "
+            "`tests/test_call_role.py`, which is deliberately *not* a test of the "
+            "near-spellings — those are `test_agent_role.py`'s, on `check_agent_role()` "
+            "itself. What this one asserts is that `call_line()` is on the validated path, "
+            "which is the half of the guarantee a test of the validator cannot see."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="the_role_is_appended_at_the_end_of_the_line",
+        path=ORCHESTRATE,
+        anchor='        "role": check_agent_role(role),\n        "outcome": outcome,',
+        replacement='        "outcome": outcome,',
+        also=((
+            ORCHESTRATE,
+            "        \"generated\": _now(),\n        **window_hashes(),",
+            "        \"generated\": _now(),\n"
+            "        \"role\": check_agent_role(role),\n"
+            "        **window_hashes(),",
+        ),),
+        breaks=(
+            "**The same fields in a different order, which is the version that looks like a "
+            "tidier diff.** Every value is present and validated; `role` simply sits after "
+            "`generated` instead of beside `iteration`. Nothing about one line changes.\n"
+            "\n"
+            "What changes is the log as a document. `(iteration, role)` is what a per-round "
+            "per-role cost total groups by, and those two keys adjacent at the head of the "
+            "line are what makes `port-loop`'s log readable by eye — six rounds, two agents, "
+            "twelve lines, and the grouping visible in the first twenty characters of each. "
+            "Buried after a timestamp and before three hashes it is not. This is the same "
+            "argument `human_arm.FIELDS` makes about its own tail, and the reason it is a "
+            "mutation is that field order is the one property a reviewer reads past.\n"
+            "\n"
+            "Caught by `test_the_role_sits_beside_the_iteration`. It is the only test in the "
+            "suite that could catch it, which is the point: the ordering is not implied by "
+            "anything else that is checked."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="the_audit_report_is_read_as_the_previous_rounds_file",
+        path=PROMPT,
+        anchor="    if stated != iteration:",
+        replacement="    if stated != iteration - 1:",
+        breaks=(
+            "**The second near-miss of 2026-08-13, and this one was in the file rather than "
+            "one commit away.** `_audit_block()` shipped with exactly this check. It reads "
+            "`auditor.md`'s handover backwards: the Auditor runs as round *n*'s first step, "
+            "so its report is written under round *n* with `iteration: n` and records "
+            "`masked_from_iteration: n−1`. A reader demanding `iteration == n−1` refuses the "
+            "correct report and accepts the round-old one.\n"
+            "\n"
+            "**Both directions are wrong and neither is loud.** The refusal is a `PromptError` "
+            "with a message that reads plausibly, so a driver written against it would be "
+            "written to satisfy it — by passing the previous round's report, which is the "
+            "artefact the check was supposed to reject. The prompt then carries round *n−2*'s "
+            "flags under a heading naming *n−1*, and the agent reads them against a rule file "
+            "two revisions newer: every flag it has already fixed reappears, and DESIGN §3's "
+            "shrinking-report mechanism (a residual fixed at round n is *masked* at round n+1 "
+            "and cannot be flagged again) is silently switched off.\n"
+            "\n"
+            "Nothing downstream notices. `audit.report()` validates the pair against each "
+            "other, not against the round reading it, so both files are internally consistent; "
+            "the flags are well-formed, in range, and in the right corpus; the reference form "
+            "records the number it was given. The count in `metrics.json` is right about a "
+            "report that answers the wrong question.\n"
+            "\n"
+            "Caught by `test_the_report_must_be_this_rounds_and_must_audit_the_previous_one`, "
+            "which asserts the accepted case as well as the three refused ones — a test of "
+            "refusals alone passes on a reader that refuses everything."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="only_the_round_the_report_names_is_checked",
+        path=PROMPT,
+        anchor=(
+            "    masked_from = report.get(\"masked_from_iteration\")\n"
+            "    if masked_from != iteration - 1:"
+        ),
+        replacement=(
+            "    masked_from = report.get(\"masked_from_iteration\")\n"
+            "    if False:"
+        ),
+        breaks=(
+            "**One number checked where the file carries two, which is the state that looks "
+            "sufficient.** `iteration` is verified against this call and `masked_from_iteration` "
+            "is trusted — and trusting it is the whole error, because it is the field a "
+            "consistent-but-off-by-one driver gets wrong. `audit.report()` writes whatever "
+            "relationship it was told to write and validates only that the pair agrees; a "
+            "driver that called the Auditor on round *n−2*'s spans while labelling the round "
+            "correctly produces a file this reader accepts.\n"
+            "\n"
+            "The visible consequence is the heading, which is rendered from `masked_from`: the "
+            "prompt would tell the agent the flags describe a round they do not. That is the "
+            "reason both numbers are read here rather than one — the check and the sentence "
+            "the agent reads come from the same field.\n"
+            "\n"
+            "Caught by the same test's third and fourth cases, which pass a report whose two "
+            "numbers `report()` would never have written together."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="round_one_reassembles_the_baselines_prompt",
+        path=PROMPT,
+        anchor="        return assemble_task_prompt(lang=lang, corpus=corpus, "
+               "rules_path=rules_path)",
+        replacement=(
+            "        frame = _task_frame(lang, corpus)\n"
+            "        rules_block, rules_ref = _current_rules(lang, rules_path)\n"
+            "        empty = \"\\n\".join([\n"
+            "            f\"### {section} — EMPTY for this call\"\n"
+            "            for section in EMPTY_SECTIONS\n"
+            "        ])\n"
+            "        text = \"\\n\\n\".join([\n"
+            "            _template(),\n"
+            "            INPUT_BANNER,\n"
+            "            frame,\n"
+            "            rules_block,\n"
+            "            empty,\n"
+            "            \"There is no previous iteration, so there are no scores and no \"\n"
+            "            \"error spans: \"\n"
+            "            f\"§{' and §'.join(EMPTY_SECTIONS)} of the template above are empty \"\n"
+            "            \"for this call rather than withheld. This is the arm's definition \"\n"
+            "            \"and not a gap in the harness (DESIGN §4). Do not ask for them and \"\n"
+            "            \"do not substitute anything for them — a profile summary or a type \"\n"
+            "            \"inventory standing in for the score block would make this call \"\n"
+            "            \"something other than the no-feedback baseline it is.\",\n"
+            "            f\"Emit the complete rules/{lang}.yaml and nothing else.\",\n"
+            "        ])\n"
+            "        return FilledPrompt(text, {\n"
+            "            \"block\": \"task_frame\",\n"
+            "            \"lang\": lang,\n"
+            "            \"corpus\": corpus,\n"
+            "            \"sections_filled\": list(FILLED_SECTIONS),\n"
+            "            \"sections_empty\": list(EMPTY_SECTIONS),\n"
+            "            **rules_ref,\n"
+            "            \"text_chars\": len(text),\n"
+            "            \"text_sha256\": _digest(text),\n"
+            "            \"window_files\": {name: file_hash(name) for name in WINDOW_FILES},\n"
+            "        })"
+        ),
+        breaks=(
+            "**A copy that agrees byte for byte on the day it is written.** This is the whole "
+            "of `assemble_task_prompt()`'s body inlined into round 1's branch — every "
+            "sentence, both constants, the same reference form. `port-loop` round 1 and "
+            "`port-oneshot` produce identical prompts and identical hashes, and the equality "
+            "test passes.\n"
+            "\n"
+            "It breaks on the next edit to anything §§1.1–1.2 are made of, which is the point: "
+            "DESIGN §4's claim is that the two rungs are shown *the same thing*, and that "
+            "claim can rest on one code path or on two implementations someone remembers to "
+            "keep equal. Under this mutation a widened `_task_frame()` reaches the baseline "
+            "and not round 1 of the loop, the two arms diverge in an unrecorded way, and the "
+            "measured difference between the rungs stops being feedback.\n"
+            "\n"
+            "Caught by `test_round_one_delegates_rather_than_reassembling`, which is "
+            "structural for exactly this reason — the behavioural test it sits next to cannot "
+            "see the difference, today."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="round_one_ignores_the_feedback_it_was_handed",
+        path=PROMPT,
+        anchor=") if value is not None]",
+        replacement=") if value]",
+        breaks=(
+            "**Truthiness for presence, which is the same line with two characters removed.** "
+            "`if value` instead of `if value is not None` reads as idiomatic Python and is "
+            "wrong for exactly the values a round-1 call plausibly carries: `{}` from a "
+            "metrics block that was read but empty, `[]` from an error pool that came back "
+            "with nothing, `0` from a context width. All falsy, all dropped, and the prompt "
+            "that comes out is a correct round-1 prompt.\n"
+            "\n"
+            "That is the asymmetry the refusal exists for. There is no round 0 to score or "
+            "draw from, so a caller holding this data computed it somewhere else — which means "
+            "its iteration counter is off by one for every round that follows, and round 1 is "
+            "the only round where the discrepancy is visible at all. Absorbing the argument "
+            "leaves the prompt right and the driver wrong, with nothing in the run record "
+            "saying so; refusing it turns an arm-wide defect into a stack trace on call 1.\n"
+            "\n"
+            "The same two characters are the whole of the mirror check one branch down, where "
+            "the direction reverses: an empty error pool at round 3 is a *supplied* block and "
+            "must not be reported as missing.\n"
+            "\n"
+            "Caught by `test_round_one_refuses_feedback_rather_than_ignoring_it`, parametrised "
+            "over five falsy values for this reason — the same test written with a populated "
+            "metrics dict passes under the mutation."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="an_undefined_rate_prints_as_zero",
+        path=PROMPT,
+        anchor="    if value is None:\n        return \"  n/a\"",
+        replacement="    if value is None:\n        return f\"{0.0:.3f}\"",
+        breaks=(
+            "**`None` rendered as `0.000`, which reads as measured-and-clean.** The scorer "
+            "writes `None` for a rate whose denominator is zero (`_prf`, `_mean`) and it means "
+            "*undefined*: a type with false positives and no gold in this fold, or a macro "
+            "average over no scored type. Printed as a number it becomes the best possible "
+            "score, in the column the agent scans for what to work on.\n"
+            "\n"
+            "The direction is what makes it worth a mutation. An agent shown `leak_rate 0.000` "
+            "for a type the fold cannot score concludes the type is handled — and the types "
+            "this happens to are the sparse ones DESIGN §9.4 already says not to over-fit. "
+            "The opposite error (a real 0.000 printed as `n/a`) would waste a round; this one "
+            "hides a hole and looks like progress.\n"
+            "\n"
+            "Caught by `test_an_undefined_rate_reads_as_not_available_and_not_as_zero`, which "
+            "asserts on the field's position in the row rather than on `n/a` appearing "
+            "somewhere in the line: the fixture's type has a measured 0.000 precision beside "
+            "an undefined leak rate, so a looser assertion would pass with the two swapped."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="the_score_block_carries_the_run_and_cost_blocks_too",
+        path=PROMPT,
+        anchor="    block_text = \"\\n\".join(lines)\n    first = modes[sorted(modes)[0]]",
+        replacement=(
+            "    for extra in (\"run\", \"cost\"):\n"
+            "        if metrics.get(extra):\n"
+            "            lines += [f\"{extra}:\", \"\"]\n"
+            "            for key, value in sorted(metrics[extra].items()):\n"
+            "                lines.append(f\"  {key} {value}\")\n"
+            "            lines.append(\"\")\n"
+            "    block_text = \"\\n\".join(lines)\n"
+            "    first = modes[sorted(modes)[0]]"
+        ),
+        breaks=(
+            "**The reduction turned back into a forward, which is the shape a reviewer asks "
+            "for.** `metrics.json` has the blocks; the block builder already walks it; adding "
+            "the last two is four lines and reads as completeness. Nothing malfunctions — the "
+            "prompt assembles, the hash changes, the agent gets strictly more information.\n"
+            "\n"
+            "What arrives with it is `model_id`, `commit`, `wall_seconds` and the token counts. "
+            "Two distinct problems. The run block is a set of facts about the harness that the "
+            "agent must not act on, and an agent that can see `commit` can reason about being "
+            "one of several runs. The cost block is worse: an agent shown its own token spend "
+            "can reason about the budget, and `rule_author.md` §5 puts budget outside its "
+            "decisions precisely because the cheap move available to it — emit fewer rules — "
+            "improves the number it can see and damages the one being measured. CLAUDE.md "
+            "requires cost to be reported *beside* quality, to a reader, not to the agent "
+            "generating both.\n"
+            "\n"
+            "The prompt space is the second cost. §4 allocates it to §1.4, and a run block is "
+            "paid for at every round of every arm.\n"
+            "\n"
+            "Caught by `test_the_run_and_cost_blocks_are_not_forwarded`, which injects both "
+            "blocks into the fixture — the committed `metrics.json` has them, but a test built "
+            "on the scorer's return alone would not, and that is the version of this test that "
+            "would have passed under the mutation."
         ),
         min_kills=1,
     ),

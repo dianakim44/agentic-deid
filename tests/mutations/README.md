@@ -1416,6 +1416,172 @@ do not overlap by construction. Both mutations are therefore killed by fixtures 
 `port-loop` arm runs, and `n_overlapping_pairs` is on the `MaskedDocument` counts so that the
 first arm measures it rather than a later reader assuming it. Recorded in DESIGN §3.
 
+### One on the path block, and it is the near-miss rather than an invented one
+
+Added 2026-08-13. `the_audit_report_gets_a_second_path_key` adds a `paths.leakreport` to
+`config/naming.yaml` formatting to the byte-identical path `paths.auditreport` already names.
+It is not a hypothetical: the loop's implementation order called for exactly that key, on the
+reading that DESIGN §5.5's two bullets about `reports/leaks_{iter}.json` — deny-listed, and
+axis- plus iteration-scoped — described a path still to be declared. They described
+`auditreport`, declared and screened in `c998610`. So this mutation is the tree as it would
+have stood had the order been followed literally, and what it demonstrates is how little
+would have objected.
+
+**Every layer that looks like it should catch it passes, and each for a good reason.** The new
+key formats to a real path under a real arm at a real round, so `path_template()` resolves it.
+`deny()` denies it and `.gitignore` ignores it, because both are anchored on the filename
+rather than on the key — which was the right call for the `iter{n}/` directory and is exactly
+why a second key inherits the protection for free.
+`test_the_four_iteration_scoped_paths_split_two_and_two` names its four keys as literals and
+does not walk the block, so a fifth is outside what it can see; the deny-sample table is keyed
+on patterns and is untouched. The screener reports nothing, correctly: there is nothing wrong
+with the path.
+
+**The damage is one layer up and it is worse than the defect §5.3 rejected.** An axis-free path
+makes two arms collide on one file, and the collision is visible — a reader looking at the path
+sees whichever arm wrote last. Two keys for one file collide on nothing: a driver holding
+`leakreport` and a validator holding `auditreport` agree on every byte, forever, until one of
+them is moved and the other is not. Nothing in the file records which name produced it, and
+DESIGN §3's "two agents never write the same file" stops being checkable, because the file has
+two names and neither of them is wrong. That is the property `test_no_two_path_keys_name_one_file`
+asserts, over the whole block and on the *formatted* result — the template strings differ, so a
+comparison on templates would pass this mutant, and so would one that had merely renamed
+`{iteration}` to `{round}` in a copied line.
+
+`min_kills` is 1 because one test is the honest count: this is a gap nothing else was covering,
+which is the reason the finding is recorded in DESIGN §5.5 rather than fixed by declaring the
+key and moving on.
+
+### Two on the call log's new field, where one is a value and the other is only an order
+
+Added 2026-08-13, with `role` on `call_line()`. RuleAuthor and Auditor share one
+`agent_calls.jsonl` from `port-loop` round 2, `llm_calls` sums their lines — the right total
+for cost and no answer at all for attribution — so each line has to say whose call it was.
+Both mutations leave a log that parses, and neither changes a number in `metrics.json`.
+
+`the_call_role_is_written_without_being_validated` drops `check_agent_role()` and writes the
+argument through. This is the defect `tests/test_agent_role.py` describes as having no symptom
+in the file: `"RuleAuthor"` at one call site and `"rule_author"` at another produce a
+well-formed log in which one agent's calls total as two. It is worth a mutation rather than
+only a unit test because of where the wrong value would come from — `port-loop`'s driver passes
+a role at each of two call sites, in a module that also handles `porting` and template
+filenames, all strings and none interchangeable. Caught by
+`test_a_role_outside_the_vocabulary_is_refused_at_write_time`, which is deliberately *not* a
+test of the near-spellings; those belong to the validator's own file. What this one asserts is
+that `call_line()` is on the validated path, and that is the half a test of the validator
+cannot see.
+
+`the_role_is_appended_at_the_end_of_the_line` is the one worth arguing about, because it looks
+like the tidier diff: same fields, same values, same validation, `role` after `generated`
+instead of beside `iteration`. Nothing about a single line changes. What changes is the log as
+a document — `(iteration, role)` is what a per-round per-role total groups by, and those two
+keys adjacent at the head of the line are what make twelve lines of a six-round two-agent run
+legible by eye. Between a timestamp and three window hashes they are not. The same argument
+`human_arm.FIELDS` makes about its own tail. `test_the_role_sits_beside_the_iteration` is the
+only test in the suite that catches it, which is the point: field order is the property a
+reviewer reads past, and it is not implied by anything else that is checked.
+
+Both are `min_kills=1`, and the frozen-record half of the change — that the two real
+`agent_calls.jsonl` lines did not acquire the field — has no mutation, because there is no edit
+to `src/` that produces it. A backfill is a script someone runs once; the file it would rewrite
+is not reachable from any function here. What the two mutations above cover is the writer, and
+the record is covered by reading it.
+
+Worth stating because it nearly went the other way: those logs are gitignored, and the first
+draft of this section said the tests that read them skip inside the mutation tree. They do not.
+`COPIED` includes `results/`, and `shutil.copytree` copies what is on disk rather than what git
+tracks — so the frozen lines are present in every mutated tree and their tests run there. The
+baseline count moved 1330 → 1344 when `tests/test_call_role.py` joined `TEST_FILES`, which is
+that measured rather than assumed. The gitignore only means the logs are absent from a *fresh
+clone*, which is what the skip in that file is for.
+
+### Six on the iteration prompt, and the first two are the same off-by-one twice
+
+Added 2026-08-13 with `assemble_iteration_prompt()`. The function has one job that can be
+stated in two numbers — round 1 is the baseline's prompt, and from round 2 every §1 block is
+filled — and every mutation here is a way of getting one of those numbers wrong while
+producing a prompt that sends, costs what a round costs, and reads correctly.
+
+**`the_audit_report_is_read_as_the_previous_rounds_file` is not invented.** `_audit_block()`
+shipped with it. The check was `report["iteration"] == iteration - 1`, on the reasoning that
+the report is the previous round's — which is true of the *predictions* it describes and false
+of the file. `auditor.md`'s banner fixes the handover: the Auditor runs as round *n*'s first
+step, so its report is written to `iter{n}/audit_report.json` carrying `iteration: n`, and what
+it read was round *n−1*'s `spans.jsonl`, carried as `masked_from_iteration: n−1`. Two numbers on
+one file. A reader demanding the first be *n−1* refuses the correct report and accepts the
+round-old one, and the refusal message reads plausibly enough that a driver written against it
+would be written to pass it — by handing over the stale file, which is the artefact the check
+was there to reject.
+
+What follows is quiet. The prompt carries round *n−2*'s flags under a heading naming *n−1*, the
+agent reads them against a rule file two revisions newer, and every flag it already fixed
+reappears. `auditor.md` §5 turns on a mechanism DESIGN §3 states outright — a residual flagged
+at round 3 and fixed at round 4 is *masked* at round 4 and cannot be flagged again — and that
+mechanism is what this switches off, silently, in the direction that looks like the Auditor
+disagreeing with the fix. Nothing downstream objects: `audit.report()` validated the pair
+against each other rather than against the round reading it, so both files are internally
+consistent, and the reference form faithfully records the number it was given.
+
+`only_the_round_the_report_names_is_checked` is the reason the reader checks both numbers rather
+than one. Verify `iteration` against this call and trust `masked_from_iteration`, and a driver
+that is consistently off by one passes: it calls the Auditor on the wrong round's spans, records
+the relationship `report()` demands, and produces a file this reader accepts. `masked_from` is
+also what the heading is rendered from, so the check and the sentence the agent reads come from
+the same field — which is the argument for reading both and for rendering the one that names the
+predictions rather than the directory.
+
+**`round_one_reassembles_the_baselines_prompt` passes the behavioural test.** It inlines the
+whole of `assemble_task_prompt()`'s body into round 1's branch — every sentence, both
+constants, the same reference form — so the two prompts hash identically and
+`test_round_one_is_the_no_feedback_prompt_byte_for_byte` is green. It breaks on the next edit to
+anything §§1.1–1.2 are made of: a widened `_task_frame()` reaches `port-oneshot` and not
+`port-loop` round 1, the two rungs diverge in a way no record names, and the measured difference
+between them stops being feedback. DESIGN §4's claim can rest on one code path or on two
+implementations somebody remembers to keep equal, and this is the mutation that shows which of
+those the repository has. Caught structurally, by
+`test_round_one_delegates_rather_than_reassembling`, because that is the only kind of test that
+can tell the two apart today.
+
+`round_one_ignores_the_feedback_it_was_handed` removes two characters: `if value` for
+`if value is not None`. Idiomatic, and wrong for precisely the values a round-1 call plausibly
+carries — `{}` from a metrics block that was read and empty, `[]` from an error pool that came
+back with nothing, `0` from a context width. All falsy, all dropped, and what comes out is a
+correct round-1 prompt from an incorrect call. That is the asymmetry the refusal exists for:
+there is no round 0, so a caller holding this data computed it somewhere else, which means its
+counter is off by one for every round that follows, and round 1 is the only round where the
+discrepancy is visible at all. The same two characters carry the mirror check one branch down,
+where the direction reverses — an empty error pool at round 3 is a *supplied* block and must not
+be reported as missing — so `test_a_later_round_accepts_an_empty_block_that_was_supplied` is
+half of this guarantee and the parametrised refusal test is the other half.
+
+`an_undefined_rate_prints_as_zero` renders the scorer's `None` as `0.000`. `None` means
+undefined — a rate whose denominator is zero, which is what a type with false positives and no
+gold in this fold has — and as a number it becomes the best possible score, in the column the
+agent scans for what to work on. The direction is what earns it a mutation: an agent shown
+`leak_rate 0.000` for a type the fold cannot score concludes the type is handled, and the types
+this happens to are the sparse ones DESIGN §9.4 already warns against over-fitting. The
+opposite error would waste a round; this one hides a hole and looks like progress. The test
+asserts on the field's *position* in the row, because the fixture's type has a measured 0.000
+precision beside an undefined leak rate and a looser assertion passes with the two swapped.
+
+`the_score_block_carries_the_run_and_cost_blocks_too` is the reduction turned back into a
+forward, which is the shape a reviewer asks for: the blocks are in `metrics.json`, the builder
+already walks it, four more lines reads as completeness. It arrives with `model_id`, `commit`,
+`wall_seconds` and the token counts. The run block is facts about the harness the agent must not
+act on; the cost block is worse, because an agent that can see its own token spend can reason
+about the budget, and the cheap move available to it — emit fewer rules — improves the number it
+can see while damaging the one being measured. CLAUDE.md requires cost beside quality *to a
+reader*, not to the agent generating both. `test_the_run_and_cost_blocks_are_not_forwarded`
+injects both into the fixture for a reason worth naming: the fixture is built from the scorer's
+return, which has neither, so the version of that test written without the injection is the
+version that passes under this mutation.
+
+All six are `min_kills=1`. The score and audit blocks are also covered by tests that assert
+against the scorer's and the Auditor's own output rather than against literals — every rule the
+scorer attributes must have a row, every mode must appear, the flag table must carry what
+`audit.report()` assembled — and those have no mutation here because what they guard against is
+schema drift in another module, which no edit to `prompt.py` produces.
+
 ## What the seal cost, and what carries the difference
 
 Sealing 250 documents removed checks that cannot be replaced, and pretending

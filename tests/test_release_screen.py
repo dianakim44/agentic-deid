@@ -521,6 +521,54 @@ def test_the_four_iteration_scoped_paths_split_two_and_two():
             assert not any(re.search(p, rel) for p in rs.ALLOW_PATTERNS), rel
 
 
+def test_no_two_path_keys_name_one_file():
+    """**Two keys formatting to one path is worse than the axis-free path §5.3 rejected.**
+
+    DESIGN §5.5 (2026-08-13) records the near-miss this is written from: the loop's
+    implementation order called for a `paths.leakreport` for the Auditor's report, and
+    `paths.auditreport` — declared and screened in `c998610` — is already that file. Both
+    keys would have resolved correctly and both would have screened correctly, so nothing
+    at the path layer would have complained; the defect only appears when two writers
+    disagree about which name they hold, and §3's "two agents never write the same file"
+    stops being checkable because the file has two names and neither is wrong.
+
+    Asserted over the whole `paths` block and not over that pair, because the next
+    near-duplicate will arrive with its own good reason. Two templates that differ only in
+    a placeholder's *name* would still be one file for a given set of values, so the
+    comparison is on the formatted result under one concrete assignment rather than on the
+    template strings — which is also what catches a key added as a copy with `{iteration}`
+    renamed to `{round}`.
+
+    `paths.metrics` / `paths.itermetrics` and `paths.spans` / `paths.iterspans` are the pairs
+    this must *not* flag: they differ by `iter{iteration}/`, which is a real difference at
+    every round, and §5.5's duplication rule is about their contents coinciding on the final
+    round rather than about their paths coinciding ever. Filling `iteration` proves that.
+    """
+    from src.corpora.base import naming
+    values = dict(corpus="es-meddocan", detector="R", supervision="sup-free",
+                  porting="port-loop", iteration=3, lang="es")
+    seen: dict[str, str] = {}
+    for key, template in naming()["paths"].items():
+        try:
+            rel = template.format(**values)
+        except KeyError as exc:  # a placeholder this test does not know
+            raise AssertionError(
+                f"paths.{key} uses the placeholder {exc.args[0]!r}, which this test cannot "
+                "fill. Add it to `values` — an unfillable template is a template this "
+                "duplicate check silently skips."
+            ) from None
+        assert "{" not in rel, f"paths.{key} left a placeholder unfilled: {rel}"
+        if rel in seen:
+            raise AssertionError(
+                f"paths.{key} and paths.{seen[rel]} both name {rel}. One artefact, one key "
+                "(DESIGN §3, §5.5): a second name for a file that has one screens and "
+                "resolves correctly, so nothing fails until two writers hold different keys "
+                "for it — and then the agent-to-file correspondence cannot be checked, "
+                "because neither name is wrong."
+            )
+        seen[rel] = key
+
+
 def test_the_iteration_scoped_score_is_allowed_under_every_arm_and_round():
     """A pattern that matched only `iter1/` would leave every later round uncategorised,
     and uncategorised reads as reviewed to whoever scans the summary."""

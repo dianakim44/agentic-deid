@@ -1255,6 +1255,50 @@ are the artefact and plumbing questions the two of those leave open.
   §3 writes it has no axes at all, which is §5.3's defect exactly: two arms, one file, the
   second overwrites the first and leaves a plausible record behind. The key declared in
   `config/naming.yaml` is axis-scoped and iteration-scoped like `armrules`.
+
+  **That key is `paths.auditreport`, declared and screened in `c998610`, and the two bullets
+  above are satisfied by it. There is no second key** — recorded here on 2026-08-13 because
+  the implementation order called for one under the name `leakreport` and there is nothing
+  left for it to denote. The two bullets are requirements *on a path*: deny rather than
+  allow-and-sniff, and axis- plus iteration-scoped. `auditreport` is both, at
+  `…/{porting}/iter{iteration}/audit_report.json`, with its `DENY_PATTERNS` entry and its
+  `.gitignore` line in the commit that declared it. `docs/prompts/auditor.md` §2.2 names it
+  as the Auditor's one artefact and `src/porting/audit.py` assembles its content, so the
+  agent-to-file correspondence §3 requires is already single-valued.
+
+  **A second key would have been the failure it was meant to prevent, one layer up.** Two
+  keys formatting to one file is worse than the axis-free path §5.3 rejected: there, two arms
+  overwrite each other and the surviving file is at least the one path a reader looks at.
+  Here both keys resolve correctly, both screen correctly, and the defect is invisible until
+  two writers disagree about which name they hold — and §3's "two agents never write the same
+  file" becomes uncheckable, because the file has two names and neither is wrong.
+  `test_no_two_path_keys_name_one_file` pins this over the whole `paths` block rather than
+  over this pair, since the next near-duplicate will be proposed for its own good reason too.
+
+  `reports/leaks_{iter}.json` stays in §3's table, in this section's two bullets above, and
+  in `rule_author.md` §5 and §7 as the **prose name of the artefact**, which is what those
+  places are naming. It is not a path any code builds; `naming.yaml`'s comment on
+  `auditreport` already says so, and the prompt files are hashed into `window_freeze.json`
+  and are not edited to say it again (§6.3 — `port-oneshot-nofence` reports zero drift and
+  an edit there would be a claim about a call already made).
+  **The report is round *n*'s file and it audits round *n−1*'s output, and both numbers are
+  read by the round that consumes it.** `auditor.md`'s banner already fixes this — the Auditor
+  runs as round *n*'s first step, so its report is written under `iter{n}/` with
+  `iteration: n` and carries `masked_from_iteration: n−1` for the predictions it read — and it
+  is restated here because `assemble_iteration_prompt()` shipped on 2026-08-13 with the
+  relation inverted, demanding `iteration == n−1`. That check refuses the correct report and
+  accepts the round-old one, and its message reads plausibly enough that a driver written
+  against it would be written to satisfy it.
+
+  So the reader checks **both** numbers against its own round, and this is the part that is
+  not derivable from `audit.report()`'s validation: that function verifies the pair agrees
+  with itself, which a consistently off-by-one driver satisfies, because it records the round
+  it was told. Only the consumer knows which round it is. The heading the agent reads is
+  rendered from `masked_from_iteration` rather than from `iteration`, for the same reason —
+  the flags describe predictions, and `iter{n}/` holding round *n*'s audit *of* *n−1* is a
+  fact about the directory layout that no prompt sentence should depend on. Both mutations
+  are in `tests/mutations/README.md`; the loop driver takes the same pair of numbers and must
+  not recompute either from a directory listing.
 - **`call_line()` gains a `role` field.** RuleAuthor and Auditor both call a model and both
   lines land in one `agent_calls.jsonl`, so `llm_calls` counts them together — which is
   correct for cost and useless for attribution unless the line says which agent spent it.
