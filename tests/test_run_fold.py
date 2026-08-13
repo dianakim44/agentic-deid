@@ -881,6 +881,238 @@ def test_the_writer_sorts_what_it_is_given(tmp_path):
     assert [r["doc_id"] for r in error_rows(path)] == ["d1", "d2"]
 
 
+# ── reading it back: the loop driver's next-round pool ──
+
+
+#: The six field names, written out rather than read from `rf.ERROR_FIELDS`, which would
+#: compare the constant to itself. DESIGN §5.5.1 lists them and this is that list: a field
+#: added to the file or to `ErrorSpan` fails here, which is the event §5.5.1 is about.
+ERROR_FIELD_NAMES = ("doc_id", "span_index", "phi_type", "kind", "start", "end")
+
+
+def a_run() -> dict:
+    """A minimal valid run block, for `test_the_writer_sorts_what_it_is_given`'s reason: the
+    writer validates it before it builds the path."""
+    return {"corpus": CORPUS, "detector": "R", "supervision": "sup-free",
+            "porting": "port-loop", "split": "dev", "model_id": "none",
+            "generated": "2026-08-12T00:00:00Z", "commit": None, "tree": "unknown"}
+
+
+def some_errors() -> list:
+    """Two references, deliberately out of `ErrorSpan.key` order, with both kinds."""
+    from src.sample import ErrorSpan
+    return [
+        ErrorSpan(doc_id="d2", span_index=1, phi_type="DATE", kind="false_positive",
+                  start=50, end=60),
+        ErrorSpan(doc_id="d1", span_index=0, phi_type="NAME", kind="missed",
+                  start=10, end=20),
+    ]
+
+
+def written(tmp_path, errors=None, iteration: int = 2) -> Path:
+    return rf.write_errors(errors if errors is not None else some_errors(),
+                           a_run(), iteration, root=tmp_path)
+
+
+def read_back(tmp_path, iteration: int = 2) -> list:
+    return rf.read_errors(corpus=CORPUS, detector="R", supervision="sup-free",
+                          porting="port-loop", iteration=iteration, root=tmp_path)
+
+
+def test_the_file_round_trips_through_the_writer_and_the_reader(tmp_path):
+    """**The handover `errors_path`'s signature exists for**: `run_fold` writes it from a run
+    block it assembled, the loop driver reads it holding the four axes and no run block.
+
+    Compared as `ErrorSpan`s rather than as dicts, because the type is what the driver needs —
+    it hands references to `render_window`, which slices the text itself, inside
+    `FilledPrompt` (DESIGN §5.5.1's boundary).
+    """
+    written(tmp_path)
+    back = read_back(tmp_path)
+    assert back == sorted(some_errors(), key=lambda e: e.key)
+    from src.sample import ErrorSpan
+    assert all(isinstance(e, ErrorSpan) for e in back)
+
+
+def test_the_order_is_the_files_and_is_not_re_sorted(tmp_path):
+    """`write_errors` sorted by `ErrorSpan.key` and the reader leaves it alone.
+
+    The file's byte content is the record of what a round was shown, and a reader that
+    re-sorted would hide a writer that had stopped — the sample drawn next would be
+    reproducible from the reader and not from the file.
+    """
+    written(tmp_path)
+    assert [e.doc_id for e in read_back(tmp_path)] == ["d1", "d2"]
+    # The reader's order is the file's, shown by rewriting the file the other way round.
+    path = rf.errors_path(**{**ARM, "porting": "port-loop"}, iteration=2, root=tmp_path)
+    rows = error_rows(path)
+    path.write_text("\n".join(json.dumps(r) for r in reversed(rows)) + "\n",
+                    encoding="utf-8")
+    assert [e.doc_id for e in read_back(tmp_path)] == ["d2", "d1"]
+
+
+def test_an_added_field_is_refused_rather_than_skipped(tmp_path):
+    """**DESIGN §5.5.1's rule, at the point where a file carrying one arrives.**
+
+    A reader that ignored unknown keys would make a `context` field harmless on the way in
+    and published on the way out: the file is deny-listed, and the row that carried it would
+    already be in the window §1.4 builds. §5.5.1's sentence is that such a field is the signal
+    to refuse the field.
+    """
+    path = written(tmp_path)
+    for field in ("text", "surface", "context", "snippet"):
+        rows = error_rows(path)
+        rows[0][field] = "PLACEHOLDER"
+        path.write_text("\n".join(json.dumps(r) for r in rows) + "\n", encoding="utf-8")
+        with pytest.raises(rf.FoldRunError) as exc:
+            read_back(tmp_path)
+        assert field in str(exc.value)
+        assert "refuse the field" in str(exc.value)
+
+
+def test_the_refusal_names_the_field_and_not_its_value(tmp_path):
+    """CLAUDE.md: the message goes to a terminal, a CI log and an issue.
+
+    The field name is a schema fact and is what a person needs. The value is the thing the
+    field should not have held, and a refusal quoting it would publish exactly what it is
+    refusing — the "just for debugging" field's content, in the log of the check that caught
+    it.
+    """
+    path = written(tmp_path)
+    rows = error_rows(path)
+    rows[0]["context"] = "Zzyzx Quinbolt lives at Calle Falsa"
+    path.write_text("\n".join(json.dumps(r) for r in rows) + "\n", encoding="utf-8")
+    with pytest.raises(rf.FoldRunError) as exc:
+        read_back(tmp_path)
+    message = str(exc.value)
+    assert "context" in message
+    assert "Zzyzx" not in message and "Calle" not in message
+
+
+@pytest.mark.parametrize("field", ERROR_FIELD_NAMES)
+def test_a_missing_field_is_refused(tmp_path, field):
+    """Every one of the six, not whichever came to mind.
+
+    A row short a field would construct an `ErrorSpan` only by `TypeError`, and the message
+    that produces names an argument rather than a file and a line — which is a diagnosis about
+    this function instead of about the record.
+    """
+    path = written(tmp_path)
+    rows = error_rows(path)
+    del rows[0][field]
+    path.write_text("\n".join(json.dumps(r) for r in rows) + "\n", encoding="utf-8")
+    with pytest.raises(rf.FoldRunError) as exc:
+        read_back(tmp_path)
+    assert field in str(exc.value)
+
+
+def test_the_row_is_validated_by_the_type_and_not_only_by_its_keys(tmp_path):
+    """The reader returns `ErrorSpan`s so `__post_init__` runs, and that is the point.
+
+    The driver's next act is to draw a stratified sample by `phi_type` and `kind`. A row whose
+    type is not in `naming.yaml` would form a stratum of its own and be reported as a type —
+    a well-formed file producing a sample that measures something nobody declared.
+    """
+    path = written(tmp_path)
+    for field, bad in [("phi_type", "NOMBRE"), ("kind", "missing"),
+                       ("start", -1), ("span_index", -2)]:
+        rows = error_rows(path)
+        rows[0][field] = bad
+        path.write_text("\n".join(json.dumps(r) for r in rows) + "\n", encoding="utf-8")
+        with pytest.raises(rf.FoldRunError, match="not a valid error reference"):
+            read_back(tmp_path)
+
+
+def test_a_truncated_line_is_refused_rather_than_dropped(tmp_path):
+    """A half-written line is an incomplete round, and a reader that skipped it would draw the
+    next round's sample from a pool missing whatever the crash cut off — with nothing
+    anywhere saying so."""
+    path = written(tmp_path)
+    path.write_text(path.read_text(encoding="utf-8")[:-12], encoding="utf-8")
+    with pytest.raises(rf.FoldRunError, match="is not JSON"):
+        read_back(tmp_path)
+
+
+def test_a_line_that_is_not_an_object_is_refused(tmp_path):
+    path = written(tmp_path)
+    path.write_text('[{"doc_id": "d1"}]\n', encoding="utf-8")
+    with pytest.raises(rf.FoldRunError, match="one object of six fields"):
+        read_back(tmp_path)
+
+
+def test_an_empty_file_reads_as_an_empty_pool(tmp_path):
+    """A round that leaked nothing and matched nothing is a measurement, and it is the state
+    an arm converging would approach. Distinguished from an absent file, which is a round that
+    did not finish."""
+    path = written(tmp_path)
+    path.write_text("", encoding="utf-8")
+    assert read_back(tmp_path) == []
+
+
+def test_an_absent_file_is_refused_and_says_which_round(tmp_path):
+    """Not an empty pool: round N's window is drawn from it, so an absent file means the round
+    before either did not run or did not finish writing."""
+    with pytest.raises(rf.FoldRunError) as exc:
+        read_back(tmp_path, iteration=5)
+    assert "no error list" in str(exc.value)
+    assert "Round 5" in str(exc.value)
+
+
+def test_the_refusal_names_a_repo_relative_path(tmp_path):
+    """CLAUDE.md, on the message rather than on the file.
+
+    A refusal about this file goes to a terminal and a CI log, and an absolute path names a
+    home directory and — on a machine where the corpus sits beside the repo — a DUA layout.
+    `tmp_path` is outside the repository, so the reduction `src/rules.py` makes is the
+    filename with a marker.
+    """
+    with pytest.raises(rf.FoldRunError) as exc:
+        read_back(tmp_path, iteration=5)
+    message = str(exc.value)
+    assert str(tmp_path) not in message
+    assert "errors.jsonl" in message
+
+
+def test_the_reader_and_the_writer_share_one_field_list():
+    """Structural: two copies of the six names is how the writer stops publishing a field
+    while the reader starts accepting it.
+
+    `ERROR_FIELDS` is the whitelist on both sides — the writer enumerates from it, and the
+    reader refuses anything outside it — so this asserts neither function holds its own
+    literal list of names.
+    """
+    import ast
+    source = (Path(rf.__file__)).read_text(encoding="utf-8")
+    module = ast.parse(source)
+    by_name = {n.name: n for n in ast.walk(module)
+               if isinstance(n, ast.FunctionDef)}
+    for name in ("write_errors", "read_errors"):
+        fn = by_name[name]
+        assert "ERROR_FIELDS" in {n.id for n in ast.walk(fn) if isinstance(n, ast.Name)}, (
+            f"{name} does not read ERROR_FIELDS"
+        )
+        literals = {n.value for n in ast.walk(fn)
+                    if isinstance(n, ast.Constant) and isinstance(n.value, str)}
+        assert not (literals & set(ERROR_FIELD_NAMES)), (
+            f"{name} spells a field name itself; the six are ERROR_FIELDS (DESIGN §5.5.1)."
+        )
+
+
+def test_the_field_list_is_the_types_own_fields():
+    """`ERROR_FIELDS` is `ErrorSpan`'s fields, and a field added to the type does not join the
+    file until this tuple says so — which is where §5.5.1's refusal is supposed to happen.
+
+    Asserted as a subset in one direction and a report in the other: a new field on the type
+    is exactly the event the rule is about, so it fails here rather than being published.
+    """
+    import dataclasses
+    from src.sample import ErrorSpan
+    assert rf.ERROR_FIELDS == tuple(f.name for f in dataclasses.fields(ErrorSpan)), (
+        "ErrorSpan's fields and errors.jsonl's have diverged. A new field is the signal to "
+        "refuse the field (DESIGN §5.5.1), not to add it here."
+    )
+
+
 #: The round-scoped path builders this module exposes, so the checks below run on each
 #: rather than on whichever one was written first. `scorer.iter_metrics_path` is the third
 #: of the round's files and is checked in `test_scorer.py` — it raises `ScorerError`, which

@@ -68,6 +68,14 @@ from ..corpora.base import (
     ROOT, CorpusError, Document, axis, model_id_absent, path_template,
 )
 from ..rules import RuleError, RuleSet, load_for_corpus
+# `_relative` for `src/orchestrate.py`'s reason, one message-shape over: `src/rules.py`
+# decides what a path looks like in something a person reads, repo-relative where it can be
+# and filename-with-marker where it cannot, because an absolute path names a home directory
+# and — on a machine where the corpus sits beside the repo — a DUA layout. A refusal about
+# `errors.jsonl` goes to a terminal and a CI log, which is exactly where CLAUDE.md says a
+# corpus path must not appear.
+from ..rules import _relative as rules_relative
+from ..sample import ErrorSpan, SamplingError
 from ..termination import Termination, not_applicable
 from . import sealed_log
 from .scorer import (
@@ -94,6 +102,18 @@ NO_LLM_COST = {"llm_calls": 0, "prompt_tokens": 0, "completion_tokens": 0}
 #: `src/orchestrate.py` of its own runs, because that is the writer that can observe them
 #: (DESIGN §10 A2).
 MODEL_FIELDS = ("model_id", "model_id_reported", "model_id_resolution")
+
+#: `errors.jsonl`'s six fields, in the order they are written — DESIGN §5.5.1's list, and
+#: `ErrorSpan`'s own fields (`src/sample.py`).
+#:
+#: **Named once because two functions depend on it being closed.** `write_errors` whitelists
+#: rather than dumping the object, so a field added to `ErrorSpan` is not published; and
+#: `read_errors` refuses a row carrying anything else, so a field added to the *file* does not
+#: pass silently. Two copies of this tuple is how the writer stops publishing a field while
+#: the reader starts accepting it — and §5.5.1's rule is that a `text`, `surface`, `context`
+#: or `snippet` field here is the signal to refuse the field, which is a rule with one place
+#: to hold.
+ERROR_FIELDS = ("doc_id", "span_index", "phi_type", "kind", "start", "end")
 
 
 class FoldRunError(Exception):
@@ -314,20 +334,97 @@ def write_errors(
     )
     path.parent.mkdir(parents=True, exist_ok=True)
     rows = [
-        {
-            "doc_id": e.doc_id,
-            "span_index": e.span_index,
-            "phi_type": e.phi_type,
-            "kind": e.kind,
-            "start": e.start,
-            "end": e.end,
-        }
+        {name: getattr(e, name) for name in ERROR_FIELDS}
         for e in sorted(errors, key=lambda e: e.key)
     ]
     with open(path, "w", encoding="utf-8") as fh:
         for row in rows:
             fh.write(json.dumps(row, ensure_ascii=False, sort_keys=False) + "\n")
     return path
+
+
+def read_errors(
+    *, corpus: str, detector: str, supervision: str, porting: str, iteration: int,
+    root: Path | None = None,
+) -> list:
+    """One round's `errors.jsonl` back as `ErrorSpan`s — the loop driver's next-round pool.
+
+    The other half of the handover `errors_path`'s signature exists for: `run_fold` writes the
+    file from a run block it assembled, and the driver reads it holding the four axes and no
+    run block. Here rather than in `src/llm/prompt.py` because that module may not import
+    `json` at all (`tests/test_prompt.py` asserts the closed import set), and beside
+    `write_errors` because a reader that lives away from its writer is a second declaration of
+    the schema.
+
+    **The fields are a closed set and an extra one is refused, not ignored** (DESIGN §5.5.1).
+    The writer whitelists six; a reader that skipped unknown keys would make an added
+    `context` field harmless on the way in and published on the way out — the file is
+    deny-listed, and the row it wrote would already be in the window §1.4 builds. §5.5.1's
+    sentence is that such a field is the signal to refuse the field, so this is where a file
+    carrying one stops.
+
+    **The rows go through `ErrorSpan.__post_init__`, which is the point of returning the type
+    rather than the dicts.** The type is what checks `phi_type` against `naming.yaml` and
+    `kind` against the two kinds, and the driver's next act is to draw a stratified sample by
+    exactly those values. A dict from a hand-edited file would stratify on a type that is not
+    a type, and the sample would report it as one.
+
+    Order is the file's, which `write_errors` sorted by `ErrorSpan.key`. Not re-sorted here:
+    the file's byte content is the record of what the round was shown, and a reader that
+    re-sorted would hide a writer that had stopped.
+    """
+    path = errors_path(
+        corpus=corpus, detector=detector, supervision=supervision, porting=porting,
+        iteration=iteration, root=root,
+    )
+    if not path.exists():
+        raise FoldRunError(
+            f"no error list at {rules_relative(path)}. Round {iteration}'s pool is drawn from it, "
+            "so an absent file is a round that cannot be assembled — and the round before it "
+            "either did not run or did not finish writing."
+        )
+
+    out = []
+    with open(path, encoding="utf-8") as fh:
+        for number, line in enumerate(fh, 1):
+            if not line.strip():
+                continue
+            try:
+                row = json.loads(line)
+            except ValueError as exc:
+                raise FoldRunError(
+                    f"{rules_relative(path)} line {number} is not JSON ({exc.__class__.__name__}). "
+                    "One object per line is the file's whole shape, and a line that does not "
+                    "parse is a truncated write — the round's list is incomplete either way. "
+                    "No content is quoted here (CLAUDE.md)."
+                ) from exc
+            if not isinstance(row, dict):
+                raise FoldRunError(
+                    f"{rules_relative(path)} line {number} holds a {type(row).__name__} and every "
+                    "line is one object of six fields (DESIGN §5.5.1)."
+                )
+            keys = set(row)
+            missing = [name for name in ERROR_FIELDS if name not in keys]
+            extra = sorted(keys - set(ERROR_FIELDS))
+            if missing or extra:
+                raise FoldRunError(
+                    f"{rules_relative(path)} line {number}: missing {missing}, unexpected "
+                    f"{extra}. The six fields are the schema `write_errors` whitelists and "
+                    "this refuses an extra one rather than skipping it — a `text`, `surface`, "
+                    "`context` or `snippet` field here is the signal to refuse the field, not "
+                    "to tolerate it (DESIGN §5.5.1). The field names are reported; no value "
+                    "is (CLAUDE.md)."
+                )
+            try:
+                out.append(ErrorSpan(**{name: row[name] for name in ERROR_FIELDS}))
+            except (SamplingError, TypeError) as exc:
+                raise FoldRunError(
+                    f"{rules_relative(path)} line {number} is not a valid error reference: {exc}. "
+                    "The row is validated on the way in because the driver's next act is to "
+                    "stratify by `phi_type` and `kind`, and an undeclared value would form a "
+                    "stratum and be reported as a type."
+                ) from exc
+    return out
 
 
 def write_spans(
