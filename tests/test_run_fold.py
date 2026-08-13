@@ -1113,6 +1113,341 @@ def test_the_field_list_is_the_types_own_fields():
     )
 
 
+# ─── spans.jsonl reads back: the masker's input, from disk ──────────────────
+#
+# `read_spans` is `read_errors`' other half and the argument is the same one file over
+# (DESIGN §5.5): round n's Auditor masks round n−1's predictions, and predictions that live
+# only in the driver's memory make "what did the Auditor read at iteration 4" answerable only
+# while the process is alive. What differs, and what these tests are aimed at, is that this
+# path is **allowed** by the screener rather than denied — so an added field here is published
+# on the next run rather than merely written — and that the rows go on to the masker, where a
+# gold span would hand the Auditor the answer it exists not to have.
+
+#: Written out rather than read from `rf.SPAN_FIELDS`, which would compare the module to
+#: itself. This is the file's schema as of the committed `port-oneshot-nofence` predictions.
+SPAN_FIELD_NAMES = ("doc_id", "start", "end", "phi_type", "layer", "detector", "rule_id",
+                    "score", "agent_actions")
+
+
+def some_predictions() -> dict:
+    """Two documents' predictions, out of file order, with both nullable fields exercised.
+
+    `d2` first and its second span before its first, so a reader that returned the file's
+    order and a reader that returned the writer's input order give different answers.
+    """
+    from src.corpora.base import Span
+    return {
+        "d2": [Span(start=50, end=60, surface="x" * 10, subtype="FECHAS",
+                    phi_type="DATE", layer="regex_checksum", detector="R",
+                    rule_id="es:date_numeric", score=0.5)],
+        "d1": [Span(start=30, end=40, surface="y" * 10, subtype="NOMBRE",
+                    phi_type="NAME", layer="gazetteer", detector="R",
+                    rule_id="es:given_names", score=None),
+               Span(start=10, end=20, surface="z" * 10, subtype="NOMBRE",
+                    phi_type="NAME", layer="context_cue", detector="R",
+                    rule_id="es:doctor_prefix", score=None)],
+    }
+
+
+def wrote_spans(tmp_path, predictions=None, iteration: int = 2) -> Path:
+    return rf.write_spans(
+        some_predictions() if predictions is None else predictions,
+        a_run(), root=tmp_path, iteration=iteration)
+
+
+def spans_back(tmp_path, iteration: int = 2) -> list:
+    return rf.read_spans(corpus=CORPUS, detector="R", supervision="sup-free",
+                         porting="port-loop", iteration=iteration, root=tmp_path)
+
+
+def span_rows(path: Path) -> list[dict]:
+    return [json.loads(l) for l in path.read_text(encoding="utf-8").splitlines()]
+
+
+def rewrite(path: Path, rows) -> None:
+    path.write_text("\n".join(json.dumps(r) for r in rows) + "\n", encoding="utf-8")
+
+
+def test_the_predictions_round_trip_through_the_writer_and_the_reader(tmp_path):
+    """The handover the masker needs: four axes and a round, no run block.
+
+    Compared field by field against what was written, because the point of the reader is that
+    the round's input is recoverable from disk — a test that only counted rows would pass on a
+    reader that lost the provenance.
+    """
+    wrote_spans(tmp_path)
+    back = spans_back(tmp_path)
+    assert [(s.doc_id, s.start, s.end, s.phi_type, s.layer, s.rule_id, s.score)
+            for s in back] == [
+        ("d1", 10, 20, "NAME", "context_cue", "es:doctor_prefix", None),
+        ("d1", 30, 40, "NAME", "gazetteer", "es:given_names", None),
+        ("d2", 50, 60, "DATE", "regex_checksum", "es:date_numeric", 0.5),
+    ]
+    assert all(isinstance(s, rf.PredictedSpan) for s in back)
+
+
+def test_the_reader_returns_no_surface_form_and_no_subtype(tmp_path):
+    """**Why this is not a `corpora.base.Span`**, asserted on the type rather than on a row.
+
+    `Span` requires `surface` and `subtype`; this file drops both. A reader that returned
+    `Span`s would have to invent them, and the invention that matters is `surface` — it exists
+    so offsets can be re-asserted against the corpus, so a fabricated one is a span claiming
+    to have been checked against text nothing read. The absence is structural here for
+    `ErrorSpan`'s reason: a field that could hold a surface form gets filled with one, and
+    these rows travel into the masker.
+    """
+    import dataclasses
+    fields = {f.name for f in dataclasses.fields(rf.PredictedSpan)}
+    assert fields == set(SPAN_FIELD_NAMES)
+    for forbidden in ("surface", "subtype", "text", "context", "snippet"):
+        assert forbidden not in fields
+    wrote_spans(tmp_path)
+    for span in spans_back(tmp_path):
+        assert not hasattr(span, "surface")
+
+
+def test_the_reader_needs_a_round_and_cannot_reach_the_un_iterated_copy(tmp_path):
+    """**`iteration` is required**, and that is a decision rather than a signature detail.
+
+    `paths.spans` holds whichever round ran last (§5.5's duplication rule), so a reader
+    pointed there answers "which round did I just read" with "the most recent one" — the
+    in-memory defect at the file layer, which is what reading from disk was supposed to fix.
+    """
+    import inspect
+    parameters = inspect.signature(rf.read_spans).parameters
+    assert parameters["iteration"].default is inspect.Parameter.empty
+    assert all(p.kind is inspect.Parameter.KEYWORD_ONLY for p in parameters.values())
+
+    # And the un-iterated file being present does not make an unwritten round readable.
+    rf.write_spans(some_predictions(), a_run(), root=tmp_path)
+    with pytest.raises(rf.FoldRunError, match="no prediction list"):
+        spans_back(tmp_path, iteration=2)
+
+
+def test_the_span_order_is_the_files_and_is_not_re_sorted(tmp_path):
+    """`write_spans` sorted by (doc_id, start, end, rule_id) and the reader leaves it alone.
+
+    The file's bytes are the record of what a round predicted, and a reader that re-sorted
+    would hide a writer that had stopped — the masking done next would be reproducible from
+    the reader and not from the file.
+    """
+    path = wrote_spans(tmp_path)
+    assert [(s.doc_id, s.start) for s in spans_back(tmp_path)] == [
+        ("d1", 10), ("d1", 30), ("d2", 50)]
+    rewrite(path, list(reversed(span_rows(path))))
+    assert [(s.doc_id, s.start) for s in spans_back(tmp_path)] == [
+        ("d2", 50), ("d1", 30), ("d1", 10)]
+
+
+def test_an_added_span_field_is_refused_rather_than_skipped(tmp_path):
+    """DESIGN §5.5.1's rule, on the file where it bites hardest.
+
+    `errors.jsonl` is deny-listed, so a `context` field there is written and not published.
+    This path is on the screener's ALLOW list, so the same field here is published on the next
+    run — the refusal is what stops it, and a reader that skipped unknown keys would make the
+    addition invisible in both directions.
+    """
+    path = wrote_spans(tmp_path)
+    for field in ("text", "surface", "context", "snippet"):
+        rows = span_rows(path)
+        rows[0][field] = "PLACEHOLDER"
+        rewrite(path, rows)
+        with pytest.raises(rf.FoldRunError) as exc:
+            spans_back(tmp_path)
+        assert field in str(exc.value)
+        assert "refused rather than skipped" in str(exc.value)
+
+
+def test_the_span_refusal_names_the_field_and_not_its_value(tmp_path):
+    """CLAUDE.md, and the same shape as the error list's.
+
+    A refusal quoting the value would publish exactly what it refuses — the "just for
+    debugging" field's content, in the log of the check that caught it.
+    """
+    path = wrote_spans(tmp_path)
+    rows = span_rows(path)
+    rows[0]["surface"] = "Zzyzx Quinbolt lives at Calle Falsa"
+    rewrite(path, rows)
+    with pytest.raises(rf.FoldRunError) as exc:
+        spans_back(tmp_path)
+    message = str(exc.value)
+    assert "surface" in message
+    assert "Zzyzx" not in message and "Calle" not in message
+
+
+@pytest.mark.parametrize("field", SPAN_FIELD_NAMES)
+def test_a_missing_span_field_is_refused(tmp_path, field):
+    """All nine, not whichever came to mind. A row short a field would otherwise reach
+    `PredictedSpan` as a `KeyError`, whose message names a dict key rather than a file and a
+    line — a diagnosis about this function instead of about the record."""
+    path = wrote_spans(tmp_path)
+    rows = span_rows(path)
+    del rows[0][field]
+    rewrite(path, rows)
+    with pytest.raises(rf.FoldRunError) as exc:
+        spans_back(tmp_path)
+    assert field in str(exc.value)
+
+
+@pytest.mark.parametrize("field,bad", [
+    ("phi_type", "NOMBRE"), ("phi_type", None),
+    ("layer", "rules"), ("layer", None),
+    ("detector", "R+T"), ("detector", None),
+    ("doc_id", ""), ("doc_id", None),
+    ("start", -1), ("start", "10"), ("end", 10),
+    ("rule_id", ""), ("score", "0.5"), ("agent_actions", {}),
+    ("agent_actions", ["not an object"]),
+])
+def test_a_row_that_is_not_a_prediction_is_refused(tmp_path, field, bad):
+    """Validated on the way in because the next act is masking.
+
+    Every case here is a row that parses. `end == start` is an empty extent, a `layer` outside
+    the axis is a vocabulary item invented somewhere (CLAUDE.md), and a string `start` would
+    make every column the Auditor returns arithmetic on a string.
+    """
+    path = wrote_spans(tmp_path)
+    rows = span_rows(path)
+    rows[0][field] = bad
+    rewrite(path, rows)
+    with pytest.raises(rf.FoldRunError):
+        spans_back(tmp_path)
+
+
+@pytest.mark.parametrize("field", ("layer", "detector"))
+def test_a_row_without_provenance_is_gold_and_is_refused(tmp_path, field):
+    """**The check worth stating on its own.**
+
+    `corpora.base.Span` leaves provenance empty on gold and every prediction carries it,
+    filled by the detector that emitted the span (DESIGN §3). So a row with a null `layer` or
+    `detector` is a gold span in a prediction file — and the consumer of this reader hands its
+    result to `mask_document`, where masking gold would give the Auditor the answer it exists
+    not to have. Refused here rather than trusted there, because the masker reads three
+    attributes and cannot tell whose they were.
+    """
+    path = wrote_spans(tmp_path)
+    rows = span_rows(path)
+    rows[0][field] = None
+    rewrite(path, rows)
+    with pytest.raises(rf.FoldRunError) as exc:
+        spans_back(tmp_path)
+    assert "must never mask gold" in str(exc.value)
+
+
+def test_the_nullable_provenance_stays_nullable(tmp_path):
+    """`rule_id` and `score` are null in cases that are not defects: a learned span has no
+    rule to attribute, and the rule arm writes no scores today. Refusing them would make this
+    reader unable to read the `T` arm's own output."""
+    path = wrote_spans(tmp_path)
+    rows = span_rows(path)
+    rows[0]["rule_id"] = None
+    rows[0]["score"] = None
+    rewrite(path, rows)
+    first = spans_back(tmp_path)[0]
+    assert first.rule_id is None and first.score is None
+
+
+def test_a_truncated_span_line_is_refused_rather_than_dropped(tmp_path):
+    """A half-written line is an incomplete round. A reader that skipped it would mask a
+    document with fewer tags than the round predicted, which reads to the Auditor as a leak
+    the arm never had."""
+    path = wrote_spans(tmp_path)
+    path.write_text(path.read_text(encoding="utf-8")[:-12], encoding="utf-8")
+    with pytest.raises(rf.FoldRunError, match="is not JSON"):
+        spans_back(tmp_path)
+
+
+def test_a_span_line_that_is_not_an_object_is_refused(tmp_path):
+    """The count in the message comes from `SPAN_FIELDS` rather than being spelled, so it
+    cannot say six while the schema holds nine."""
+    path = wrote_spans(tmp_path)
+    path.write_text('[{"doc_id": "d1"}]\n', encoding="utf-8")
+    with pytest.raises(rf.FoldRunError, match=r"one object of 9 fields"):
+        spans_back(tmp_path)
+
+
+def test_an_empty_file_reads_as_no_predictions(tmp_path):
+    """A round whose rules matched nothing is a measurement — it is round 1's state with an
+    empty rule file. Distinguished from an absent file, which is a round that did not
+    finish."""
+    path = wrote_spans(tmp_path)
+    path.write_text("", encoding="utf-8")
+    assert spans_back(tmp_path) == []
+
+
+def test_an_absent_span_file_is_refused_and_says_which_round(tmp_path):
+    with pytest.raises(rf.FoldRunError) as exc:
+        spans_back(tmp_path, iteration=5)
+    assert "no prediction list" in str(exc.value)
+    assert "Round 5" in str(exc.value)
+
+
+def test_the_span_refusal_names_a_repo_relative_path(tmp_path):
+    """CLAUDE.md on the message: an absolute path names a home directory and, on a machine
+    where the corpus sits beside the repo, a DUA layout."""
+    with pytest.raises(rf.FoldRunError) as exc:
+        spans_back(tmp_path, iteration=5)
+    message = str(exc.value)
+    assert str(tmp_path) not in message
+    assert "spans.jsonl" in message
+
+
+def test_the_spans_reader_and_writer_share_one_field_list():
+    """Structural, and `test_the_reader_and_the_writer_share_one_field_list`'s argument: two
+    copies of the nine names is how the writer stops publishing a field while the reader
+    starts accepting it.
+
+    `write_spans` spells the keys because it is where each field's *value* is decided, so what
+    is asserted of it is that the tuple is checked against those keys — by the test below —
+    while `read_spans` reads `SPAN_FIELDS` and holds no literal of its own.
+    """
+    import ast
+    module = ast.parse(Path(rf.__file__).read_text(encoding="utf-8"))
+    by_name = {n.name: n for n in ast.walk(module) if isinstance(n, ast.FunctionDef)}
+    reader = by_name["read_spans"]
+    assert "SPAN_FIELDS" in {n.id for n in ast.walk(reader) if isinstance(n, ast.Name)}
+    literals = {n.value for n in ast.walk(reader)
+                if isinstance(n, ast.Constant) and isinstance(n.value, str)}
+    assert not (literals & set(SPAN_FIELD_NAMES)), (
+        "read_spans spells a field name itself; the nine are SPAN_FIELDS."
+    )
+
+
+def test_the_field_list_is_what_the_writer_writes(tmp_path):
+    """`SPAN_FIELDS` against the writer's actual output, in order.
+
+    This is the half `write_spans` cannot get from reading the tuple: it enumerates the keys
+    to decide their values, so the agreement has to be observed on a written file rather than
+    asserted in the source. A field added to `Span` and written here without joining
+    `SPAN_FIELDS` fails on the reader's side; one added to the tuple and not written fails
+    here.
+    """
+    path = wrote_spans(tmp_path)
+    for row in span_rows(path):
+        assert tuple(row) == rf.SPAN_FIELDS
+    assert rf.SPAN_FIELDS == SPAN_FIELD_NAMES
+
+
+def test_the_committed_predictions_read_back(corpus_present):
+    """The real file, for `tests/test_call_role.py`'s reason: the record that must be readable
+    is a committed one, and a fixture cannot fail to disagree with the schema on disk.
+
+    `port-oneshot-nofence`'s `spans.jsonl` is committed at four axes and is not
+    iteration-scoped, so it is read here through the row check rather than through
+    `read_spans` — which requires a round by design. What this pins is that the nine fields
+    and their types are what the reader accepts, on 3,420 rows nobody wrote for a test.
+    """
+    path = (ROOT / "results" / CORPUS / "R" / "sup-free" / "port-oneshot-nofence"
+            / "spans.jsonl")
+    if not path.is_file():
+        pytest.skip("no committed nofence predictions on this working tree")
+    rows = span_rows(path)
+    assert rows
+    for number, row in enumerate(rows, 1):
+        assert tuple(row) == rf.SPAN_FIELDS
+        span = rf._one_prediction(row, path=path, number=number)
+        assert span.layer and span.detector
+
+
 #: The round-scoped path builders this module exposes, so the checks below run on each
 #: rather than on whichever one was written first. `scorer.iter_metrics_path` is the third
 #: of the round's files and is checked in `test_scorer.py` — it raises `ScorerError`, which

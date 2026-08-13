@@ -1443,6 +1443,16 @@ are the artefact and plumbing questions the two of those leave open.
   list through in memory is that the pool at iteration *n* is on disk and checkable: "which
   errors was the agent shown at iteration 4" is answerable after the run, which is the same
   property §5.3 wanted from per-iteration rule files.
+- **The masker's input is read back from `iter{n−1}/spans.jsonl`, not threaded through the
+  driver in memory** (`run_fold.read_spans`, 2026-08-13). Same argument as the bullet above,
+  one file over: predictions that exist only while the process lives make "what did the
+  Auditor read at iteration 4" answerable only during the run, and the round's record is
+  supposed to be checkable after it. The reader takes a required `iteration` — the un-iterated
+  copy is whichever round ran last, so a reader pointed there answers "which round is this"
+  with "the most recent one", which is the in-memory defect at the file layer. It returns a
+  `PredictedSpan` and not a `corpora.base.Span`, because `Span` requires `surface` and
+  `subtype` and this file drops both: a reader that filled them would fabricate the field
+  whose purpose is re-asserting offsets against real text.
 
 #### 5.5.1 `errors.jsonl` is not a `FilledPrompt`, and where that stops being true
 

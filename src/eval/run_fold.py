@@ -59,6 +59,7 @@ import argparse
 import json
 import sys
 import time
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Mapping, Sequence
@@ -114,6 +115,20 @@ MODEL_FIELDS = ("model_id", "model_id_reported", "model_id_resolution")
 #: or `snippet` field here is the signal to refuse the field, which is a rule with one place
 #: to hold.
 ERROR_FIELDS = ("doc_id", "span_index", "phi_type", "kind", "start", "end")
+
+#: `spans.jsonl`'s nine fields, in the order they are written — the geometry, then DESIGN §3's
+#: four provenance values, then `agent_actions`.
+#:
+#: Named for `ERROR_FIELDS`' reason and one that is sharper here: `write_spans` whitelists so a
+#: field added to `Span` is not published, and `read_spans` refuses a row carrying anything
+#: else. Two copies of this tuple is how the writer stops publishing a field while the reader
+#: starts accepting it — and this path is on the screener's ALLOW list, so an added field is
+#: published rather than merely written.
+#:
+#: `surface` and `subtype` are absent and cannot be added: the first is the text this file
+#: exists not to carry, and the second is a corpus's own vocabulary that no prediction has.
+SPAN_FIELDS = ("doc_id", "start", "end", "phi_type", "layer", "detector", "rule_id",
+               "score", "agent_actions")
 
 
 class FoldRunError(Exception):
@@ -446,6 +461,13 @@ def write_spans(
     an agent did intervene records it on the span and a reader must not have to know
     which arms have the key.
 
+    The keys are spelled out here and are pinned against `SPAN_FIELDS`, which `read_spans`
+    refuses a row for departing from. Written rather than generated from the tuple: this is
+    the place a field's *value* is decided, and a loop over field names would need a
+    per-field lookup anyway. The agreement is a test, not a shared expression, for
+    `ERROR_FIELDS`' reason one file over — the two directions of the schema fail
+    independently and the test is what catches either.
+
     Ordering is (doc_id, start, end, rule_id) so two runs of the same rules over the
     same fold produce byte-identical files. `RuleSet.detect` iterates rules in file
     order, which is stable, but "stable because of an implementation detail upstream"
@@ -477,6 +499,192 @@ def write_spans(
         for row in rows:
             fh.write(json.dumps(row, ensure_ascii=False, sort_keys=False) + "\n")
     return path
+
+
+@dataclass(frozen=True, slots=True)
+class PredictedSpan:
+    """One row of `spans.jsonl`, read back. A prediction by reference, with no text.
+
+    **Not a `corpora.base.Span`, and the difference is that this type cannot be given one.**
+    `Span` requires `surface` and `subtype`, and this file dropped both — the surface because
+    the file is publishable and CLAUDE.md permits offsets, types and verdicts without text,
+    the subtype because it is the corpus's own vocabulary and no prediction has one. A reader
+    that returned `Span`s would have to invent two values, and the first invention is the
+    dangerous one: `surface` exists so offsets can be re-asserted against the corpus, so a
+    fabricated one is a span that *claims* to have been checked against text it never saw.
+
+    The nine fields are the file's, in its order. `layer`, `detector`, `rule_id` and `score`
+    are DESIGN §3's provenance in full and they are carried rather than dropped, because the
+    masker's caller may want to know which detector's prediction it masked and a reader that
+    kept only the geometry would make that unanswerable from the round's own record.
+
+    No `text`, no `surface`, and §5.5.1's rule applies here for `ErrorSpan`'s reason: a field
+    that could hold a surface form gets filled with one, and this object travels into the
+    masker, which is the largest corpus exposure in the project.
+    """
+
+    doc_id: str
+    start: int
+    end: int
+    phi_type: str
+    layer: str
+    detector: str
+    rule_id: str | None
+    score: float | None
+    agent_actions: tuple[dict, ...] = ()
+
+    @property
+    def key(self) -> tuple:
+        """`write_spans`' sort order, so a re-sorted list is byte-reproducible."""
+        return (self.doc_id, self.start, self.end, self.rule_id or "")
+
+
+def read_spans(
+    *, corpus: str, detector: str, supervision: str, porting: str, iteration: int,
+    root: Path | None = None,
+) -> list[PredictedSpan]:
+    """One round's `spans.jsonl` back as `PredictedSpan`s — what the masker masks.
+
+    `read_errors`' other half, and the same handover: `run_fold` writes the file from a run
+    block it assembled, and the loop driver reads it holding the four axes and a round. Here
+    rather than in the driver or in `src/llm/prompt.py` for that function's two reasons — the
+    prompt module may not import `json` (`tests/test_prompt.py` asserts the closed import
+    set), and a reader that lives away from its writer is a second declaration of the schema.
+
+    **Read from the file rather than passed in memory, which is the decision this function
+    is.** Round *n*'s Auditor masks round *n−1*'s predictions, and threading them through the
+    driver as objects would work and would leave "what was masked at iteration 4" answerable
+    only while the process lived. That is the property DESIGN §5.5 wanted from per-iteration
+    rule files and §5.5.1 from the error list, arriving a third time: the round's record is on
+    disk and checkable, and the masker's input is a file somebody can diff against the flags
+    that came back. It also closes a failure the in-memory version cannot even express — the
+    masker reading `document.spans`, i.e. gold — because what this returns has no gold in it
+    to begin with.
+
+    **`iteration` is required, and the un-iterated `spans.jsonl` is deliberately unreachable
+    from here.** That copy is whichever round ran last (§5.5's duplication rule), so a reader
+    pointed at it answers "which round did I just read" with "the most recent one", which is
+    the in-memory defect at the file layer. Naming a round is the whole point of the argument.
+
+    **The fields are a closed set and an extra one is refused, not ignored** — `read_errors`'
+    rule, and the file this one reads is allowed rather than denied, so an added field here
+    would be published on the next screener run rather than merely written.
+
+    **A null `layer` or `detector` is refused, and that check is the one worth stating.**
+    Gold spans carry neither (`corpora.base.Span`: provenance is empty on gold) and every
+    prediction carries both, filled by the detector that emitted it (DESIGN §3, CLAUDE.md). So
+    a row without them is gold that reached a prediction file — and the consumer of this
+    function hands its result to the masker, where masking gold would give the Auditor the
+    answer it exists not to have. `rule_id` and `score` are nullable: a tagger span has no
+    rule id and the rule arm's scores are null in the file today.
+    """
+    path = iter_spans_path(
+        corpus=corpus, detector=detector, supervision=supervision, porting=porting,
+        iteration=iteration, root=root,
+    )
+    if not path.exists():
+        raise FoldRunError(
+            f"no prediction list at {rules_relative(path)}. Round {iteration}'s output is "
+            "what the next round's Auditor is shown masked, so an absent file is a round "
+            "that cannot be audited — and the round that should have written it either did "
+            "not run or did not finish writing."
+        )
+
+    out = []
+    with open(path, encoding="utf-8") as fh:
+        for number, line in enumerate(fh, 1):
+            if not line.strip():
+                continue
+            try:
+                row = json.loads(line)
+            except ValueError as exc:
+                raise FoldRunError(
+                    f"{rules_relative(path)} line {number} is not JSON "
+                    f"({exc.__class__.__name__}). One object per line is the file's whole "
+                    "shape, and a line that does not parse is a truncated write — the "
+                    "round's predictions are incomplete either way. No content is quoted "
+                    "here (CLAUDE.md)."
+                ) from exc
+            if not isinstance(row, dict):
+                raise FoldRunError(
+                    f"{rules_relative(path)} line {number} holds a {type(row).__name__} and "
+                    f"every line is one object of {len(SPAN_FIELDS)} fields (DESIGN §3)."
+                )
+            keys = set(row)
+            missing = [name for name in SPAN_FIELDS if name not in keys]
+            extra = sorted(keys - set(SPAN_FIELDS))
+            if missing or extra:
+                raise FoldRunError(
+                    f"{rules_relative(path)} line {number}: missing {missing}, unexpected "
+                    f"{extra}. The fields are the schema `write_spans` whitelists, and an "
+                    "extra one is refused rather than skipped: this path is on the "
+                    "screener's ALLOW list, so a `text`, `surface`, `context` or `snippet` "
+                    "field here would be published rather than merely written (DESIGN "
+                    "§5.5.1). The field names are reported; no value is (CLAUDE.md)."
+                )
+            out.append(_one_prediction(row, path=path, number=number))
+    return out
+
+
+def _one_prediction(row: Mapping, *, path: Path, number: int) -> PredictedSpan:
+    """One validated row. Every message names a line, a field or an offset — never a value.
+
+    Checked here rather than in `PredictedSpan.__post_init__` so the message can say which
+    line of which file, which is what a person needs to fix it; the type stays a record of
+    the row rather than a validator that has to be constructed to be consulted. That is the
+    opposite division from `ErrorSpan`, deliberately — that type is built by the scorer from
+    objects it already holds, and this one is built from a file's bytes.
+    """
+    def refuse(detail: str) -> FoldRunError:
+        return FoldRunError(f"{rules_relative(path)} line {number}: {detail}")
+
+    doc_id = row["doc_id"]
+    if not isinstance(doc_id, str) or not doc_id:
+        raise refuse(
+            "`doc_id` is not a non-empty string. It is the document a prediction is an "
+            "offset into, and a row without one cannot be matched to any text."
+        )
+    start, end = row["start"], row["end"]
+    if any(not isinstance(v, int) or isinstance(v, bool) for v in (start, end)):
+        raise refuse("`start` and `end` must be integers — character offsets (DESIGN §9.7).")
+    if start < 0 or end <= start:
+        raise refuse(
+            f"the span [{start}, {end}) is empty, inverted or negative. A prediction stands "
+            "for at least one document character."
+        )
+    for name, ax in (("phi_type", "phi_type"), ("layer", "layer"),
+                     ("detector", "detector")):
+        value = row[name]
+        if not isinstance(value, str) or value not in axis(ax):
+            raise refuse(
+                f"`{name}` is not a {ax} in config/naming.yaml (have: "
+                f"{sorted(axis(ax))}). Null is refused too: gold spans carry no provenance "
+                "and every prediction carries it, filled by the detector that emitted the "
+                "span (DESIGN §3), so a row without it is gold in a prediction file — and "
+                "these rows are handed to the masker, which must never mask gold."
+            )
+    rule_id = row["rule_id"]
+    if rule_id is not None and (not isinstance(rule_id, str) or not rule_id):
+        raise refuse(
+            "`rule_id` is a non-empty string or null. Null is the tagger's case — a learned "
+            "span has no rule to attribute — and an empty string is a rule whose id was lost."
+        )
+    score = row["score"]
+    if score is not None and (isinstance(score, bool) or not isinstance(score, (int, float))):
+        raise refuse("`score` is a number or null (DESIGN §3's fourth provenance value).")
+    actions = row["agent_actions"]
+    if not isinstance(actions, list) or any(not isinstance(a, dict) for a in actions):
+        raise refuse(
+            "`agent_actions` is a list of objects, empty where no agent intervened. Empty "
+            "and absent are different states and the writer never omits it (CLAUDE.md: "
+            "agents hold no layer, and their interventions are recorded here)."
+        )
+    return PredictedSpan(
+        doc_id=doc_id, start=start, end=end, phi_type=row["phi_type"],
+        layer=row["layer"], detector=row["detector"], rule_id=rule_id,
+        score=None if score is None else float(score),
+        agent_actions=tuple(dict(a) for a in actions),
+    )
 
 
 # ─── the run ────────────────────────────────────────────────────────────────
