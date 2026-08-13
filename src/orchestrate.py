@@ -168,6 +168,19 @@ SCORED = "scored"
 FORMAT_FAILURE = "format_failure"
 OUTCOMES = (CALLED, SCORED, FORMAT_FAILURE)
 
+#: The key names that would put corpus text in `sample_reference`, refused by `call_line()`.
+#: DESIGN §5.5.1's list, and the same four names it uses: an added `text`/`surface`/`context`/
+#: `snippet` field is the signal to *refuse the field*, not to move the record under
+#: `FilledPrompt`. Named keys rather than a scan of the values, because a reference legitimately
+#: holds long strings (`text_sha256` is 71 characters) and a length heuristic would either pass
+#: a 30-character context window or refuse a hash.
+#:
+#: `text_sha256` and `text_chars` are absent from this list and must stay absent — they are what
+#: a reference says *about* text without carrying it, and `render_window().reference()` writes
+#: both. A guard that matched on the `text` prefix would refuse the only value that settles
+#: "was this the block that ran".
+TEXT_KEYS = frozenset({"text", "surface", "context", "snippet"})
+
 #: The role `port-oneshot`'s one call carries. A default on `call_line()` rather than a
 #: literal at the call site, and it is the value the whole arm has: this file drives the
 #: RuleAuthor and calls no Auditor (DESIGN §4 — one call, and the Auditor enters at
@@ -579,7 +592,7 @@ def window_drift(corpus: str, detector: str, supervision: str,
 def call_line(iteration: int, *, prompt_reference: dict, model: dict,
               response_chars: int, response_sha256: str, outcome: str,
               cost: dict, model_lifecycle: dict | None = None,
-              role: str = RULE_AUTHOR) -> dict:
+              role: str = RULE_AUTHOR, sample_reference: dict | None = None) -> dict:
     """One `agent_calls.jsonl` line: what was sent, what answered, what it cost.
 
     **`role` says which agent spent the call** (DESIGN §5.5). RuleAuthor and Auditor both
@@ -627,6 +640,29 @@ def call_line(iteration: int, *, prompt_reference: dict, model: dict,
     fills this key with `render_window()`'s reference; that the two arms' lines differ in a
     value rather than in a shape is what makes them one log.
 
+    **It is a parameter as of 2026-08-13, defaulted to the null this function used to hardcode,
+    and it is the one place `port-loop`'s driver reaches into the baseline's module.** The
+    docstring above promised the value from the day the field existed and there was no way to
+    pass it, so an iterating driver had two options and both were worse than this: write the
+    key itself after the call, which makes the line's shape decided in two places, or leave it
+    null on every round, which turns a field that says *which 40 spans this call was shown*
+    into one that says nothing on the only arm that has an answer. Defaulted rather than
+    required for `role`'s reason and with the same consequence — the null is *true* of every
+    existing caller, so `run_arm()` is not edited and the frozen arms' lines are byte-identical
+    across this change (`tests/test_call_role.py`). The Auditor's lines are null too, and that
+    is not the default leaking through: `auditor.md` §5 gives that agent no sample, so its
+    absence is the arm's structure rather than an unfilled argument.
+
+    Nested rather than merged, like `assemble_iteration_prompt`'s `error_spans` key: what goes
+    here is `render_window().reference()` — span references, counts, `context_chars` and the
+    block's own hash — and merging it would put a block's `text_sha256` beside the prompt's
+    under two names a reader has to tell apart. **No window text**, and that is checked rather
+    than documented: this log is deny-listed because §1.4 carries dev corpus text, so it is the
+    one file `tools/release_screen.py` cannot review, and a §1.4 context window written into it
+    is a leak nothing downstream would catch. DESIGN §5.5.1 settles what to do with a `text` or
+    `context` key offered to a reference — refuse the field, not widen the type — and this is
+    that rule at the writer.
+
     The window hashes go on every line, per DESIGN §11.2. `port-oneshot` has one line and
     the freeze record would do, but the field is the iterating arms' mid-run drift detector
     and a writer that omitted it here would be the writer `port-loop` is copied from.
@@ -653,6 +689,15 @@ def call_line(iteration: int, *, prompt_reference: dict, model: dict,
             "vocabulary, not an axis: it describes what happened to one call rather than "
             "naming a cell of the experiment."
         )
+    carries_text = sorted(set(sample_reference or ()) & TEXT_KEYS)
+    if carries_text:
+        raise OrchestrateError(
+            f"sample_reference carries {carries_text}, which is text and not a reference. "
+            "The keys are named and no value is quoted (CLAUDE.md). `render_window()` renders "
+            "§1.4's context windows and hands back a `FilledPrompt`; `reference()` is the way "
+            "out of it, and this log is deny-listed precisely because that block is corpus "
+            "text (DESIGN §5.5.1: refuse the field, do not widen the record)."
+        )
     return {
         "iteration": iteration,
         # Which agent spent this call. Beside `iteration` rather than at the end, because the
@@ -665,8 +710,10 @@ def call_line(iteration: int, *, prompt_reference: dict, model: dict,
         # name says so. Omitted entirely when absent, unlike `sample_reference`.
         **({"model_lifecycle": dict(model_lifecycle)} if model_lifecycle else {}),
         "prompt_reference": dict(prompt_reference),
-        # Explicitly absent, and see the docstring. `port-loop` fills it from iteration 2.
-        "sample_reference": None,
+        # Explicitly null when absent, and see the docstring. `port-loop` fills it from
+        # iteration 2; every other caller leaves it, and gets the byte this line used to
+        # hardcode. Copied rather than kept, like `prompt_reference` above.
+        "sample_reference": dict(sample_reference) if sample_reference else None,
         "response_chars": response_chars,
         "response_sha256": response_sha256,
         "cost": dict(cost),

@@ -53,7 +53,7 @@ from src import sample                                                # noqa: E4
 from src.corpora.base import CorpusError                              # noqa: E402
 from src import orchestrate                                           # noqa: E402
 from src.orchestrate import (                                         # noqa: E402
-    RULE_AUTHOR, append_call, call_line, log_path,
+    RULE_AUTHOR, TEXT_KEYS, OrchestrateError, append_call, call_line, log_path,
 )
 
 #: The arms whose calls were made before `role` existed, by name. A test that discovered
@@ -281,7 +281,259 @@ def test_the_role_sits_beside_the_iteration():
     assert list(a_line())[:3] == ["iteration", "role", "outcome"]
 
 
+# ─── `sample_reference` became a parameter, and the frozen lines did not move ───
+#
+# 2026-08-13, the second addition this file's reasoning covers and the smaller one: the field
+# already existed and already held null. What changed is that a caller can now fill it, and the
+# default is the null `call_line()` used to hardcode.
+#
+# **Why that is still worth a test, when nothing about the written line changed.** Because the
+# thing being asserted is that nothing about the written line changed, and the two ways it could
+# have are the two from this file's docstring. A migration is the same failure as before. The
+# other is subtler here than it was for `role`: a *required* `sample_reference` would make
+# `run_arm()` a TypeError, and the repair is to pass something — and the only value at hand in
+# an arm with an empty §1.4 block is `{}`, which is not the same record as `null`. An empty dict
+# says a sample was drawn and had no spans in it. `port-oneshot` drew no sample.
+#
+# The reference is `port-oneshot-nofence`'s committed line, per the instruction that added the
+# parameter. `port-oneshot`'s is checked alongside it wherever the assertion is per-arm, since a
+# change that moved one arm's lines and not the other's is not a shape a writer can produce.
+
+#: The three fields today's writer produces that the frozen lines do not carry, each added after
+#: those two calls were made and each with a file arguing why it did not reach backwards:
+#: `role` here, `auditor_sha256` in `tests/test_window_widening.py`. `generated` is the instant
+#: of the call and differs from itself on every run — the one difference that is not an addition.
+#:
+#: Written out because a replay test whose permitted differences were computed from the diff it
+#: is checking would permit anything it found.
+ADDED_SINCE = ("role", "auditor_sha256")
+
+
+def replay(line: dict, **kw) -> dict:
+    """What today's writer produces from the frozen line's own inputs.
+
+    The inputs are read back out of the record rather than restated here, so this is the call
+    that was made and not a call resembling it — the window hashes in particular are the real
+    files', because the arm's window is the one on disk (`test_the_replay_is_of_the_real_call`
+    asserts that rather than assuming it).
+    """
+    base = dict(
+        prompt_reference=line["prompt_reference"],
+        model={k: line[k] for k in
+               ("model_id", "model_id_reported", "model_id_resolution")},
+        model_lifecycle=line["model_lifecycle"],
+        response_chars=line["response_chars"],
+        response_sha256=line["response_sha256"],
+        outcome=line["outcome"],
+        cost=line["cost"],
+    )
+    return call_line(line["iteration"], **{**base, **kw})
+
+
+@pytest.mark.parametrize("porting", FROZEN_ARMS)
+def test_a_frozen_arms_sample_reference_is_still_an_explicit_null(porting):
+    """The value the parameter defaults to, read off the record it must not have changed.
+
+    Both halves matter and they are different claims: the key is *present*, which is what makes
+    the field comparable across arms, and it is *null*, which is what it means for an arm whose
+    §1.4 block is empty. A line that lost the key or gained a `{}` would fail here.
+    """
+    for index, line in enumerate(frozen_lines(porting)):
+        assert "sample_reference" in line, (
+            f"{porting} line {index} lost `sample_reference`. Making the field passable is "
+            "not license to omit it when nothing was passed — a key some arms omit cannot be "
+            "compared across arms (DESIGN §4, `model_id_absent`)."
+        )
+        assert line["sample_reference"] is None, (
+            f"{porting} line {index}: sample_reference is "
+            f"{type(line['sample_reference']).__name__} and not null. An empty §1.4 block is "
+            "an explicit absence; `{}` would say a sample was drawn and was empty."
+        )
+
+
+def test_the_reference_arms_line_is_what_the_default_still_writes():
+    """`port-oneshot-nofence`'s committed line, replayed through the parameterised writer.
+
+    The direct form of "identical before and after the change": the differences between the
+    recorded line and today's output are exactly the fields added since the call, and
+    `sample_reference` is not among them. Stronger than asserting the value is null, because it
+    also catches the default moving the field, renaming it, or changing what else the line says.
+    """
+    line, = frozen_lines("port-oneshot-nofence")
+    today = replay(line)
+    differing = [k for k in today if k not in line or today[k] != line[k]]
+    assert sorted(differing) == sorted([*ADDED_SINCE, "generated"]), (
+        f"the replay differs in {sorted(differing)}. Expected only the fields added since "
+        f"the call ({list(ADDED_SINCE)}) and the timestamp. `sample_reference` in that list "
+        "means the default is not the null this line carries."
+    )
+    assert not set(line) - set(today), (
+        f"the replay dropped {sorted(set(line) - set(today))} — a field the frozen line "
+        "carries and today's writer does not is the log becoming unreadable as one file."
+    )
+
+
+def test_the_replay_is_of_the_real_call_and_not_a_resembling_one():
+    """What makes the test above an assertion about this arm rather than about a fixture.
+
+    The window hashes are not passed in — `call_line()` computes them from the files on disk —
+    so their agreeing with the recorded ones is evidence the replay reproduces the call that
+    was made. If §1.1–1.2's template or `config/sampling.yaml` had changed, this fails, and
+    the failure is real: the frozen arm's window moved (DESIGN §11.2).
+    """
+    line, = frozen_lines("port-oneshot-nofence")
+    today = replay(line)
+    for field in ("prompt_sha256", "sampling_sha256"):
+        assert today[field] == line[field], (
+            f"{field} no longer matches the frozen call's. The replay is of a different "
+            "window than the one that ran, which makes every other comparison here weaker "
+            "than it reads."
+        )
+
+
+def test_the_field_order_the_frozen_line_has_survives_a_filled_reference():
+    """One order for both values of the field, so the two arms' logs diff against each other.
+
+    Checked with the reference *filled*, which is the case that did not exist before: a writer
+    that appended a filled `sample_reference` at the end — the path of least resistance, since
+    the value arrives last in the signature — would leave the null case in position 8 and put
+    the filled one in position 14, and both logs would be well-formed.
+    """
+    line, = frozen_lines("port-oneshot-nofence")
+    filled = replay(line, sample_reference={"block": "error_spans", "n_spans": 40})
+    assert list(filled) == list(replay(line)), (
+        "filling `sample_reference` changed the line's field order. The two arms' lines are "
+        "supposed to differ in a value rather than in a shape."
+    )
+    assert list(filled).index("sample_reference") == \
+        list(line).index("sample_reference") + len(ADDED_SINCE) - 1, (
+        "the field moved relative to the frozen line by more than the fields added since it "
+        "(`role` is inserted before it, `auditor_sha256` after)."
+    )
+
+
+def test_only_passing_a_reference_changes_the_value():
+    """The parameter is the whole mechanism — nothing infers a sample from the other arguments.
+
+    `prompt_reference` carries `sections_filled`, which on `port-loop`'s iteration 2 includes
+    §1.4, so a writer that wanted to be helpful could read a sample's presence out of it. That
+    is DESIGN §3's derive-nothing rule at this field: the driver that drew the sample is the
+    one that says which spans it was, and a log that guessed would be right until the guess and
+    the draw disagreed.
+    """
+    line, = frozen_lines("port-oneshot-nofence")
+    with_section = dict(line["prompt_reference"], sections_filled=["1.1", "1.2", "1.4"])
+    assert replay(line, prompt_reference=with_section)["sample_reference"] is None
+
+
+def test_a_filled_reference_is_written_whole():
+    """What `port-loop`'s iteration 2 passes: `render_window().reference()`, nested under the
+    one key. Nested rather than merged, so a reader is never asked to tell the block's
+    `text_sha256` from the prompt's.
+    """
+    line, = frozen_lines("port-oneshot-nofence")
+    reference = {"block": "error_spans", "n_spans": 40, "context_chars": 120,
+                 "text_sha256": "sha256:cc", "spans": [{"doc_id": "d", "span_index": 0}]}
+    written = replay(line, sample_reference=reference)
+    assert written["sample_reference"] == reference
+    for key in reference:
+        assert key not in written, (
+            f"{key!r} sits at the top level of the line as well as inside the reference — the "
+            "reference was merged rather than nested, and a `text_sha256` at the top level is "
+            "the prompt's."
+        )
+
+
+def test_the_reference_is_copied_and_not_held():
+    """`prompt_reference`'s treatment one field over. A caller that mutated its dict after the
+    call — `port-loop` reuses one round's structures across two agents — would otherwise edit a
+    line already handed to `append_call()`, and on the Auditor's turn that is a line already on
+    disk agreeing with a mutation made after it was written.
+    """
+    line, = frozen_lines("port-oneshot-nofence")
+    reference = {"n_spans": 40}
+    written = replay(line, sample_reference=reference)
+    reference["n_spans"] = 1
+    assert written["sample_reference"] == {"n_spans": 40}
+
+
+def test_an_empty_reference_writes_the_null_and_not_an_empty_object():
+    """The value a *required* parameter would have been given, and why it is folded to null.
+
+    `{}` and `null` are different records: the first says a sample was drawn and had nothing in
+    it, the second that no sample was drawn. `port-oneshot` is the second. Folding them means
+    the one line a hurried caller might write is the one the frozen arms already carry.
+    """
+    line, = frozen_lines("port-oneshot-nofence")
+    assert replay(line, sample_reference={})["sample_reference"] is None
+    assert replay(line, sample_reference=None)["sample_reference"] is None
+
+
+# ─── the reference is a reference: no §1.4 text reaches this log ────────────
+
+@pytest.mark.parametrize("key", sorted(TEXT_KEYS))
+def test_a_reference_carrying_text_is_refused_at_write_time(key):
+    """**The leak this field is one keystroke away from.** `render_window()` renders §1.4's
+    context windows — real dev corpus text — and hands back a `FilledPrompt` whose only
+    publishable exit is `reference()`. A driver that reached past it into the rendered block, or
+    a reference that grew a `context` field for debugging, would put corpus text in the one file
+    `tools/release_screen.py` is configured never to look at (this log is deny-listed, and
+    `test_an_absent_log_skips_because_the_log_cannot_be_committed` is why).
+
+    Refused rather than stripped: a writer that silently dropped the key would leave the caller
+    believing it recorded something, and the next person adds it back under another name.
+    DESIGN §5.5.1 states the rule — an added `text`/`surface`/`context`/`snippet` field is the
+    signal to refuse the field.
+    """
+    line, = frozen_lines("port-oneshot-nofence")
+    with pytest.raises(OrchestrateError, match="text and not a reference"):
+        replay(line, sample_reference={"n_spans": 40, key: "Paciente Juan"})
+
+
+def test_the_text_refusal_names_the_key_and_not_the_value():
+    """CLAUDE.md's rule about exception messages, and this is the case it was written for: the
+    value being refused is corpus text, so a message quoting it would leak through the very
+    path — terminal, CI log, stack trace — that `release_screen.py` does not reach.
+    """
+    line, = frozen_lines("port-oneshot-nofence")
+    with pytest.raises(OrchestrateError) as caught:
+        replay(line, sample_reference={"context": "Paciente Juan Gómez, NHC 12345"})
+    message = str(caught.value)
+    assert "context" in message
+    for fragment in ("Juan", "Gómez", "12345", "Paciente"):
+        assert fragment not in message, (
+            f"the refusal quotes {fragment!r} from the value it is refusing (CLAUDE.md)"
+        )
+
+
+def test_the_hashes_and_counts_a_reference_is_made_of_are_not_refused():
+    """The guard is a list of key names and must stay one. `text_sha256` is what settles "was
+    this the block that ran" without holding the block, and `text_chars` is the one property of
+    the text a reader comparing two runs can act on — both are `render_window().reference()`'s
+    own fields. A guard matching the `text` prefix would refuse the record it exists to protect.
+    """
+    line, = frozen_lines("port-oneshot-nofence")
+    reference = {"block": "error_spans", "n_spans": 40, "context_chars": 120,
+                 "text_chars": 4096, "text_sha256": "sha256:dd", "window_files": {}}
+    assert replay(line, sample_reference=reference)["sample_reference"] == reference
+
+
 # ─── the counterfactual ────────────────────────────────────────────────────
+
+def test_a_required_sample_reference_would_have_broken_the_baselines_driver():
+    """The second of this file's two backwards routes, measured for the new parameter.
+
+    `run_arm()` calls `call_line()` and passes no sample, because `port-oneshot` draws none.
+    Had the parameter been required, that call would raise — and the repair under time pressure
+    is to edit the frozen arm's driver, which is the thing the default exists to avoid. Shown
+    by removing the argument the same way a required parameter would demand it be supplied.
+    """
+    line, = frozen_lines("port-oneshot-nofence")
+    assert replay(line)["sample_reference"] is None
+    with pytest.raises(TypeError):
+        call_line(1, prompt_reference={}, model={"model_id": "m"}, response_chars=0,
+                  response_sha256="sha256:aa", outcome="called")  # `cost`, which *is* required
+
 
 def test_a_backfill_would_have_changed_every_frozen_line():
     """The claim in this file's docstring, measured rather than described.
