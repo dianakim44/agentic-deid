@@ -58,7 +58,8 @@ axes:
   #
   # §9.1 에서 제외한 유형(SEXO_*, FAMILIARES_*, NAME_TITLE)은 여기에 값이 없다.
   # 제외는 유형이 아니라 스팬의 excluded 표시이고, 스팬 자체는 버리지 않는다 —
-  # 제외량을 보고해야 한다.
+  # 제외량을 보고해야 한다. 그 세 유형의 이름과 설명은 이 축이 아니라
+  # 아래 excluded_types 블록에 있다 (Auditor 프롬프트가 읽는다).
   phi_type:
     NAME:            person names; role (patient/clinician/relative) stays in subtype
     DATE:            dates, including dates of birth
@@ -360,6 +361,34 @@ audit_refusal:
 # 으로 읽히고, Auditor 관점에서는 `[NAME]` 과 똑같이 "이미 가려진 것" 이다
 # (auditor.md §1.2 — 태그는 후보가 아니다).
 masked_tag_heterogeneous: "[PHI]"
+
+# ─── 표준 집합에서 제외한 유형 ───────────────────────────────
+# DESIGN.md §9.1 이 제외한 세 유형. phi_type 축의 값이 **아니다** — 축에 넣으면
+# 채점이 이 유형들 위에서 이뤄지고, 제외 결정 자체가 무너진다. 그래서 축과
+# 나란한 별개 블록이고, phi_type 축의 주석이 여기를 가리킨다.
+#
+# **왜 config 에 있어야 하는가.** docs/prompts/auditor.md §1.1 이 이 세 유형을
+# "추론에 맡기지 말고 범위 밖이라고 이름을 대라" 고 요구한다. `madre` 를 표시하는
+# Auditor 는 텍스트에 대해 틀린 것이 아니고 이 프로젝트가 묻지 않는 질문에
+# 답한 것이며, 그런 표시는 보고서에서 가장 실행 불가능한 범주(§4 의 case 2)로
+# 떨어진다. 그 목록이 프롬프트의 *내용*에 들어가므로 CLAUDE.md 의 규칙 그대로
+# config 에 있고 모듈에 리터럴로 있지 않다.
+#
+# **로더의 excluded_types 와 중복이 아니다.** src/corpora/meddocan.py 의
+# EXCLUDED_TYPES 는 그 코퍼스의 원본 유형 이름이고 (`SEXO_SUJETO_ASISTENCIA`),
+# 로딩 시 스팬에 excluded 표시를 붙이는 데 쓰인다 — 코퍼스마다 다르고, 그
+# 코퍼스를 읽는 코드만 안다. 여기 있는 것은 코퍼스와 무관한 **개념**이고
+# 에이전트에게 보여주는 이름이다. 한쪽에서 다른 쪽을 유도하지 않는다: 유도하면
+# 로더가 없는 코퍼스(de-grascco)의 제외 유형이 프롬프트에서 조용히 사라지고,
+# 그 침묵은 "제외가 없다" 와 구별되지 않는다.
+#
+# 값은 이름 → 한 줄 설명이고, 설명은 왜 범위 밖인지를 말한다. 이유가 두 종류라서
+# (§9.1) 한 줄로 뭉개지 않는다 — 앞의 둘은 HIPAA Safe Harbor 식별자가 아니고,
+# NAME_TITLE 은 두 코퍼스가 서로 호환되지 않게 주석했고 어느 쪽도 틀리지 않았다.
+excluded_types:
+  SEXO:       sex of the patient; not a HIPAA Safe Harbor identifier, so a detector scored on it is measured on something other than disclosure risk
+  FAMILIARES: family relationship words; the surfaces are the common nouns madre, familia, padres — not names
+  NAME_TITLE: titles such as Dr. or Prof.; the corpora annotate them incompatibly and neither is wrong, so keeping it would score one corpus's convention as another's false positive
 
 # ─── 층 → 계열 ───────────────────────────────────────────────
 # 상보성 분해(DESIGN.md §5)는 "rules only / tagger only / both / neither" 로

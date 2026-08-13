@@ -480,6 +480,59 @@ def check_audit_refusal(value: str) -> str:
     return value
 
 
+def excluded_types() -> dict[str, str]:
+    """The types DESIGN §9.1 excluded from the canonical set, with a reason each.
+
+    Read by `docs/prompts/auditor.md` §1.1, which requires them **named as out of scope
+    rather than left to be inferred**: an Auditor that flags `madre` is not wrong about the
+    text, it is answering a question this project does not ask, and every such flag lands in
+    the least actionable category of the report (§4's case 2). A frame that listed the ten
+    canonical types and said nothing about the three would leave the agent to work out from
+    an absence whether sex is a type it should be reporting.
+
+    **Not the `phi_type` axis and not a subset of it.** Putting them there would make them
+    scoreable, which is the decision §9.1 took the other way. This is a sibling block, and
+    the axis's own comment points at it.
+
+    **Not derived from a loader's `excluded_types`, and not the source of it.** That
+    attribute holds one corpus's *own* type names (`SEXO_SUJETO_ASISTENCIA`) and drives the
+    `excluded` flag at load; it is corpus-specific and known only to the code that reads
+    that corpus. This is the corpus-independent concept, in the spelling an agent is shown.
+    Deriving this from the loaders would silently shorten the list on a corpus whose loader
+    is not written yet — `de-grascco` contributes `NAME_TITLE` and has no loader today — and
+    a silently shortened list is indistinguishable from "nothing is excluded".
+    """
+    value = naming().get("excluded_types")
+    if not isinstance(value, dict) or not value:
+        raise CorpusError(
+            "config/naming.yaml has no `excluded_types` mapping. It is the DESIGN §9.1 "
+            "exclusions, it lands in the Auditor's task frame (auditor.md §1.1), and "
+            "CLAUDE.md keeps such values out of the modules."
+        )
+    bad = [key for key in value if not isinstance(key, str) or not key]
+    if bad:
+        raise CorpusError(
+            f"config/naming.yaml `excluded_types` has {len(bad)} non-string or empty "
+            "key(s). Each key is a type name shown to an agent."
+        )
+    overlap = sorted(set(value) & set(axis("phi_type")))
+    if overlap:
+        raise CorpusError(
+            f"config/naming.yaml declares {overlap} both as a phi_type and as an excluded "
+            "type. A type is one or the other (DESIGN §9.0, §9.1): a value in the axis is "
+            "scored, and the exclusion decision was that these are not."
+        )
+    for key, reason in value.items():
+        if not isinstance(reason, str) or not reason.strip():
+            raise CorpusError(
+                f"config/naming.yaml `excluded_types`[{key!r}] carries no reason. §9.1 "
+                "excludes for two different reasons — not a Safe Harbor identifier, and "
+                "incompatible annotation — and a list without them invites the agent to "
+                "guess which applies."
+            )
+    return dict(value)
+
+
 def masked_tag_heterogeneous() -> str:
     """The mask tag for a union of overlapping spans whose types disagree. DESIGN §3.
 
