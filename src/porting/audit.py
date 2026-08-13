@@ -43,9 +43,10 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Iterable, Mapping, Sequence
 
-from ..corpora.base import CorpusError, axis, check_audit_refusal
+from ..corpora.base import CorpusError, axis, check_audit_refusal, round_path
 
 #: The five refusal reasons, spelled once so this module's branches cannot drift from the
 #: vocabulary, and each checked against `config/naming.yaml` at use rather than at import —
@@ -405,6 +406,43 @@ def parse_response(text: str, *, doc_id: str, lines: Sequence[MaskedLine]) -> Do
     except (json.JSONDecodeError, TypeError):
         return DocumentAudit(doc_id, (), (_refuse(doc_id, MALFORMED),))
     return validate_flags(payload, doc_id=doc_id, lines=lines)
+
+
+def report_path(
+    *, corpus: str, detector: str, supervision: str, porting: str, iteration: int,
+    root: Path | None = None,
+) -> Path:
+    """`paths.auditreport` for one round — `iter{N}/audit_report.json`.
+
+    **Why this needs a builder at all, when `orchestrate._arm_path` exists.** That helper
+    formats the four axes and nothing else, because `{iteration}` is not an axis — DESIGN §4
+    refused a fifth path component and §5.5 put the round in a *directory* instead, so a
+    round-scoped path is a different template rather than a wider call. `run_fold.errors_path`
+    and `scorer.iter_metrics_path` are the same shape for the same reason, and this is the
+    round's fourth file.
+
+    Here rather than in the loop driver, which is the division `report()` already follows: one
+    module decides what the record says and where it goes, one place writes it. A driver that
+    built this path itself would be the second definition site of the location, and the file
+    it would misplace is the one `paths.auditreport` is deny-listed for being — a map of the
+    identifiers a round did not catch.
+
+    Keyword axes and no run block, for `errors_path`'s reason. The interested party is the
+    driver, which holds four axes and a round; it never assembles a run block, and handing it
+    one to fill would make it a second assembler of the record.
+
+    The round is validated for being a round but **not** for being ≥ 2. `report()` does that,
+    because that constraint is about the *content* — the Auditor is called from round 2 onward
+    and a report claiming round 1 would be attributing flags to predictions that do not exist
+    — whereas this function answers "where does round N's report go". Checking it in both
+    places would put a rule about the Auditor's schedule in a path builder, where the next
+    round-scoped file would inherit it.
+    """
+    return round_path(
+        "auditreport", iteration=iteration, artefact="audit report", error=AuditError,
+        root=root, corpus=corpus, detector=detector, supervision=supervision,
+        porting=porting,
+    )
 
 
 def report(

@@ -1453,6 +1453,37 @@ are the artefact and plumbing questions the two of those leave open.
   `PredictedSpan` and not a `corpora.base.Span`, because `Span` requires `surface` and
   `subtype` and this file drops both: a reader that filled them would fabricate the field
   whose purpose is re-asserting offsets against real text.
+- **The audit report gets its own path builder, and the round check the five builders shared
+  four times over becomes one function** (`audit.report_path`, `corpora.base.round_path`,
+  2026-08-13). `orchestrate._arm_path` cannot produce `iter{n}/audit_report.json`: it formats
+  the four axes, and `{iteration}` is not an axis — §4 refused a fifth path component and this
+  section put the round in a *directory*, so a round-scoped path is a different template rather
+  than a wider call. The builder lives in `porting/audit.py`, beside the `report()` that
+  produces the content, which is the division `run_fold` already has for `errors.jsonl`: one
+  module decides what the record says and where it goes, one place writes it. A driver that
+  built the path itself would be the second definition site of a location, and the file it
+  would misplace is the one deny-listed for being a map of the identifiers a round missed.
+
+  Writing it exposed the larger thing. Four functions — `run_fold._round_path` for two keys,
+  `scorer.iter_metrics_path`, `rules.arm_rules_path` — each validated the axes and the round
+  independently, and each documented the repetition as the module boundary rather than an
+  oversight: **each raises the type its own callers catch.** That is right about the type and
+  was doing the work of an argument. Five copies is where the cost stops being hypothetical,
+  because what copies drift on is what one of them learns and the others do not — and every
+  line of this is a *check*, so the drift is silent by construction: a builder that stopped
+  validating its axis raises nothing, it writes a results directory naming a cell nothing
+  defines. So `round_path(key, *, iteration, artefact, error, **components)` holds the check
+  and takes the exception class as a parameter; each builder keeps its own type and its own
+  message subject (`artefact`, which is why a shared refusal still names which of the round's
+  files was about to be misplaced). It validates whatever the *template* names rather than a
+  fixed four, which is what makes `armrules`' fifth component (`{lang}`) checked rather than
+  formatted in unvalidated. What was never duplicated and stays single is the template lookup:
+  one `paths` key, one reader (`tests/test_round_path.py`).
+
+  `report_path` validates the round for being a round and **not** for being ≥ 2. That
+  constraint stays in `report()`, where it is a fact about the Auditor's schedule rather than
+  about a location; duplicating it in a path builder would put one agent's schedule where the
+  next round-scoped file inherits it.
 
 #### 5.5.1 `errors.jsonl` is not a `FilledPrompt`, and where that stops being true
 

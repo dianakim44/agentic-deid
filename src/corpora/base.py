@@ -23,6 +23,7 @@ Usage:
 from __future__ import annotations
 
 import os
+import string
 from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
@@ -595,6 +596,72 @@ def path_template(key: str) -> str:
             "which is where the results of an arm are found."
         )
     return templates[key]
+
+
+#: The four axes every results path is scoped by, in template order. `PATH_AXES` one level
+#: down: `scorer.PATH_AXES` is the subset of a *run block* that reaches a path, and this is
+#: the same four read as an argument list by a caller who holds no run block — the loop
+#: driver, which has the axes and a round and nothing else (`run_fold.errors_path`).
+ROUND_AXES = ("corpus", "detector", "supervision", "porting")
+
+
+def round_path(
+    key: str, *, iteration: int, artefact: str, error: type[Exception],
+    root: Path | None = None, **components: str,
+) -> Path:
+    """One iteration-scoped results path from naming.yaml, with every component checked.
+
+    `key` is the `paths` key, `iteration` the round, `artefact` what the round's file is
+    called in a refusal, and `error` the exception type to raise. `components` are the four
+    `ROUND_AXES` values plus whatever else the template names (`{lang}`, for `armrules`).
+
+    **Why this is shared and why `error` is a parameter.** Four functions implemented this
+    check independently — `run_fold._round_path` for two keys, `scorer.iter_metrics_path`,
+    `rules.arm_rules_path` — and each said in its docstring that the repetition was the
+    module boundary rather than an oversight, because each raises the type its own callers
+    catch. That reasoning holds for the *type* and was doing the work of an argument. Adding
+    a fifth copy for the Auditor's report is what made the cost legible: four copies of "an
+    unknown axis mints a cell" drift on the day one of them learns something the others do
+    not, and the thing they would fail to learn is a check, so the drift is silent by
+    construction. The type stays each caller's, as a parameter; the check becomes one.
+
+    **What is not shared: the template lookup, which was already single.** Each `paths` key
+    has exactly one reader, and that was true before this function existed. This changes
+    where the *validation* lives, not where a path is defined.
+
+    Every component is checked against `naming.yaml` because a results path names the cell of
+    the experiment an artefact belongs to: an unknown value mints a cell instead of failing,
+    and `results/es-meddocan/rules-only/` sitting beside `results/es-meddocan/R/` reads to an
+    aggregation as a second detector. The round is checked for being a round because `iter0/`
+    or `iter1.0/` puts a record where nothing looks for it — and `True` passes `isinstance(…,
+    int)`, so a caller who passed a flag would silently name round 1.
+    """
+    fields = {name for _, name, _, _ in string.Formatter().parse(path_template(key)) if name}
+    missing = fields - set(components) - {"iteration"}
+    if missing or (set(components) - fields):
+        raise error(
+            f"paths.{key} names {sorted(fields)} and was given "
+            f"{sorted(set(components) | {'iteration'})}. A component the template does not "
+            "name is silently dropped, and one it names and nobody passed raises a KeyError "
+            f"deep in `.format()` — either way the round's {artefact} lands somewhere its "
+            "writer did not choose."
+        )
+    for name, value in sorted(components.items()):
+        if value not in axis(name):
+            raise error(
+                f"{value!r} is not a value of the {name!r} axis in config/naming.yaml "
+                f"(have: {sorted(axis(name))}). This path names the cell of the experiment "
+                f"the round's {artefact} belongs to, so an unknown component would create a "
+                "cell rather than fail (DESIGN §5.3, §5.5)."
+            )
+    if not isinstance(iteration, int) or isinstance(iteration, bool) or iteration < 1:
+        raise error(
+            f"iteration must be an integer >= 1, got {iteration!r}. It is a path component "
+            f"(paths.{key}), and the sequence of an iterating arm's {artefact}s is the "
+            f"experimental record — a round's {artefact} written to iter0/ or iter1.0/ is a "
+            "round nothing looks for afterwards (DESIGN §5.5)."
+        )
+    return (root or ROOT) / path_template(key).format(iteration=iteration, **components)
 
 
 def rule_langs(corpus_id: str) -> list[str]:

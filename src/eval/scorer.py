@@ -47,7 +47,7 @@ from typing import Iterable, Mapping, Sequence
 
 from ..corpora.base import (
     ROOT, axis, check_termination_reason, family_of, layer_families, model_id_absent,
-    naming,
+    naming, round_path,
 )
 #: `ErrorSpan` and the two error kinds, from the module that defines them. Imported
 #: rather than re-spelled, and the direction is deliberate: this module *produces* errors
@@ -1288,31 +1288,16 @@ def iter_metrics_path(
     unknown component mints a cell instead of failing, and `iter0/` or `iter1.0/` puts a
     round's score somewhere nothing looks for it.
 
-    The same shape of validation lives in `run_fold._round_path` for the two keys that
-    module builds, and the repetition is the module boundary rather than an oversight: this
-    module raises `ScorerError` and that one `FoldRunError`, each is the type its own
-    callers already catch, and `src.rules.arm_rules_path` is a third instance for the same
-    reason. What must not be repeated is the *template lookup*, and each key has exactly
-    one.
+    The check is `corpora.base.round_path`'s and was this module's own until 2026-08-13, when
+    the loop driver's audit-report path would have been the fifth copy. Each copy documented
+    that the repetition was the module boundary rather than an oversight, because each raises
+    the type its own callers catch — right about the type, which is now an argument. What was
+    never repeated is the *template lookup*: each `paths` key has exactly one reader, and
+    `itermetrics`' is this function.
     """
-    for value, ax in ((corpus, "corpus"), (detector, "detector"),
-                      (supervision, "supervision"), (porting, "porting")):
-        if value not in axis(ax):
-            raise ScorerError(
-                f"{value!r} is not a value of the {ax!r} axis in config/naming.yaml "
-                f"(have: {sorted(axis(ax))}). Add it there before using it, rather than "
-                "writing to a path nothing defines."
-            )
-    if not isinstance(iteration, int) or isinstance(iteration, bool) or iteration < 1:
-        raise ScorerError(
-            f"iteration must be an integer >= 1, got {iteration!r}. It is a path "
-            "component (paths.itermetrics), and the sequence of an iterating arm's scores "
-            "is what δ/k is computed over — a round's score written to iter0/ is a leak "
-            "rate the stopping rule cannot find (DESIGN §3, §5.5)."
-        )
-    return (root or ROOT) / naming()["paths"]["itermetrics"].format(
+    return round_path(
+        "itermetrics", iteration=iteration, artefact="score", error=ScorerError, root=root,
         corpus=corpus, detector=detector, supervision=supervision, porting=porting,
-        iteration=iteration,
     )
 
 

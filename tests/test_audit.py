@@ -34,7 +34,8 @@ from src.corpora.base import CorpusError, audit_refusals, check_audit_refusal
 from src.porting import audit
 from src.porting.audit import (
     CROSSES_A_LINE, INSIDE_A_MASK_TAG, MALFORMED, OUT_OF_RANGE, UNDECLARED_PHI_TYPE,
-    AuditError, DocumentAudit, Flag, MaskedLine, parse_response, report, validate_flags,
+    AuditError, DocumentAudit, Flag, MaskedLine, parse_response, report, report_path,
+    validate_flags,
 )
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -699,6 +700,116 @@ def test_the_report_is_json_serialisable_and_holds_no_text():
     json.loads(body)
     for key in ("surface", "text", "context", "snippet", "phrase", "line"):
         assert f'"{key}"' not in body, key
+
+
+# ─── where the report goes (paths.auditreport, DESIGN §5.5) ──────────────────
+#
+# The round's fourth file, and the fourth builder of a round-scoped path. `orchestrate.
+# _arm_path` cannot produce it: that helper formats the four axes, `{iteration}` is not an
+# axis (DESIGN §4 refused a fifth path component and §5.5 put the round in a directory), so a
+# round-scoped path is a different template rather than a wider call.
+
+ROUND_AXES = dict(corpus="es-meddocan", detector="RT", supervision="sup-free",
+                  porting="port-loop")
+
+
+def test_the_report_path_is_the_rounds_directory():
+    """`paths.auditreport`' shape: four axes above, `iter{N}/` below, the report inside."""
+    assert report_path(**ROUND_AXES, iteration=3, root=Path("/r")) == Path(
+        "/r/results/es-meddocan/RT/sup-free/port-loop/iter3/audit_report.json")
+
+
+def test_the_report_sits_with_the_rounds_other_three_files():
+    """One directory per round, which is the property that makes the round one record.
+
+    The report is an input to round n derived from round n−1's predictions, and the three
+    files round n produces are its output. All four are named from the same four axes plus the
+    same round, so the report cannot land in another arm's directory from the spans it was
+    built against (DESIGN §5.5).
+    """
+    from src.eval.run_fold import errors_path, iter_spans_path
+    from src.eval.scorer import iter_metrics_path
+
+    root = Path("/r")
+    here = report_path(**ROUND_AXES, iteration=3, root=root)
+    for other in (iter_spans_path(**ROUND_AXES, iteration=3, root=root),
+                  errors_path(**ROUND_AXES, iteration=3, root=root),
+                  iter_metrics_path(**ROUND_AXES, iteration=3, root=root)):
+        assert other.parent == here.parent
+    assert here.name == "audit_report.json"
+
+
+@pytest.mark.parametrize("key,bad", [
+    ("corpus", "es-nope"), ("detector", "R+T"), ("supervision", "supfree"),
+    ("porting", "port-agentic"),
+])
+def test_the_report_path_refuses_an_axis_value_naming_no_cell(key, bad):
+    """A typo mints a cell rather than failing — and the file it would mint one for is the
+    round's map of residual identifiers, which `paths.auditreport` is deny-listed for being.
+    A report under `results/es-meddocan/rules-only/` is a deny pattern's near miss.
+    """
+    with pytest.raises(AuditError, match="naming.yaml"):
+        report_path(**{**ROUND_AXES, key: bad}, iteration=2)
+
+
+@pytest.mark.parametrize("bad", [0, -1, 1.5, True, "2", None])
+def test_the_report_path_refuses_a_round_that_is_not_a_round(bad):
+    """`iter0/` and `iter1.0/` put a round's report where nothing looks for it.
+
+    `True` is in the list because `isinstance(True, int)` holds: a caller passing a flag
+    would silently name round 1 — which for this file is also the round the Auditor never
+    runs in.
+    """
+    with pytest.raises(AuditError, match="iteration"):
+        report_path(**ROUND_AXES, iteration=bad)
+
+
+def test_the_path_builder_does_not_enforce_the_auditors_schedule():
+    """**Iteration 1 is a valid path and an invalid report**, and the split is deliberate.
+
+    `report()` refuses a round before 2 because that is a fact about the Auditor's schedule:
+    round 1 is shown the same blocks as `port-oneshot` (DESIGN §4) and has no predictions to
+    mask. This function answers "where does round N's report go", and duplicating the ≥ 2
+    check here would put a rule about one agent's schedule inside a path builder, where the
+    next round-scoped file inherits it.
+    """
+    assert report_path(**ROUND_AXES, iteration=1, root=Path("/r")).parent.name == "iter1"
+    with pytest.raises(AuditError, match="iteration"):
+        report([audits()], corpus="es-meddocan", iteration=1, masked_from_iteration=0)
+
+
+def test_the_report_path_raises_this_modules_error_type():
+    """`AuditError`, not the shared builder's own type — which is why `round_path` takes the
+    exception class as an argument. A caller catching this module's errors must not have to
+    also catch `run_fold`'s to build a path.
+    """
+    with pytest.raises(AuditError):
+        report_path(**{**ROUND_AXES, "porting": "nope"}, iteration=2)
+    assert issubclass(AuditError, CorpusError)
+
+
+def test_the_report_path_is_denied_by_the_screener():
+    """The other half of the defence, on the path this module builds rather than on the
+    pattern's text. `paths.auditreport` is deny-listed and not ALLOW-listed with a content
+    sniffer (`config/naming.yaml`): on a DUA corpus this file is the map of the identifiers a
+    round did not catch, which is the most concentrated form of what the loop produces.
+
+    A pattern that matched nothing would be a rule reported as present and never run, so the
+    assertion goes through `deny()`.
+    """
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(
+        "_screen_probe_audit", ROOT / "tools" / "release_screen.py")
+    screen = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(screen)
+
+    rel = str(report_path(**ROUND_AXES, iteration=3, root=ROOT).relative_to(ROOT))
+    assert screen.deny(rel)
+    assert not any(__import__("re").search(p, rel) for p in screen.ALLOW_PATTERNS), (
+        "the report path is both denied and allowed. `deny()` is consulted first, so this "
+        "does not change today's verdict — it leaves the two lists disagreeing, one "
+        "deny-rule deletion away from publishing the file."
+    )
 
 
 # ─── structure: no surface form leaves this module ───────────────────────────

@@ -66,7 +66,7 @@ from typing import Mapping, Sequence
 
 from ..corpora import load
 from ..corpora.base import (
-    ROOT, CorpusError, Document, axis, model_id_absent, path_template,
+    ROOT, CorpusError, Document, axis, model_id_absent, path_template, round_path,
 )
 from ..rules import RuleError, RuleSet, load_for_corpus
 # `_relative` for `src/orchestrate.py`'s reason, one message-shape over: `src/rules.py`
@@ -229,37 +229,26 @@ def _round_path(
     key: str, *, corpus: str, detector: str, supervision: str, porting: str,
     iteration: int, artefact: str, root: Path | None = None,
 ) -> Path:
-    """One iteration-scoped results path from naming.yaml, with every component checked.
+    """This module's two round-scoped paths (`iterspans`, `itererrors`), through `round_path`.
 
-    The two keys this module builds (`iterspans`, `itererrors`) differ in nothing but the
-    key and the subject of the refusal, so the check is written once. `artefact` is that
-    subject — the message names which of the round's files was about to be misplaced,
-    because "iteration must be an integer >= 1" with two callers is a message that does not
-    say which call to look at.
+    Kept as a wrapper rather than dissolved into its two callers, because what it holds is
+    this module's *error type* and this module's positional shape: `corpora.base.round_path`
+    takes the four axes as keywords and the exception class as an argument, and repeating
+    `error=FoldRunError` at each call site is a second place the type is decided.
 
-    Not shared with `scorer.iter_metrics_path`: that module raises `ScorerError`, this one
-    `FoldRunError`, and each is the type its own callers catch. Importing one module's
-    error type into the other to share nine lines would couple them for the smaller reason.
+    `artefact` is the subject of the refusal — the message names which of the round's files
+    was about to be misplaced, because "iteration must be an integer >= 1" with two callers
+    is a message that does not say which call to look at.
+
+    **The check itself is no longer here** (2026-08-13). It was, in four modules, each
+    documenting that the repetition was the module boundary and not an oversight because each
+    raises the type its callers catch. That reasoning was right about the type and it is now
+    a parameter; the fifth copy the loop driver's audit-report path would have needed is what
+    settled it. See `round_path`.
     """
-    for value, ax in ((corpus, "corpus"), (detector, "detector"),
-                      (supervision, "supervision"), (porting, "porting")):
-        if value not in axis(ax):
-            raise FoldRunError(
-                f"{value!r} is not a {ax} in config/naming.yaml (have: "
-                f"{sorted(axis(ax))}). This path names the cell of the experiment the "
-                f"round's {artefact} belongs to, so an unknown component would create a "
-                "cell rather than fail (DESIGN §5.3, §5.5)."
-            )
-    if not isinstance(iteration, int) or isinstance(iteration, bool) or iteration < 1:
-        raise FoldRunError(
-            f"iteration must be an integer >= 1, got {iteration!r}. It is a path "
-            f"component (paths.{key}), and the sequence of an iterating arm's "
-            f"{artefact}s is the experimental record — a round written to iter0/ or "
-            "iter1.0/ is a round nothing looks for afterwards (DESIGN §5.5)."
-        )
-    return (root or ROOT) / path_template(key).format(
+    return round_path(
+        key, iteration=iteration, artefact=artefact, error=FoldRunError, root=root,
         corpus=corpus, detector=detector, supervision=supervision, porting=porting,
-        iteration=iteration,
     )
 
 

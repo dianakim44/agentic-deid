@@ -37,7 +37,7 @@ import regex
 import yaml
 
 from .corpora.base import (
-    ROOT, CorpusError, Span, axis, family_of, path_template, rule_langs,
+    ROOT, CorpusError, Span, axis, family_of, path_template, round_path, rule_langs,
 )
 
 #: Regex flags a rule may ask for, and what each maps to. An allowlist because `flags`
@@ -492,27 +492,17 @@ def arm_rules_path(
     artefact belongs to, so an unknown component mints a cell rather than failing. `lang`
     is checked too but is not an axis in the results sense: it names the file's language
     (DESIGN §5.2) and the `rule_id` prefix is taken from it.
+
+    Through `corpora.base.round_path`, which is where that check lives as of 2026-08-13 — and
+    this is the caller that shows it generalises past the four axes: `armrules` is the one
+    round-scoped template with a fifth component, so the shared builder validates whatever
+    the template names rather than a fixed list, and a `{lang}` nobody passed is a refusal
+    here instead of a `KeyError` inside `.format()`.
     """
-    for value, ax in ((corpus, "corpus"), (detector, "detector"),
-                      (supervision, "supervision"), (porting, "porting"),
-                      (lang, "lang")):
-        if value not in axis(ax):
-            raise RuleError(
-                f"{value!r} is not a {ax} in config/naming.yaml (have: "
-                f"{sorted(axis(ax))}). An arm's rule path names the cell of the "
-                "experiment the file belongs to, so an unknown component would create "
-                "a cell rather than fail (DESIGN §5.3)."
-            )
-    if not isinstance(iteration, int) or isinstance(iteration, bool) or iteration < 1:
-        raise RuleError(
-            f"iteration must be an integer >= 1, got {iteration!r}. It is a path "
-            "component: the sequence of an iterating arm's rule files is the "
-            "experimental record, and iteration 0 or a float would put one round "
-            "somewhere nothing looks for it (DESIGN §5.3)."
-        )
-    return (root or ROOT) / path_template("armrules").format(
+    return round_path(
+        "armrules", iteration=iteration, artefact="rule file", error=RuleError, root=root,
         corpus=corpus, detector=detector, supervision=supervision, porting=porting,
-        iteration=iteration, lang=lang,
+        lang=lang,
     )
 
 
