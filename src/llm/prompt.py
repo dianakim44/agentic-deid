@@ -92,11 +92,12 @@ from typing import IO, Mapping, Sequence
 
 from .. import sample as sample_module
 from ..corpora.base import (
-    CorpusError, Document, axis, corpus_ids, masked_tag_heterogeneous, rule_langs,
+    CorpusError, Document, axis, corpus_ids, excluded_types, masked_tag_heterogeneous,
+    rule_langs,
 )
 from ..porting.audit import MaskedLine
 from ..rules import rule_layers
-from ..sample import ErrorSpan, WINDOW_FILES, file_hash, non_target_types
+from ..sample import MISSED, ErrorSpan, WINDOW_FILES, file_hash, non_target_types
 
 #: The §1 blocks a first call carries, and the blocks it leaves empty (DESIGN §4).
 #: Named here because `assemble_task_prompt()` states both in the prompt and records both
@@ -121,6 +122,18 @@ EMPTY_SECTIONS = (SCORES, ERROR_SPANS)
 #: four checked against the prompt's own headings, and this is the prompt layer's name for
 #: the same set.
 ITERATION_SECTIONS = FILLED_SECTIONS + EMPTY_SECTIONS
+
+#: The Auditor's two §1 blocks (`docs/prompts/auditor.md` §§1.1–1.2). Its own numbering,
+#: separate constants, and deliberately not reusing `TASK_FRAME`/`CURRENT_RULES` even though
+#: two of the four strings coincide: the sections mean different things in the two templates
+#: — `auditor.md` §1.2 is the masked document and `rule_author.md` §1.2 is the rule file, a
+#: file the Auditor is explicitly *not* shown (§1.2's withheld table). One pair of names
+#: covering both would make the heading of an Auditor call and the heading of a RuleAuthor
+#: call the same value, and a reference form recording `sections_filled` would then say
+#: nothing about which agent was called.
+AUDIT_FRAME = "1.1"
+MASKED_DOCUMENT = "1.2"
+AUDIT_SECTIONS = (AUDIT_FRAME, MASKED_DOCUMENT)
 
 #: Where the committed template ends and the filled blocks begin. A visible line rather
 #: than a blank one: the template is sent verbatim and the model has to be able to tell
@@ -696,6 +709,18 @@ def _num(value: object) -> str:
     return f"{value:.3f}"
 
 
+def _count(n: int, singular: str, plural: str) -> str:
+    """`n` and its noun, agreeing.
+
+    Two blocks need it and both for the same reason: the number really can be one. A masked
+    document can hold one line and one tag (§1.2's heading), and a round can produce one
+    corroborated flag (§4's marking). "1 mask tags" and "1 flags overlap nothing" are small
+    things to a reader and different things to an agent being told the geometry of what it is
+    counting against — the second reads as a truncated list.
+    """
+    return f"{n} {singular if n == 1 else plural}"
+
+
 def assemble_iteration_prompt(
     *,
     lang: str,
@@ -778,7 +803,12 @@ def assemble_iteration_prompt(
     frame = _task_frame(lang, corpus)
     rules_block, rules_ref = _current_rules(lang, rules_path)
     score_text, score_ref = _score_block(metrics)
-    audit_text, audit_ref = _audit_block(audit_report, iteration=iteration)
+    # One sequence, marked and rendered. `errors` passed to both rather than a copy or a
+    # re-sort: `auditor.md` §4's `[nn]` is the number `render_window` printed, so the mark and
+    # the row are the same enumeration of the same list. A sort in either place would produce
+    # marks that point at the wrong spans and a block that reads correctly.
+    audit_text, audit_ref = _audit_block(
+        audit_report, iteration=iteration, sample=errors)
     window = render_window(errors, docs_by_id, context_chars)
     window_ref = window.reference()
 
@@ -834,7 +864,77 @@ def assemble_iteration_prompt(
     })
 
 
-def _audit_block(report: Mapping, *, iteration: int) -> tuple[str, dict]:
+def _sample_marks(
+    flags: Sequence[Mapping],
+    sample: Sequence[ErrorSpan],
+) -> tuple[list[int | None], set[int]]:
+    """Which §1.4 span each flag overlaps, by the index §1.4 printed for it.
+
+    `auditor.md` §4's marking, and the two returns are its two halves: a mark per flag, and
+    the sample indices no flag reached. Case 1 is a flag with a mark, case 2 a flag without
+    one, and **case 3 is an index in the second return** — the most valuable case in the loop
+    and the one nothing in the table points at, so it is computed here rather than left to be
+    noticed as an absence.
+
+    **The second return holds only `missed` spans.** §4's wording is "a `missed` span with no
+    mark is case 3", and the kind is load-bearing: a `false_positive` in the sample is a span
+    the arm predicted and gold does not have, so it was *masked* before the Auditor read the
+    document and there was nothing left for a flag to overlap. Counting those as case 3 would
+    report "both mechanisms missed it" about an identifier that is not in gold at all, and the
+    number would grow with the arm's false positive rate — the direction that makes the
+    highest-value case look common while the real ones stay buried in it.
+
+    **Overlap, not byte equality** (§4). The Auditor's coordinates were translated from a
+    masked document by `audit._to_document`; the sample's are gold extents from the scorer.
+    Two components measuring the same identifier through different geometry agree on that it
+    is there and not on where it stops, and equality would mark almost nothing — which reads
+    exactly like an Auditor that corroborated nothing.
+
+    **Touching is not overlapping**, `mask_document`'s rule: half-open extents that share
+    only a boundary are adjacent identifiers, and a flag on `Ana` must not be marked as
+    corroborating the date that follows it.
+
+    **Computed here and not by the agent** (§4). A correspondence the RuleAuthor was asked to
+    work out is one it could get wrong in the direction that favours its own rules — and it
+    could not do it at all, since §1.4's offsets are window-relative while a flag's are
+    document-relative.
+
+    The indices are 1-based to match `render_window`'s `[{i:2}]`. A mark is the number the
+    agent can look up; the enumeration and the marking are the same walk over `sample`, so a
+    renumbering of one moves the other.
+    """
+    by_doc: dict[str, list[tuple[int, int, int]]] = {}
+    for index, span in enumerate(sample, 1):
+        by_doc.setdefault(span.doc_id, []).append((span.start, span.end, index))
+
+    marks: list[int | None] = []
+    matched: set[int] = set()
+    for flag in flags:
+        # Half-open overlap. `<` on both sides, so a shared boundary is not a match.
+        hit = [index for start, end, index in by_doc.get(flag["doc_id"], ())
+               if flag["start"] < end and start < flag["end"]]
+        # **The mark is one index and `matched` takes all of them, and the asymmetry is the
+        # point.** One flag can cover two adjacent gold identifiers — the scorer emits a
+        # missed span per gold span — so a row printing every index it touched would be a row
+        # the agent cannot read as a lookup. It prints the lowest, which makes the mark a
+        # function of the sample's order rather than of the flags'.
+        #
+        # But every span it touched *was* flagged, and case 3 is "nothing flagged this". A
+        # `matched` holding only the printed index would report the other one as the
+        # highest-value case in the loop — "both mechanisms missed it" about a span the
+        # Auditor pointed straight at, and the agent has no way to see that it did.
+        marks.append(min(hit) if hit else None)
+        matched |= set(hit)
+    missed = {index for index, span in enumerate(sample, 1) if span.kind == MISSED}
+    return marks, missed - matched
+
+
+def _audit_block(
+    report: Mapping,
+    *,
+    iteration: int,
+    sample: Sequence[ErrorSpan],
+) -> tuple[str, dict]:
     """§1.3's audit half: the Auditor's flags, with §5's three-case reading attached.
 
     **A second opinion from a component that cannot see the answer, and the prompt says so
@@ -857,8 +957,22 @@ def _audit_block(report: Mapping, *, iteration: int) -> tuple[str, dict]:
     driver that passed round *n*'s report to round *n* while calling it *n−1*'s would put
     the wrong number in the heading the agent reads.
 
+    **The block is assembled in two parts, and `sample` is why** (§4). The RuleAuthor knows
+    gold membership only for §1.4's 40 spans, so a flag overlapping one of them is
+    corroborated and a flag overlapping nothing is not. Marked flags carry that span's `[nn]`
+    index; unmarked ones are listed as positions, types and scores with `by_phi_type` beneath
+    them, because a per-type count is the only use of case 2 that `rule_author.md` §5 permits.
+
+    `sample` is required rather than defaulted to empty. An empty default would render every
+    flag as case 2, which is a well-formed block in which case 1 does not exist and case 3 is
+    invisible — the marking would be gone and nothing about the prompt would say so.
+
     Carries no text, for the reason `audit.py`'s docstring gives: the flag schema has no
-    free-text field, so there is nothing here to strip.
+    free-text field, so there is nothing here to strip. **The marking does not change that
+    bound and that is §4's point**: a mark is an index into a block the agent already has, so
+    corroboration costs four characters per flag rather than ±120 characters of context —
+    which would make the dev window grow with the Auditor's false positive rate and break
+    `rule_author.md` §1.4's bound.
     """
     if not isinstance(report, Mapping):
         raise PromptError(
@@ -904,12 +1018,68 @@ def _audit_block(report: Mapping, *, iteration: int) -> tuple[str, dict]:
         "out of range and are not shown.",
         "",
     ]
+    marks, unmatched = _sample_marks(flags, sample)
+    n_missed = sum(1 for span in sample if span.kind == MISSED)
     if flags:
-        lines += ["  doc_id / phi_type / offsets in the document / the Auditor's score", ""]
-        for flag in flags:
+        corroborated = [(mark, flag) for mark, flag in zip(marks, flags)
+                        if mark is not None]
+        unresolved = [flag for mark, flag in zip(marks, flags) if mark is None]
+        lines += [
+            f"**Corroborated by gold — {len(corroborated)} of "
+            f"{_count(len(flags), 'flag', 'flags')}, overlapping a "
+            "§1.4 error span.** The `[nn]` is that span's number in §1.4, computed here by "
+            "offset overlap and not by you. A `missed` span with a mark is the strongest "
+            "signal available this round and its context is already below.",
+            "",
+        ]
+        if corroborated:
+            lines += ["  §1.4  doc_id / phi_type / offsets in the document / score", ""]
+            for mark, flag in sorted(corroborated, key=lambda pair: pair[0]):
+                lines.append(
+                    f"  [{mark:2}] {flag['doc_id']:<24} {flag['phi_type']:<16} "
+                    f"({flag['start']}, {flag['end']})   score {_num(flag.get('score'))}"
+                )
+        else:
             lines.append(
-                f"  {flag['doc_id']:<24} {flag['phi_type']:<16} "
-                f"({flag['start']}, {flag['end']})   score {_num(flag.get('score'))}"
+                "  None. No flag this round overlaps a §1.4 span — the two mechanisms are "
+                "pointing at different places, which is information about both."
+            )
+        lines += [
+            "",
+            f"**Unresolved — {_count(len(unresolved), 'flag', 'flags')} overlapping nothing "
+            "in §1.4.** Each is "
+            "either a gold annotation gap or an Auditor false positive. **You may not "
+            "resolve this and may not write a rule for an individual one on the Auditor's "
+            "word alone.** What is actionable here is the *type* counts below: a type with "
+            "many unresolved flags is a priority, and no single line of the table is.",
+            "",
+        ]
+        if unresolved:
+            lines += ["  doc_id / phi_type / offsets in the document / score", ""]
+            for flag in unresolved:
+                lines.append(
+                    f"       {flag['doc_id']:<24} {flag['phi_type']:<16} "
+                    f"({flag['start']}, {flag['end']})   score {_num(flag.get('score'))}"
+                )
+            by_type = counts.get("by_phi_type") or {}
+            unresolved_by_type: dict[str, int] = {}
+            for flag in unresolved:
+                unresolved_by_type[flag["phi_type"]] = (
+                    unresolved_by_type.get(flag["phi_type"], 0) + 1)
+            lines += [
+                "",
+                # The unresolved counts and the report's own totals, both, and labelled apart.
+                # `by_phi_type` counts every flag; the actionable number is the unresolved
+                # share, and one of the two printed alone is a number the agent would read as
+                # the other.
+                "  unresolved by type   " + ", ".join(
+                    f"{name} {n}" for name, n in sorted(unresolved_by_type.items())),
+                "  all flags by type    " + ", ".join(
+                    f"{name} {n}" for name, n in sorted(by_type.items())),
+            ]
+        else:
+            lines.append(
+                "  None. Every flag this round is corroborated by a §1.4 span."
             )
     else:
         lines.append(
@@ -922,13 +1092,23 @@ def _audit_block(report: Mapping, *, iteration: int) -> tuple[str, dict]:
         "**How to read a flag** (§5), three cases:",
         "",
         "- **Flagged and also in the §1.4 error spans** — corroborated by gold. The "
-        "strongest signal available; act on these first.",
+        "strongest signal available; act on these first. These are the marked rows above.",
         "- **Flagged and not in §1.4** — either a gold annotation gap or an Auditor false "
         "positive. **You may not resolve this and may not write a rule on the Auditor's "
-        "word alone.** It is recorded for human review.",
-        "- **In §1.4 and not flagged** — both mechanisms missed it. These are the "
-        "highest-value cases in the loop and the easiest to skip, since nothing in this "
-        "table points at them.",
+        "word alone.** It is recorded for human review. These are the unmarked rows.",
+        # Case 3 as a number, not as an absence. §4 says the missing mark is what makes this
+        # case visible, and an agent reading a table of what *is* flagged has nothing drawing
+        # it to the spans that are not — the case §5 calls the highest-value and the easiest
+        # to skip. The count is stated; which spans they are is the §1.4 numbers, which the
+        # agent has.
+        f"- **In §1.4 and not flagged — {len(unmatched)} of the "
+        f"{_count(n_missed, f'`{MISSED}` span', f'`{MISSED}` spans')} below.** Both "
+        "mechanisms missed these: the rules did not detect them and the Auditor "
+        "did not flag what the rules left unmasked. They carry no mark above, and that "
+        "absence is the only thing pointing at them. §5 calls them the highest-value cases in "
+        "the loop and the easiest to skip, and they are: "
+        + (", ".join(f"[{i}]" for i in sorted(unmatched)) if unmatched
+           else "none this round."),
     ]
     block_text = "\n".join(lines)
     return block_text, {
@@ -940,6 +1120,16 @@ def _audit_block(report: Mapping, *, iteration: int) -> tuple[str, dict]:
         "audit_flags": counts.get("flags", len(flags)),
         "audit_refused": counts.get("refused", 0),
         "audit_documents": report.get("documents_audited"),
+        # §4's three cases as three numbers, which is what makes the marking measurable
+        # across rounds and across arms. Recorded rather than recomputed by a reader: the
+        # overlap is this function's arithmetic, and a reader holding the report and the
+        # sample would be reimplementing it — with `matched` as a count of *flags* and
+        # `unflagged_missed` a count of *spans*, which are not the same thing when one flag
+        # covers two adjacent gold identifiers.
+        "audit_flags_corroborated": sum(1 for mark in marks if mark is not None),
+        "audit_flags_unresolved": sum(1 for mark in marks if mark is None),
+        "audit_unflagged_missed_spans": len(unmatched),
+        "audit_sample_missed_spans": n_missed,
         # The rendered block, for `score_block_sha256`'s reason one function up. The report
         # itself is at `paths.auditreport` under the round `audit_iteration` names.
         "audit_block_sha256": _digest(block_text),
@@ -1299,3 +1489,216 @@ def mask_document(document: Document, spans: Sequence) -> MaskedDocument:
         }),
         lines=lines,
     )
+
+
+# ─── the Auditor's call: §§1.1–1.2 of `auditor.md` ───────────────────────────
+
+
+def _auditor_template() -> str:
+    """`docs/prompts/auditor.md` as it stands on disk, sent verbatim.
+
+    Resolved through `src.sample`'s module globals for `_template()`'s reason, and the
+    reason is sharper here: this file is in `WINDOW_FILES` (DESIGN §5.5) precisely so that
+    the freeze record cannot agree with a rewritten Auditor, and a second resolution of the
+    path is how a record comes to hash one file while the call was shown another.
+
+    Verbatim rather than §1 alone. §2 fixes the output schema the validator enforces, §3 the
+    prohibition on quoting the text, and §5 the empty tool list — an assembler forwarding
+    only the input would be asking for a JSON object whose schema it never sent, and
+    `src/porting/audit.py` would then refuse the answer for a shape the agent was not given.
+    """
+    return (sample_module.ROOT / sample_module.AUDITOR_TEMPLATE).read_text(
+        encoding="utf-8")
+
+
+def _audit_frame(corpus: str) -> str:
+    """`auditor.md` §1.1's four required elements. Every value from `config/naming.yaml`.
+
+    The four, in the order that file lists them: the canonical types with their own glosses,
+    the mask tag form so a tag is recognisable, the §9.1 exclusions **named** as out of
+    scope, and that `OTHER` may not be flagged.
+
+    **The exclusions are named rather than omitted, and that is the element with a cost.**
+    An Auditor that flags `madre` is not wrong about the text; it is answering a question
+    this project does not ask, and the flag lands in the least actionable category of the
+    report (§4's case 2, the one the RuleAuthor may not act on). Left to inference, the
+    absence of sex from a ten-item list is equally consistent with "not in scope" and with
+    "the list is a summary" — so the list is stated and the reason with it, from
+    `excluded_types()`, whose block exists for this sentence.
+
+    **Both mask tag forms, and neither spelled here.** The homogeneous form comes from
+    `TAG_FORM` with an axis value in it, the heterogeneous one from
+    `masked_tag_heterogeneous()`. The second is shown because §1.2's "a tag is not a
+    candidate" has to cover it without a second clause — an agent shown only the typed forms
+    would read the heterogeneous one as text it had not been told about, which is exactly the
+    shape of a residual identifier.
+
+    Every typed tag rather than two examples, for the reason in the body: a frame showing the
+    first two of the axis goes on rendering while the agent meets a third form, and indexing
+    a sorted axis by position turns a one-value axis into a crash in the assembler.
+
+    No document text and no `doc_id`: this block is the frame, and the document arrives as
+    §1.2 from the masker.
+    """
+    if corpus not in corpus_ids():
+        raise PromptError(
+            f"{corpus!r} is not a corpus in config/naming.yaml (have: {corpus_ids()}). "
+            "The frame names the corpus being audited, and a value the config does not "
+            "declare would name a run no results path can hold."
+        )
+    types = axis("phi_type")
+    blocked = non_target_types()
+    excluded = excluded_types()
+    flaggable = sorted(set(types) - blocked)
+
+    lines = [
+        f"### {AUDIT_FRAME} Task frame",
+        "",
+        f"This call is being run for {corpus}. You are reading one masked document and "
+        "returning the residual identifiers you believe survived masking.",
+        "",
+        f"Canonical `phi_type` values, verbatim from config/naming.yaml with its own gloss "
+        f"({len(flaggable)} of them may be flagged):",
+        "",
+    ]
+    for name in sorted(types):
+        # The gloss as it stands, nothing appended — `_task_frame()`'s rule, and the
+        # `OTHER` prohibition gets its own paragraph below for the same reason: a marker
+        # here would restate the sentence `non_target_types()` derived it from.
+        lines.append(f"  {name:<16} {types[name]}")
+    lines += [
+        "",
+        "**Mask tags.** Every span this arm's rules detected has been replaced by its type "
+        "tag. These are the tags, one per canonical type:",
+        "",
+        # Every tag rather than two examples, and no indexing into the axis: a frame that
+        # showed the first two would go on working while the agent met a third form it had
+        # not been shown, and an axis of one value would make the slice a crash in the
+        # assembler.
+        "  " + "  ".join(TAG_FORM.format(phi_type=name) for name in sorted(types)),
+        "",
+        f"and {masked_tag_heterogeneous()}, where two overlapping detections disagreed "
+        "about the type. It names no type and it is a tag like any other. **A tag is not a "
+        "candidate**: it marks something already found, so flagging one reports a detection "
+        "back to its own detector.",
+        "",
+    ]
+    for name in sorted(blocked):
+        lines.append(
+            f"**{name} may not be flagged.** config/naming.yaml declares it "
+            f"({types[name]}), so no rule can be written against it and a flag carrying it "
+            "costs prompt space and returns nothing. The validator refuses it "
+            "(auditor.md §2.3, undeclared_phi_type)."
+        )
+    lines += [
+        "",
+        "**Out of scope entirely — not types of this axis, and not to be flagged under any "
+        "type** (DESIGN §9.1). These are excluded from the canonical set by decision, not "
+        "by oversight:",
+        "",
+    ]
+    for name in sorted(excluded):
+        lines.append(f"  {name:<16} {excluded[name]}")
+    lines += [
+        "",
+        "A flag on one of those is not wrong about the text — it is an answer to a question "
+        "this project does not ask, and it lands in the least actionable part of the "
+        "report.",
+    ]
+    return "\n".join(lines)
+
+
+def assemble_audit_prompt(
+    *,
+    corpus: str,
+    masked: MaskedDocument,
+) -> FilledPrompt:
+    """One Auditor call's prompt: the template, then §1.1, then one masked document.
+
+    **One call per document** (`auditor.md` §1.3), so this takes one `MaskedDocument` and
+    not a fold. The three reasons are that file's and none of them is about tokens: recall
+    degrades along a very long context and would make the per-document flag rate a function
+    of position in the batch; a failed call then loses one document rather than the fold;
+    and `doc_id` never has to come from the agent, because the caller knows which document
+    it sent. The `doc_id` on the returned reference is `masked.doc_id` for that last reason
+    — it is the harness's, and `src/porting/audit.py` takes it as a keyword rather than
+    reading it out of the response.
+
+    **The masked block is taken through `for_transport()` and not re-rendered.** The masker
+    is the function that slices the document (§6, DESIGN §3) and it has already done it; the
+    line prefixes, the geometry and the counts are its output, and a second rendering here
+    would be a second place the ±0-characters-of-context bound is established by hand. This
+    function adds a frame and a heading.
+
+    **This is the largest corpus exposure in the project** — `auditor.md` §6 puts the masked
+    dev fold at about 40× §1.4's window, and a majority of the in-scope identifiers in it
+    are *unmasked*, because unmasked is what "leaked" means. Returns a `FilledPrompt` for
+    that reason above every other: assembled in memory, sent, discarded. The reference form
+    carries the document id, the counts, the hashes and the window files — no text.
+
+    No scores, no rule file, no gold, no previous report: §1.2's withheld table is enforced
+    by this signature, which has nowhere to put any of them. A parameter for one would be
+    the edit that breaks the role, so the refusal is that the parameter does not exist.
+    """
+    if not isinstance(masked, MaskedDocument):
+        raise PromptError(
+            f"the masked document must be a MaskedDocument, got "
+            f"{type(masked).__name__}. It is `mask_document()`'s return — the block and "
+            "the geometry `validate_flags()` translates against (auditor.md §1.2). A "
+            "string here would be masked corpus text outside the type that exists to hold "
+            "it (DESIGN §3)."
+        )
+    reference = masked.block.reference()
+    frame = _audit_frame(corpus)
+    stated = reference.get("corpus")
+    if stated != corpus:
+        raise PromptError(
+            f"the masked document is from corpus {stated!r} and this call is being run for "
+            f"{corpus!r}. The frame names one corpus and the document belongs to another, "
+            "so the two disagree about which fold is being audited — and every offset the "
+            "agent returns would be translated against the document that was sent while "
+            "the report recorded the corpus that was not."
+        )
+
+    text = "\n\n".join([
+        _auditor_template(),
+        INPUT_BANNER,
+        frame,
+        f"### {MASKED_DOCUMENT} The masked document — "
+        f"{_count(reference['n_lines'], 'line', 'lines')}, "
+        f"{_count(reference['n_tags'], 'mask tag', 'mask tags')}",
+        "",
+        "Every line is prefixed with its start offset in the **masked** text and then "
+        f"`{LINE_SEPARATOR.strip()} `. The prefix is not part of the line: column 0 is the "
+        f"character after it. Coordinates are `(line, start, end)` with `start`/`end` "
+        "columns **within that line**, half-open, and a flag does not cross a line "
+        "boundary.",
+        "",
+        # The one exit that hands text to a caller, and the caller is this function
+        # assembling one prompt — `assemble_iteration_prompt`'s treatment of the window.
+        masked.block.for_transport(),
+        "Return one JSON object: the flags for this document, and nothing else. An empty "
+        "list is required where you found nothing — `{\"flags\": []}` means this document "
+        "was audited and nothing survived, which is a measurement. Do not quote, "
+        "transcribe, paraphrase or describe the text you flag: emit its position and its "
+        "type.",
+    ])
+    return FilledPrompt(text, {
+        "block": "audit",
+        "corpus": corpus,
+        # The harness's `doc_id`, carried so that a call line can be matched to the document
+        # it audited without the agent ever having typed one (§1.3's third reason).
+        "doc_id": masked.doc_id,
+        "sections_filled": list(AUDIT_SECTIONS),
+        # Present and empty for `assemble_task_prompt`'s reason: a key some calls omit
+        # cannot be compared across calls. The Auditor's template has two §1 blocks and
+        # fills both, so this is empty rather than absent.
+        "sections_empty": [],
+        # The masked block's own reference, nested rather than merged — `error_spans`'s
+        # reason one function over: it holds its own `text_sha256` beside this prompt's, and
+        # a merge would put a block's hash under a name that means the whole call's.
+        "masked_document": reference,
+        "text_chars": len(text),
+        "text_sha256": _digest(text),
+        "window_files": {name: file_hash(name) for name in WINDOW_FILES},
+    })

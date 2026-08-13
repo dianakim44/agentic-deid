@@ -40,18 +40,19 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from src.corpora.base import (                                   # noqa: E402
-    Document, Span, axis, masked_tag_heterogeneous,
+    Document, Span, axis, excluded_types, masked_tag_heterogeneous,
 )
 from src.llm import prompt as prompt_module                      # noqa: E402
 from src.llm.prompt import (                                     # noqa: E402
-    COUNT_KEYS, EMPTY_SECTIONS, FILLED_SECTIONS, ITERATION_SECTIONS, LINE_OFFSET_WIDTH,
-    LINE_SEPARATOR, FilledPrompt, MaskedDocument, PromptError, assemble_iteration_prompt,
-    assemble_task_prompt, mask_document, render_window,
+    AUDIT_SECTIONS, COUNT_KEYS, EMPTY_SECTIONS, FILLED_SECTIONS, ITERATION_SECTIONS,
+    LINE_OFFSET_WIDTH, LINE_SEPARATOR, TAG_FORM, FilledPrompt, MaskedDocument, PromptError,
+    assemble_audit_prompt, assemble_iteration_prompt, assemble_task_prompt, mask_document,
+    render_window,
 )
 from src.porting.audit import MaskedLine, validate_flags         # noqa: E402
 from src.rules import rule_layers                                # noqa: E402
 from src.sample import (                                         # noqa: E402
-    MISSED, WINDOW_FILES, ErrorSpan, non_target_types,
+    FALSE_POSITIVE, MISSED, WINDOW_FILES, ErrorSpan, non_target_types,
 )
 
 MODULE = ROOT / "src" / "llm" / "prompt.py"
@@ -819,6 +820,281 @@ def test_the_three_cases_for_reading_a_flag_are_stated():
     assert "may not write a rule on the Auditor's word alone" in text
     assert "highest-value" in text
     assert "corroborated by gold" in text
+
+
+# ── §4's `[nn]` marking: where each of the three cases is visible ──
+
+
+def marked(flags, sample, iteration: int = 3) -> str:
+    """A round-3 block with a chosen flag set and a chosen §1.4 sample.
+
+    `docs_by_id` holds one long document for every `doc_id` the sample names, so a test can
+    place a sample span anywhere without the renderer refusing a missing document.
+    """
+    ids = {span.doc_id for span in sample}
+    return shown(iterated(
+        audit_report=audit_report(iteration, flags=flags),
+        errors=list(sample),
+        docs_by_id={doc_id: doc(doc_id) for doc_id in ids},
+        iteration=iteration,
+    ))
+
+
+def marks_of(text: str) -> list[str]:
+    """The `[nn]` marks on the flag rows, in the order the block prints them.
+
+    Read out of the rendered block rather than from a return value, because the mark's whole
+    job is to be a number the agent can look up in §1.4 — a correct index rendered onto the
+    wrong row would satisfy any assertion over the computation alone.
+    """
+    body = text.rsplit("**Corroborated by gold", 1)[-1].split("**How to read a flag", 1)[0]
+    return [line.split("]")[0].strip("[ ") for line in body.split("\n")
+            if line.startswith("  [")]
+
+
+def test_a_flag_overlapping_a_sample_span_carries_that_spans_number():
+    """§4's case 1, and the number is §1.4's own.
+
+    `render_window` prints `[{i:2}]` over the same sequence, so the mark resolves to a block
+    the agent already holds — which is what makes corroboration cost four characters instead
+    of ±120 of context.
+    """
+    sample = [err(index=0, start=1000), err(index=1, start=4000),
+              err(index=2, start=7000)]
+    text = marked([a_flag(start=4000, end=4014)], sample)
+    assert marks_of(text) == ["2"], (
+        "the flag overlaps the second sample span and must carry its §1.4 number"
+    )
+
+
+def test_the_mark_is_the_index_the_window_actually_printed():
+    """The two enumerations are one walk over one list.
+
+    A sort in either place — the marker's or the renderer's — produces marks that point at
+    the wrong rows and a block that reads perfectly. Asserted by placing the sample out of
+    offset order, which is the state a sort would silently repair.
+    """
+    sample = [err(index=0, start=7000), err(index=1, start=1000)]
+    text = marked([a_flag(start=1000, end=1014)], sample)
+    assert marks_of(text) == ["2"]
+    window = text.rsplit("### 1.4 Error spans", 1)[-1]
+    assert window.index("[ 1] type") < window.index("[ 2] type")
+    # `[2]`'s context is the one holding the flagged offset, which is what the mark claims.
+    second = window.split("[ 2] type", 1)[-1]
+    assert SURFACE in second.split("offsets", 1)[0]
+
+
+def test_a_flag_overlapping_nothing_carries_no_mark_and_is_listed_separately():
+    """§4's case 2. Position, type and score, in a section that says why.
+
+    The prohibition sits in that section rather than only in the three-case list: the agent
+    reading a row is at the point of deciding whether to write a rule for it.
+    """
+    text = marked([a_flag(phi_type="PROFESSION", start=5000, end=5008)],
+                  [err(index=0, start=1000)])
+    assert marks_of(text) == []
+    assert "(5000, 5008)" in text
+    assert "may not write a rule for an individual one" in text
+
+
+def test_the_unresolved_flags_arrive_with_their_per_type_counts():
+    """§4: the per-type count is the only use of case 2 that §5 permits.
+
+    "31 unresolved `PROFESSION` flags" is a type priority; no individual row is anything the
+    agent may act on. Both counts are printed and labelled apart — the unresolved share and
+    the report's own `by_phi_type` — because one alone is a number the agent reads as the
+    other.
+    """
+    flags = [a_flag(phi_type="PROFESSION", start=5000, end=5008),
+             a_flag(phi_type="PROFESSION", start=6000, end=6008),
+             a_flag(phi_type="NAME", start=1000, end=1014)]
+    text = marked(flags, [err(index=0, start=1000)])
+    section = text.rsplit("**Unresolved", 1)[-1]
+    assert "unresolved by type   PROFESSION 2" in section
+    assert "all flags by type    NAME 1, PROFESSION 2" in section
+
+
+def test_a_missed_span_with_no_mark_is_named_as_the_highest_value_case():
+    """**§4's case 3, and the reason it is a number rather than an absence.**
+
+    Nothing in a table of what *was* flagged points at what was not. §5 calls this the
+    highest-value case in the loop and the easiest to skip, and an agent reading only the
+    flags would skip it — so the count and the §1.4 numbers are stated outright.
+    """
+    sample = [err(index=0, start=1000), err(index=1, start=4000),
+              err(index=2, start=7000)]
+    text = marked([a_flag(start=4000, end=4014)], sample)
+    case3 = text.rsplit("In §1.4 and not flagged", 1)[-1]
+    assert "2 of the 3 `missed` spans" in case3
+    assert "[1], [3]" in case3
+
+
+def test_a_false_positive_in_the_sample_is_not_a_case_three():
+    """**The kind is load-bearing, and this is the defect that would inflate the count.**
+
+    A `false_positive` sample span is one the arm predicted and gold does not have, so it was
+    *masked* before the Auditor read the document — there was nothing left for a flag to
+    overlap. Counting it as case 3 would report "both mechanisms missed it" about an
+    identifier that is not in gold at all, and the number would grow with the arm's false
+    positive rate: the direction that makes the highest-value case look common while the real
+    ones stay buried in it.
+    """
+    fp = ErrorSpan(doc_id="dev1", span_index=1, phi_type="NAME", kind=FALSE_POSITIVE,
+                   start=4000, end=4014)
+    sample = [err(index=0, start=1000), fp]
+    text = marked([a_flag(start=1000, end=1014)], sample)
+    case3 = text.rsplit("In §1.4 and not flagged", 1)[-1]
+    assert "0 of the 1 `missed` span" in case3
+    assert "none this round" in case3
+
+
+def test_overlap_and_not_byte_equality_is_what_marks_a_flag():
+    """§4, and the reason equality would mark almost nothing.
+
+    The Auditor's offsets were translated from a masked document; the sample's are gold
+    extents from the scorer. Two components measuring one identifier through different
+    geometry agree that it is there, not on where it stops — so a one-character overlap is a
+    mark, and equality would produce an empty corroborated table that reads as an Auditor
+    corroborating nothing.
+    """
+    sample = [err(index=0, start=1000)]          # gold extent (1000, 1014)
+    for start, end in [(995, 1001), (1013, 1020), (1000, 1014), (1002, 1005),
+                       (900, 1100)]:
+        text = marked([a_flag(start=start, end=end)], sample)
+        assert marks_of(text) == ["1"], (start, end)
+
+
+@pytest.mark.parametrize("start,end", [(986, 1000), (1014, 1028)])
+def test_a_flag_touching_a_sample_span_is_not_marked(start, end):
+    """Half-open extents sharing only a boundary are adjacent identifiers, `mask_document`'s
+    rule.
+
+    A flag on the name must not be marked as corroborating the date that follows it: the mark
+    would send the agent to a §1.4 context whose span is not the one it flagged, and case 1
+    is supposed to be the case where the context is already there.
+    """
+    text = marked([a_flag(start=start, end=end)], [err(index=0, start=1000)])
+    assert marks_of(text) == []
+
+
+def test_a_flag_in_another_document_at_the_same_offsets_is_not_marked():
+    """`doc_id` before offsets. Two documents share an offset range as a matter of course, and
+    a mark computed on offsets alone would corroborate a flag with a gold span it has nothing
+    to do with."""
+    sample = [err(doc_id="dev1", index=0, start=1000)]
+    text = marked([a_flag(doc_id="dev2", start=1000, end=1014)], sample)
+    assert marks_of(text) == []
+
+
+def test_a_flag_over_two_adjacent_sample_spans_takes_the_lower_number():
+    """One flag can cover two gold identifiers — the scorer emits a missed span per gold span
+    — and the mark must not depend on iteration order.
+
+    The lowest §1.4 index, so the same inputs produce the same block. Both spans still count
+    as reached: neither is case 3, because the Auditor did flag the text they sit in.
+    """
+    sample = [err(index=0, start=1000), err(index=1, start=1020)]
+    text = marked([a_flag(start=990, end=1040)], sample)
+    assert marks_of(text) == ["1"]
+    # **The asymmetry the block depends on**: one index is printed, both are counted as
+    # reached. A case-3 count taken from the printed marks alone would report `[2]` as the
+    # highest-value case in the loop — "both mechanisms missed it" about a span the Auditor
+    # pointed straight at — and nothing in the block would show the agent that it had.
+    case3 = text.rsplit("In §1.4 and not flagged", 1)[-1]
+    assert "0 of the 2 `missed` spans" in case3
+    assert "none this round" in case3
+
+
+def test_the_marked_and_unmarked_tables_both_say_so_when_empty():
+    """Zero is a measurement in both directions.
+
+    No corroborated flag means the two mechanisms are pointing at different places, which is
+    information about both; no unresolved flag means every suspicion is backed by gold. An
+    empty table with no sentence reads as a harness that produced half a block.
+    """
+    none_marked = marked([a_flag(start=5000, end=5008)], [err(index=0, start=1000)])
+    assert "pointing at different places" in none_marked
+    all_marked = marked([a_flag(start=1000, end=1014)], [err(index=0, start=1000)])
+    assert "Every flag this round is corroborated" in all_marked
+
+
+def test_the_marking_adds_no_corpus_text_to_the_block():
+    """**§4's bound, and the reason the mark is an index.**
+
+    Rendering ±120 characters around every flag would make the RuleAuthor's window §1.4's 40
+    spans *plus* every flag's context — unbounded, growing with the Auditor's false positive
+    rate, and outside what `config/sampling.yaml` fixes. A mark is a reference into a block
+    the agent already has.
+    """
+    text = marked([a_flag(start=1000, end=1014),
+                   a_flag(phi_type="PROFESSION", start=5000, end=5008)],
+                  [err(index=0, start=1000)])
+    block = text.rsplit("**Corroborated by gold", 1)[-1].split("### 1.4 Error spans", 1)[0]
+    assert SURFACE not in block, "the marking put a surface form in the audit block"
+
+
+def test_the_reference_form_records_the_three_cases_as_three_numbers():
+    """What makes the marking measurable across rounds and across arms.
+
+    Recorded rather than left to a reader holding the report and the sample: the overlap is
+    the assembler's arithmetic, and the flag counts and the span count are not
+    interchangeable — one flag covering two adjacent gold identifiers is one corroborated
+    flag and two reached spans.
+    """
+    sample = [err(index=0, start=1000), err(index=1, start=4000),
+              err(index=2, start=7000)]
+    p = iterated(
+        audit_report=audit_report(3, flags=[a_flag(start=4000, end=4014),
+                                            a_flag(phi_type="PROFESSION", start=5000,
+                                                   end=5008)]),
+        errors=sample,
+        docs_by_id={"dev1": doc()})
+    ref = p.reference()
+    assert ref["audit_flags_corroborated"] == 1
+    assert ref["audit_flags_unresolved"] == 1
+    assert ref["audit_unflagged_missed_spans"] == 2
+    assert ref["audit_sample_missed_spans"] == 3
+
+
+def test_the_sample_is_required_rather_than_defaulted_to_empty():
+    """**An empty default would delete the marking without a symptom.**
+
+    Every flag would render as case 2, case 1 would not exist and case 3 would be invisible —
+    a well-formed block in which §4's whole mechanism is gone. So `_audit_block` has no
+    default for it, and the assembler that has the sample is the one that calls it.
+    """
+    import inspect
+    signature = inspect.signature(prompt_module._audit_block)
+    assert signature.parameters["sample"].default is inspect.Parameter.empty
+
+
+def test_the_marked_sample_is_the_rendered_sample():
+    """One sequence to both, asserted structurally.
+
+    A copy, a filter or a sort between the two calls is the edit that breaks the
+    correspondence, and it breaks it silently: both blocks render, and the marks point at
+    rows that describe other spans.
+    """
+    fn = functions(tree())["assemble_iteration_prompt"]
+    audit_call = window_call = None
+    for node in ast.walk(fn):
+        if isinstance(node, ast.Call):
+            name = node.func.id if isinstance(node.func, ast.Name) else ""
+            if name == "_audit_block":
+                audit_call = node
+            elif name == "render_window":
+                window_call = node
+    assert audit_call is not None and window_call is not None
+    passed = [kw.value for kw in audit_call.keywords if kw.arg == "sample"]
+    assert len(passed) == 1 and isinstance(passed[0], ast.Name), (
+        "_audit_block's sample is not a bare name — a copy or a sort between the two calls "
+        "is what makes the marks point at the wrong §1.4 rows."
+    )
+    assert isinstance(window_call.args[0], ast.Name)
+    assert passed[0].id == window_call.args[0].id, (
+        f"_audit_block marks {passed[0].id} and render_window renders "
+        f"{window_call.args[0].id}. §4's `[nn]` is the number the window printed."
+    )
 
 
 def test_no_flags_is_reported_as_a_measurement():
@@ -1732,6 +2008,360 @@ def test_the_masked_text_is_not_reachable_from_the_masked_document():
     assert text not in str(m.block) and text not in repr(m.block)
     with pytest.raises(PromptError, match="not a terminal"):
         m.block.to_terminal(io.StringIO())
+
+
+# ─── the Auditor's call: §§1.1–1.2 of `auditor.md` ───────────────────────────
+
+
+def audited(text: str = "Ana vive en Cadiz", spans=None, corpus: str = "es-meddocan",
+            doc_id: str = "dev1") -> FilledPrompt:
+    """One Auditor call, from an invented document. No corpus is read here."""
+    if spans is None:
+        spans = [pred(0, 3, "NAME", text)]
+    return assemble_audit_prompt(
+        corpus=corpus, masked=masked(text, spans, doc_id=doc_id))
+
+
+def test_the_audit_prompt_is_a_filled_prompt():
+    """**The one assembler where the type is the point rather than the convention.**
+
+    `auditor.md` §6 puts the masked dev fold at about 40× §1.4's window, and unlike the
+    RuleAuthor's window a majority of the in-scope identifiers in it are *unmasked* —
+    unmasked is what "leaked" means. A string return here would leave the largest corpus
+    exposure in the project loose in every caller.
+    """
+    p = audited()
+    assert isinstance(p, FilledPrompt)
+    assert not isinstance(p, str)
+
+
+def test_the_call_carries_the_auditor_template_verbatim():
+    """§2's schema, §3's prohibition on quoting, §5's empty tool list.
+
+    Forwarding §1 alone would ask for a JSON object whose schema the agent was never given,
+    and `src/porting/audit.py` would then refuse the answer for a shape nobody sent.
+    """
+    template = (ROOT / "docs" / "prompts" / "auditor.md").read_text(encoding="utf-8")
+    assert template in shown(audited())
+
+
+def test_the_frame_names_every_canonical_type_with_its_own_gloss():
+    """§1.1's first element, read from the config for `_task_frame`'s reason: a copy here
+    would agree with a prompt that had drifted from the axis."""
+    text = shown(audited())
+    for name, gloss in axis("phi_type").items():
+        assert name in text, f"the audit frame omits the {name} phi_type"
+        assert gloss in text, f"the audit frame omits {name}'s gloss"
+
+
+def test_the_frame_shows_every_mask_tag_and_not_a_sample_of_them():
+    """§1.1's second element, and the reason it is every tag.
+
+    A frame showing two examples goes on rendering correctly while the agent meets a third
+    form it was never shown — and an unrecognised `[PROFESSION]` reads as text, which is
+    exactly the shape of a residual identifier. Every canonical type, including the ones
+    that may not be flagged: a tag for `OTHER` still appears in a masked document, because
+    masking is what this arm's rules detected and not what the Auditor may report.
+    """
+    text = shown(audited())
+    for name in axis("phi_type"):
+        assert TAG_FORM.format(phi_type=name) in text, f"the frame omits {name}'s tag"
+
+
+def test_the_frame_shows_the_heterogeneous_tag_beside_the_others():
+    """§1.2's "a tag is not a candidate" has to cover `[PHI]` without a second clause.
+
+    Read from the config rather than written out — `test_masked_tag.py` owns the value, and
+    this asserts the frame carries whatever it is.
+    """
+    text = shown(audited())
+    tag = masked_tag_heterogeneous()
+    assert tag in text
+    assert "not a candidate" in text
+
+
+def test_the_frame_says_a_tag_marks_something_already_found():
+    """§1.2's sentence, stated rather than implied.
+
+    Without it the masked document reads as a list of candidates, and a flag on a tag
+    reports a detection back to the detector that made it — the one flag category that
+    cannot teach the RuleAuthor anything.
+    """
+    text = shown(audited())
+    assert "already found" in text
+
+
+def test_the_frame_says_the_residual_bucket_may_not_be_flagged():
+    """§1.1's fourth element. Found through `non_target_types()` for
+    `test_the_task_frame_says_the_residual_bucket_is_not_a_target`'s reason.
+
+    Named with the refusal it would meet: `audit.py` rejects such a flag as
+    `undeclared_phi_type`, so an agent that emits one has spent a call on a value the
+    validator drops.
+    """
+    text = shown(audited())
+    assert non_target_types(), "no non-target type to check — the fixture has drifted"
+    for name in non_target_types():
+        assert f"{name} may not be flagged" in text
+    assert "undeclared_phi_type" in text
+
+
+def test_the_frame_names_the_section_9_1_exclusions_with_their_reasons():
+    """**§1.1's third element, and the one with a cost.**
+
+    Named rather than omitted because inference from an absence goes the wrong way: ten
+    types with no mention of sex is equally consistent with "out of scope" and with "the
+    list is a summary". The reasons travel with the names because §9.1 excludes for two
+    different reasons, and the guess an agent would make for `NAME_TITLE` is the wrong one.
+    """
+    text = shown(audited())
+    for name, reason in excluded_types().items():
+        assert name in text, f"the audit frame omits the §9.1 exclusion {name}"
+        assert reason in text, f"the audit frame omits {name}'s reason"
+
+
+def test_an_exclusion_is_not_presented_as_a_type_that_may_be_flagged():
+    """The distinction the frame has to carry: `OTHER` is a type nobody may flag, the three
+    exclusions are not types of this axis at all.
+
+    Collapsing them into one list would be the plausible tidying — both are "do not flag" —
+    and it would tell the agent that sex is a `phi_type`, which is the state DESIGN §9.1
+    decided against.
+    """
+    text = shown(audited())
+    assert "not types of this axis" in text
+    for name in excluded_types():
+        assert TAG_FORM.format(phi_type=name) not in text, (
+            f"the frame shows {name} as a mask tag, which presents an §9.1 exclusion as a "
+            "type of the axis"
+        )
+
+
+def test_the_frame_does_not_index_into_the_axis_for_its_examples():
+    """Structural, because the defect is invisible on today's config.
+
+    `sorted(...)[0]` and `[1]` render two plausible tags and raise `IndexError` on an axis
+    with fewer than two flaggable types — a crash in the assembler, reached only by an
+    edit to `naming.yaml`, which is the wrong place to discover it.
+    """
+    fn = functions(tree())["_audit_frame"]
+    for node in ast.walk(fn):
+        if isinstance(node, ast.Subscript) and isinstance(node.slice, ast.Constant) and \
+                isinstance(node.slice.value, int):
+            raise AssertionError(
+                "_audit_frame indexes a sorted axis by position. The frame shows every "
+                "tag; a positional example is one an axis of one value turns into a crash."
+            )
+
+
+def test_the_masked_document_arrives_through_the_maskers_own_block():
+    """§1.2, and DESIGN §3's division of labour.
+
+    The masker is the function that slices the document and it has already done it. A second
+    rendering here would be a second place the geometry — the prefixes, the line starts, the
+    tag extents — is established by hand, and `validate_flags()` translates against the
+    masker's `MaskedLine`s, not against this function's idea of them.
+    """
+    text = "Ana vive en Cadiz"
+    m = masked(text, [pred(0, 3, "NAME", text)])
+    assert m.block.for_transport() in shown(assemble_audit_prompt(
+        corpus="es-meddocan", masked=m))
+
+
+def test_the_coordinate_convention_is_stated_where_the_document_is():
+    """§1.3: columns from 0 after the separator, half-open, and never across a line.
+
+    Stated in the prompt rather than left to the template, because the block the agent is
+    looking at is the one with the prefixes on it and the prefix is the thing most easily
+    counted by mistake. `_to_document` translates as this paragraph describes, so a prompt
+    that omitted it would produce flags whose arithmetic the code does not share.
+    """
+    text = shown(audited())
+    assert "not part of the line" in text
+    assert "(line, start, end)" in text
+    assert "half-open" in text
+    assert "does not cross a line" in text
+
+
+def test_the_heading_counts_the_lines_and_the_tags_it_is_about():
+    """The geometry the agent is counting against, stated as a number it can check.
+
+    And singular where the number is one: "1 mask tags" is a small thing to a reader and a
+    different thing to an agent being told the shape of what it is reading.
+    """
+    text = "Ana"
+    one = shown(assemble_audit_prompt(
+        corpus="es-meddocan", masked=masked(text, [pred(0, 3, "NAME", text)])))
+    assert "1 line, 1 mask tag" in one
+    two = "Ana vive\nBea vive"
+    both = shown(assemble_audit_prompt(
+        corpus="es-meddocan",
+        masked=masked(two, [pred(0, 3, "NAME", two), pred(9, 12, "NAME", two)])))
+    assert "2 lines, 2 mask tags" in both
+
+
+def test_an_empty_flag_list_is_required_rather_than_permitted():
+    """§2.1. A document the Auditor cleared is a measurement — it is a leak rate of zero on
+    that document — and an agent that answers nothing has produced no measurement at all."""
+    text = shown(audited())
+    assert '{"flags": []}' in text
+    assert "is a measurement" in text
+
+
+def test_the_agent_is_told_not_to_describe_what_it_flags():
+    """§3, restated in the input rather than left in the template.
+
+    The template says it once, several hundred lines above the document; this is the
+    instruction the flags are emitted against, and CLAUDE.md's rule is that the surface form
+    does not travel — a paraphrase in a JSON field is the surface form travelling.
+    """
+    text = shown(audited())
+    for word in ("quote", "transcribe", "paraphrase", "describe"):
+        assert word in text, word
+
+
+def test_a_document_from_another_corpus_is_refused():
+    """The frame names one corpus and the block belongs to another.
+
+    Not a cosmetic disagreement: every offset the agent returns is translated against the
+    document that was sent while the report records the corpus that was not, so the audit
+    report names a fold whose text it never saw.
+    """
+    text = "Ana vive"
+    m = masked(text, [pred(0, 3, "NAME", text)])          # corpus_id es-meddocan
+    with pytest.raises(PromptError, match="es-carmen"):
+        assemble_audit_prompt(corpus="es-carmen", masked=m)
+
+
+def test_a_corpus_outside_the_config_is_refused():
+    with pytest.raises(PromptError, match="not a corpus"):
+        audited(corpus="es-invented")
+
+
+@pytest.mark.parametrize("bad", ["Ana vive", None, 42, [], {"lines": []}])
+def test_a_masked_document_that_is_not_the_type_is_refused(bad):
+    """A string here is masked corpus text outside the type that exists to hold it, and it
+    would be assembled into a prompt with no geometry to translate a flag against."""
+    with pytest.raises(PromptError, match="MaskedDocument"):
+        assemble_audit_prompt(corpus="es-meddocan", masked=bad)
+
+
+@pytest.mark.parametrize("name", ["metrics", "errors", "rules_path", "audit_report",
+                                  "spans", "gold", "scores", "iteration"])
+def test_the_signature_has_nowhere_to_put_the_withheld_inputs(name):
+    """**§1.2's withheld table, enforced by the signature rather than by a check.**
+
+    Gold, the score block, `rules/{lang}.yaml`, the previous round's report: each is withheld
+    for its own reason, and the strongest form of the refusal is that no parameter accepts
+    it. A keyword that raised would be a keyword a later edit can start honouring.
+    """
+    text = "Ana vive"
+    m = masked(text, [pred(0, 3, "NAME", text)])
+    with pytest.raises(TypeError, match="keyword argument"):
+        assemble_audit_prompt(corpus="es-meddocan", masked=m, **{name: object()})
+
+
+def test_the_reference_form_carries_the_document_id_and_no_text():
+    """What may be recorded about the largest prompt in the project.
+
+    The `doc_id` is the harness's — §1.3's third reason for one call per document is that it
+    never has to come from the agent — so a call line can be matched to the document it
+    audited without the response having named one.
+    """
+    text = f"Zzyzxpaciente {SURFACE} Qxwvunosenta Vurblesmith"
+    p = assemble_audit_prompt(
+        corpus="es-meddocan",
+        masked=masked(text, [pred(14, 14 + len(SURFACE), "NAME", text)], doc_id="dev7"))
+    ref = p.reference()
+    body = json.dumps(ref)
+    for word in [SURFACE, *text.split()]:
+        assert word not in body, word
+    assert ref["block"] == "audit"
+    assert ref["doc_id"] == "dev7"
+    assert ref["corpus"] == "es-meddocan"
+    assert ref["text_sha256"].startswith("sha256:")
+
+
+def test_the_reference_form_records_both_blocks_as_filled():
+    """The Auditor's template has two §1 blocks and every call fills both.
+
+    `sections_empty` is present and empty rather than absent, for `assemble_task_prompt`'s
+    reason: a key some calls omit is one no reader can compare across calls.
+    """
+    ref = audited().reference()
+    assert ref["sections_filled"] == list(AUDIT_SECTIONS)
+    assert ref["sections_empty"] == []
+
+
+def test_the_masked_reference_is_nested_and_not_merged():
+    """Two `text_sha256` values under two names a reader has to tell apart.
+
+    The block's hash is over what the masker rendered; the prompt's is over the whole call.
+    Merged, the record would hold one under a name that means the other — the same defect
+    `error_spans` avoids one assembler over.
+    """
+    ref = audited().reference()
+    assert ref["masked_document"]["block"] == "masked_document"
+    assert ref["masked_document"]["text_sha256"] != ref["text_sha256"]
+    assert ref["masked_document"]["n_tags"] == 1
+
+
+def test_the_prompt_is_hashed_against_the_window_files():
+    """`auditor.md` is a window file (DESIGN §5.5), so this call's record names the same
+    three files every other prompt's does — and the freeze record cannot agree with a
+    rewritten Auditor."""
+    ref = audited().reference()
+    assert set(ref["window_files"]) == set(WINDOW_FILES)
+
+
+def test_the_template_is_resolved_through_the_module_that_hashes_it():
+    """One path resolution, for `_template()`'s reason.
+
+    A second literal path is how a record comes to hash one file while the call was shown
+    another — and this file is in `WINDOW_FILES` precisely so that cannot happen.
+    """
+    fn = functions(tree())["_auditor_template"]
+    # The docstring names the file it sends, which is documentation and not a resolution;
+    # the statements are what would hold a second path. `ast.get_docstring` is not used to
+    # strip it, because a function whose body is only a docstring must not read as clean.
+    statements = [n for n in fn.body
+                  if not (isinstance(n, ast.Expr) and isinstance(n.value, ast.Constant))]
+    assert statements, "_auditor_template has no body but a docstring"
+    source = "\n".join(
+        ast.get_source_segment(MODULE.read_text(encoding="utf-8"), n) for n in statements)
+    assert "AUDITOR_TEMPLATE" in source
+    assert "auditor.md" not in source, (
+        "_auditor_template spells the template path itself. It is resolved through "
+        "src.sample, which is the module that hashes it into the freeze record."
+    )
+
+
+def test_the_audit_assembler_returns_only_a_filled_prompt_call():
+    """Structural, for `render_window`'s reason and with more at stake: this is the assembler
+    that carries unmasked corpus text, so a bare-string return is the one edit that would
+    put the whole masked document into a caller's local variable."""
+    fn = functions(tree())["assemble_audit_prompt"]
+    returns = [n for n in ast.walk(fn) if isinstance(n, ast.Return)]
+    assert returns, "assemble_audit_prompt has no return statement to check"
+    for node in returns:
+        value = node.value
+        assert isinstance(value, ast.Call) and isinstance(value.func, ast.Name) and \
+            value.func.id == "FilledPrompt", (
+            "assemble_audit_prompt returns something other than a FilledPrompt(...) "
+            "construction."
+        )
+
+
+def test_the_assembler_does_not_mask_the_document_itself():
+    """It takes a `MaskedDocument`; it does not build one.
+
+    An assembler that called `mask_document()` would be one a caller could hand a raw
+    `Document` to, and the masking would then happen inside the call whose prompt is hashed
+    — with the arm's predictions arriving from wherever the assembler chose to look for
+    them, rather than from the round that produced them.
+    """
+    calls = body_calls(functions(tree())["assemble_audit_prompt"])
+    assert "mask_document" not in calls
 
 
 # ─── structure: the module writes nothing, and that includes the renderer ────
