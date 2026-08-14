@@ -77,7 +77,7 @@ from ..rules import RuleError, RuleSet, load_for_corpus
 # corpus path must not appear.
 from ..rules import _relative as rules_relative
 from ..sample import ErrorSpan, SamplingError
-from ..termination import Termination, not_applicable
+from ..termination import PendingTermination, Termination, not_applicable
 from . import sealed_log
 from .scorer import (
     PATH_AXES, REQUIRED_COST, ScorerError, check_run, error_spans, from_documents,
@@ -692,7 +692,7 @@ def run_fold(
     model_lifecycle: Mapping[str, str | None] | None = None,
     cost: Mapping[str, float] | None = None,
     cost_to_date: Mapping[str, float] | None = None,
-    termination: Termination | None = None,
+    termination: Termination | PendingTermination | None = None,
     iteration: int | None = None,
 ) -> tuple[Path, Path, dict]:
     """Detect over the fold, score it, write both files. Returns (spans, metrics, scored).
@@ -769,8 +769,26 @@ def run_fold(
     fold's rules came from iteration 1 of 8 or from a converged loop is invisible from here.
     Omitted, it gives the record of an arm the stopping rule does not apply to —
     `termination.not_applicable(corpus)`, which is `R`'s and the `port-oneshot` rungs' true
-    state and not a placeholder for a measurement. `port-loop` will pass
-    `termination.should_stop(corpus, leak_rates)`.
+    state and not a placeholder for a measurement.
+
+    **`port-loop` passes a `PendingTermination` instead, and this function completes it with
+    the one number the caller cannot have** (2026-08-14). A round's verdict is about that
+    round, so it needs that round's dev leak rate — which is `scored["headline"]["leak_rate"]`,
+    produced by the `score()` call below, after the caller has already handed off. So the
+    driver passes the corpus and every *earlier* round's rate, and this function calls
+    `resolve(leak_rate)` on the block it is about to write. Structurally identical to the cost
+    block one argument over: the caller assembles what it knows and this function supplies the
+    quantity only it measured (there, `elapsed`; here, the rate). It is **not** this function
+    deciding anything — `should_stop` is never imported here, the history belongs to the
+    driver, and the rate is passed rather than the verdict, so §3's rule keeps its one
+    implementation and this module still cannot tell a converged loop from round 1 of 8. An
+    already-resolved `Termination` is still accepted, which is what `not_applicable` is and
+    what a caller that has a verdict for its own reasons passes.
+
+    The mode is the headline's, `fully_covered` (CLAUDE.md, DESIGN §9.3), read from `scored`
+    by key rather than chosen here: §3's rule is a threshold on the headline leak rate, and a
+    stopping rule fed the relaxed lower bound would stop on differences of a different
+    quantity while every field in the record still looked right.
 
     The default is built here rather than left to the scorer because the scorer *requires* the
     block: an arm that does not iterate still records that fact, for the reason the cost block
@@ -801,7 +819,18 @@ def run_fold(
     Instead the un-iterated pair is rewritten each round from that round's `predictions` and
     `scored`, so it holds the latest round throughout and the final round when the loop
     stops. That is exactly what §5.5 asks for, and it is reached without anyone knowing the
-    future. **Both copies come from the one `score()` call in this function**, which is the
+    future.
+
+    One correction to the paragraph above, since `PendingTermination` arrived after it: with a
+    pending block resolved here, "is this the last round" *is* computable inside this function
+    — it is `resolved.stop`. So the flag is no longer impossible; it is unnecessary, which is a
+    weaker claim and the honest one. It stays refused because rewriting the pair every round
+    reaches the required state with no branch at all, and a `final` branch would make the
+    un-iterated pair's content depend on the stopping rule: a δ edit would then change which
+    round the arm's headline came from, and the two files would disagree about the arm while
+    each stayed internally consistent. Fewer states beats a correctly-computed flag.
+
+    **Both copies come from the one `score()` call in this function**, which is the
     property that matters: two calls could differ — a rule file edited between them, or a
     non-deterministic detector added later — and *neither file would look wrong*, because
     each would be internally consistent with the pass that produced it. So the agreement is
@@ -941,6 +970,14 @@ def run_fold(
     # the sum of the rounds it contains (see the docstring).
     to_date_seconds = round(elapsed + float((cost_to_date or cost or {})
                                             .get("wall_seconds", 0.0)), 3)
+    # A pending block is completed with the round's own leak rate, which is the number the
+    # caller could not have had: it comes from the `score()` call above. The mode is read by
+    # key from `HEADLINE_MODE`'s field rather than named here, so the rule's input is the same
+    # quantity CLAUDE.md calls the headline (DESIGN §9.3) and a mode rename moves both together.
+    # `resolve()` calls `should_stop` and this module does not — the rate travels, not the
+    # verdict (see the docstring).
+    if isinstance(termination, PendingTermination):
+        termination = termination.resolve(scored["headline"]["leak_rate"]["value"])
     # Assembled once and passed to both writes of each file, so the round-scoped copy and
     # the un-iterated one cannot be built from two different cost or termination blocks
     # (DESIGN §5.5). `write_metrics` copies what it is given; nothing below re-derives.

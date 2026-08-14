@@ -448,6 +448,20 @@ and the unit in which "the agent ran longer" is a statement rather than an asser
   reason is therefore recorded, and a ceiling-terminated run may not be described as
   converged.
 
+  **Where that is enforced, now that the loop runs (2026-08-14).** In three places, none of
+  which is a validator, because a validator implies the bad state exists and is caught. The
+  reason is `ceiling` exactly when the cap is reached without k consecutive below-δ rounds,
+  since `should_stop()` evaluates convergence first and independently — an arm whose k-th
+  below-δ round happens to be its 8th is `converged`, and checking the cap first would
+  reclassify it and understate the rule. `Termination.converged` is a *property* derived from
+  the reason rather than a stored field, so `reason: ceiling` beside `converged: true` is
+  unconstructable rather than rejected. And the block is written into every round's
+  `metrics.json` by the writer that scored it, so the ending is in the published file and not
+  only in a driver's return value. `loop.run_iteration()` reads the block back out of that file
+  instead of recomputing it, and refuses to run a round after a stop of either kind — a ceiling
+  stop ends the arm exactly as a convergence stop does, and the difference is what the record
+  says about it, not whether it binds.
+
 **What this licenses:** a stopping rule fixed before the arm ran, applied to `port-loop` and
 to any later iterating arm, with the termination reason and the iteration count reported
 beside the leak rate. **What it does not:** a claim that δ = 0.005 is where returns actually
@@ -1576,7 +1590,82 @@ are the artefact and plumbing questions the two of those leave open.
   need a convention to reconstruct. Adding the key is a schema bump on a file a committed
   record already conforms to, so it is deferred to whoever raises the failure schema next
   rather than done in passing; the driver already computes the value it would write
-  (`loop.run_iteration_2` returns `cost_to_date` on the failure branch too).
+  (`loop.run_iteration` returns `cost_to_date` on the failure branch too).
+- **The stopping rule's missing argument travels to the writer, and the verdict does not
+  travel back: `PendingTermination`** (2026-08-14, decided while implementing rounds 3+). The
+  problem is the one round 2 recorded and left open. A round's `termination` block is a
+  statement about *that* round, so it needs that round's dev leak rate; that rate is produced
+  by the scoring pass the driver asks `run_fold` for, so at the moment the driver has to supply
+  the block it cannot yet compute it. This is the `final=True` impossibility (above) arriving at
+  a different argument.
+
+  **Three shapes were refused before this one, each by a rule already in force.** Scoring the
+  fold twice — once for the rate, once to write — is two passes that could differ with neither
+  file looking wrong, which is exactly why both copies of the round's files come from one
+  `score()` call. Letting the driver patch `metrics.json` after the write makes a published file
+  have two writers, and §5.5's one-writer rule exists because two writers agree with themselves
+  while disagreeing with the run. Letting `run_fold` call `should_stop()` itself puts a
+  pre-registered decision inside the code it decides about, which is `src/termination.py`'s own
+  argument for being a separate module: a stopping rule living in the thing it stops gets
+  adjusted while that thing is debugged, and the adjustment looks like ordinary iteration.
+
+  **The fourth shape sends the argument rather than the answer.** The driver builds
+  `PendingTermination(corpus, previous_leak_rates)` — rounds 1..*N*−1's rates, each read from
+  that round's own `metrics.json` — and `run_fold` calls `resolve(leak_rate)` with the rate it
+  just measured, which calls `should_stop()` and nothing else. None of the three constraints is
+  loosened by it: one scoring pass, because the rate comes from that pass; one writer, because
+  the block is completed before the file is written rather than edited after; one implementation
+  of the rule, because `run_fold` never imports `should_stop` and holds no history. What crosses
+  the boundary is one float in one direction.
+
+  **The precedent is in the same function's same argument list.** `cost` is already a partial
+  block that the writer completes with `elapsed` — the one quantity only it measures — for the
+  identical reason. So this is not a new kind of coupling; it is the existing one at a second
+  field, and stating it that way is what stops the next such field from inventing a fifth shape.
+  `run_fold` still accepts an already-resolved `Termination`, which is what `not_applicable` is
+  and what a non-iterating arm passes.
+
+  **The rate the rule sees is the `fully_covered` headline, read by key.** `resolve`'s caller
+  reads `scored["headline"]["leak_rate"]["value"]` rather than naming a mode, so §3's threshold
+  is on the quantity CLAUDE.md calls the headline and a mode rename moves both together. A rule
+  fed the relaxed lower bound would stop on differences of a different quantity while every
+  field in the record still looked right.
+
+  **Two consequences for the driver, and they are the reason the block is returned as well as
+  written.** `loop.run_iteration()` reads the resolved block back out of the file `run_fold`
+  wrote rather than calling the rule a second time — a second call would be a second answer to
+  "did the arm stop", and the two could disagree while each was internally consistent. And it
+  refuses to run a round the rule has already stopped, because `should_stop` raises above the
+  ceiling: an arm that ran on would be one whose next round cannot evaluate its own stopping
+  rule, so continuing past a stop is not a looser reading of §3 but a state §3 does not cover.
+
+  **The `final=True` paragraph above needs one correction, and it makes a weaker claim rather
+  than a different decision.** With the block resolved inside `run_fold`, "is this the last
+  round" *is* computable there — it is `resolved.stop` — so the flag is no longer impossible,
+  only unnecessary. It stays refused because rewriting the un-iterated pair every round reaches
+  the required state with no branch at all, and a `final` branch would make that pair's content
+  depend on the stopping rule: a δ edit would then change which round the arm's published
+  headline came from, and the two files would disagree about the arm while each stayed
+  internally consistent. Fewer states beats a correctly-computed flag.
+- **Round *N* reads round *N*−1, and that is the loop rather than a fact about round 2**
+  (2026-08-14, same commit). `src/porting/loop.py` has two functions and not eight:
+  `run_iteration_1()` for the arm's first call, and `run_iteration(iteration, …)` for every
+  round after it. Round 3 is round 2 with a longer history, and the history is read from disk.
+
+  All four feedback inputs come from the immediately preceding round and from nowhere else:
+  §1.2 is its rule file (`paths.armrules`), §1.3 is its `metrics.json` reduced plus the audit of
+  its predictions, §1.4 is a seeded draw over its `errors.jsonl`. So the generalisation is
+  total, and a `run_iteration_3()` would be a second copy of one body whose drift from the first
+  is undetectable — the two would assemble different prompts under the same `porting` value and
+  every result would still look right. The round number is a positional first argument with no
+  default, because a default round number is a round chosen by whichever caller forgot.
+
+  **Rounds are contiguous from 1 by construction, and nothing separate enforces it.** The
+  leak-rate sequence the rule needs is read one round at a time through the same reader that
+  refuses a missing score, so an arm with a gap cannot assemble a history that silently omits
+  it. That is the same mechanism the format-failure decision above relies on, used for a second
+  purpose rather than duplicated: one absent `metrics.json` stops the next round whether it is
+  absent because the round failed or because it never ran.
 
 #### 5.5.1 `errors.jsonl` is not a `FilledPrompt`, and where that stops being true
 

@@ -40,6 +40,16 @@ because the convergence test is evaluated first and independently: `reason` is
 requires the two to be distinguishable in `metrics.json`; `Termination.converged` is a
 property derived from the reason rather than a second field a caller could set, so there
 is no state in which a record says `ceiling` and `converged: true`.
+
+**`pending()` is the same rule with one argument still missing, and it is why the driver
+does not have to know the future** (2026-08-14, DESIGN §5.5). A round's `termination` block
+describes that round, so it needs that round's dev leak rate — which does not exist until
+the fold has been scored, by which time the writer is already running. So the driver
+assembles everything it *does* know (the corpus, and every earlier round's rate) into a
+`PendingTermination`, and `run_fold` completes it with the rate it just measured, exactly as
+it completes the cost block with the detection seconds only it timed. `resolve()` calls
+`should_stop()` and nothing else, so the rule still has one implementation and the writer
+still holds no history: what crosses the boundary is one number in one direction.
 """
 from __future__ import annotations
 
@@ -314,3 +324,45 @@ def not_applicable(corpus: str) -> Termination:
         n_dev=size,
         improvements=(),
     )
+
+
+@dataclass(frozen=True, slots=True)
+class PendingTermination:
+    """The stopping rule with every argument but the current round's leak rate.
+
+    **What this type exists to prevent.** A round's `termination` block is a statement about
+    *that* round, so it needs that round's dev leak rate — and the driver cannot have it,
+    because it comes from the scoring pass the driver is about to ask for. The three ways
+    around that are each refused elsewhere: scoring twice gives two passes that could differ
+    with neither file looking wrong (DESIGN §5.5), patching `metrics.json` after the fact
+    makes a published file have two writers (§5.5's one-writer rule), and letting the writer
+    call the rule itself puts a pre-registered decision inside the thing it decides about
+    (§3, and this module's own docstring on why it is separate).
+
+    **So the missing argument travels instead of the answer.** The driver holds the history —
+    every earlier round's rate, read from the rounds' own `metrics.json` files — and passes
+    it here; `run_fold` appends the rate it just measured and calls `resolve()`. That is the
+    cost block's arrangement exactly: the caller assembles what it knows and the writer
+    completes it with the one quantity only it has (there, `elapsed`). The rule stays in this
+    module, the history stays with the driver, and what crosses the boundary is one float.
+
+    Frozen for `Termination`'s reason, and it holds no verdict at all: there is nothing here
+    to adjust, because `reason` does not exist until `resolve()` computes it.
+    """
+
+    #: The corpus δ is derived for. Carried rather than re-derived at the writer, so the
+    #: verdict is about the fold the driver ran.
+    corpus: str
+    #: Rounds 1..n−1's dev leak rates, in round order. **Not including this round's** — that
+    #: is `resolve()`'s argument, and the whole point of the type. Empty at round 1, which is
+    #: an arm whose first round cannot stop for a difference it has not made yet.
+    previous_leak_rates: tuple[float, ...]
+
+    def resolve(self, leak_rate: float) -> Termination:
+        """The verdict, once the round being scored has a leak rate. Calls `should_stop`.
+
+        One line of substance on purpose. Any test, threshold or branch added here would be
+        a second implementation of §3's rule reachable only through the writer, which is the
+        arrangement this type was built to avoid rather than a shortcut it enables.
+        """
+        return should_stop(self.corpus, (*self.previous_leak_rates, leak_rate))
