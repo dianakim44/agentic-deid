@@ -1535,6 +1535,48 @@ are the artefact and plumbing questions the two of those leave open.
 
   §11.3's arithmetic is therefore read off `cost_to_date` and its per-iteration breakdown off
   the rounds, and `metrics.json` says which is which without a convention.
+- **`paths.formatfailure` stays arm-scoped, because a format failure ends the arm**
+  (2026-08-14, decided while implementing round 2). The question was left open by round 1's
+  docstring — a round-scoped path (`iter{n}/format_failure.json`) would let a later round fail
+  without overwriting an earlier one — and the answer is that there is no later round to
+  overwrite it from.
+
+  **A failed round cannot be iterated from, so no round follows one.** Round *n*+1's §1.2 is
+  round *n*'s rule file and its §1.3 is round *n*'s score. A format failure produced neither:
+  the rule file is on disk but does not load (that is what the failure *is*), and
+  `metrics.json` is deliberately unwritten, since `orchestrate._write_failure` is the branch
+  taken *instead of* the scoring pass. So the state a round-scoped path is designed for —
+  two failures in one arm — is unreachable, and a path built to hold the second would be a
+  location that never has an occupant. Same shape as §5.0's argument for exactly one of the
+  two files per arm.
+
+  **The enforcement is structural and not a flag.** `loop.run_iteration_2()` reads
+  `iter{n−1}/metrics.json` before it does anything else and refuses when it is absent, so a
+  round after a failed round stops on a missing input rather than on a check that remembers
+  the failure. A boolean recording "the arm has failed" would be a second copy of a fact the
+  score file already states by not existing — the cost bullet's "one producer per number" rule
+  one field over, since a flag and an absent file are two records of one state and nothing
+  says which is authoritative when they disagree.
+
+  **What this closes and what it leaves.** It closes the path question for every rung: one
+  `format_failure.json` per arm, at four axes deep, matched by the four-deep `ALLOW_PATTERNS`
+  entry that `port-oneshot`'s committed record already relies on (§4's refusal of a fifth path
+  component is the same argument at a different depth, and a round-scoped path would have
+  needed the second, five-deep entry `itermetrics` and `iterspans` each got). It does **not** claim a failed arm is a finished arm — §10 A2
+  fixes format retries at zero and calls the failure a finding about capability, so the arm's
+  record is the failure, and `port-loop` ending at round 1 is a result about round 1 rather
+  than a run to be resumed.
+
+  **One thing it leaves open, stated rather than fixed here: `format_failure.json` carries
+  `cost` and not `cost_to_date`.** `FAILURE_SCHEMA` 2 predates the two-block cost model, and a
+  round-2 failure's spend is real — the Auditor's N calls were made and paid for whether or
+  not the RuleAuthor's file parsed — so an arm that fails at round 2 has its total split across
+  two files: `iter1/metrics.json`'s `cost_to_date` plus this file's `cost`. That is recoverable
+  and it is not what §5.5's "two blocks and not one" asked for, which said the total should not
+  need a convention to reconstruct. Adding the key is a schema bump on a file a committed
+  record already conforms to, so it is deferred to whoever raises the failure schema next
+  rather than done in passing; the driver already computes the value it would write
+  (`loop.run_iteration_2` returns `cost_to_date` on the failure branch too).
 
 #### 5.5.1 `errors.jsonl` is not a `FilledPrompt`, and where that stops being true
 
