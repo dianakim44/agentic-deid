@@ -61,6 +61,7 @@ TEST_FILES = [
     "tests/test_masked_tag.py",
     "tests/test_window_widening.py",
     "tests/test_call_role.py",
+    "tests/test_loop.py",
 ]
 
 #: Repository directories the loader tests need. `splits/` is here because the
@@ -212,6 +213,12 @@ PATCH_CHECK = "tools/check_patched_guarantees.py"
 #: see the module's own note — which is also what makes it mutable in isolation here: a
 #: mutation to δ or to the ceiling branch cannot be confused with a bug in the thing it stops.
 TERMINATION = "src/termination.py"
+#: `port-loop`'s driver. Mutated separately from `src/termination.py` for that constant's
+#: reason read the other way: this file is what *obeys* the pre-registered rule and assembles
+#: each round from the previous one, so a mutation to the chain cannot be confused with a
+#: mutation to the rule it consults. The off-by-one family lives here — rounds are the only
+#: place in this repository where a one-off produces a complete, well-formed, wrong artefact.
+LOOP = "src/porting/loop.py"
 
 MUTATIONS = [
     Mutation(
@@ -3957,6 +3964,245 @@ MUTATIONS = [
             "mutant and the check would be measuring nothing."
         ),
         min_kills=3,
+    ),
+    Mutation(
+        name="the_history_is_pre_seeded_with_this_rounds_rate",
+        path=LOOP,
+        anchor=(
+            "        termination=PendingTermination(corpus=corpus,\n"
+            "                                       previous_leak_rates=tuple(previous_rates)),"
+        ),
+        replacement=(
+            "        termination=PendingTermination(\n"
+            "            corpus=corpus,\n"
+            "            previous_leak_rates=(*previous_rates, previous_rates[-1]),\n"
+            "        ),"
+        ),
+        breaks=(
+            "**The history is extended to cover the round being scored, using the last known "
+            "rate as the placeholder.** The name reads as rounds 1..N and the round is N, so "
+            "handing over a sequence one short looks like the bug rather than the design. What "
+            "the pending type is *for* is that the round's own rate does not exist yet, and the "
+            "only value available to stand in for it is the previous round's.\n"
+            "\n"
+            "So `resolve()` appends the measured rate to a history that already has an entry for "
+            "this round, and every consequence is quiet. `improvements` gains a spurious `0.0` — "
+            "an iteration that changed nothing — which is below δ by definition and therefore "
+            "*counts toward stopping*: at k = 2 one genuinely thin round beside the phantom is "
+            "enough, so the arm converges a round early and the block says `converged` with a "
+            "plausible `improvements` list. `iterations` reads one too high, which is the same "
+            "defect in the field a reader would use to check the first. Nothing in the file "
+            "contradicts anything else in it, and the leak rates themselves are all real "
+            "measurements.\n"
+            "\n"
+            "Caught by `test_the_history_the_driver_passes_excludes_this_round`, which captures "
+            "the argument at the boundary rather than asserting on the record — what the driver "
+            "hands over is the thing that must not already contain the answer — and by "
+            "`test_the_rounds_termination_block_is_about_that_round` and "
+            "`test_the_rate_in_the_block_is_the_rate_in_the_same_files_headline`, which see the "
+            "count and the arithmetic from the published side."
+        ),
+        min_kills=3,
+    ),
+    Mutation(
+        name="the_writer_calls_the_stopping_rule_itself",
+        path=RUN_FOLD,
+        anchor="from ..termination import PendingTermination, Termination, not_applicable",
+        replacement=(
+            "from ..termination import (PendingTermination, Termination, not_applicable,\n"
+            "                          should_stop)"
+        ),
+        also=((
+            RUN_FOLD,
+            "    if isinstance(termination, PendingTermination):\n"
+            "        termination = termination.resolve("
+            "scored[\"headline\"][\"leak_rate\"][\"value\"])",
+            "    if isinstance(termination, PendingTermination):\n"
+            "        termination = should_stop(\n"
+            "            corpus,\n"
+            "            (*termination.previous_leak_rates,\n"
+            "             scored[\"headline\"][\"leak_rate\"][\"value\"]),\n"
+            "        )",
+        ),),
+        breaks=(
+            "**The only mutation in this file that changes no byte of any output.** The verdict "
+            "is identical, because `resolve()` is one line and that line is this one: "
+            "`should_stop(self.corpus, (*self.previous_leak_rates, leak_rate))`. Every "
+            "`termination` block, every `converged` flag, every refusal of a round after a stop "
+            "comes out the same. It also reads as a simplification — one indirection removed, "
+            "and the call site now says plainly what it does.\n"
+            "\n"
+            "What it costs is that §3's pre-registered decision acquires a second home, in the "
+            "module that writes the file the decision is published in. The reason to refuse that "
+            "is not today's behaviour but the next edit: a writer holding `should_stop` can grow "
+            "a branch — a mode check, a floor on `n_dev`, a special case for the first round — "
+            "and the arm's record would carry a verdict no reader of `src/termination.py` can "
+            "reproduce. `PendingTermination` exists so that the one quantity crossing the "
+            "boundary is a float and the rule stays where it was registered.\n"
+            "\n"
+            "Caught only by `test_the_writer_never_imports_the_stopping_rule`, and it is "
+            "structural for exactly that reason: no behavioural test can see this, today or "
+            "under any fixture. It reads the import list from the syntax tree rather than the "
+            "text, because that module's docstrings name `should_stop` on purpose — a substring "
+            "search would forbid explaining the boundary in order to enforce it."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="converged_is_stored_beside_the_reason",
+        path=TERMINATION,
+        anchor=(
+            "    @property\n"
+            "    def converged(self) -> bool:\n"
+            "        \"\"\"True only for `converged`. DESIGN §3's prohibition, as one line of code."
+        ),
+        replacement=(
+            "    #: Whether the arm converged, set from `reason` by whoever builds the record.\n"
+            "    converged: bool\n"
+            "\n"
+            "    def _converged_note(self) -> str:\n"
+            "        \"\"\"True only for `converged`. DESIGN §3's prohibition, as one line of code."
+        ),
+        also=(
+            (
+                TERMINATION,
+                "        \"\"\"\n        return self.reason == CONVERGED\n",
+                "        \"\"\"\n        return \"\"\n",
+            ),
+            (
+                TERMINATION,
+                "        n_dev=size,\n        improvements=tuple(gains),",
+                "        n_dev=size,\n        converged=reason == CONVERGED,\n"
+                "        improvements=tuple(gains),",
+            ),
+            (
+                TERMINATION,
+                "        n_dev=size,\n        improvements=(),",
+                "        n_dev=size,\n        converged=False,\n        improvements=(),",
+            ),
+        ),
+        breaks=(
+            "**The derived flag becomes a stored field, and every value in every published file "
+            "stays correct.** `should_stop` sets it from `reason` at construction, "
+            "`not_applicable` sets it false, `record()` copies it out, and "
+            "`scorer.check_termination`'s cross-check finds the two agreeing. There is no fixture "
+            "and no corpus on which the two disagree, because the one producer computes them "
+            "together. It is also the shape a reader expects: a dataclass field beside the other "
+            "nine, instead of a property that has to be explained.\n"
+            "\n"
+            "What it removes is the *mechanism* rather than a value. §3 forbids describing a "
+            "ceiling-terminated run as converged, and the way that prohibition is kept is that "
+            "the contradictory state cannot be constructed — not that a validator rejects it, "
+            "which would imply the state exists and is caught. With a field it exists: "
+            "`Termination(reason=CEILING, converged=True, ...)` is a legal instance, and the "
+            "caller who reaches it is the one the prohibition is about, since `write_metrics` "
+            "takes a mapping and a hand-assembled block is the path around the dataclass in the "
+            "first place.\n"
+            "\n"
+            "Frozen is what hides it. `verdict.converged = True` raises whether the attribute is "
+            "a property or a field, so `test_converged_cannot_be_set` — which was written as the "
+            "mechanism's test — passes on the mutant, and so does every assertion on the value. "
+            "Caught by `test_converged_is_not_a_field_and_no_caller_can_supply_one`, which "
+            "asserts the shape three ways: not in `dataclasses.fields`, a `property` on the "
+            "class, and refused as a constructor argument."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="a_later_round_audits_and_samples_round_one",
+        path=LOOP,
+        anchor=(
+            "    predictions = read_spans(corpus=corpus, detector=detector, "
+            "supervision=supervision,\n"
+            "                             porting=porting, iteration=previous, "
+            "root=orchestrate.ROOT)"
+        ),
+        replacement=(
+            "    predictions = read_spans(corpus=corpus, detector=detector, "
+            "supervision=supervision,\n"
+            "                             porting=porting, iteration=ITERATION, "
+            "root=orchestrate.ROOT)"
+        ),
+        also=((
+            LOOP,
+            "        read_errors(corpus=corpus, detector=detector, supervision=supervision,\n"
+            "                    porting=porting, iteration=previous, root=orchestrate.ROOT),",
+            "        read_errors(corpus=corpus, detector=detector, supervision=supervision,\n"
+            "                    porting=porting, iteration=ITERATION, root=orchestrate.ROOT),",
+        ),),
+        breaks=(
+            "**§1.3's predictions and §1.4's error pool come from round 1 instead of round "
+            "*N−1*, and at round 2 that is the same round.** The named constant is what makes it "
+            "plausible: `ITERATION` is round 1 and it is right there in the module, used by "
+            "`run_iteration_1` five times, so reaching for it reads as using the arm's own "
+            "vocabulary rather than hard-coding a number. Round 2 is then correct by accident, "
+            "which is the round every early test of a loop exercises.\n"
+            "\n"
+            "From round 3 on the arm is a different experiment and nothing says so. The Auditor "
+            "is shown round 1's predictions masked — so the residual PHI it reports is residual "
+            "with respect to rules two rounds out of date, and `masked_from_iteration` still says "
+            "*N−1* because `audit.report()` records what the driver told it. The §1.4 sample is "
+            "drawn over round 1's `errors.jsonl`, so the agent is asked to fix errors its own "
+            "later rules may already have caught, at the seed that names round *N*. Every file "
+            "is well-formed, every count is internally consistent, and the arm's improvement "
+            "curve is real — it is just no longer feedback on the previous round, which is the "
+            "one thing `port-loop` measures. The comment on `previous = iteration - 1` names "
+            "this failure and the mutation is that comment coming true.\n"
+            "\n"
+            "Caught by "
+            "`test_a_later_round_masks_the_previous_rounds_spans_and_not_round_ones` and "
+            "`test_the_sample_is_drawn_over_the_previous_rounds_errors`, both of which run three "
+            "rounds and make the rule files differ in what they catch. Written any other way "
+            "they pass on the mutant: two rounds cannot distinguish *N−1* from 1, and identical "
+            "rule files leave byte-identical predictions and error lists whichever round is "
+            "read."
+        ),
+        min_kills=2,
+    ),
+    Mutation(
+        name="a_round_with_no_score_walks_back_to_the_last_one",
+        path=LOOP,
+        anchor="    if not path.exists():\n        raise OrchestrateError(",
+        replacement=(
+            "    while not path.exists() and iteration > ITERATION:\n"
+            "        iteration -= 1\n"
+            "        path = iter_metrics_path(corpus=corpus, detector=detector,\n"
+            "                                 supervision=supervision, porting=porting,\n"
+            "                                 iteration=iteration, root=orchestrate.ROOT)\n"
+            "    if not path.exists():\n"
+            "        raise OrchestrateError("
+        ),
+        breaks=(
+            "**A missing round's score is replaced by the last round that has one, and the "
+            "refusal is kept for the case where there is none.** It reads as robustness: an arm "
+            "whose round 4 left no `metrics.json` continues from round 3 rather than dying, the "
+            "guard still fires when nothing has been scored at all, and no message or docstring "
+            "has to change.\n"
+            "\n"
+            "It dissolves the one mechanism DESIGN §5.5 relies on. A format failure ends the arm "
+            "by *not writing a score* — `format_failure.json` is written instead, deliberately, "
+            "because zeros in a metrics file would read as a rule set that ran and caught "
+            "nothing — and no flag anywhere records that it happened. Walking back means round 3 "
+            "after a failed round 2 reads round 1's file as round 2's: `_leak_rates` then holds "
+            "round 1's rate twice, so `improvements` gains the same phantom `0.0` that "
+            "`the_history_is_pre_seeded_with_this_rounds_rate` manufactures, and the arm can stop "
+            "on it. The same edit swallows a genuine gap, which is the other half of what this "
+            "one read guarantees: rounds are contiguous from 1 because each is read "
+            "individually.\n"
+            "\n"
+            "The mutant does not get all the way through the round — `read_spans` refuses the "
+            "predictions the failed round also never wrote — and that is the point rather than a "
+            "mitigation. What the guard buys is *which* refusal a reader gets: `no score for "
+            "round 2 … either that round has not run, or it ended in a format failure` names the "
+            "round and the two states it can be in, where the mutant raises a `FoldRunError` "
+            "about an absent prediction list from inside the audit step, two modules away from "
+            "the decision that was actually violated.\n"
+            "\n"
+            "Caught by `test_a_round_after_a_format_failure_is_refused`, which runs the whole "
+            "sequence — round 2 answers with unparseable YAML, round 3 is attempted — and "
+            "matches the refusal's text rather than merely asserting that something raised."
+        ),
+        min_kills=1,
     ),
 ]
 

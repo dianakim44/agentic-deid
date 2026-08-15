@@ -27,6 +27,8 @@ touched: the module reads a split file's counts and takes a list of floats.
 """
 from __future__ import annotations
 
+import dataclasses
+import inspect
 import json
 import sys
 from pathlib import Path
@@ -290,6 +292,31 @@ def test_converged_cannot_be_set(at_size, params):
         verdict.converged = True          # type: ignore[misc]
     with pytest.raises((AttributeError, TypeError)):
         verdict.reason = CONVERGED        # type: ignore[misc]
+
+
+def test_converged_is_not_a_field_and_no_caller_can_supply_one(at_size, params):
+    """**The half `test_converged_cannot_be_set` cannot see: frozen makes a *stored* boolean
+    unassignable too.**
+
+    `Termination` is frozen, so `verdict.converged = True` raises whether `converged` is a
+    property or a second constructor argument — which means the test above passes on a version
+    that stores it, and so does every value assertion, because `should_stop` would pass
+    `reason == CONVERGED` when it built the record. The contradiction becomes constructible
+    only at the constructor, by a caller assembling a `Termination` by hand, and that caller is
+    the one §3's prohibition is about: `scorer.check_termination` exists because
+    `write_metrics` takes a mapping and a hand-assembled block is the path around the dataclass.
+
+    So this asserts the shape rather than a value: `converged` is not in the field list, it is
+    a `property` on the class, and passing it to the constructor is refused. A stored field
+    would satisfy every other test in this file.
+    """
+    at_size(N_DEV)
+    verdict = should_stop(CORPUS, [0.90 - 0.05 * i for i in range(params["ceiling"])])
+    assert "converged" not in {f.name for f in dataclasses.fields(verdict)}
+    assert isinstance(inspect.getattr_static(Termination, "converged"), property)
+    with pytest.raises(TypeError):
+        Termination(**{**{f: getattr(verdict, f) for f in verdict.__slots__},
+                       "converged": True})                      # type: ignore[call-arg]
 
 
 def test_convergence_wins_when_both_are_true(at_size, params):

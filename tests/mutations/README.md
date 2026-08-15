@@ -547,6 +547,11 @@ no enforcement but a field in a log.
 | `the_arm_reports_no_model_and_no_cost_to_the_scorer` | `model_record=model, cost=cost` dropped from the arm's `run_fold` call | the published metrics carry `model_id: "none"` — the `naming.yaml` value meaning *no model was used* — and three zeros for cost, for an arm whose whole content is one LLM call. Nothing about the file looks wrong: it is the `R` arm's record written under `port-oneshot`, so the baseline reads as a rules arm that cost nothing. The default is *correct* in `run_fold`, which closes an arm that genuinely calls none, so only a test on this arm's metrics can tell the two apart | **3** |
 | `the_failure_record_paraphrases_the_validator` | `error=str(exc)` becomes a fixed summary string | §10 A2's third recorded content stops being evidence. "The response was not a valid rule file" is not checkable and not comparable: a wrong `lang`, a fenced block and an invented matcher key become one row in the appendix. The raw response is still on disk beside it, so a reader can re-derive the message — which is the work the field saved, and the reason nobody notices it is gone | **3** |
 | `the_parse_error_quotes_the_line_it_choked_on` | `safe_load(fh)` → `safe_load(fh.read())`, **and** the picked-out fields → `{exc}` | two edits that only leak together, which is the finding. `MarkedYAMLError` prints the offending source line when its `Mark` carries a buffer, and a stream leaves it null while a string fills it — so the stream/string change is a refactor with no visible effect (and it is what every other loader here does), and `{exc}` is the second half. Together they put an LLM's response, which can echo its own §1.4 block, into a message bound for terminals and CI logs that `release_screen.py` never reaches | **1** |
+| `the_history_is_pre_seeded_with_this_rounds_rate` | the pending history becomes `(*previous_rates, previous_rates[-1])` | the round's own rate is counted twice, so `improvements` gains a `0.0` that is below δ by definition and counts toward stopping — the arm converges a round early with `iterations` one too high and nothing in the file disagreeing with anything else in it. The name says rounds 1..N and the round is N, so handing over a sequence one short is what looks like the bug | **3** |
+| `the_writer_calls_the_stopping_rule_itself` | `run_fold` imports `should_stop` and inlines what `resolve()` does | **no byte of any output changes**, because `resolve()` is exactly that line. §3's pre-registered decision acquires a second home inside the module that publishes it, and the cost is the next edit rather than this one: a writer holding the rule can grow a branch no reader of `src/termination.py` can reproduce. Reads as one indirection removed | **1** |
+| `converged_is_stored_beside_the_reason` | `Termination.converged` becomes a dataclass field, set from `reason` by both producers | every published value stays correct and `check_termination`'s cross-check is satisfied, because one producer computes both. What goes is the *mechanism*: `Termination(reason=CEILING, converged=True, …)` becomes constructible, and the hand-assembling caller is who §3's prohibition is about. Frozen hides it — `verdict.converged = True` raises either way | **1** |
+| `a_later_round_audits_and_samples_round_one` | `iteration=previous` → `iteration=ITERATION` at `read_spans` **and** `read_errors` | §1.3's predictions and §1.4's error pool come from round 1, which *is* round *N−1* at round 2. From round 3 on the Auditor reports residual PHI against rules two rounds stale while `masked_from_iteration` still says *N−1*, and the sample asks for errors the arm may already have fixed. The constant is the module's own vocabulary, which is what makes it plausible | **2** |
+| `a_round_with_no_score_walks_back_to_the_last_one` | `_previous_round`'s refusal gains a loop that decrements to the newest scored round | reads as robustness and dissolves the mechanism §5.5 relies on: a format failure ends the arm by *not writing a score*, so walking back reads round 1's file as round 2's, the history holds one rate twice, and a genuine gap is swallowed by the same edit. What the guard buys is which refusal a reader gets — the round named, or a `FoldRunError` about predictions two modules away | **1** |
 
 `initial_pool_excludes_train_instead_of_selecting_dev` is the one to read twice. The two
 filters are the same length, the same shape, and equivalent on any corpus with two
@@ -1643,6 +1648,72 @@ for the same quantity — and the sum silently ignores it rather than refusing, 
 short by whatever it held and the published block is still valid and comparable-looking. The
 `termination` block's closed-set argument, at the cost block: a field this project never declared
 cannot be told from part of the cost model.
+
+### Five on `port-loop`'s rounds, where the wrong round produces the right-looking file
+
+Added 2026-08-15 with `tests/test_loop.py`, and the family's property is the one the loop
+introduces to this repository: **a round assembled from the wrong predecessor is complete,
+well-formed and internally consistent.** Every other section here has some file that
+contradicts itself or some count that fails to add up. A round does not. It has a rule file, a
+score, an audit report whose two numbers agree, a `termination` block whose `improvements` list
+differences its own leak rates, and a cost block that prices the calls it made. Nothing in
+`iter4/` says which round's feedback the agent was shown, because the artefacts of a round
+assembled from round 1 and a round assembled from round 3 differ only in content nobody can
+check without rerunning the arm.
+
+That is also why three of the five needed tests written before them. The two off-by-one
+mutations are invisible at round 2 — `previous` and `1` are the same number there — and
+invisible at any round if the rounds' rule files are identical, which they are in any fixture
+that answers every call with the same YAML. So
+`test_a_later_round_masks_the_previous_rounds_spans_and_not_round_ones` and
+`test_the_sample_is_drawn_over_the_previous_rounds_errors` both run three rounds and make round
+2 author a rule the round-1 file does not have; the first then reads the masked *text* the
+Auditor was sent rather than the report's `masked_from_iteration`, because that number is what
+the driver *says* it masked and `audit.report()` checks only that it agrees with the round — a
+driver reading some other round's `spans.jsonl` satisfies it, since it records what it was told.
+The masking assertion is two-sided for the reason the seal mutations are: without checking that
+round 2's Auditor *does* see the term in the clear, a term absent from the fold would make the
+round-3 half pass against any driver at all.
+
+`the_history_is_pre_seeded_with_this_rounds_rate` and
+`a_round_with_no_score_walks_back_to_the_last_one` are the same corruption reached from opposite
+ends, which is why they are worth having as two entries. Both make the leak-rate sequence hold
+one round's rate twice, so `improvements` gains a `0.0` — an iteration that changed nothing —
+and a zero is below δ for every δ this rule can compute, so it *counts toward stopping*. At
+k = 2 one genuinely thin round beside the phantom converges the arm. One of them gets there by
+extending the history forward to cover the round being scored, the other by walking it backward
+over a round that left no score; the first is a plausible reading of the field's name, the
+second is plausible robustness. Neither leaves a file that looks wrong, and the second is the
+answer to a question DESIGN §5.5 deliberately does not ask: a format failure ends the arm by
+*not writing a score*, and there is no flag anywhere recording that it happened.
+
+`the_writer_calls_the_stopping_rule_itself` is the one with nothing behavioural to catch it, in
+any fixture, ever. `PendingTermination.resolve()` is one line —
+`should_stop(self.corpus, (*self.previous_leak_rates, leak_rate))` — so inlining it at the call
+site in `run_fold` produces byte-identical output for every arm, every corpus and every round.
+The mutation is a strict simplification by every local measure, and what it costs is that §3's
+pre-registered decision now has a second home in the module that writes the file the decision
+is published in. The refusal is about the *next* edit: a writer that holds `should_stop` can
+grow a mode check or a first-round special case, and the arm's record would then carry a verdict
+no reader of `src/termination.py` can reproduce. `test_the_writer_never_imports_the_stopping_rule`
+reads the import list from the syntax tree rather than the text, because that module's
+docstrings name `should_stop` on purpose and a substring search would forbid explaining the
+boundary in order to enforce it.
+
+`converged_is_stored_beside_the_reason` is the section's contribution to the §3 prohibition, and
+it is the mutation that shows why `a_ceiling_stop_is_recorded_as_converged` was not enough on its
+own. That one produces a wrong value; this one produces every correct value and removes the
+*mechanism*. With `converged` as a field, `should_stop` sets it from `reason`, `not_applicable`
+sets it false, `record()` copies it out, and the scorer's cross-check finds the two agreeing —
+there is no input on which they disagree, because one producer computes them together. What
+becomes possible is `Termination(reason=CEILING, converged=True, …)`, and the caller who reaches
+for that constructor is precisely the one §3's prohibition is about, since `write_metrics` takes
+a mapping and a hand-assembled block is the path around the dataclass in the first place. The
+trap is that `frozen=True` hides it: `verdict.converged = True` raises whether the attribute is a
+property or a field, so `test_converged_cannot_be_set` — written as *the mechanism's* test —
+passes on the mutant. `test_converged_is_not_a_field_and_no_caller_can_supply_one` was added with
+this mutation and asserts the shape three ways: absent from `dataclasses.fields`, a `property` on
+the class, and refused as a constructor argument.
 
 ## What the seal cost, and what carries the difference
 
