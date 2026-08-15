@@ -1601,7 +1601,7 @@ which no single file holds.
 also the state the code was in before the change: `run_fold` passed one cost dict to both of its
 `write_metrics` calls, which is correct while an arm is one round and becomes the arm's headline
 holding round 8's spend the moment it is not. Dropping `cost_to_date` from the assembly restores
-exactly that. An eight-iteration arm then reports about 135k tokens where the truth is 1.1M —
+exactly that. An eight-iteration arm then reports about 2.2M tokens where the truth is 15.6M —
 and `check_cost_to_date` is *satisfied*, because the two blocks come out equal and the relation
 refuses only a total that is smaller. Equality is the correct state for every rung except
 `port-loop` past iteration 1, which is why the tests that see this pass a total differing from

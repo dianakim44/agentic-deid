@@ -2865,8 +2865,8 @@ MUTATIONS = [
         breaks=(
             "**The arm's total becomes whatever the last round spent.** The accumulator the "
             "driver passes is dropped and the round's own block is written in both places, so "
-            "an eight-iteration `port-loop` publishes a `cost_to_date` of roughly 135k tokens "
-            "instead of 1.1M — and DESIGN §11.3's cost comparison is read off exactly that "
+            "an eight-iteration `port-loop` publishes a `cost_to_date` of roughly 2.2M tokens "
+            "instead of 15.6M — and DESIGN §11.3's cost comparison is read off exactly that "
             "field.\n"
             "\n"
             "Nothing in the file contradicts anything else in it. Both blocks are complete and "

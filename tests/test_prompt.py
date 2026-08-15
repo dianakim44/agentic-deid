@@ -1580,7 +1580,7 @@ def round_trip(m: MaskedDocument, text: str) -> None:
 def test_the_masker_returns_a_filled_prompt_and_not_a_string():
     """DESIGN §3, `auditor.md` §6 — and here the exposure is the largest in the project.
 
-    The masked dev fold is about 40× §1.4's window and most of the identifiers in it are
+    The masked dev fold is about 77× §1.4's window and most of the identifiers in it are
     *unmasked*, because unmasked is what "leaked" means. So this is the case the type was
     made for rather than the case that could be excused from it.
     """
@@ -2025,7 +2025,7 @@ def audited(text: str = "Ana vive en Cadiz", spans=None, corpus: str = "es-meddo
 def test_the_audit_prompt_is_a_filled_prompt():
     """**The one assembler where the type is the point rather than the convention.**
 
-    `auditor.md` §6 puts the masked dev fold at about 40× §1.4's window, and unlike the
+    `auditor.md` §6 puts the masked dev fold at about 77× §1.4's window, and unlike the
     RuleAuthor's window a majority of the in-scope identifiers in it are *unmasked* —
     unmasked is what "leaked" means. A string return here would leave the largest corpus
     exposure in the project loose in every caller.

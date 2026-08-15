@@ -199,9 +199,14 @@ alone until then (`tests/mutations/README.md`).
 
 **Masked text is a *larger* corpus exposure than §1.4, not a smaller one, and it inherits
 `FilledPrompt`'s treatment.** This is the part that is easy to get backwards on the intuition
-that masked text is safe text. On es-meddocan's dev fold the masked input is on the order of
-110,601 tokens (`splits/es-meddocan.json`) against §1.4's 40-span window at roughly 2,700 —
-about **40×** — and under the leak rates this arm actually produces a majority of in-scope
+that masked text is safe text. On es-meddocan's dev fold the masked input is **about 210k
+tokens** — 810,499 characters of masked transport text over the 250 documents, at the 3.8124
+characters/token calibration below — against §1.4's 40-span window at roughly 2,700, so about
+**77×**. (This paragraph read `splits/es-meddocan.json`'s `tokens.total: 110601` as a model
+token count until 2026-08-14; it is a whitespace count, and the correction makes the exposure
+*larger*, not smaller. See the cost-structure bullet under "Ceiling = 8" for the measurement
+and for the second error it shared with.) Under the leak rates this arm actually produces a
+majority of in-scope
 gold identifiers are unmasked, because unmasked is precisely what "leaked" means. So the
 Auditor's prompt carries more corpus text, containing more intact identifiers, than any other
 prompt in the project. Two consequences, both binding:
@@ -420,14 +425,45 @@ independent cap), adopted here for the agent arm as well as the human one. The c
 **iterations**, for §11.3's reason: it is the unit the call budget and the human arm share,
 and the unit in which "the agent ran longer" is a statement rather than an assertion.
 
-- **Cost structure, from the one measurement available that is not a result.** The
-  `port-oneshot` call's *token counts* — 14,071 prompt, 2,325 completion — are cost
-  measurements rather than quality findings, so using them here does not smuggle 0.560 in.
-  Adding §1.3 (per-type tables plus `by_rule`) and §1.4 (40 spans at ±120 characters) puts a
-  RuleAuthor iteration at roughly 21k tokens; the Auditor reads the masked dev fold, whose
-  token total is 110,601 (`splits/es-meddocan.json`), so **an iteration costs on the order of
-  135k tokens, dominated by the Auditor rather than the RuleAuthor.** Eight iterations is
-  therefore around 1.1M tokens against `port-oneshot`'s 16.4k.
+- **Cost structure, measured (2026-08-14) — the estimate this paragraph used to carry was low
+  by about 16× per iteration and 14× at the ceiling.** The `port-oneshot` call's *token counts* — 14,071 prompt, 2,325 completion —
+  are cost measurements rather than quality findings, so using them here does not smuggle
+  0.560 in; they also calibrate the corpus at **3.8124 characters per prompt token** (53,644
+  characters of assembled prompt against 14,071 recorded tokens), which is what turns the
+  assembler's byte counts below into token counts. Measured on today's tree, by assembling the
+  prompts without calling:
+
+  | | calls | prompt | completion | total | × `port-oneshot` |
+  |---|---|---|---|---|---|
+  | round 1 (RuleAuthor only) | 1 | 14,071 | 2,325 | 16.4k | 1.0× |
+  | round ≥2, RuleAuthor | 1 | 23,678 | ~3k | ~27k | |
+  | round ≥2, Auditor | 250 | ~2.12M | ~75k | ~2.20M | |
+  | **round ≥2, total** | **251** | **~2.15M** | **~78k** | **~2.22M** | **~135×** |
+  | ceiling of 8 (1 + 7 iterating) | 1,758 | ~15.1M | ~0.5M | **~15.6M** | **~950×** |
+
+  Prompt figures are measured; completion figures are estimates scaled from `port-oneshot`'s
+  2,325 and are the only estimated column. **Two errors produced the old 135k-per-iteration
+  and 1.1M-at-the-ceiling numbers, and both were in the derivation rather than in the
+  measurements:**
+
+  - **`splits/es-meddocan.json`'s `tokens.total: 110601` is a whitespace count, not a model
+    token count.** `src/split.py` declares `TOKENIZER = "whitespace"` and computes
+    `len(text.split())`; the field is honest about what it is and the paragraph read it as
+    something else. The dev fold's 755,319 characters are ≈198k model tokens — 1.8× the
+    whitespace figure. Any future reader of a `tokens` field in a split file owes it the same
+    check.
+  - **`docs/prompts/auditor.md` is re-sent with every one of the 250 calls, and was counted
+    zero times.** The template is 26,135 bytes ≈ 6,855 tokens and is **80.7% of an average
+    audit call** (audit prompts measured over the 250 dev documents: 8,093,249 characters
+    total, mean 32,373, min 30,289, max 36,475). The dev fold's own text is the *minority* of
+    what an iteration pays for; 1.71M of the 2.12M prompt tokens per round are the same
+    template transmitted 250 times. The old paragraph modelled the Auditor as reading the fold
+    once.
+
+  Wall clock is a separate estimate and not measured: at `port-oneshot`'s observed latency,
+  251 sequential calls put a round at roughly 40–80 minutes and seven of them at 5–10 hours.
+  The loop makes the audit calls sequentially (`loop._audit_fold()`), so that figure is a
+  property of the current implementation, not of the design.
 - **So §11.3's 1.9× standard cannot be met by any iterating arm, and that is a finding about
   the standard rather than a reason to lower the ceiling.** 1.9× was set for `port-loop` vs
   `port-multi` — two arms of the same shape — and against a *one-call* baseline no loop of
@@ -438,9 +474,40 @@ and the unit in which "the agent ran longer" is a statement rather than an asser
 - **Eight rather than four or twelve.** Four would make the ceiling, not δ/k, the operative
   stopping rule in most runs — a cap that binds routinely is a budget masquerading as a
   convergence test, and the arm's claim would be about eight calls rather than about
-  iteration. Twelve buys about 500k more tokens for iterations that δ/k is very unlikely to
-  reach. Eight leaves k = 2's confirmation cost affordable (six productive iterations before
-  the two that stop it), which is the property that decides it.
+  iteration. Twelve spends about **8.9M more tokens** (four further rounds at ~2.22M) on
+  iterations that δ/k is very unlikely to reach. Eight leaves k = 2's confirmation cost
+  affordable (six productive iterations before the two that stop it), which is the property
+  that decides it.
+- **The ceiling stays at 8 on the measured figures, and the correction is not a reason to move
+  it.** The measurement multiplied every candidate ceiling by the same ~14×, so it does not
+  reorder 4, 8 and 12 — the shape of the argument above is untouched, only its numerals. What
+  the correction does change is that 4 now *saves* something substantial (~8.9M tokens against
+  8), which makes the temptation to lower it real rather than notional. It is still refused,
+  for the reason that was written before the cost was known: the objection to 4 was never that
+  4 is cheap, it was that a cap which binds in most runs converts the arm's claim from "the
+  loop stopped improving" into "the loop ran out of budget", and no change in the price of a
+  round makes that conversion acceptable. Symmetrically, if 15.6M were genuinely unaffordable
+  the honest response would be to say so and report the arm as budget-capped, not to relabel a
+  budget as a convergence test. It is affordable, so 8 stands. **The levers that reduce cost
+  without changing what the arm claims are elsewhere** — caching the constant audit prefix, or
+  auditing a stratified sample instead of the full fold — and those are the places to look
+  first, because unlike the ceiling they do not alter the stopping rule. Either would need to
+  be pre-registered here before the arm runs, on the same footing as δ, k and the ceiling
+  itself.
+- **Why correcting this now is not post-hoc selection, and why the same edit later would
+  be.** No `port-loop` result exists: `results/es-meddocan/R/sup-free/port-loop/` is empty and
+  the arm has made no call. There is therefore nothing to select on — the correction cannot be
+  serving a leak rate, a δ crossing, or a termination reason, because none has been observed.
+  What is being fixed is an arithmetic error in the *derivation* (a whitespace token count read
+  as model tokens, and a per-call template counted zero times), found by measuring the prompts
+  the loop would send rather than by reading anything the loop produced. **After the first
+  audit call the identical edit becomes post-hoc**, and not because the numbers would be less
+  true: from that point a cost revision arrives with a partial result attached, and "we
+  re-derived the ceiling" is indistinguishable from "we re-derived the ceiling having seen
+  round 1". So the pre-registration rule for this section is a rule about *timing*: revisions
+  to δ, k, the ceiling, or the cost model that grounds them are permitted while the arm's
+  results directory is empty, and after that they are a new pre-registration for a new arm
+  rather than a correction to this one.
 - **Hitting the ceiling is a reported outcome, not a failure to record.** An arm that
   terminates on the cap has *not* satisfied the convergence test, and the two must be
   distinguishable in `metrics.json` — a run that stopped at 8 with the leak rate still

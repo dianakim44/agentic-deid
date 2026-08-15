@@ -77,7 +77,7 @@ its own copy of them — "a second place the non-recording discipline has to be 
 by hand", which is the cost the paragraph above gives for a second renderer. So the masker
 is here, and the checks it needs already exist and already cover it.
 
-The masked document is the **largest** corpus exposure in the project — about 40× §1.4's
+The masked document is the **largest** corpus exposure in the project — about 77× §1.4's
 window, and mostly *unmasked* identifiers, because unmasked is what "leaked" means
 (DESIGN §3, `auditor.md` §6). It is the strongest case for the type rather than an exception
 to it: `MaskedDocument` carries a `FilledPrompt` and a geometry, and the masked text exists
@@ -1343,7 +1343,7 @@ def mask_document(document: Document, spans: Sequence) -> MaskedDocument:
     """The Auditor's input: this document with every detected span replaced by its tag.
 
     **Contains corpus text, and more of it than anything else here** — DESIGN §3 puts the
-    masked dev fold at about 40× §1.4's window, and most of the identifiers in it are
+    masked dev fold at about 77× §1.4's window, and most of the identifiers in it are
     *unmasked*, because unmasked is what "leaked" means. Returns a `FilledPrompt` inside a
     `MaskedDocument`, never a `str`, writes nothing, and quotes nothing in any message. It
     is the §1.2 block rather than a whole prompt, which is `render_window()`'s shape: the
@@ -1631,7 +1631,7 @@ def assemble_audit_prompt(
     function adds a frame and a heading.
 
     **This is the largest corpus exposure in the project** — `auditor.md` §6 puts the masked
-    dev fold at about 40× §1.4's window, and a majority of the in-scope identifiers in it
+    dev fold at about 77× §1.4's window, and a majority of the in-scope identifiers in it
     are *unmasked*, because unmasked is what "leaked" means. Returns a `FilledPrompt` for
     that reason above every other: assembled in memory, sent, discarded. The reference form
     carries the document id, the counts, the hashes and the window files — no text.

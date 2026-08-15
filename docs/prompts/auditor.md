@@ -400,8 +400,9 @@ committed, not logged, and not written to disk at all. **Here it matters more th
 else in the project.**
 
 **The masked input is a *larger* corpus exposure than §1.4, not a smaller one**
-(DESIGN §3, decided 2026-08-12). On es-meddocan's dev fold it is on the order of 110,601
-tokens against §1.4's roughly 2,700 — about **40×** — and under the leak rates this arm
+(DESIGN §3, decided 2026-08-12). On es-meddocan's dev fold it is **about 210k tokens**
+(810,499 characters of masked transport text over 250 documents, measured 2026-08-14) against
+§1.4's roughly 2,700 — about **77×** — and under the leak rates this arm
 actually produces a majority of in-scope gold identifiers in it are *unmasked*, because
 unmasked is what "leaked" means. So this prompt carries more corpus text, containing more
 intact identifiers, than any other prompt in this repository. The intuition that masked text
