@@ -325,3 +325,115 @@ opus-5 로 돈다) 와 arm 이 호출하는 모델 사이의 차이인데, 이�
 무날짜). 그래서 A2 두 팔의 `model_id_resolution` 은 서로 다르고, 그 비대칭은 선택이
 아니라 플랫폼의 것이다. 위 "끊기는 것" 문단은 이제 **A2 의 한쪽 팔에만** 적용되고
 사다리의 어느 칸에도 적용되지 않는다.
+
+### prompt caching 을 Bedrock 이 어떻게 보고하는가 — 측정 (2026-08-16)
+
+[3] 캐싱을 구현하기 **전에** 확인해야 했던 것. DESIGN §3 이 감사 접두부 캐싱으로 회차당
+프롬프트 토큰이 ~4.7배 줄어든다고 적었지만, 그 절감이 `prompt_tokens` 를 *작게* 만드는
+형태로 나타나는지 아니면 같은 총량이 필드로 쪼개지는 형태인지가 스키마를 결정한다 —
+`scorer.REQUIRED_COST` 는 양방향으로 닫혀 있어서 쓰는 쪽에서 덮을 수 없다. 배제 관례는
+AWS 문서에 있으나 여기서 측정된 바 없었고, **같은 봉투에 대한 이전 주장이 한 번 틀렸다** —
+위 측정 1–4 가 그 사례다 (응답이 구체 모델을 말해줄 것이라는 가정, 그리고 별칭이 어딘가에서
+해상될 것이라는 가정이 둘 다 틀렸고 호출로 교체됐다). 그래서 문서가 아니라 API 에 물었다.
+
+`tools/probe_prompt_cache.py`, `us.anthropic.claude-opus-4-5-20251101-v1:0`,
+접두부는 `docs/prompts/auditor.md` (26060 chars). 코퍼스 텍스트 없음.
+
+| probe | cachePoint | inputTokens | cacheRead | cacheWrite | outputTokens | totalTokens |
+|---|---|---|---|---|---|---|
+| control | no | 7193 | 0 | 0 | 4 | 7197 |
+| write | yes | 21 | 0 | 7172 | 4 | 7197 |
+| read | yes | 21 | 7172 | 0 | 4 | 7197 |
+
+```json
+[
+ {
+  "probe": "control",
+  "cache_point": false,
+  "usage": {
+   "inputTokens": 7193,
+   "outputTokens": 4,
+   "totalTokens": 7197,
+   "cacheReadInputTokens": 0,
+   "cacheWriteInputTokens": 0,
+   "cacheDetails": "(absent)"
+  },
+  "stop_reason": "end_turn",
+  "wall_seconds": 2.293
+ },
+ {
+  "probe": "write",
+  "cache_point": true,
+  "usage": {
+   "inputTokens": 21,
+   "outputTokens": 4,
+   "totalTokens": 7197,
+   "cacheReadInputTokens": 0,
+   "cacheWriteInputTokens": 7172,
+   "cacheDetails": [
+    {
+     "ttl": "5m",
+     "inputTokens": 7172
+    }
+   ]
+  },
+  "stop_reason": "end_turn",
+  "wall_seconds": 1.582
+ },
+ {
+  "probe": "read",
+  "cache_point": true,
+  "usage": {
+   "inputTokens": 21,
+   "outputTokens": 4,
+   "totalTokens": 7197,
+   "cacheReadInputTokens": 7172,
+   "cacheWriteInputTokens": 0,
+   "cacheDetails": "(absent)"
+  },
+  "stop_reason": "end_turn",
+  "wall_seconds": 1.589
+ }
+]
+```
+
+**1. `inputTokens` 는 캐시 읽기를 제외한다 — 확정.** control 의 7,193 이 read 에서 **21**
+로 떨어진다. 같은 텍스트, 같은 모델, 차이는 `cachePoint` 하나다. 21 은 가변 꼬리(77 chars)
+와 대화 오버헤드이고, 접두부는 `inputTokens` 에서 완전히 사라져 `cacheReadInputTokens`
+7,172 로 옮겨간다. 즉 **캐싱을 켠 arm 의 `prompt_tokens` 를 `inputTokens` 로 채우면 그
+숫자는 캐싱을 안 켠 arm 의 같은 이름 필드와 같은 것을 세지 않는다.** 회차당 2.12M 이
+~257k 로 보이게 되고, 그것은 전송 최적화이지 루프가 덜 읽은 것이 아니다.
+
+**2. `totalTokens` 는 세 경우 모두 7,197 로 동일하다 — 이것이 결정적 증거다.** control 은
+7,193+4, read 는 21+4 인데 `totalTokens` 는 변하지 않는다. 그러므로 `totalTokens` 는
+`inputTokens + outputTokens` 가 **아니고** 캐시 읽기·쓰기를 포함한 총량이다. 즉
+**서비스가 raw 총량을 이미 보고하고 있다** — 우리가 세 필드를 더해 조립할 필요가 없고,
+조립하더라도 `totalTokens` 로 교차검증할 수 있다. `prompt_tokens` 를 raw 총량으로 유지하는
+결정(§5.5)은 이 필드 위에서 확인 가능하다.
+
+**3. write 에서 read 가 실제로 발생한다 — TTL 5분 안에서.** 두 호출 사이 간격은 1.6초였고
+(위 `wall_seconds`), read 의 `cacheReadInputTokens` 가 7,172 로 write 가 쓴 값과 정확히
+같다. write 프리미엄이 붙는 것은 첫 호출뿐이므로, 250 회 순차 호출은 write 1회 + read 249회다.
+회차 간 40–80분 공백은 5분 TTL 을 넘으므로 **회차마다 write 1회**가 맞는 모델이다.
+
+**4. `cacheDetails` 는 write 에만 나오고 read 에는 없다.** 형태는
+`[{"ttl": "5m", "inputTokens": 7172}]` — TTL 별 *쓰기* 내역이고 서비스 모델의 문서
+("Empty if no cache creation occurred") 그대로다. read 응답에서는 키 자체가 없다(빈 리스트도
+아니다). 그래서 프로브는 없는 키를 0 으로 채우지 않고 `(absent)` 로 적는다 — 0 은
+"캐시에서 아무것도 읽지 않았다"는 측정이고 부재는 응답이 캐싱을 언급하지 않았다는 뜻이며,
+control 행에서는 후자가 기대되는 결과다 (`bedrock._usage()` 의 부분 블록 거부와 같은 규율).
+
+**5. 캐시 가능 접두부의 최소 길이는 재지 않았다 — 조건과 함께 미측정으로 기록한다.**
+`auditor.md` 는 7,193 tokens 로 문서상 하한(이 계열 ~1,024)을 넉넉히 넘고, 위 세 호출에서
+`cachePoint` 가 무시된 흔적이 없으므로 하한은 어떤 측정에도 영향을 주지 않았다. **조건은
+"캐싱하는 접두부가 auditor.md 인 한"이고, 그 조건이 깨지는 시점이 재야 할 시점이다** —
+템플릿보다 짧은 것을 캐싱하려 할 때(코퍼스별 frame 단독, system 블록, 축약된 템플릿).
+가정으로 치우는 것과 범위가 붙은 누락은 다르고, 이것은 후자다.
+
+**부수적으로: 이 파일의 문자/토큰 비율은 코퍼스와 다르다.** `auditor.md` 는 26,060 chars ÷
+7,193 tokens = **3.62 chars/token** 이고, DESIGN §3 의 교정값 3.8124 는 스페인어 임상 노트가
+섞인 프롬프트에서 나온 값이다. 영어 산문이 더 빽빽하다는 뜻이며, §3 의 감사 호출 추정치는
+이 방향으로 약간(수 %) 낮게 잡혀 있다. 재계산하면 상수 접두부는 ~7,834 tokens, 회차당 raw
+~2.24M, 캐싱 시 과금 환산 ~485k (**4.6배**), 상한 8 은 raw ~15.7M 대 과금 ~3.4M 이다.
+§3 의 표(~2.22M / ~15.6M)는 이 오차 범위 안이라 고치지 않는다 — 정정할 값이 아니라
+정밀도의 한계이고, 여기 적어 두는 것으로 족하다.
