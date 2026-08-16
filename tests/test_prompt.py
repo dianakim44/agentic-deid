@@ -4,8 +4,10 @@
 type. This file checks the two halves that a type cannot enforce on its own.
 
 **Behaviour**, for the type's own guarantees: the text is not reachable except through the
-two exits, `to_terminal()` refuses a stream that is not a terminal, and `reference()`
-carries references and hashes and no text.
+exits enumerated in `prompt.EXITS`, `to_terminal()` refuses a stream that is not a terminal,
+and `reference()` carries references and hashes and no text. The set is asserted by name
+rather than by count — DESIGN §5.4, and the reasoning is in
+`test_the_type_has_no_accessor_beyond_the_named_exits`.
 
 **Structure**, for everything else — and this is the half that needs explaining. The
 failure mode is a renderer or a caller that also writes the text somewhere: a debug copy,
@@ -2480,18 +2482,59 @@ def test_the_renderer_returns_only_a_filled_prompt_call():
 
 
 def test_the_type_has_no_accessor_beyond_the_named_exits():
-    """The public surface is closed, as a property of the class rather than of a docstring.
+    """The public surface equals `prompt_module.EXITS` — the enumeration, not its size.
 
     A `text` property added "for tests" is the plausible edit, and it would reopen every
     path this file closes.
+
+    **Asserted against the declared set and not against a count** (DESIGN §5.4, restated
+    2026-08-16). The earlier form of this test compared the method set to a literal of three
+    names, which reads as a cardinality check and was cited as one. The difference matters in
+    both directions: a count refuses a fourth exit of the same kind as an existing one — the
+    safe change — while saying nothing about a dangerous exit that arrives as an edit to a
+    method already inside the count. Comparing against `EXITS` makes adding an exit a change
+    to a named list in the module that owns the type, which is where the admissibility
+    criterion is written down.
     """
     cls = next(n for n in ast.walk(tree())
                if isinstance(n, ast.ClassDef) and n.name == "FilledPrompt")
     public = {n.name for n in cls.body
               if isinstance(n, ast.FunctionDef) and not n.name.startswith("_")}
-    assert public == {"to_terminal", "for_transport", "reference"}, (
-        f"FilledPrompt's public methods are {sorted(public)}. Exactly three: two exits "
-        "named for where the text goes, and the reference form that may be recorded."
+    assert public == set(prompt_module.EXITS), (
+        f"FilledPrompt's public methods are {sorted(public)}, and prompt_module.EXITS enumerates "
+        f"{sorted(prompt_module.EXITS)}. Every text-bearing exit is named for a destination and "
+        "listed in EXITS; a method outside that list is a path out of the type that nothing "
+        "declared."
+    )
+
+
+def test_every_enumerated_exit_exists_on_the_type():
+    """The other direction: `EXITS` may not name a method that is not there.
+
+    Without this, the check above is satisfied by deleting an exit and its entry together —
+    and by an `EXITS` that drifts into being a wish list. The enumeration is only a guarantee
+    if it is exact in both directions.
+    """
+    for name in prompt_module.EXITS:
+        assert callable(getattr(prompt_module.FilledPrompt, name, None)), (
+            f"prompt_module.EXITS names {name!r}, which FilledPrompt does not define. An "
+            "enumeration that overstates the surface cannot be used to check it."
+        )
+
+
+def test_the_enumeration_is_declared_in_the_module_that_owns_the_type():
+    """`EXITS` lives beside `FilledPrompt`, not in this test file.
+
+    A list of exits maintained in the tests is a list the module can be edited without
+    touching — which is the arrangement DESIGN §5.4 calls a written warning rather than a
+    control.
+    """
+    module_tree = tree()
+    assigned = {target.id for node in module_tree.body if isinstance(node, ast.Assign)
+                for target in node.targets if isinstance(target, ast.Name)}
+    assert "EXITS" in assigned, (
+        "src/llm/prompt.py does not define EXITS at module level. The enumeration is the "
+        "guarantee (DESIGN §5.4) and it belongs with the type it describes."
     )
 
 

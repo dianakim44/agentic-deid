@@ -11,9 +11,11 @@ where an instance says the characters.
 string" — is enforced at every call site by whoever wrote it, and `tests/test_conftest.py`
 records what that costs here: the availability defect shipped four times, three of them
 after it was written up, because a written warning is not a control. So the filled prompt
-is not a `str`. `FilledPrompt` has no public text attribute and exactly two exits, both
-named for where they go: `to_terminal()` for a person reading a screen and
-`for_transport()` for the API call. `json.dumps`, `open(...).write`, `print` and f-string
+is not a `str`. `FilledPrompt` has no public text attribute, and every exit that carries the
+text is named for where it goes and enumerated in `EXITS`: `to_terminal()` for a person
+reading a screen and `for_transport()` for the API call. **The enumeration is the guarantee,
+not its length** — see `EXITS` and DESIGN §5.4. `json.dumps`, `open(...).write`, `print` and
+f-string
 interpolation all reach the reference form instead, because that is what `__str__` and
 `__repr__` return. The convention still has to be followed; what changes is that
 following it is the path of least resistance and departing from it is visible.
@@ -150,6 +152,20 @@ class PromptError(CorpusError):
     """
 
 
+#: `FilledPrompt`'s public method set, by name. **The guarantee is this enumeration and not
+#: its length** (DESIGN §5.4, restated 2026-08-16): a count refuses every fourth method
+#: regardless of kind, which is a check that fires on the safe change and stays silent when a
+#: dangerous one arrives as an edit to a method already counted. Declared here rather than
+#: only in the test so that adding an exit means editing a named list in the module that owns
+#: the type, and `tests/test_prompt.py` compares the class against it.
+#:
+#: An exit may be added only if it is named for a destination already in this set's terms,
+#: cannot reach a file, a log or a `repr`, and is listed here. A `text` property, a
+#: `to_file()`, a `debug()` or a `__str__` returning the text each fail that and are refused
+#: for those reasons rather than for arithmetic.
+EXITS = ("to_terminal", "for_transport", "reference")
+
+
 class FilledPrompt:
     """Rendered prompt text, with no accessor that is not named for a destination.
 
@@ -158,13 +174,23 @@ class FilledPrompt:
     leave. `__slots__` keeps the attribute set closed, so a caller cannot stash a copy on
     the instance either.
 
-    Two exits, and the asymmetry between them is the point:
+    **The text-bearing exits are named and enumerable, and that — not their number — is the
+    guarantee** (DESIGN §5.4, restated 2026-08-16). `EXITS` below is the enumeration and
+    `tests/test_prompt.py` asserts the public method set against it by name. A count would
+    answer the wrong question: what has to be decided about a new method is what kind of exit
+    it is, and an admissible one is named for a destination that already appears here, cannot
+    reach a file or a log or a `repr`, and is added to `EXITS`.
 
     - `to_terminal(stream)` — a person reading a screen. Refuses a stream that is not a
       terminal, because `> window.txt` is precisely the file §6 says must not exist and it
       is one keystroke away from the intended use.
     - `for_transport()` — the API call. Returns the text with nothing attached; the caller
       is `src/llm/bedrock.py`, which must not log it.
+    A fourth is decided in DESIGN §5.4 and not yet written: `for_transport_blocks()`, the same
+    text for the same call, split into the two content blocks a Bedrock `cachePoint` sits
+    between. It is admissible under the criterion above because it is the same *kind* of exit
+    as `for_transport()` — one destination, one request, a framing difference — and it lands
+    here with `EXITS` when it lands.
 
     Everything else — `str()`, `repr()`, `json.dumps`, an f-string, a `print` of the
     object, a traceback that renders locals — reaches `reference()` instead. That is the
@@ -186,7 +212,7 @@ class FilledPrompt:
         # gets published.
         self._reference = dict(reference)
 
-    # ── the two exits ────────────────────────────────────────────────────────
+    # ── the exits that carry text (see EXITS) ────────────────────────────────
 
     def to_terminal(self, stream: IO[str]) -> None:
         """Write the text to a terminal. Refused for anything else.

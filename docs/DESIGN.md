@@ -1219,7 +1219,7 @@ one code path for "the arm I am closing" and no way to be pointed at anything el
 Inference would also make the input path a function of the run block, which is the coupling
 that lets an arm read its own results directory by accident.
 
-### 5.4 A filled prompt is a type with two named exits, and there is one renderer
+### 5.4 A filled prompt is a type whose text-bearing exits are named and enumerable, and there is one renderer
 
 **Decided 2026-08-08, before the first agent arm was run.** `docs/prompts/rule_author.md` §6
 already fixed the rule: only the template is committed, and a filled instance is not
@@ -1237,6 +1237,35 @@ no public accessor that is not named for a destination:
 | `to_terminal(stream)` | a person reading a screen | refuses a stream that is not a terminal |
 | `for_transport()` | the model call | none; the transport must not log, and `tools/check_bedrock_logging.py` is what checks that |
 | `reference()` | a run block or a log line | returns references, counts and hashes; no text |
+| `for_transport_blocks(cache_after=...)` | the model call, split at a cache boundary | added 2026-08-16; same text as `for_transport()`, in the two content blocks a `cachePoint` needs |
+
+**The guarantee is enumeration, not cardinality** (restated 2026-08-16, before the fourth exit
+was written). What the type promises is that **every path by which the text can leave is named
+for a destination, and the set of such paths is written down and checked** — not that the set
+has three members. Three was the count on 2026-08-08 and the table above was read as if the
+numeral were the property; it is not. A count cannot be the guarantee, because the question a
+reader has to answer about a new method is *what kind of exit is this*, and a cardinality test
+answers that question by refusing every fourth method regardless of kind — which is a test that
+fails on the safe change and passes on the dangerous one if it arrives as an edit to an existing
+exit.
+
+**Why this restatement does not weaken anything.** `for_transport_blocks()` is the *same kind*
+of exit as `for_transport()`: the same destination (the model call, through
+`src/llm/bedrock.py`), the same text, the same absence of any logging path, and it is named for
+that destination. It splits the text at a declared offset because a Bedrock `cachePoint` needs
+two content blocks (`docs/notes/baseline-model-family.md`, 2026-08-16) — a framing difference in
+one request, not a new place the text can go. The three original exits are unchanged, and
+nothing about which callers may hold text changed with it.
+
+**And the criterion that would have refused it.** An exit is admissible only if it is (a) named
+for a destination that already exists in this table's terms, (b) incapable of reaching a file, a
+log or a `repr`, and (c) enumerated here and in the structural test. A `text` property, a
+`__str__` that returned the text, a `to_file()`, a `debug()` — each fails (a) or (b), and the
+restatement rejects them exactly as the old wording did; what the old wording *also* rejected
+was a second transport-shaped exit, and that rejection was an artefact of counting. Had caching
+needed a method that handed the text to something other than the transport — a cache client of
+its own, say, or a serializer — the answer would have been no, and the reason would be (a) and
+(b) rather than the arithmetic.
 
 Everything else — `str()`, `repr()`, `json.dumps`, an f-string, a `print` of the object, a
 traceback that renders locals — reaches the reference form. That last case is the one worth
@@ -1288,13 +1317,26 @@ would then bound live code.
 wrote a debug copy behaves identically to a correct one on every machine where anyone would
 be looking, so `tests/test_prompt.py` checks the syntax tree: no function in the
 module writes, logs or prints; the module imports nothing that could; `render_window`'s
-return statements construct a `FilledPrompt`; the public method set is exactly the three
-exits. The renderer's *interior* is in that set and not only its signature, because the
+return statements construct a `FilledPrompt`; **the public method set equals the enumerated
+exits** — the set, asserted by name, and not its size, so adding a method is a change to a
+declared list rather than a number nobody can interpret. The renderer's *interior* is in that
+set and not only its signature, because the
 mutation `renderer_writes_a_debug_copy` leaves the type entirely intact and defeats it
 completely — a type protecting a value that has already reached `/tmp` protects nothing.
 `release_screen.py` blocks the committed paths a filled instance would land under, and `/tmp`
 is not one of them, which is why the convention is "never written" rather than "never
 committed" and why a path pattern cannot be the check.
+
+**`docs/prompts/auditor.md` §6's phrase "the two named exits" is deliberately left standing,
+and so is `src/porting/audit.py`'s.** The prompt templates are hashed into
+`window_freeze.json`, and this restatement changes no instruction any agent receives — it
+renames a property of a Python type. Editing a hashed file for it is the class of edit
+`docs/notes/window-freeze-history.md` calls revision 3, "the one with no excuse". `audit.py`'s
+module docstring is not hashed, but its sentence is about `MaskedLine` keeping text inside the
+masker rather than about how many methods the masker has, and it remains true. So the count
+survives in prose in two places where it is describing a different point, and the enumeration
+is where the guarantee is: `prompt.EXITS`, this table, and the structural test. **When
+`auditor.md` is next edited for a reason that changes an instruction, the phrase goes with it.**
 
 **`rule_author.md` §6 is deliberately left as it was, and this section is the cross-reference
 it does not contain.** The prompt is one of the two files hashed into `window_freeze.json`
@@ -1750,9 +1792,9 @@ nothing to wrap, because there is no slice.
 
 **Wrapping it anyway would weaken the convention, which is the load-bearing half of this
 decision.** The guarantee here is *no surface forms exist in the object*. The guarantee
-`FilledPrompt` gives is *text that does exist has two exits*. Wrapping the first in the second
-substitutes "it is a `FilledPrompt`, so it is safe" for "it has no surface form, so it is
-safe" — and the second is the true reason. Once the weaker claim is what the code asserts, a
+`FilledPrompt` gives is *text that does exist leaves only through named, enumerated exits*.
+Wrapping the first in the second substitutes "it is a `FilledPrompt`, so it is safe" for "it
+has no surface form, so it is safe" — and the second is the true reason. Once the weaker claim is what the code asserts, a
 later field addition satisfies the type and breaks the fact.
 
 **The path rules carry the defence instead, and they are not redundant with the absence of
