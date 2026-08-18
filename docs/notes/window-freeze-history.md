@@ -285,6 +285,42 @@ Two consequences a revival inherits, both stated here so neither is re-derived:
   including whether the revived arm reads an Auditor at all. Deciding it now would be a
   forecast, and this note has recorded two of those already.
 
+### 2026-08-18: `auditor.md` was edited, and no arm has ever hashed it
+
+Not a revision of this record — nothing on it moved, and `auditor.md` is not one of the two
+files it names. Recorded here because this file is the list of edits to hashed prompts and the
+reason this one cost nothing is a fact that expires.
+
+What moved: §6's masked-input bullet said the filled prompt travels "with the two named exits
+and nothing else. Not `--debug` output, **not a cached prompt**". Both halves became false in
+the same change. `FilledPrompt` gained a fourth exit (`for_transport_blocks()`, DESIGN §5.4) and
+the Auditor call is now split at a cache boundary, so part of this prompt *is* cached. The
+bullet now names the enumeration instead of a count, and a third bullet states the boundary
+positively — template, banner and §1.1 frame on the cached side; **the masked document never in
+the cached block.** `src/porting/audit.py`'s copy of the same phrase was corrected with it.
+
+**The cost was zero, and the reason is that no arm has ever hashed this file.** The three frozen
+records — `port-oneshot`, `port-oneshot-nofence`, `port-human` — each name two files.
+`auditor.md` joined `WINDOW_FILES` on 2026-08-12 (the note above), and `port-loop`, the only arm
+whose window includes it, has not run. So there is no record for this edit to disagree with and
+no call it postdates.
+
+**That distinguishes it from revision 3 and from revision 8, which is the whole point of the
+entry.** Revision 3 is "the one with no excuse" because it was prose edited into a prompt whose
+freeze had already been taken, minutes after the section was written — the ordering failure this
+file exists for. Revision 8 is worse in the way that matters more: an edit made after
+`port-oneshot` had spent its single call, which no record could follow and which produced a new
+arm instead. This edit is on the other side of both. It is the ordering lesson being followed
+rather than violated: **freeze last**, and correct the prose before the freeze rather than
+after.
+
+**And the expiry is the reason to write it down.** The moment `port-loop` takes its freeze, this
+file's bytes become an arm's window. A false sentence frozen at that moment stays false for that
+arm's lifetime: `freeze_window()` refuses a re-freeze once the arm has started, `window_drift()`
+reports the disagreement rather than repairing it, and the only remedy is the one revision 8
+produced — a new arm. So the free window for correcting `auditor.md` closes at `port-loop`'s
+first call, and after it the correct move is a new arm and not an edit.
+
 ## What is guaranteed now
 
 `freeze_window()` keeps the `exists()` branch and gains a second condition that a

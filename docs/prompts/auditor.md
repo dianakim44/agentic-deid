@@ -409,15 +409,25 @@ intact identifiers, than any other prompt in this repository. The intuition that
 is safe text is exactly backwards, and it is the reason this section exists rather than a
 cross-reference.
 
-Two consequences, both binding:
+Three consequences, all binding:
 
 - **The masker returns `FilledPrompt` and never a `str`** (DESIGN §3, §5.4). It is the second
   function in the project that slices document text for a prompt — `render_window()` is the
   first — so it lives inside the same discipline rather than beside it: assembled in memory,
-  sent, discarded, with the two named exits and nothing else. Not `--debug` output, not a
-  cached prompt, not a line in `agent_calls.jsonl`, which is deny-listed for this reason.
-  What may be recorded is `reference()`: document id, counts, template hashes, rendered
-  length. No text.
+  sent, discarded, through the exits that type enumerates and nothing else. Not `--debug`
+  output, not a copy on disk, not a line in `agent_calls.jsonl`, which is deny-listed for
+  this reason. What may be recorded is `reference()`: document id, counts, template hashes,
+  rendered length. No text.
+- **One part of this prompt *is* cached, and the boundary is why that is not an exception**
+  (DESIGN §5.5, §11.3, decided 2026-08-18). The call splits at a declared offset and Bedrock
+  retains the first block for five minutes: the template above, the input banner, and §1.1's
+  frame. Those bytes are committed files and `config/naming.yaml` values — already public,
+  and identical for every document in a round. **The masked document is on the far side of
+  the boundary and is never in the cached block.** So the sentence that used to read "not a
+  cached prompt" was true of the whole prompt and is now true of the half that carries the
+  corpus, which is the half it was about; stating it as a boundary rather than as an absence
+  is what keeps it checkable. If the boundary ever moved past the document heading, this
+  bullet is what it would contradict.
 - **Where a corpus's text may not leave the machine, the Auditor cannot run at all.**
   `rule_author.md` §1.4 sets `n` = 0 on such a corpus and the RuleAuthor arm degrades to a
   smaller window. This does not degrade. An Auditor shown 0 characters produces no report,

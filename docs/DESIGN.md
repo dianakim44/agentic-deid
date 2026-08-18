@@ -1327,16 +1327,35 @@ completely — a type protecting a value that has already reached `/tmp` protect
 is not one of them, which is why the convention is "never written" rather than "never
 committed" and why a path pattern cannot be the check.
 
-**`docs/prompts/auditor.md` §6's phrase "the two named exits" is deliberately left standing,
-and so is `src/porting/audit.py`'s.** The prompt templates are hashed into
-`window_freeze.json`, and this restatement changes no instruction any agent receives — it
-renames a property of a Python type. Editing a hashed file for it is the class of edit
-`docs/notes/window-freeze-history.md` calls revision 3, "the one with no excuse". `audit.py`'s
-module docstring is not hashed, but its sentence is about `MaskedLine` keeping text inside the
-masker rather than about how many methods the masker has, and it remains true. So the count
-survives in prose in two places where it is describing a different point, and the enumeration
-is where the guarantee is: `prompt.EXITS`, this table, and the structural test. **When
-`auditor.md` is next edited for a reason that changes an instruction, the phrase goes with it.**
+**`docs/prompts/auditor.md` §6 and `src/porting/audit.py` said "the two named exits", and both
+were corrected on 2026-08-18 — the first judgement here was that they could stand, and it was
+wrong on the facts.** The reasoning was that neither sentence is about how many methods the
+type has. Reading them again with the fourth exit in hand, `auditor.md` §6's is: the same
+bullet's next clause is **"not a cached prompt"**, and the fourth exit exists precisely so that
+part of this prompt *is* cached. So the sentence would have become false in a way that matters
+— not a stale numeral but an instruction contradicting what the harness does with the very
+prompt the instruction governs. `audit.py`'s sentence is the same phrase naming the same two
+methods, and the argument that it "is about `MaskedLine`" does not survive the phrase itself:
+it says the text stays behind *two* exits, and after [2] it stays behind three, with a
+`FilledPrompt` that is the masker's own return.
+
+Both now name the enumeration rather than a count, and `auditor.md` §6 gains a third bullet
+stating the cache boundary positively: the template, the banner and §1.1's frame are on the
+cached side and are committed bytes and `naming.yaml` values; **the masked document is on the
+far side and is never cached.** That is stronger than the absence it replaces, because a
+boundary is checkable and "not cached" was only true while nothing cached.
+
+**The cost of this edit is zero, and that is a fact about today rather than a principle.**
+`auditor.md` is hashed into `WINDOW_FILES`, but **no arm has ever hashed it**: the three frozen
+records (`port-oneshot`, `port-oneshot-nofence`, `port-human`) name two files, `auditor.md`
+joined the window on 2026-08-12, and `port-loop` has not run. So this is not
+`window-freeze-history.md`'s revision 3 — that was prose edited into a file *after* the
+surrounding work had settled and, in the revision-8 case, after an arm had spent its call. This
+edit precedes every call that will hash the file. The moment `port-loop` freezes, a false
+sentence freezes with it and correcting it afterwards costs a re-freeze that
+`freeze_window()` refuses outright — the shape `rule_author.md` has already produced twice
+(revisions 7 and 8, where the edit was followed by no record and a new arm had to be named).
+Logged as the 2026-08-18 entry in `docs/notes/window-freeze-history.md`.
 
 **`rule_author.md` §6 is deliberately left as it was, and this section is the cross-reference
 it does not contain.** The prompt is one of the two files hashed into `window_freeze.json`

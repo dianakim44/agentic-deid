@@ -35,9 +35,9 @@ guarantee used to be about the functions: none of them wrote or logged. That lef
 it — the state DESIGN §3's "the masker returns `FilledPrompt` and never a `str`" exists to
 prevent, reintroduced by the type the masker has to hand over. It bought one `len()` call.
 So `MaskedLine` carries a geometry (`length`, `doc_offset`, `tags`) and the masked text stays
-inside the masker behind its two named exits. `tests/test_audit.py` asserts this over the
-*types* and not only over the functions, because a function-level assertion is satisfied by a
-module that holds the text and merely has not printed it yet.
+inside the masker behind the exits `prompt.EXITS` enumerates. `tests/test_audit.py` asserts
+this over the *types* and not only over the functions, because a function-level assertion is
+satisfied by a module that holds the text and merely has not printed it yet.
 """
 from __future__ import annotations
 
