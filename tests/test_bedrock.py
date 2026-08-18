@@ -32,9 +32,9 @@ from src.corpora.base import CorpusError                          # noqa: E402
 from src.llm import bedrock as bedrock_module                     # noqa: E402
 from src.llm.bedrock import (                                     # noqa: E402
     DATED, DEFAULT_MAX_TOKENS, MAX_ATTEMPTS, MISMATCH, MODEL_FIELD_PATHS, UNRESOLVED,
-    BedrockError, Response, _resolution, _text, _usage, invoke,
+    BedrockError, Response, _reported_ttl, _resolution, _text, _usage, invoke,
 )
-from src.llm.prompt import FilledPrompt                           # noqa: E402
+from src.llm.prompt import CACHE_BOUNDARY, CACHE_TTL, FilledPrompt  # noqa: E402
 
 MODULE = ROOT / "src" / "llm" / "bedrock.py"
 
@@ -285,6 +285,279 @@ def test_wall_seconds_is_measured_and_rounded_in_the_cost_block():
     r = invoke(a_prompt(), model_id=OPUS, client=FakeRuntime())
     assert r.wall_seconds >= 0
     assert r.cost()["wall_seconds"] == round(r.wall_seconds, 3)
+
+
+# ─── prompt_tokens is the raw total, and totalTokens is what checks it ────────
+#
+# The three responses below are the 2026-08-16 probe, verbatim from
+# `docs/notes/baseline-model-family.md`: one control with no cachePoint, one write, one read.
+# `totalTokens` is 7197 in all three and the components move between them, which is the
+# property the cross-check rests on.
+
+
+def probe(kind: str) -> dict:
+    """The measured `usage` block for one of the three probe calls (2026-08-16).
+
+    Written out rather than parameterised from `reply()` because the numbers are the
+    measurement: `inputTokens` 7193 → 21 while the model read the same text, and 7197 by the
+    other path every time.
+    """
+    usage = {
+        "control": {"inputTokens": 7193, "outputTokens": 4, "totalTokens": 7197,
+                    "cacheReadInputTokens": 0, "cacheWriteInputTokens": 0},
+        "write": {"inputTokens": 21, "outputTokens": 4, "totalTokens": 7197,
+                  "cacheReadInputTokens": 0, "cacheWriteInputTokens": 7172,
+                  "cacheDetails": [{"ttl": "5m", "inputTokens": 7172}]},
+        # `cacheDetails` absent — not empty. Measured: the key is missing on a read.
+        "read": {"inputTokens": 21, "outputTokens": 4, "totalTokens": 7197,
+                 "cacheReadInputTokens": 7172, "cacheWriteInputTokens": 0},
+    }[kind]
+    response = reply()
+    response["usage"] = usage
+    return response
+
+
+def cached_prompt(text: str = "FRAME\n\nDOCUMENT") -> FilledPrompt:
+    """A prompt carrying the boundary an audit assembler records, without loading a corpus."""
+    return FilledPrompt(text, {"text_sha256": "sha256:" + "0" * 64,
+                               "cache_after": len("FRAME\n\n"),
+                               "cache_boundary": CACHE_BOUNDARY})
+
+
+@pytest.mark.parametrize("kind,expected", [("control", 7193), ("write", 7193), ("read", 7193)])
+def test_prompt_tokens_is_the_raw_total_on_all_three_probe_calls(kind, expected):
+    """**The same number three times, which is the whole point** (DESIGN §11.3).
+
+    `inputTokens + cacheRead + cacheWrite` is 7193 whether the prefix was sent, written or
+    read. Recording `inputTokens` instead would report 7193, 21 and 21 for three calls on which
+    the model read identical text — a 340× apparent saving in the column the 1.9× standard is
+    read off, produced by a transport optimisation rather than by the loop doing less work.
+    """
+    read, write = 0, 0
+    if kind == "write":
+        write = 7172
+    if kind == "read":
+        read = 7172
+    prompt_tokens, completion, got_read, got_write = _usage(probe(kind))
+    assert prompt_tokens == expected
+    assert (completion, got_read, got_write) == (4, read, write)
+
+
+def test_the_billed_basis_is_recoverable_and_is_not_the_headline():
+    """§11.3 requires both numbers published, and this is the arithmetic that relates them.
+
+    `prompt_tokens - read_tokens` is what the invoice is computed on, so a reader who wants it
+    can have it — without the cost column itself becoming the invoice.
+    """
+    prompt_tokens, _, read, _ = _usage(probe("read"))
+    assert prompt_tokens == 7193
+    assert prompt_tokens - read == 21
+
+
+def test_the_assembled_total_is_cross_checked_against_the_envelopes_own():
+    """Two paths to one quantity, and a disagreement is refused rather than recorded.
+
+    The measurement's value is exactly this: `totalTokens` is published independently of the
+    three components, so the arithmetic above can be *checked*. If Bedrock redefines a
+    component, this is where it surfaces — on the first call, rather than as a cost column
+    nobody can reproduce.
+    """
+    response = probe("read")
+    response["usage"]["cacheReadInputTokens"] = 7000      # the sum no longer reaches 7197
+    with pytest.raises(BedrockError) as e:
+        _usage(response)
+    assert "totalTokens" in str(e.value)
+    assert "7197" in str(e.value)
+
+
+def test_a_response_without_a_total_cannot_be_cross_checked_and_is_refused():
+    """The check is not optional: without it the cost column is a single unverified sum."""
+    response = probe("control")
+    del response["usage"]["totalTokens"]
+    with pytest.raises(BedrockError) as e:
+        _usage(response)
+    assert "totalTokens" in str(e.value)
+
+
+def test_absent_cache_keys_are_zero_in_the_arithmetic_and_the_total_still_agrees():
+    """A call with no cachePoint gets no cache keys at all, and that is not an error.
+
+    Zero is their arithmetic identity in the raw total. What zero does *not* do is stand in for
+    the `caching` block — that is `Response.caching()`, which returns None here.
+    """
+    response = reply(tokens=(67, 1102))
+    del response["usage"]["cacheReadInputTokens"]
+    prompt_tokens, completion, read, write = _usage(response)
+    assert (prompt_tokens, completion, read, write) == (67, 1102, 0, 0)
+
+
+def test_a_negative_or_non_integer_cache_count_is_refused():
+    """These are summed into a published figure, so a value that is not a count is refused."""
+    response = probe("read")
+    response["usage"]["cacheReadInputTokens"] = -1
+    with pytest.raises(BedrockError, match="negative"):
+        _usage(response)
+    response["usage"]["cacheReadInputTokens"] = "7172"
+    with pytest.raises(BedrockError, match="non-integer"):
+        _usage(response)
+
+
+# ─── caching is opt-in per call, and the opt-in is a keyword ─────────────────
+
+
+def test_an_uncached_call_sends_one_content_block_and_records_no_caching():
+    """The default path, unchanged. Every arm before `port-loop` took it (§4)."""
+    fake = FakeRuntime()
+    r = invoke(a_prompt("the body"), model_id=OPUS, client=fake)
+    assert fake.calls[0]["messages"][0]["content"] == [{"text": "the body"}]
+    assert r.caching() is None
+    assert (r.cache_boundary, r.cache_ttl) == (None, None)
+    assert (r.cache_read_tokens, r.cache_write_tokens) == (0, 0)
+
+
+def test_a_cached_call_sends_two_blocks_with_a_cache_point_between_them():
+    fake = FakeRuntime(probe("write"))
+    invoke(cached_prompt(), model_id=OPUS, client=fake, cache=True)
+    assert fake.calls[0]["messages"][0]["content"] == [
+        {"text": "FRAME\n\n"},
+        {"cachePoint": {"type": "default"}},
+        {"text": "DOCUMENT"},
+    ]
+
+
+def test_the_cached_call_sends_the_same_bytes_as_the_uncached_one():
+    """§4's byte-identical claim, at the transport rather than at the type.
+
+    `tests/test_prompt.py` asserts the split is total over a real audit prompt; this asserts
+    that what `invoke` puts on the wire concatenates to what it would have sent uncached. Two
+    arms whose prompts differed would be two experiments (DESIGN §6.3).
+    """
+    plain, cached = FakeRuntime(), FakeRuntime(probe("write"))
+    invoke(cached_prompt(), model_id=OPUS, client=plain)
+    invoke(cached_prompt(), model_id=OPUS, client=cached, cache=True)
+    one = plain.calls[0]["messages"][0]["content"][0]["text"]
+    two = "".join(b["text"] for b in cached.calls[0]["messages"][0]["content"] if "text" in b)
+    assert one == two
+
+
+def test_cache_is_off_by_default():
+    """The signature, checked rather than assumed: the uncached path is what every arm took."""
+    import inspect
+    parameter = inspect.signature(invoke).parameters["cache"]
+    assert parameter.default is False
+    assert parameter.kind is inspect.Parameter.KEYWORD_ONLY
+
+
+def test_caching_is_never_inferred_from_the_prompt_carrying_a_boundary():
+    """**The decision this file refuses to make on the caller's behalf** (DESIGN §5.4).
+
+    A prompt whose reference form carries a boundary is still sent as one block unless the
+    caller asked. Inferring it would make "the RuleAuthor prompt is split too" arrive as an
+    omission the day that assembler grows a boundary — no line to review, and §4's
+    byte-identical claim about round 1 failing silently.
+    """
+    fake = FakeRuntime()
+    r = invoke(cached_prompt(), model_id=OPUS, client=fake)
+    assert len(fake.calls[0]["messages"][0]["content"]) == 1
+    assert r.caching() is None
+
+
+def test_cache_true_on_a_prompt_with_no_boundary_is_refused():
+    """The other direction: this module does not compute a boundary of its own.
+
+    `assemble_audit_prompt()` is the only producer, so a caller asking for a cached call on
+    some other prompt is asking this module to invent where the masked document begins.
+    """
+    with pytest.raises(BedrockError) as e:
+        invoke(a_prompt(), model_id=OPUS, client=FakeRuntime(), cache=True)
+    assert "cache_after" in str(e.value)
+    assert "assemble_audit_prompt" in str(e.value)
+
+
+def test_a_truthy_non_bool_is_not_a_decision():
+    with pytest.raises(BedrockError, match="must be a bool"):
+        invoke(cached_prompt(), model_id=OPUS, client=FakeRuntime(), cache="yes")
+
+
+def test_the_caching_block_is_the_five_declared_keys():
+    from src.eval.scorer import REQUIRED_CACHING
+    r = invoke(cached_prompt(), model_id=OPUS, client=FakeRuntime(probe("write")), cache=True)
+    assert set(r.caching()) == set(REQUIRED_CACHING)
+    assert r.caching() == {"enabled": True, "boundary": CACHE_BOUNDARY, "ttl": "5m",
+                           "read_tokens": 0, "write_tokens": 7172}
+
+
+def test_the_write_call_and_the_read_call_are_told_apart_by_the_block():
+    """One write per round and reads for the rest — the model the TTL rests on.
+
+    The two calls are indistinguishable in `prompt_tokens` (7193 both times, which is the
+    point) and distinguishable here, which is why the block exists.
+    """
+    write = invoke(cached_prompt(), model_id=OPUS,
+                   client=FakeRuntime(probe("write")), cache=True)
+    read = invoke(cached_prompt(), model_id=OPUS,
+                  client=FakeRuntime(probe("read")), cache=True)
+    assert write.prompt_tokens == read.prompt_tokens == 7193
+    assert write.caching()["write_tokens"] == 7172
+    assert write.caching()["read_tokens"] == 0
+    assert read.caching()["read_tokens"] == 7172
+    assert read.caching()["write_tokens"] == 0
+
+
+def test_an_absent_cache_details_is_absent_and_not_a_zero_or_an_empty_list():
+    """Measured 2026-08-16: `cacheDetails` appears on the write and the key is gone on the read.
+
+    `_reported_ttl` returns None for the read — the response said nothing about a lifetime —
+    and the block still carries the *declared* TTL, which is `naming.yaml`'s. An absent record
+    and a record of nothing are different, and neither is a zero.
+    """
+    assert "cacheDetails" not in probe("read")["usage"]
+    assert _reported_ttl(probe("read")) is None
+    assert _reported_ttl(probe("write")) == "5m"
+    assert _reported_ttl(probe("control")) is None
+    read = invoke(cached_prompt(), model_id=OPUS,
+                  client=FakeRuntime(probe("read")), cache=True)
+    assert read.caching()["ttl"] == "5m"
+
+
+def test_a_reported_ttl_that_contradicts_the_declared_one_is_refused():
+    """The declared value is `config/naming.yaml`'s and the reported one is the platform's.
+
+    Recording the first while the second held would make metrics.json state a lifetime nothing
+    granted. Silence is not a contradiction and is not refused (the test above).
+    """
+    response = probe("write")
+    response["usage"]["cacheDetails"] = [{"ttl": "1h", "inputTokens": 7172}]
+    with pytest.raises(BedrockError) as e:
+        invoke(cached_prompt(), model_id=OPUS, client=FakeRuntime(response), cache=True)
+    assert "1h" in str(e.value)
+    assert "5m" in str(e.value)
+
+
+def test_cache_counts_on_a_call_that_sent_no_cache_point_are_refused():
+    """The request this client made and the request that was served must be the same one.
+
+    No `cachePoint` was sent, so no cache could have been read or written; an envelope saying
+    otherwise describes a different call, and the uncached arms' cost columns are what that
+    would corrupt.
+    """
+    with pytest.raises(BedrockError) as e:
+        invoke(a_prompt("body"), model_id=OPUS, client=FakeRuntime(probe("read")))
+    assert "without a cachePoint" in str(e.value)
+
+
+def test_the_ttl_is_five_minutes_and_comes_from_the_vocabulary():
+    """`5m` because that is what `{"type": "default"}` is, recorded rather than chosen here.
+
+    The rationale — intra-round gaps in seconds, inter-round gaps of 40–80 minutes, so one
+    write per round — is in `config/naming.yaml`'s gloss, which is where a reader looking for
+    why finds it.
+    """
+    from src.corpora.base import caching_ttls
+    assert CACHE_TTL == "5m"
+    assert CACHE_TTL in caching_ttls()
+    gloss = caching_ttls()[CACHE_TTL]
+    assert "5" in gloss and "write" in gloss
 
 
 # ─── no retries ──────────────────────────────────────────────────────────────

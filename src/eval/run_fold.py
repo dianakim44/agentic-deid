@@ -692,6 +692,7 @@ def run_fold(
     model_lifecycle: Mapping[str, str | None] | None = None,
     cost: Mapping[str, float] | None = None,
     cost_to_date: Mapping[str, float] | None = None,
+    caching: Mapping[str, object] | None = None,
     termination: Termination | PendingTermination | None = None,
     iteration: int | None = None,
 ) -> tuple[Path, Path, dict]:
@@ -763,6 +764,16 @@ def run_fold(
     driver's, and this function is called once per round by a caller that already has the
     history. The relation between the two blocks is checked by the writer
     (`scorer.check_cost_to_date`).
+
+    **`caching` is the round's transport record and `None` means the round was not cached**
+    (schema 8, DESIGN §5.4 §11.3). Passed through untouched — not defaulted to a block of zeros,
+    which is the one substitution that would destroy the distinction it carries: a cached round
+    whose cache never hit also reports zero reads. This function adds nothing to it and cannot,
+    for the reason it cannot invent `model_record`: whether a call was split at a cache boundary
+    is invisible from a function that runs rules over a fold. `scorer.sum_caching` is the
+    accumulator and the driver calls it, as with `cost`. The detection pass's seconds are added
+    to the two cost blocks and *nothing* is added here — there is no such thing as a cache read
+    performed by a rule pass.
 
     **`termination` is how an iterating arm reports where it stopped**, and it is an argument
     for `cost`'s and `model_record`'s reason: this function scores one fold, and whether that
@@ -994,6 +1005,11 @@ def run_fold(
         # block (DESIGN §3, and the cost block's zeros one argument over).
         termination=(termination or not_applicable(corpus)).record(),
         model_lifecycle=model_lifecycle,
+        # `None` passes straight through and the writer omits the block, which is how "this
+        # round was not cached" is recorded (schema 8). No `or {}` here: an empty mapping would
+        # be a block the writer then refuses as incomplete, and a block of zeros would be the
+        # lie DESIGN §11.3 names.
+        caching=caching,
         root=root,
     )
 

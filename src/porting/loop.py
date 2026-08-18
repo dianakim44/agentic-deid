@@ -130,7 +130,7 @@ import json
 from .. import orchestrate
 from ..corpora.base import rule_langs
 from ..eval.run_fold import DEFAULT_SPLIT, load_fold, read_errors, read_spans, run_fold
-from ..eval.scorer import iter_metrics_path, sum_costs
+from ..eval.scorer import iter_metrics_path, sum_caching, sum_costs
 from ..llm.bedrock import invoke, model_lifecycle
 from ..llm.prompt import (
     assemble_audit_prompt, assemble_iteration_prompt, assemble_task_prompt, mask_document,
@@ -449,9 +449,9 @@ def _leak_rates(*, corpus: str, detector: str, supervision: str, porting: str,
 
 
 def _audit_fold(documents, predictions, *, corpus: str, iteration: int, model_id: str,
-                max_tokens: int | None, client, control_client,
-                detector: str, supervision: str, porting: str) -> tuple[dict, list[dict]]:
-    """The Auditor over one fold: one call per document. Returns (report, cost blocks).
+                max_tokens: int | None, client, control_client, detector: str,
+                supervision: str, porting: str) -> tuple[dict, list[dict], list[dict | None]]:
+    """The Auditor over one fold: one call per document. Returns (report, costs, caching).
 
     **One call per document is `auditor.md` §1.3's decision and this function is where the
     fold's N shows up in the arm's cost.** Recall degrades along a very long context, which
@@ -480,6 +480,26 @@ def _audit_fold(documents, predictions, *, corpus: str, iteration: int, model_id
     round trips in a round whose cost comparison is about inference. The one record is passed
     in and attached to every line, which is what `model_lifecycle` claims to be — a note about
     the id, attached to the calls that used it.
+
+    **This is the only function in the project that passes `cache=True`, and the fold's N is
+    why** (DESIGN §5.4 §11.3, `auditor.md` §6). The template is 80.7% of an average audit call
+    and this loop sends it once per document — 1.71M of a round's 2.12M prompt tokens are the
+    same committed bytes retransmitted 250 times. The boundary is the one
+    `assemble_audit_prompt()` recorded; this function does not compute one and could not, since
+    it never holds the prompt's text. The RuleAuthor's call in `run_iteration()` stays on the
+    single-block path, which is what keeps round 1 byte-identical to `port-oneshot`'s (§4).
+
+    **`5m` and one write per round is a model, and the gaps are what make it right.** The calls
+    in this loop are seconds apart — well inside the TTL — and rounds are 40–80 minutes apart,
+    well outside it. So a round pays one cache write and reads for the remaining N−1 calls, and
+    the next round writes again rather than inheriting a cache whose contents nobody could
+    verify. `config/naming.yaml`'s `caching_ttl` gloss carries that reasoning; the measurement
+    is `docs/notes/baseline-model-family.md` (2026-08-16).
+
+    The caching blocks are returned beside the costs rather than merged into them, because
+    `scorer.REQUIRED_COST` is closed and because they answer different questions: the cost block
+    is the raw total two arms can be compared on, and the caching block is what the transport did
+    underneath it. `scorer.sum_caching` adds them.
     """
     lifecycle = model_lifecycle(model_id, client=control_client)
     kwargs = {} if max_tokens is None else {"max_tokens": max_tokens}
@@ -490,11 +510,17 @@ def _audit_fold(documents, predictions, *, corpus: str, iteration: int, model_id
 
     audits = []
     costs = []
+    caching = []
     for document in documents:
         masked = mask_document(document, by_doc.get(document.doc_id, []))
         prompt = assemble_audit_prompt(corpus=corpus, masked=masked)
-        response = invoke(prompt, model_id=model_id, client=client, **kwargs)
+        # `cache=True` here and nowhere else in the project — see the docstring. Explicit rather
+        # than inferred from the prompt: a transport that cached whatever carried a boundary
+        # would start caching the RuleAuthor's prompt the day that assembler grew one, with no
+        # line for anyone to review (DESIGN §5.4).
+        response = invoke(prompt, model_id=model_id, client=client, cache=True, **kwargs)
         costs.append(response.cost())
+        caching.append(response.caching())
         append_call(
             call_line(iteration, prompt_reference=prompt.reference(),
                       model=response.model_record(),
@@ -512,8 +538,8 @@ def _audit_fold(documents, predictions, *, corpus: str, iteration: int, model_id
     # because it records what it was told; the numbers are the round being run and the round
     # whose predictions were masked, and the consumer — `prompt._audit_block` — checks both
     # against its own round.
-    return audit.report(audits, corpus=corpus, iteration=iteration,
-                        masked_from_iteration=iteration - 1), costs
+    return (audit.report(audits, corpus=corpus, iteration=iteration,
+                         masked_from_iteration=iteration - 1), costs, caching)
 
 
 def _written_termination(metrics_file) -> dict:
@@ -558,10 +584,15 @@ def run_iteration(iteration: int, *, corpus: str, lang: str, model_id: str,
     first: it is the fact about the call a reader needs before any of the axes, and there is no
     default, because a default round number is a round chosen by whichever caller forgot.
 
-    Returns `run_iteration_1()`'s shape with five keys added — `audit_report_path`,
-    `window_drift`, `cost_to_date`, `termination` and `stop` — so a caller that reads one round
-    reads all of them and the fields that differ are named rather than inferred. Nothing in it
-    is a summary that has to be trusted: every value is also on disk.
+    Returns `run_iteration_1()`'s shape with six keys added — `audit_report_path`,
+    `window_drift`, `cost_to_date`, `caching`, `termination` and `stop` — so a caller that reads
+    one round reads all of them and the fields that differ are named rather than inferred.
+    Nothing in it is a summary that has to be trusted: every value is also on disk.
+
+    `caching` is the round's transport record and it is present in both returns for
+    `cost_to_date`'s reason — it is what tells a reader how to read `cost.prompt_tokens`, so a
+    caller holding one without the other holds the number §11.3 warns about. Round 1 has no such
+    key at all, and that is not an omission: it makes no audit call, so nothing was cached.
 
     The steps, and what each one is not allowed to do:
 
@@ -703,7 +734,7 @@ def run_iteration(iteration: int, *, corpus: str, lang: str, model_id: str,
     predictions = read_spans(corpus=corpus, detector=detector, supervision=supervision,
                              porting=porting, iteration=previous, root=orchestrate.ROOT)
     documents = load_fold(corpus, split)
-    report, audit_costs = _audit_fold(
+    report, audit_costs, audit_caching = _audit_fold(
         documents, predictions, corpus=corpus, iteration=iteration, model_id=model_id,
         max_tokens=max_tokens, client=client, control_client=control_client,
         detector=detector, supervision=supervision, porting=porting,
@@ -755,6 +786,15 @@ def run_iteration(iteration: int, *, corpus: str, lang: str, model_id: str,
     # accumulator is the driver's and the addition is still the scorer's; `run_fold` writes
     # both blocks and `check_cost_to_date` refuses a total below the round it contains.
     cost_to_date = sum_costs([previous_metrics["cost_to_date"], cost])
+    # And what the transport did underneath the round's `prompt_tokens` (schema 8). The
+    # RuleAuthor's call contributes `None` — it is not cached (DESIGN §4) — and `sum_caching`
+    # propagates `None` only if *every* call was uncached, which for this round it never is.
+    # Not accumulated across rounds: `cost_to_date` is the arm's total because §11.3's 1.9×
+    # standard is read off it, and the caching block is a fact about how this round was
+    # transported. A reader wanting the arm's cache total sums the rounds; a reader wanting the
+    # arm's billed basis needs `cost_to_date.prompt_tokens` minus each round's reads, which is
+    # why the per-round figure is the one that must exist.
+    caching = sum_caching([response.caching(), *audit_caching])
 
     # Before the response is judged (round 1's step 4). `role` and `sample_reference` are the
     # two values that stop coinciding with `call_line()`'s defaults at this round — the second
@@ -781,7 +821,7 @@ def run_iteration(iteration: int, *, corpus: str, lang: str, model_id: str,
             corpus=corpus, detector=detector, supervision=supervision, porting=porting,
             split=split, model=model, response=response.text, error=str(exc),
             rules_path=rules_file, cost=cost, prompt_reference=reference,
-            model_lifecycle=lifecycle,
+            model_lifecycle=lifecycle, caching=caching,
         )
         return {
             "iteration": iteration,
@@ -789,6 +829,11 @@ def run_iteration(iteration: int, *, corpus: str, lang: str, model_id: str,
             "run": run,
             "cost": cost,
             "cost_to_date": cost_to_date,
+            # Beside the two cost blocks for the reason it is beside them in the file: it is
+            # what tells a reader how to read `prompt_tokens`, and a caller that has the cost
+            # in hand and has to open a file for the caching block would read the first
+            # number without the second (DESIGN §11.3).
+            "caching": caching,
             "rules_path": rules_file,
             "failure_path": failure,
             "metrics_path": None,
@@ -814,7 +859,7 @@ def run_iteration(iteration: int, *, corpus: str, lang: str, model_id: str,
     spans_file, metrics_file, scored = run_fold(
         corpus=corpus, detector=detector, supervision=supervision, porting=porting,
         split=split, rules={lang: rules_file}, model_record=model, cost=cost,
-        cost_to_date=cost_to_date, model_lifecycle=lifecycle,
+        cost_to_date=cost_to_date, caching=caching, model_lifecycle=lifecycle,
         termination=PendingTermination(corpus=corpus,
                                        previous_leak_rates=tuple(previous_rates)),
         iteration=iteration, root=orchestrate.ROOT,
@@ -831,6 +876,7 @@ def run_iteration(iteration: int, *, corpus: str, lang: str, model_id: str,
         "run": run,
         "cost": cost,
         "cost_to_date": cost_to_date,
+        "caching": caching,
         "rules_path": rules_file,
         "failure_path": None,
         "metrics_path": metrics_file,

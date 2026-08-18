@@ -842,7 +842,8 @@ def _write_rules(text: str, *, corpus: str, detector: str, supervision: str,
 def _write_failure(*, corpus: str, detector: str, supervision: str, porting: str,
                    split: str, model: dict, response: str, error: str,
                    rules_path: Path, cost: dict, prompt_reference: dict,
-                   model_lifecycle: dict | None = None) -> Path:
+                   model_lifecycle: dict | None = None,
+                   caching: dict | None = None) -> Path:
     """Record a format failure. Written instead of `metrics.json`, never beside it.
 
     DESIGN §10 A2's three contents: the model ids, the raw response, and **the validator's
@@ -867,6 +868,13 @@ def _write_failure(*, corpus: str, detector: str, supervision: str, porting: str
     them, and it **does not resolve the alias** — `start_of_life_time` is when the id
     appeared in the catalogue, not what answered on the day (`bedrock.model_lifecycle`,
     `docs/notes/baseline-model-family.md` §"측정 결과" 4).
+
+    `caching` is carried for that same reason and is omitted rather than nulled when the round
+    was not cached (schema 8, DESIGN §5.4). A `port-loop` round that fails on format still made
+    its 1 + N calls and still paid for them, so the cost block is here — and the transport record
+    that makes the billed basis recoverable from that cost block has to be here with it, or the
+    one arm whose cost is least interpretable is the one arm missing the number that interprets
+    it. Absence means the round was not cached, which is the same convention `metrics.json` uses.
     """
     path = failure_path(corpus, detector, supervision, porting)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -894,6 +902,12 @@ def _write_failure(*, corpus: str, detector: str, supervision: str, porting: str
         "response_sha256": _digest(response),
         "prompt_reference": dict(prompt_reference),
         "cost": dict(cost),
+        # Beside the cost block it interprets, and absent when the round was not cached — the
+        # same convention `scorer.write_metrics` follows. `is not None` rather than a truthiness
+        # test, unlike `model_lifecycle` above: a caching block is never falsy when it exists
+        # (`enabled` is always True), so the two forms agree, and the explicit one says which
+        # state is being tested.
+        **({"caching": dict(caching)} if caching is not None else {}),
         **window_hashes(),
     }
     with open(path, "w", encoding="utf-8") as fh:

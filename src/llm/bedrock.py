@@ -24,6 +24,20 @@ requires cost reported beside quality, and a cost column mixing measured and est
 compares two arms on two definitions. A response without `usage` is refused rather than
 filled in.
 
+**`prompt_tokens` is the raw total and the envelope's own total is what checks it.**
+`inputTokens + cacheReadInputTokens + cacheWriteInputTokens`, cross-validated against
+`totalTokens` and refused on disagreement (`_usage()`, DESIGN §5.4 §11.3, measured 2026-08-16).
+Bedrock's `inputTokens` excludes what a cache served, so recording it as `prompt_tokens` would
+make a cached arm look like it did less work than an uncached one running the identical loop —
+340× less, in the probe, on a call where the model read the same 7,197 tokens. The raw total is
+the figure two arms can be compared on; the billed basis is `prompt_tokens - read_tokens`.
+
+**Caching is opt-in per call, and the opt-in is a keyword rather than an inference.**
+`invoke(..., cache=True)` splits the prompt at the boundary `assemble_audit_prompt()` recorded
+and sends the two content blocks a `cachePoint` sits between; `_audit_fold()` is the only caller
+that passes it. Inferring it from the prompt's shape was considered and refused — see
+`_content()`.
+
 **No retry parameter, and botocore's transport retries are pinned to one attempt.** §10 A2
 fixed format-compliance retries at zero on both arms, before either ran, because no *k* has a
 basis and a format failure is itself a reportable result. That argument is about the model's
@@ -53,7 +67,7 @@ from dataclasses import dataclass
 from typing import Any, Mapping
 
 from ..corpora.base import CorpusError, check_model_resolution
-from .prompt import FilledPrompt
+from .prompt import CACHE_TTL, FilledPrompt
 
 #: The response field paths asked for on every call. `/model` is Anthropic's own field,
 #: which Bedrock's envelope drops unless it is requested by path. Asked for always rather
@@ -116,7 +130,14 @@ class Response:
     The token counts are the provider's, from `usage`. `prompt_tokens` and
     `completion_tokens` are named for `scorer.REQUIRED_COST` rather than for Bedrock's
     `inputTokens`/`outputTokens`, so the cost block is assembled by renaming nothing at the
-    call site.
+    call site. **`prompt_tokens` is the raw total** — `_usage()`'s docstring is where that is
+    argued and DESIGN §11.3 is where its consequence for the 1.9× standard is.
+
+    `cache_boundary` and `cache_ttl` are `None` on a call made without a `cachePoint`, and
+    that is the record of "caching was not used": the whole `caching` block is then absent from
+    `metrics.json` rather than present with zeros (DESIGN §5.4). `cache_read_tokens` and
+    `cache_write_tokens` are 0 on such a call too, but they are not what says so — a cached call
+    served cold also reads 0, and those are different facts.
 
     `model_id` is what was asked for; `model_id_reported` is what the response said, or
     `None` if the field did not come back at all. Both are kept, because their agreement is
@@ -132,18 +153,52 @@ class Response:
     wall_seconds: float
     stop_reason: str
     request_id: str
+    cache_read_tokens: int = 0
+    cache_write_tokens: int = 0
+    cache_boundary: str | None = None
+    cache_ttl: str | None = None
 
     def cost(self) -> dict:
         """This call as a `scorer.REQUIRED_COST` block: one call, measured tokens, time.
 
         `llm_calls` is 1 because this type is one call. A caller summing several
         responses adds these dicts; nothing here guesses at a total it did not make.
+
+        The cache counts are **not** here, and the omission is structural rather than an
+        oversight: `REQUIRED_COST` is closed on both sides (`src/eval/scorer.py`), so a fifth
+        key would be refused by `sum_costs()`. They travel in `caching()` instead, which is the
+        separation DESIGN §11.3 asks for — the comparable figure in the cost block, the
+        transport's contribution beside it.
         """
         return {
             "llm_calls": 1,
             "prompt_tokens": self.prompt_tokens,
             "completion_tokens": self.completion_tokens,
             "wall_seconds": round(self.wall_seconds, 3),
+        }
+
+    def caching(self) -> dict | None:
+        """The `caching` block for this call, or `None` if the call was not cached.
+
+        `None` and not a block of zeros. DESIGN §5.4: absence of the block is how absence of
+        caching is recorded, because a block reading `read_tokens: 0` is what a *cached* call
+        served cold looks like, and an arm that never cached would then be indistinguishable
+        from an arm whose cache never hit — which is the difference between "we did not try"
+        and "we tried and it did not work", the distinction `model_id_absent` and
+        `LIFECYCLE_UNAVAILABLE` exist for elsewhere in this file.
+
+        `enabled` is `True` whenever the block exists, which reads redundant and is not: the
+        block is nested inside a round's record, and a reader holding one round cannot see that
+        another round has no block at all. The key states the fact locally.
+        """
+        if self.cache_boundary is None:
+            return None
+        return {
+            "enabled": True,
+            "boundary": self.cache_boundary,
+            "ttl": self.cache_ttl,
+            "read_tokens": self.cache_read_tokens,
+            "write_tokens": self.cache_write_tokens,
         }
 
     def model_record(self) -> dict:
@@ -290,12 +345,65 @@ def _require_logging_check() -> None:
         )
 
 
-def _usage(response: Mapping[str, Any]) -> tuple[int, int]:
-    """`(prompt_tokens, completion_tokens)` from the response's `usage` block.
+def _cache_tokens(usage: Mapping[str, Any]) -> tuple[int, int]:
+    """`(read_tokens, write_tokens)` from a `usage` block, zero when the keys are absent.
 
-    Raises if the block is absent or either count is missing. Not estimated, and not
+    Zero here and **absent** in the record are different things, and this function is the
+    reason they can be told apart. A call made without a `cachePoint` gets no cache keys at
+    all; a call made with one and served cold gets `cacheWriteInputTokens` and no read. Both
+    read as 0 in the arithmetic below — the raw total is right either way — but only the second
+    is a measurement, and `metrics.json` records the difference by omitting the whole `caching`
+    block when caching was not used (DESIGN §5.4).
+    """
+    # `.get(key, 0)` on the two token counts and **not** on `cacheDetails`. The counts are
+    # quantities that a call without a `cachePoint` genuinely has none of, and 0 is their
+    # arithmetic identity in the raw total. `cacheDetails` is a *record* — measured 2026-08-16:
+    # it appears on the write call as `[{"ttl": "5m", "inputTokens": 7172}]` and the key is
+    # missing entirely on the read, not empty — so `_cache_details_ttl()` returns `None` for it
+    # rather than a zero-shaped stand-in. An absent record and a record of nothing are
+    # different, which is `LIFECYCLE_UNAVAILABLE`'s distinction one field over.
+    read = usage.get("cacheReadInputTokens", 0)
+    write = usage.get("cacheWriteInputTokens", 0)
+    if not isinstance(read, int) or isinstance(read, bool) or \
+            not isinstance(write, int) or isinstance(write, bool):
+        raise BedrockError(
+            "the response's `usage` block has a non-integer cache count "
+            f"({type(read).__name__}, {type(write).__name__}). These are summed into "
+            "`prompt_tokens`, so a value that is not a token count is refused rather than "
+            "coerced."
+        )
+    if read < 0 or write < 0:
+        raise BedrockError(
+            f"the response reports {read} cache-read and {write} cache-write tokens, and a "
+            "negative token count is not a measurement."
+        )
+    return read, write
+
+
+def _usage(response: Mapping[str, Any]) -> tuple[int, int, int, int]:
+    """`(prompt_tokens, completion_tokens, cache_read, cache_write)` from `usage`.
+
+    Raises if the block is absent or either required count is missing. Not estimated, and not
     defaulted to zero: a zero would be a measurement claiming no tokens were consumed,
     and it would sit in the cost column beside real ones.
+
+    **`prompt_tokens` is the raw total: `inputTokens + cacheRead + cacheWrite`** (DESIGN §5.4,
+    §11.3, measured 2026-08-16). Bedrock's `inputTokens` *excludes* what a cache served, so on
+    a cache read it is the size of the tail block and not of the prompt — 21 against 7193 in the
+    probe, a factor of 340 with the model having read the same text both times. Recording that
+    figure as `prompt_tokens` would put a transport optimisation into the column §11.3's 1.9×
+    standard is read off, and a cached arm would appear to have done less work than an uncached
+    one running the identical loop. The raw total does not move when transport changes, which is
+    what makes two arms comparable; the billed basis is recoverable as `prompt_tokens -
+    read_tokens` from the `caching` block.
+
+    **The assembled figure is cross-checked against `totalTokens`, and a disagreement is
+    refused.** The envelope publishes the same quantity by two independent paths — the three
+    components, and its own total — and in the probe `totalTokens` was 7197 on all three calls
+    while the components moved between them. That is the whole value of the measurement: two
+    paths to one number means the arithmetic here can be *checked* rather than asserted. If
+    Bedrock changes what any of these keys mean, this is where it surfaces, on the first call,
+    instead of arriving as a cost column nobody can reproduce.
     """
     usage = response.get("usage")
     if not isinstance(usage, Mapping):
@@ -305,15 +413,69 @@ def _usage(response: Mapping[str, Any]) -> tuple[int, int]:
             "different number from a billed one, and the cost column has to mean one "
             "thing (CLAUDE.md)."
         )
-    prompt_tokens = usage.get("inputTokens")
+    input_tokens = usage.get("inputTokens")
     completion_tokens = usage.get("outputTokens")
-    if not isinstance(prompt_tokens, int) or not isinstance(completion_tokens, int):
+    if not isinstance(input_tokens, int) or not isinstance(completion_tokens, int):
         raise BedrockError(
             "the response's `usage` block is missing `inputTokens` or `outputTokens`. "
             f"Present keys: {sorted(usage)}. A partial cost block is refused rather than "
             "completed by inference."
         )
-    return prompt_tokens, completion_tokens
+    read, write = _cache_tokens(usage)
+    prompt_tokens = input_tokens + read + write
+
+    total = usage.get("totalTokens")
+    if not isinstance(total, int) or isinstance(total, bool):
+        raise BedrockError(
+            "the response's `usage` block carries no integer `totalTokens`. It is the second "
+            f"path to a number this client also assembles (present keys: {sorted(usage)}), and "
+            "the cross-check is the only thing that would catch Bedrock redefining one of the "
+            "three components (DESIGN §5.4, measured 2026-08-16). Without it the cost column "
+            "would be a single unverified sum."
+        )
+    if prompt_tokens + completion_tokens != total:
+        raise BedrockError(
+            f"the response's token counts do not agree with its own total: "
+            f"inputTokens {input_tokens} + cacheRead {read} + cacheWrite {write} + "
+            f"outputTokens {completion_tokens} = {prompt_tokens + completion_tokens}, and "
+            f"totalTokens says {total}. Refused rather than recorded under either figure — "
+            "these are two independent paths to one quantity (measured 2026-08-16: 7197 by "
+            "both paths on a control, a cache write and a cache read), so a disagreement means "
+            "a component no longer means what this client sums it as, and the cost block "
+            "§11.3 is read off would be wrong in an unknown direction."
+        )
+    return prompt_tokens, completion_tokens, read, write
+
+
+def _reported_ttl(response: Mapping[str, Any]) -> str | None:
+    """The TTL Bedrock reported in `cacheDetails`, or `None` if it said nothing.
+
+    **`None` means the response did not mention a TTL, and it is never a stand-in for one.**
+    Measured 2026-08-16: `cacheDetails` is `[{"ttl": "5m", "inputTokens": 7172}]` on the call
+    that *wrote* the cache and the key is absent — not empty — on the calls that read it. So a
+    round's 250 calls report a TTL once and stay silent 249 times, and silence is the expected
+    case rather than a fault.
+
+    Read at all because it is the one place the platform states the lifetime this project
+    declares (`config/naming.yaml` `caching_ttl`), which makes the declared value checkable
+    against the reported one exactly when the reported one exists. `invoke()` refuses a
+    disagreement; it does not refuse silence.
+    """
+    details = response.get("usage", {}).get("cacheDetails")
+    if not isinstance(details, list) or not details:
+        return None
+    ttls = {entry["ttl"] for entry in details
+            if isinstance(entry, Mapping) and isinstance(entry.get("ttl"), str)}
+    if len(ttls) != 1:
+        # Two TTLs in one response would mean two cache points with different lifetimes, which
+        # this client never sends: `CacheBlocks.blocks()` emits exactly one `cachePoint`. Read as
+        # "the platform said something this client cannot reconcile" rather than picking one.
+        raise BedrockError(
+            f"the response's `cacheDetails` reports {len(ttls)} distinct TTLs for a request "
+            "carrying one cachePoint. One block boundary produces one lifetime; a response "
+            "describing more is an envelope this client does not understand."
+        )
+    return ttls.pop()
 
 
 def _text(response: Mapping[str, Any]) -> str:
@@ -434,6 +596,45 @@ def _resolution(requested: str, reported: str | None) -> str:
     return check_model_resolution(DATED if dated else UNRESOLVED)
 
 
+def _content(prompt: FilledPrompt, cache: bool) -> tuple[list[dict], str | None, str | None]:
+    """The `converse` content list, and the boundary this call was cached at.
+
+    **One block unless `cache=True`, and the decision is the caller's rather than the prompt's**
+    (DESIGN §5.4, decided 2026-08-18). The alternative was for this function to cache whenever
+    the reference form carries a `cache_after`, which needs no keyword and no call site kept in
+    step. It is refused because caching would then begin the moment *any* assembler grows a
+    boundary — the mutation "the RuleAuthor prompt is split too" arriving as an omission rather
+    than an edit, with no line to review and §4's byte-identical claim about round 1 failing
+    silently. `tests/mutations/run.py` carries the inference form as a mutation so that this
+    argument is enforced rather than recorded.
+
+    The other direction is refused here too: `cache=True` on a prompt whose reference form has
+    no boundary raises. `assemble_audit_prompt()` is the only producer of the offset, so a
+    caller asking for a cached call on some other prompt is a caller that would have this module
+    inventing one.
+    """
+    if not cache:
+        return [{"text": prompt.for_transport()}], None, None
+
+    reference = prompt.reference()
+    missing = [key for key in ("cache_after", "cache_boundary") if key not in reference]
+    if missing:
+        raise BedrockError(
+            f"cache=True was passed for a prompt whose reference form carries no {missing}. "
+            "The boundary is computed by the one function that joined the prompt's pieces "
+            "(src/llm/prompt.py, assemble_audit_prompt) and this module does not compute one: a "
+            "transport that found its own boundary would be a second place the masked document "
+            "could end up on the cached side (docs/prompts/auditor.md §6, DESIGN §5.4)."
+        )
+    blocks = prompt.for_transport_blocks(
+        cache_after=reference["cache_after"],
+        boundary=reference["cache_boundary"],
+        ttl=CACHE_TTL,
+    )
+    record = blocks.reference()
+    return blocks.blocks(), record["boundary"], record["ttl"]
+
+
 def invoke(
     prompt: FilledPrompt,
     *,
@@ -441,6 +642,7 @@ def invoke(
     max_tokens: int = DEFAULT_MAX_TOKENS,
     region: str | None = None,
     client: Any | None = None,
+    cache: bool = False,
 ) -> Response:
     """Send one prompt to one model and return one `Response`.
 
@@ -451,6 +653,14 @@ def invoke(
     without an AWS call. It is not a caller-facing knob — a caller passing one is
     responsible for its retry configuration, which is why the default path constructs its
     own with `MAX_ATTEMPTS`.
+
+    **`cache` defaults to False and only `_audit_fold()` passes True** (DESIGN §5.4, §11.3).
+    The default is the uncached path because that is the path every existing arm took and
+    round 1's RuleAuthor prompt must keep taking byte for byte (§4). See `_content()` for why
+    this is a keyword rather than something inferred from the prompt. A cached call sends the
+    same bytes in two content blocks with a `cachePoint` between them, and `Response.caching()`
+    records what was retained; an uncached call's `caching()` is `None`, which is how absence of
+    caching is recorded rather than as a block of zeros.
 
     No retry parameter. One call, and the outcome — including a throttle — is the result.
     """
@@ -466,20 +676,49 @@ def invoke(
             "top so that A2's two-family comparison is a parameter (DESIGN §10 A2), and a "
             "default here would be the place it stopped being one."
         )
+    if not isinstance(cache, bool):
+        raise BedrockError(
+            f"cache must be a bool, got {type(cache).__name__}. It decides whether a third "
+            "party retains part of this prompt for five minutes, and a truthy string is not a "
+            "decision anyone made."
+        )
 
     _require_logging_check()
     runtime = client if client is not None else _client(region)
+    content, boundary, ttl = _content(prompt, cache)
 
     started = time.monotonic()
     response = runtime.converse(
         modelId=model_id,
-        messages=[{"role": "user", "content": [{"text": prompt.for_transport()}]}],
+        messages=[{"role": "user", "content": content}],
         inferenceConfig={"maxTokens": max_tokens},
         additionalModelResponseFieldPaths=list(MODEL_FIELD_PATHS),
     )
     elapsed = time.monotonic() - started
 
-    prompt_tokens, completion_tokens = _usage(response)
+    prompt_tokens, completion_tokens, read, write = _usage(response)
+    reported_ttl = _reported_ttl(response)
+    if reported_ttl is not None and ttl is not None and reported_ttl != ttl:
+        # The declared lifetime and the reported one are the same vocabulary
+        # (`config/naming.yaml` `caching_ttl`), which is what makes them comparable at all.
+        # Refused rather than recorded: the record would name a lifetime the service did not
+        # grant, and `_reported_ttl`'s silence already covers the ordinary case where the
+        # platform says nothing.
+        raise BedrockError(
+            f"this call declared a {ttl} cache lifetime and Bedrock reported {reported_ttl!r} "
+            "in `cacheDetails`. The declared value is config/naming.yaml's and the reported "
+            "one is the platform's; recording the first while the second held would make "
+            "metrics.json state a lifetime nothing granted."
+        )
+    if not cache and (read or write):
+        # No `cachePoint` was sent, so no cache could have been read or written. If the envelope
+        # says otherwise, the request this client thinks it made is not the request that was
+        # served — and the uncached arms' cost columns are what that would corrupt.
+        raise BedrockError(
+            f"a call sent without a cachePoint reports {read} cache-read and {write} "
+            "cache-write tokens. The request carried one content block, so the response "
+            "describes a call this client did not make."
+        )
     reported = response.get("additionalModelResponseFields", {}).get("model")
     return Response(
         text=_text(response),
@@ -491,4 +730,8 @@ def invoke(
         wall_seconds=elapsed,
         stop_reason=response.get("stopReason", ""),
         request_id=response.get("ResponseMetadata", {}).get("RequestId", ""),
+        cache_read_tokens=read,
+        cache_write_tokens=write,
+        cache_boundary=boundary,
+        cache_ttl=ttl,
     )

@@ -1362,6 +1362,25 @@ cached side and are committed bytes and `naming.yaml` values; **the masked docum
 far side and is never cached.** That is stronger than the absence it replaces, because a
 boundary is checkable and "not cached" was only true while nothing cached.
 
+**One producer for the boundary, and an explicit consumer — `invoke(..., cache=True)` and
+never an inference from the prompt's shape** (decided 2026-08-18). The boundary is computed in
+exactly one place, `assemble_audit_prompt()`, which is the function that joined the pieces;
+that much follows from every other single-producer decision here. The consumption side is a
+separate question and it was nearly answered the wrong way. The tidy-looking option is for
+`invoke()` to cache whenever the prompt's reference form carries a `cache_after` — no keyword,
+no call site to keep in step, the transport simply doing the right thing for whatever it is
+handed. It is refused, and the reason is a shape rather than a preference: **caching would then
+begin the moment any reference form grows a boundary**, and the RuleAuthor's assembler grows
+one the first time someone finds a plausible prefix in it. That is the mutation "the RuleAuthor
+prompt is split too" arriving as an *omission* instead of an edit — no line says cache the
+RuleAuthor, so no reviewer sees one, and §4's byte-identical claim about round 1 fails without
+anything having been written down. A keyword-only `cache=True`, passed by `_audit_fold()` and by
+nothing else, makes "this call is cached" a statement at the one call site entitled to make it;
+`invoke()` refuses `cache=True` when the reference form has no boundary, so the two halves
+cannot silently disagree in the other direction either. `tests/mutations/run.py` carries the
+inference form as a mutation for this reason — the argument above is only a control while
+something kills the code that would replace it.
+
 **The cost of this edit is zero, and that is a fact about today rather than a principle.**
 `auditor.md` is hashed into `WINDOW_FILES`, but **no arm has ever hashed it**: the three frozen
 records (`port-oneshot`, `port-oneshot-nofence`, `port-human`) name two files, `auditor.md`
@@ -3788,6 +3807,45 @@ CLAUDE.md already requires the cost block for exactly this comparison, and §4's
 states that if `port-loop` does not beat `port-oneshot` the agentic framing is not
 earned. **Favours neither arm** — it is a reporting requirement that constrains every
 arm equally, including the ones this project would prefer to win.
+
+**Prompt caching makes the 1.9× standard readable in two ways, and only one of them is
+about the loop — so both numbers are published** (decided 2026-08-18, on the 2026-08-16
+measurement in `docs/notes/baseline-model-family.md`). §5.4's fourth exit lets an Auditor call
+be split so that Bedrock retains the constant prefix — `auditor.md`, the input banner, §1.1's
+frame — for five minutes. The prefix is 80.7% of an average audit call, and a round sends the
+same template 250 times, so the effect on what a naive reading of the envelope reports is
+large: in the probe, `inputTokens` fell from 7193 on the uncached call to **21** on the cache
+read, a factor of 340, while `totalTokens` was **7197 on all three calls**. **The model read the
+same number of tokens every time.** What changed was which side of the transport they came
+from.
+
+The risk is a sentence nobody would write on purpose but that the numbers write by themselves:
+*"`port-loop` clears the 1.9× standard"* — supported by a cost column that fell because a
+prefix stopped being retransmitted, in a comparison against arms that were never cached. That
+is not a claim about role specialisation, iteration count, or anything §4's ladder is about. It
+is a claim about a service's transport optimisation, and it would be sitting in the row of the
+table where a reader looks for the other kind of claim. The failure mode is not a wrong number;
+it is a correct number answering a question nobody asked, in the place reserved for the answer
+to a different one.
+
+**So `prompt_tokens` in every arm's cost block is the raw total — `inputTokens + cacheRead +
+cacheWrite` — and the `caching` block publishes the reads and the writes beside it.** The raw
+total is the comparable figure: it is what the model processed, it does not move when transport
+changes, and it is the number the 1.9× standard was pre-registered against. The billed basis is
+recoverable by subtracting `read_tokens`, so a reader who wants the invoice can compute it and a
+reader who wants the work does not have to know the invoice exists. Both are reported, per
+CLAUDE.md's requirement that cost travel with quality and per this section's own rule that a
+confound becomes a quantity rather than an argument. **A cached arm and an uncached arm are
+comparable on `prompt_tokens` and are not comparable on anything derived from `inputTokens`
+alone** — which is exactly why the envelope's own `totalTokens` is cross-checked against the
+assembled figure at the transport (§5.4) rather than trusted at the reporting layer, where the
+disagreement would already have become a table.
+
+**What this does not license:** reporting a cache-derived cost reduction as a result of any
+kind. Caching changes no prompt — the two content blocks concatenate to the byte-identical text
+the uncached call sent, and `tests/test_prompt.py` asserts it — so it cannot appear in the
+quality columns at all, and in the cost columns it appears only as `read_tokens`. An arm that
+is cheaper *because it was cached* is the same arm.
 
 **What this licenses:** a stated stopping rule applied to both arms, with the
 iteration-matched and run-to-completion comparisons both reportable, and a cost threshold

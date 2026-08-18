@@ -64,6 +64,7 @@ from src.eval.scorer import (
     iter_metrics_path,
     metrics_path,
     score,
+    sum_caching,
     sum_costs,
     write_metrics,
 )
@@ -1704,8 +1705,15 @@ def test_the_schema_version_moved_with_the_new_required_fields():
     says they could — without it, an absent `cost_to_date` is either "one round, so it is the
     cost" or "a writer that had no such field", and the two answers differ for exactly the
     arms §11.3 compares.
+
+    Schema 8 is a new *optional* block (`caching`) and takes schema 5's call rather than
+    schema 7's: an absent block is the record that the round was not cached, and a block of
+    zeros would say "cached and never hit" instead. Every arm but `port-loop` is absent by
+    construction (DESIGN §4), so unlike `cost_to_date` this block's value cannot be computed
+    from a schema-7 file at all — which is the reason the counter has to move, since the same
+    key will be absent from a schema-7 `port-loop` file for a different reason.
     """
-    assert scorer.SCHEMA_VERSION == 7
+    assert scorer.SCHEMA_VERSION == 8
     assert scorer.SCORER_VERSION == 1
 
 
@@ -1929,6 +1937,163 @@ def test_the_total_does_not_reach_the_path(scored, tmp_path):
     and a number formatted into it would mint one."""
     a = write_metrics(scored, run=RUN, cost=CALLS[0], termination=TERMINATION, root=tmp_path)
     b = write_metrics(scored, run=RUN, cost=CALLS[0], cost_to_date=sum_costs(CALLS),
+                      termination=TERMINATION, root=tmp_path)
+    assert a == b
+
+
+# ─── the caching block: optional, and absent is a state (schema 8, DESIGN §11.3) ──
+# The only optional block in the file, and the reason is the one schema 5 had rather than the
+# one schema 6 had: caching is a property of `port-loop`'s Auditor calls and of nothing else on
+# the ladder, so "this arm did not cache" is a real state that a block of zeros would spell as
+# "cached and never hit". Both numbers are published — the raw total in `cost.prompt_tokens`
+# and the reads here — because a billed figure standing alone in the column §11.3's 1.9×
+# standard is read off would be a claim about a transport optimisation wearing the clothes of a
+# claim about role specialisation.
+
+#: One Auditor write and two reads, in `Response.caching()`'s shape. 7172 is the measured
+#: 2026-08-16 figure for `auditor.md` plus the banner plus §1.1's frame.
+CACHED = [
+    {"enabled": True, "boundary": "after_audit_frame", "ttl": "5m",
+     "read_tokens": 0, "write_tokens": 7172},
+    {"enabled": True, "boundary": "after_audit_frame", "ttl": "5m",
+     "read_tokens": 7172, "write_tokens": 0},
+    {"enabled": True, "boundary": "after_audit_frame", "ttl": "5m",
+     "read_tokens": 7172, "write_tokens": 0},
+]
+
+
+def test_summing_caching_adds_the_counts_and_carries_the_split():
+    """One write and N−1 reads per round is the model the 5m TTL rests on, and this is it.
+
+    The counts add for `sum_costs`'s reason. The boundary and the TTL do not add — they are
+    carried through, because every call in the round was split at the same place.
+    """
+    assert sum_caching(CACHED) == {
+        "enabled": True, "boundary": "after_audit_frame", "ttl": "5m",
+        "read_tokens": 14344, "write_tokens": 7172,
+    }
+
+
+def test_a_round_that_cached_nothing_produces_no_block_rather_than_zeros():
+    """**The signature's whole point.** Every arm but `port-loop` lands here (DESIGN §4).
+
+    Zeros would be a false statement, not a conservative one: a round that cached and never hit
+    reports `read_tokens: 0` too, and the two are the difference between a transport
+    optimisation that failed and one that was never asked for.
+    """
+    assert sum_caching([]) is None
+    assert sum_caching([None]) is None
+    assert sum_caching([None, None, None]) is None
+
+
+def test_the_uncached_rule_author_call_does_not_suppress_the_round_s_block():
+    """A round is one uncached RuleAuthor call and N cached Auditor ones (DESIGN §4).
+
+    `None` mixed with blocks is the normal case rather than an inconsistency, so it is skipped
+    rather than refused — and the round still reports what the Auditor calls retained.
+    """
+    assert sum_caching([None, *CACHED])["read_tokens"] == 14344
+
+
+@pytest.mark.parametrize("key", list(scorer.REQUIRED_CACHING))
+def test_a_partial_caching_block_is_refused(key):
+    """`cost`'s rule. A block naming a retention without saying where it was split, or for how
+    long, records that a third party held some bytes and leaves a reader unable to say which."""
+    with pytest.raises(ScorerError, match=key):
+        sum_caching([{k: v for k, v in CACHED[0].items() if k != key}])
+
+
+def test_an_undeclared_key_in_the_caching_block_is_refused():
+    """Closed on both sides, for `REQUIRED_COST`'s reason: a field this project never declared
+    would be published in `results/` beside the ones it did, indistinguishable from them."""
+    with pytest.raises(ScorerError, match="hit_rate"):
+        sum_caching([{**CACHED[0], "hit_rate": 0.99}])
+
+
+def test_two_different_splits_under_one_record_are_refused_rather_than_reconciled():
+    """The disagreement is the finding.
+
+    `naming.yaml` declares one boundary, so two values in one round means two different prompts
+    were sent under one record. Picking either would publish a claim about which bytes were
+    retained that is wrong for half the calls — and that claim is the only thing the block is
+    for (`docs/prompts/auditor.md` §6).
+    """
+    with pytest.raises(ScorerError, match="cannot describe two splits"):
+        sum_caching([CACHED[0], {**CACHED[1], "boundary": "after_auditor_template"}])
+    with pytest.raises(ScorerError, match="cannot describe two splits"):
+        sum_caching([CACHED[0], {**CACHED[1], "ttl": "1h"}])
+
+
+def test_a_caching_block_that_is_not_a_mapping_is_refused():
+    """`None` is the one non-mapping this function accepts, and it means something specific."""
+    with pytest.raises(ScorerError, match="not a mapping or None"):
+        sum_caching([CACHED[0], 7172])            # type: ignore[list-item]
+
+
+def test_the_written_file_carries_the_caching_block_beside_the_cost_ones(scored, tmp_path):
+    """Top-level and after the two cost blocks: it is what tells a reader how to read them.
+
+    Not nested inside `cost`, because it is not a cost — the tokens in `cost.prompt_tokens` are
+    the raw total the model read and these are how many of them were served from a cache.
+    """
+    path = write_metrics(scored, run=RUN, cost=CALLS[0], cost_to_date=sum_costs(CALLS),
+                         caching=sum_caching(CACHED), termination=TERMINATION, root=tmp_path)
+    written = json.loads(path.read_text(encoding="utf-8"))
+    assert written["caching"] == sum_caching(CACHED)
+    assert "caching" not in written["cost"]
+    assert list(written).index("caching") == list(written).index("cost_to_date") + 1
+
+
+def test_an_uncached_arm_writes_no_caching_key_at_all(scored, tmp_path):
+    """The absence *is* the record (schema 8). Read the block's presence, not its contents."""
+    path = write_metrics(scored, run=RUN, cost=CALLS[0], termination=TERMINATION,
+                         root=tmp_path)
+    assert "caching" not in json.loads(path.read_text(encoding="utf-8"))
+
+
+def test_the_raw_total_stays_in_the_cost_block_and_the_reads_stay_out_of_it(scored, tmp_path):
+    """**§11.3's arithmetic, as a property of the file.** Both numbers, and the billed basis
+    derivable from them rather than substituted for one.
+
+    `prompt_tokens` is what the model read; `caching.read_tokens` is what was served from the
+    cache; the difference is what the invoice is computed on. A file publishing only the third
+    would report a 340× reduction in the column the 1.9× standard is read off — and the loop
+    would not have done any less work than it did before.
+    """
+    path = write_metrics(scored, run=RUN, cost=CALLS[0], cost_to_date=sum_costs(CALLS),
+                         caching=sum_caching(CACHED), termination=TERMINATION, root=tmp_path)
+    written = json.loads(path.read_text(encoding="utf-8"))
+    assert written["cost"]["prompt_tokens"] == CALLS[0]["prompt_tokens"]
+    assert set(written["cost"]) == set(scorer.REQUIRED_COST)
+    billed = written["cost_to_date"]["prompt_tokens"] - written["caching"]["read_tokens"]
+    assert billed == 131601 - 14344
+
+
+@pytest.mark.parametrize("key", list(scorer.REQUIRED_CACHING))
+def test_the_writer_refuses_a_partial_block_it_did_not_assemble(scored, tmp_path, key):
+    """`sum_caching` is not the only door: a caller can pass a hand-built block, and
+    `_write_failure` in `src/orchestrate.py` writes one into a different file. Both blocks are
+    read as the same record, so both are validated at the writer."""
+    with pytest.raises(ScorerError, match=key):
+        write_metrics(scored, run=RUN, cost=CALLS[0],
+                      caching={k: v for k, v in CACHED[0].items() if k != key},
+                      termination=TERMINATION, root=tmp_path)
+
+
+def test_a_caching_block_saying_it_is_disabled_is_refused(scored, tmp_path):
+    """`enabled: False` and no block are the same claim written two ways, and only one of them
+    is this schema's. Accepting both would make the absence unreadable — a reader finding no
+    block could no longer conclude the arm did not cache, only that nobody said."""
+    with pytest.raises(ScorerError, match="enabled"):
+        write_metrics(scored, run=RUN, cost=CALLS[0], caching={**CACHED[0], "enabled": False},
+                      termination=TERMINATION, root=tmp_path)
+
+
+def test_the_caching_block_does_not_reach_the_path(scored, tmp_path):
+    """`cost`'s rule: the path names the cell of the experiment and this is not one of its
+    axes. An arm that cached and the same arm that did not would be one comparison, not two."""
+    a = write_metrics(scored, run=RUN, cost=CALLS[0], termination=TERMINATION, root=tmp_path)
+    b = write_metrics(scored, run=RUN, cost=CALLS[0], caching=sum_caching(CACHED),
                       termination=TERMINATION, root=tmp_path)
     assert a == b
 

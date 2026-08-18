@@ -148,6 +148,19 @@ def no_control_plane(monkeypatch):
                         lambda region=None: FakeControl())
 
 
+def sent_text(call: dict) -> str:
+    """The prompt a `converse` call carried, joined back across any cache boundary.
+
+    The Auditor's calls are sent as two text blocks with a `cachePoint` between them (DESIGN
+    §5.4) and the RuleAuthor's as one, so a helper reading `content[0]["text"]` sees an audit
+    prompt truncated at the boundary — which is `auditor.md` §1.1's frame with §1.2's masked
+    document missing, exactly the half these tests search. Joining is not a workaround for the
+    split: §4 requires the concatenation to be the bytes the uncached call would have sent, so
+    reading the prompt this way is reading what the model read.
+    """
+    return "".join(b["text"] for b in call["messages"][0]["content"] if "text" in b)
+
+
 class Transport:
     """A `converse` client that answers by role, and records the order it was asked in.
 
@@ -172,7 +185,7 @@ class Transport:
 
     def converse(self, **kwargs):
         self.sent.append(kwargs)
-        text = kwargs["messages"][0]["content"][0]["text"]
+        text = sent_text(kwargs)
         # The Auditor's template is one of the two window files, and its banner is what
         # distinguishes the two prompts in the transport — the same thing a reader of the
         # sent bytes would look at.
@@ -304,8 +317,7 @@ def test_a_later_round_audits_the_previous_rounds_predictions(tree, corpus_prese
 
 def audit_prompts(fake: Transport) -> list[str]:
     """The text of every audit prompt the transport was sent, in call order."""
-    return [c["messages"][0]["content"][0]["text"] for c in fake.sent
-            if "Auditor prompt" in c["messages"][0]["content"][0]["text"]]
+    return [sent_text(c) for c in fake.sent if "Auditor prompt" in sent_text(c)]
 
 
 #: `OTHER_RULES`' extra term as the gazetteer matches it — on a word boundary, so the
@@ -390,8 +402,7 @@ def test_the_previous_rounds_rule_file_is_the_one_shown_as_section_1_2(
     run_round(tree, 2, Transport(rules_text=OTHER_RULES))
     fake = Transport()
     run_round(tree, 3, fake)
-    sent = [c["messages"][0]["content"][0]["text"] for c in fake.sent
-            if "Auditor prompt" not in c["messages"][0]["content"][0]["text"]]
+    sent = [sent_text(c) for c in fake.sent if "Auditor prompt" not in sent_text(c)]
     assert len(sent) == 1
     assert "Centro" in sent[0], (
         "round 3 was not shown round 2's rule file — the round-1 file has no `Centro` term "
@@ -840,6 +851,130 @@ def test_every_call_is_logged_with_its_round_and_its_role(tree, corpus_present):
     assert seen.count((2, "auditor")) == n_docs
     assert seen.count((2, "rule_author")) == 1
     assert seen[-1] == (2, "rule_author"), "the RuleAuthor's line is the round's last"
+
+
+# ─── the Auditor's calls are cached and the RuleAuthor's is not (§5.4, §11.3) ──
+# N is the reason: the round sends `auditor.md` plus the banner plus §1.1's frame — 80.7% of
+# an average audit call, measured 2026-08-16 — once per dev document, and once for the
+# RuleAuthor. One template repeated N times is a cache; one prompt sent once is not. What is
+# checked here is that `cache=True` reaches only the N, and that the round's block reports the
+# one write and the N−1 reads rather than a saving.
+
+
+def cache_points(call: dict) -> int:
+    return sum(1 for b in call["messages"][0]["content"] if "cachePoint" in b)
+
+
+def test_only_the_auditors_calls_carry_a_cache_point(tree, corpus_present):
+    """**The RuleAuthor's prompt is sent whole**, and that is a decision rather than an omission.
+
+    Its §1.2 is the previous round's rule file and its §1.3 is that round's audit report, so
+    the prefix that would be retained changes every round and the write would never be read.
+    The mutation that splits it too is in `tests/mutations/run.py`; this is the assertion that
+    kills it.
+    """
+    run_round_1(tree)
+    fake = Transport()
+    run_round(tree, 2, fake)
+    audits = [c for c in fake.sent if "Auditor prompt" in sent_text(c)]
+    authors = [c for c in fake.sent if "Auditor prompt" not in sent_text(c)]
+    assert len(authors) == 1
+    assert all(cache_points(c) == 1 for c in audits)
+    assert cache_points(authors[0]) == 0
+
+
+def test_round_one_makes_no_cached_call_and_writes_no_caching_block(tree, corpus_present):
+    """Round 1 is one RuleAuthor call and no audit (`port-oneshot`'s procedure, §5.5).
+
+    So the block is absent, and the absence is the record: schema 8 makes it optional precisely
+    so that "this round did not cache" and "cached and never hit" stay different statements.
+    """
+    fake = Transport()
+    out = run_round_1(tree, fake)
+    assert all(cache_points(c) == 0 for c in fake.sent)
+    assert out.get("caching") is None
+    assert "caching" not in round_metrics(tree, 1)
+
+
+def test_the_rounds_caching_block_is_one_write_and_the_rest_reads(tree, corpus_present):
+    """The 5m TTL's model, as the round's own record.
+
+    Intra-round gaps are seconds and inter-round gaps are 40–80 minutes, so one write per round
+    and reads for the remaining N−1 is what a 5m lifetime buys. The fake serves a write on
+    every call, so what this can assert is the shape: the block exists, it names the one
+    declared boundary and TTL, and its counts are sums over the audit calls only.
+    """
+    from src.eval.run_fold import load_fold
+
+    n_docs = len(load_fold(CORPUS, "dev"))
+    run_round_1(tree)
+    out = run_round(tree, 2)
+    block = out["caching"]
+    assert set(block) == {"enabled", "boundary", "ttl", "read_tokens", "write_tokens"}
+    assert block["enabled"] is True
+    assert (block["boundary"], block["ttl"]) == ("after_audit_frame", "5m")
+    written = round_metrics(tree, 2)
+    assert written["caching"] == block
+    # The RuleAuthor's call contributes nothing: N documents' worth of writes, not N+1.
+    assert block["write_tokens"] % n_docs == 0
+
+
+def test_the_rounds_cost_still_carries_the_raw_total_beside_the_block(tree, corpus_present):
+    """§11.3: both numbers in one file, and the headline is the one that did not shrink.
+
+    A round whose `prompt_tokens` fell because a service served the same bytes from its own
+    memory would read, in the column the 1.9× standard is judged on, as a round that did less
+    work. It did not. So the cost block is unchanged by caching and the reads are published
+    beside it, where a reader who wants the billed basis can subtract.
+    """
+    run_round_1(tree)
+    out1 = run_round(tree, 2)
+    written = round_metrics(tree, 2)
+    assert written["cost"]["prompt_tokens"] == out1["cost"]["prompt_tokens"]
+    assert written["cost"]["prompt_tokens"] > written["caching"]["read_tokens"]
+    assert set(written["cost"]) == {"llm_calls", "prompt_tokens", "completion_tokens",
+                                    "wall_seconds"}
+
+
+def test_cache_true_appears_once_in_the_project_and_it_is_the_audit_call(tree):
+    """Structural, because "only the Auditor's calls" is not a property of any single round.
+
+    A second `invoke(..., cache=True)` added anywhere — a rung, a probe, a helper — would be a
+    prompt this project never measured a boundary for, and the behavioural test above would
+    still pass. Read off the syntax tree of every module that calls `invoke`.
+    """
+    sites = []
+    for path in sorted((ROOT / "src").rglob("*.py")):
+        tree_ = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree_):
+            if not isinstance(node, ast.Call):
+                continue
+            name = node.func.attr if isinstance(node.func, ast.Attribute) else \
+                getattr(node.func, "id", None)
+            if name != "invoke":
+                continue
+            for keyword in node.keywords:
+                if keyword.arg == "cache":
+                    sites.append((path.relative_to(ROOT).as_posix(), node.lineno))
+    assert [p for p, _ in sites] == ["src/porting/loop.py"], (
+        "`cache=True` is passed at exactly one call site (DESIGN §5.4): the Auditor's, whose "
+        f"prompt is the only one with a declared boundary. Found {sites}")
+
+
+def test_a_format_failure_in_a_cached_round_still_records_what_was_retained(
+        tree, corpus_present):
+    """`format_failure.json` is written *instead of* `metrics.json`, so it carries the block too.
+
+    The round still made N audit calls and a third party still held those bytes; a failure file
+    with a cost block and no caching block would leave that unrecorded for exactly the rounds
+    that went wrong.
+    """
+    run_round_1(tree)
+    out = run_round(tree, 2, Transport(rules_text=UNPARSEABLE))
+    assert out["outcome"] == FORMAT_FAILURE
+    written = json.loads(out["failure_path"].read_text(encoding="utf-8"))
+    assert written["caching"]["boundary"] == "after_audit_frame"
+    assert written["caching"]["enabled"] is True
 
 
 # ─── one procedure for every later round ────────────────────────────────────

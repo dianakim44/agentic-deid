@@ -96,7 +96,16 @@ SCORER_VERSION = 1
 #: everywhere rather than two things depending on the arm. Required for schema 6's reason:
 #: every arm has a total, so an arm carrying the block and an arm omitting it would be
 #: uncomparable at exactly the number DESIGN §11.3 is read off.
-SCHEMA_VERSION = 7
+#: 8 adds an **optional** top-level `caching` block (DESIGN §5.4 §11.3, 2026-08-18). Optional
+#: for schema 5's reason and not schema 6's: **the block's absence is the record that caching
+#: was not used**, which is a real state — every arm before `port-loop` ran uncached and a
+#: `port-loop` round may be run either way — so absence has to be legible, and it is legible
+#: only if the schema version says whether this writer could have written one. A block of zeros
+#: would not do instead: a *cached* round whose cache never hit also reads `read_tokens: 0`, and
+#: "we did not cache" and "we cached and it never hit" are the two facts §11.3 needs told apart.
+#: `cost.prompt_tokens` does not change meaning at this version — it was already the raw total
+#: — which is why this is a shape change and nothing more.
+SCHEMA_VERSION = 8
 
 FULLY_COVERED = "fully_covered"
 RELAXED = "relaxed"
@@ -182,6 +191,21 @@ AXIS_VALUED = PATH_AXES + ("split",)
 REQUIRED_RUN = ("corpus", "detector", "supervision", "porting", "split", "model_id",
                 "generated", "commit", "tree")
 REQUIRED_COST = ("llm_calls", "prompt_tokens", "completion_tokens", "wall_seconds")
+
+#: Required in the optional `caching` block (schema 8, DESIGN §5.4). Closed on both sides for
+#: `REQUIRED_COST`'s reason, and the two lists are separate rather than one because they answer
+#: different questions and only one of them is comparable across arms: `cost.prompt_tokens` is
+#: the raw total a cached and an uncached arm can be compared on, and these five say what the
+#: transport did underneath it. `read_tokens` is also what makes the billed basis recoverable
+#: (`prompt_tokens - read_tokens`), which DESIGN §11.3 requires be publishable without being the
+#: headline.
+#:
+#: `boundary` and `ttl` are `config/naming.yaml` values (`caching_boundary`, `caching_ttl`) and
+#: are **not** validated against those vocabularies here: this module is agent-free and
+#: transport-free by construction, and the check belongs where the value is produced
+#: (`src/llm/prompt.py` validates at construction, through `src/corpora/base.py`). What this
+#: module checks is that the block is complete and that a round's calls agree.
+REQUIRED_CACHING = ("enabled", "boundary", "ttl", "read_tokens", "write_tokens")
 
 #: Required in the `termination` block — `src.termination.Termination.record()`'s keys.
 #: Checked for presence and not for content: this module validates the *shape* of a record
@@ -1310,6 +1334,76 @@ def sum_costs(costs: Iterable[Mapping]) -> dict:
     return total
 
 
+def sum_caching(blocks: Iterable[Mapping | None]) -> dict | None:
+    """Add `caching` blocks over a round's calls, or `None` if none of them cached.
+
+    **`None` in, and `None` out when every block given is `None`** — the whole point of the
+    signature. `Response.caching()` returns `None` for an uncached call, a round mixes one
+    RuleAuthor call (never cached, DESIGN §4) with N Auditor calls (cached), and this is where
+    those become one block or no block. A round with no cached call at all produces no block, and
+    the block's absence in `metrics.json` is how "caching was not used" is recorded (schema 8).
+    Zeros would say something different and false: a cached round whose cache never hit reads
+    `read_tokens: 0` too.
+
+    **The token counts add and the boundary and TTL must agree.** Summing two rounds' reads is
+    meaningful; "summing" two boundaries is not, so a disagreement is refused rather than
+    resolved by picking one. Every cached call in a round is an Auditor call split at the one
+    boundary `naming.yaml` declares, so a disagreement means two different splits were sent under
+    one record — and a reader of the block could not tell which bytes were retained, which is the
+    only thing the block is for (`docs/prompts/auditor.md` §6).
+
+    `enabled` is `True` in any block this returns, because a block exists only when something
+    was cached. It is not summed; it is a restatement of the block's own existence, kept for
+    `Response.caching()`'s reason — a round's block is nested in a file, and a reader holding one
+    file cannot see that another has no block.
+    """
+    present = []
+    for index, block in enumerate(blocks):
+        if block is None:
+            continue
+        if not isinstance(block, Mapping):
+            raise ScorerError(
+                f"caching[{index}] is a {type(block).__name__}, not a mapping or None. Pass "
+                "`Response.caching()` values; `None` is how an uncached call says so and is "
+                "the value this function is built to propagate."
+            )
+        missing = [k for k in REQUIRED_CACHING if block.get(k) is None]
+        if missing:
+            raise ScorerError(
+                f"caching[{index}] is missing {missing}. The block is what tells a reader "
+                "which bytes a third party retained and for how long (DESIGN §5.4); a partial "
+                "one records a retention nobody can locate."
+            )
+        extra = sorted(set(block) - set(REQUIRED_CACHING))
+        if extra:
+            raise ScorerError(
+                f"caching[{index}] has unexpected key(s) {extra}. The block is closed to "
+                f"{list(REQUIRED_CACHING)} for the cost block's reason: a field this project "
+                "never declared would be published beside the ones it did."
+            )
+        present.append(dict(block))
+    if not present:
+        return None
+
+    boundaries = {block["boundary"] for block in present}
+    ttls = {block["ttl"] for block in present}
+    if len(boundaries) != 1 or len(ttls) != 1:
+        raise ScorerError(
+            f"the cached calls in this round report {sorted(boundaries)} as their boundary and "
+            f"{sorted(ttls)} as their TTL. One record cannot describe two splits: the block "
+            "exists to say which bytes were retained, and a reader given two answers has none "
+            "(docs/prompts/auditor.md §6). Not resolved by picking one — the disagreement is "
+            "the finding."
+        )
+    return {
+        "enabled": True,
+        "boundary": boundaries.pop(),
+        "ttl": ttls.pop(),
+        "read_tokens": sum(block["read_tokens"] for block in present),
+        "write_tokens": sum(block["write_tokens"] for block in present),
+    }
+
+
 def check_cost_to_date(cost: Mapping, cost_to_date: Mapping) -> None:
     """The arm's running total is at least this round's, key by key. Both blocks, one check.
 
@@ -1406,6 +1500,7 @@ def write_metrics(
     termination: Mapping,
     cost_to_date: Mapping | None = None,
     model_lifecycle: Mapping | None = None,
+    caching: Mapping | None = None,
     root: Path | None = None,
     iteration: int | None = None,
 ) -> Path:
@@ -1497,6 +1592,24 @@ def write_metrics(
     run — the shape §5.5's duplication rule and §3's stopping rule are both about. Summing is
     `sum_costs`, which the driver calls; this validates the relation and writes what it is
     given.
+
+    **`caching` is optional and its absence is the record that caching was not used** (schema 8,
+    DESIGN §5.4 §11.3, 2026-08-18). This is `model_lifecycle`'s call and not `termination`'s, and
+    the distinction is the same one: absence is itself a fact here. Every arm before `port-loop`
+    ran uncached, and a `port-loop` round can be run either way, so "no block" is a state a
+    reader has to be able to read — which is why the schema version moved for an optional
+    addition. It is specifically **not** written as a block of zeros: a *cached* round whose
+    cache never hit reports `read_tokens: 0` as a measurement, and conflating that with "we never
+    cached" would erase the difference §11.3's two-number requirement rests on.
+
+    Top level beside `cost` for `model_lifecycle`'s reason. It is a property of how the round was
+    transported rather than a coordinate of which arm it is, and putting it inside `cost` would
+    make the transport's contribution look like part of the figure the 1.9× standard is read
+    off — the exact reading DESIGN §11.3 exists to prevent. `cost.prompt_tokens` stays the raw
+    total either way; this block is what makes the billed basis recoverable beside it.
+
+    Not summed here, for `cost_to_date`'s reason: `sum_caching` is the accumulator and the driver
+    calls it. This validates the block's shape and writes what it is given.
     """
     missing = [k for k in REQUIRED_COST if cost.get(k) is None]
     if missing:
@@ -1527,6 +1640,29 @@ def write_metrics(
             "and arm-free by construction, and a dependency on the LLM client for one "
             "word would end that.)"
         )
+    if caching is not None:
+        missing = [k for k in REQUIRED_CACHING if caching.get(k) is None]
+        if missing:
+            raise ScorerError(
+                f"caching block is missing {missing}. Pass None for 'this round was not cached' "
+                "— that writes no block, which is how absence is recorded (schema 8) — and a "
+                "complete block otherwise. A partial one publishes a retention a reader cannot "
+                "locate (DESIGN §5.4, docs/prompts/auditor.md §6)."
+            )
+        extra = sorted(set(caching) - set(REQUIRED_CACHING))
+        if extra:
+            raise ScorerError(
+                f"caching block has unexpected key(s) {extra}. Closed to "
+                f"{list(REQUIRED_CACHING)} for the cost block's reason: an undeclared field "
+                "would be published beside the declared ones with nothing to interpret it."
+            )
+        if caching["enabled"] is not True:
+            raise ScorerError(
+                f"the caching block says enabled={caching['enabled']!r}. A block that exists "
+                "records caching that happened; 'not cached' is written by passing None and "
+                "omitting the block entirely, not by a False inside one (schema 8). A false "
+                "`enabled` beside real read and write counts would be two claims in one block."
+            )
     check_termination(termination)
     path = metrics_path(run, root=root, iteration=iteration)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -1538,6 +1674,12 @@ def write_metrics(
         # than nested, and always written — see the docstring. For an arm with one round the
         # two are the same numbers, which is a fact about that arm and not a duplication.
         "cost_to_date": to_date,
+        # What the transport did underneath the two blocks above (schema 8). Omitted entirely
+        # when nothing was cached rather than written as zeros — see the docstring. Placed after
+        # the cost blocks and before `termination` because it is read *with* them: the billed
+        # basis is `cost.prompt_tokens - caching.read_tokens`, and DESIGN §11.3 requires both
+        # numbers published.
+        **({"caching": dict(caching)} if caching is not None else {}),
         # DESIGN §3. Top level beside `cost` and never inside `run` — see the docstring:
         # a threshold is a property of how the arm was run, not a coordinate of which arm
         # it is, and `run` is what gets formatted into the results path.
