@@ -42,12 +42,14 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from src.corpora.base import (                                   # noqa: E402
-    Document, Span, axis, excluded_types, masked_tag_heterogeneous,
+    CorpusError, Document, Span, axis, caching_boundaries, excluded_types,
+    masked_tag_heterogeneous,
 )
 from src.llm import prompt as prompt_module                      # noqa: E402
 from src.llm.prompt import (                                     # noqa: E402
-    AUDIT_SECTIONS, COUNT_KEYS, EMPTY_SECTIONS, FILLED_SECTIONS, ITERATION_SECTIONS,
-    LINE_OFFSET_WIDTH, LINE_SEPARATOR, TAG_FORM, FilledPrompt, MaskedDocument, PromptError,
+    AUDIT_SECTIONS, CACHE_BOUNDARY, CACHE_TTL, COUNT_KEYS, EMPTY_SECTIONS, FILLED_SECTIONS,
+    INPUT_BANNER, ITERATION_SECTIONS, LINE_OFFSET_WIDTH, LINE_SEPARATOR, MASKED_DOCUMENT,
+    TAG_FORM, CacheBlocks, FilledPrompt, MaskedDocument, PromptError,
     assemble_audit_prompt, assemble_iteration_prompt, assemble_task_prompt, mask_document,
     render_window,
 )
@@ -2364,6 +2366,272 @@ def test_the_assembler_does_not_mask_the_document_itself():
     """
     calls = body_calls(functions(tree())["assemble_audit_prompt"])
     assert "mask_document" not in calls
+
+
+# ─── the cache boundary: `auditor.md` §6's third bullet, pinned to the code ──
+#
+# The bullet is a claim about which bytes a third party retains for five minutes, and it is
+# only a *property* while the code splits where it says. These tests are the join between the
+# two. If they are deleted, the bullet becomes a sentence — which is the state DESIGN §5.4
+# calls a written warning rather than a control.
+
+
+AUDITOR_MD = ROOT / "docs" / "prompts" / "auditor.md"
+
+
+def audit_bullet() -> str:
+    """`auditor.md` §6's bullet about the boundary, located by its subject and not by index.
+
+    By subject because "the third bullet" is a position: a bullet inserted above it would
+    leave this reading a different claim while every assertion still passed. The subject is
+    the word `cachePoint`'s prose form — the one bullet in §6 that is about caching at all —
+    and a §6 with no such bullet, or with two, fails here rather than being guessed at.
+
+    Whitespace is collapsed because the file is hard-wrapped at 90 columns: a phrase this test
+    looks for can be split across a line break by a reflow that changed no words, and a test
+    that failed on a reflow would be one the next person deletes.
+    """
+    section = AUDITOR_MD.read_text(encoding="utf-8").split("## 6.", 1)
+    assert len(section) == 2, "docs/prompts/auditor.md has no §6"
+    bullets = [b for b in section[1].split("\n- ")[1:] if "cached" in b]
+    assert len(bullets) == 1, (
+        f"§6 has {len(bullets)} bullets about caching and this test pins exactly one. Two "
+        "bullets making the claim would be two places it could be edited apart."
+    )
+    return " ".join(bullets[0].split())
+
+
+def split_audit(text: str = "Ana vive en Cadiz", spans=None) -> tuple[str, str, dict]:
+    """One audit prompt as the two blocks the transport sends, plus its reference form.
+
+    Split through `for_transport_blocks()` at the offset the assembler recorded — the same
+    two values the transport uses — so that what is asserted here is the split that ships and
+    not a second one computed by the test.
+    """
+    p = audited(text, spans) if spans is not None else audited(text)
+    ref = p.reference()
+    blocks = p.for_transport_blocks(
+        cache_after=ref["cache_after"], boundary=ref["cache_boundary"], ttl=CACHE_TTL,
+    ).blocks()
+    assert [sorted(b) for b in blocks] == [["text"], ["cachePoint"], ["text"]]
+    return blocks[0]["text"], blocks[2]["text"], ref
+
+
+def test_the_prompt_declares_where_it_is_split_and_names_the_boundary():
+    """The offset and the boundary's name are on the reference form of every audit prompt.
+
+    On *every* one, whether or not the transport caches: where §1.1 ends is a fact about this
+    text, true independently of the call. Whether caching happened is `metrics.json`'s
+    `caching` block, and its absence there is what records "unused" (DESIGN §5.4).
+    """
+    ref = audited().reference()
+    assert ref["cache_boundary"] == CACHE_BOUNDARY == "after_audit_frame"
+    assert isinstance(ref["cache_after"], int)
+    assert 0 < ref["cache_after"] < ref["text_chars"]
+
+
+def test_the_cached_side_is_the_three_things_the_bullet_names():
+    """§6's bullet says the cached block is the template, the input banner and §1.1's frame.
+
+    Asserted as *contents of the cached block* rather than as an offset arithmetic, because
+    the offset is meaningless on its own: what the bullet promises a reader is which bytes
+    Bedrock holds, and this is that list read back out of the block that goes to Bedrock.
+    """
+    bullet = audit_bullet()
+    for phrase in ("the template above", "the input banner", "§1.1's frame"):
+        assert phrase in bullet, f"§6's caching bullet no longer names {phrase!r}"
+    cached, _, _ = split_audit()
+    assert AUDITOR_MD.read_text(encoding="utf-8") in cached
+    assert INPUT_BANNER in cached
+    # §1.1's frame, by a sentence `_audit_frame` assembles and the template does not carry.
+    assert "it marks something already found" in cached
+
+
+def test_the_masked_document_is_on_the_far_side_and_is_never_cached():
+    """The sentence the whole boundary exists to keep true, as a check over the bytes.
+
+    "**The masked document is on the far side of the boundary and is never in the cached
+    block.**" — every character of the masked block, and the invented surface inside it, is
+    absent from the cached side and present in the tail. This is the assertion that fails if
+    the boundary is moved one join along, which is the failure the bullet's last sentence
+    names ("if the boundary ever moved past the document heading, this bullet is what it
+    would contradict").
+    """
+    assert "far side" in audit_bullet()
+    text = f"Zzyzxpaciente {SURFACE} Qxwvunosenta"
+    m = masked(text, [pred(14, 14 + len(SURFACE), "NAME", text)])
+    p = assemble_audit_prompt(corpus="es-meddocan", masked=m)
+    ref = p.reference()
+    blocks = p.for_transport_blocks(
+        cache_after=ref["cache_after"], boundary=ref["cache_boundary"], ttl=CACHE_TTL,
+    ).blocks()
+    cached, tail = blocks[0]["text"], blocks[2]["text"]
+    document = m.block.for_transport()
+    assert document in tail
+    assert document not in cached
+    for word in [SURFACE, *text.split()]:
+        assert word not in cached, word
+    # The heading too — the bullet's failure mode is the boundary sliding *past* it. The
+    # *filled* heading, with its counts: `### 1.2` alone appears in the committed template,
+    # which is on the cached side by design, so a bare-heading assertion would fail on the
+    # correct split and prove nothing about the wrong one.
+    heading = f"### {MASKED_DOCUMENT} The masked document — 1 line,"
+    assert heading in tail
+    assert heading not in cached
+
+
+def test_the_boundary_is_the_end_of_the_frame_and_not_one_join_short_or_long():
+    """The cached side ends exactly where §1.1 ends, to the character.
+
+    A boundary right about the blocks and wrong by the two separator characters is a cache
+    that never hits — the cached bytes would differ from the previous call's, so every call
+    pays a write and the arm's cost record would show caching enabled and no reads. So the
+    check is equality against the joined prefix, not a containment.
+    """
+    cached, tail, _ = split_audit()
+    assert cached.endswith("\n\n"), (
+        "the cached block does not end with the join that separated it from §1.2. The "
+        "boundary's own two characters belong to the cached side; on the far side they make "
+        "`cache_after` name an offset one join short of the frame's end."
+    )
+    assert not cached.endswith("\n\n\n\n")
+    assert not tail.startswith("\n")
+    assert tail.startswith("### ")
+
+
+def test_the_split_is_the_same_bytes_as_the_unsplit_call():
+    """§4's byte-identical claim: caching is a framing of one request, not a second prompt.
+
+    The two blocks concatenated are `for_transport()`, character for character. Without this
+    the cached arm and the uncached arm would be running different prompts under one
+    `window_freeze.json` hash (DESIGN §6.3) — and the comparison DESIGN §11.3 draws between
+    their cost records would be between two experiments.
+    """
+    p = audited()
+    ref = p.reference()
+    cached, tail = (b["text"] for b in p.for_transport_blocks(
+        cache_after=ref["cache_after"], boundary=ref["cache_boundary"], ttl=CACHE_TTL,
+    ).blocks() if "text" in b)
+    assert cached + tail == p.for_transport()
+    assert len(cached) + len(tail) == ref["text_chars"]
+
+
+def test_the_boundary_offset_is_not_found_by_searching_the_finished_text():
+    """Structural: the assembler computes the offset from the pieces it joined.
+
+    A `text.index("### 1.2")` would pass every assertion above on the day it was written and
+    go on succeeding one block further along if a heading were reworded — the failure mode
+    being that §1.2 slides onto the cached side while every check still passes. So the search
+    forms are refused in the source rather than argued about in a comment.
+    """
+    source = MODULE.read_text(encoding="utf-8")
+    fn = functions(tree())["assemble_audit_prompt"]
+    segment = "\n".join(
+        ast.get_source_segment(source, n) or "" for n in fn.body)
+    for form in (".index(", ".find(", ".split(", "search(", "partition("):
+        assert form not in segment, (
+            f"assemble_audit_prompt calls {form} — the boundary must come from the pieces "
+            "as joined, not from a search of the finished prompt."
+        )
+
+
+def test_the_type_refuses_a_boundary_the_vocabulary_does_not_declare():
+    """`config/naming.yaml` is where a boundary moves, and nowhere else.
+
+    A caller free to invent a name is a caller that can put the masked document on the cached
+    side and record a word for it that no vocabulary refused — at which point §6's bullet is
+    contradicted by a call whose own record says it was not.
+    """
+    p = audited()
+    ref = p.reference()
+    with pytest.raises(CorpusError, match="not a cache boundary"):
+        p.for_transport_blocks(cache_after=ref["cache_after"],
+                               boundary="after_masked_document", ttl=CACHE_TTL)
+    with pytest.raises(CorpusError, match="not a cache TTL"):
+        p.for_transport_blocks(cache_after=ref["cache_after"],
+                               boundary=CACHE_BOUNDARY, ttl="1h")
+
+
+def test_no_declared_boundary_puts_the_masked_document_on_the_cached_side():
+    """The vocabulary itself, not a call: **there is one boundary and it is before §1.2.**
+
+    This is the check that survives a rewrite of the transport. `caching_boundaries()` is a
+    singleton by decision (`src/corpora/base.py`), so a value admitting a later split does
+    not exist — and adding one is an edit to a committed file next to a gloss that says the
+    masked document is on the far side.
+    """
+    boundaries = caching_boundaries()
+    assert set(boundaries) == {"after_audit_frame"}, (
+        f"config/naming.yaml declares cache boundaries {sorted(boundaries)}. A second value "
+        "is admissible only after docs/prompts/auditor.md §6's third bullet is rewritten, "
+        "and this test is where that shows up."
+    )
+
+
+@pytest.mark.parametrize("offset", [0, -1])
+def test_an_offset_at_or_before_the_start_is_refused(offset):
+    """`cachePoint` sits between two non-empty blocks, and an empty cached side is not one."""
+    p = audited()
+    with pytest.raises(PromptError, match="cache_after"):
+        p.for_transport_blocks(cache_after=offset, boundary=CACHE_BOUNDARY, ttl=CACHE_TTL)
+
+
+def test_an_offset_at_the_end_would_cache_the_masked_document_and_is_refused():
+    """The one arithmetic mistake that is also the §6 violation.
+
+    An offset at the end caches the whole prompt, and on an audit call the whole prompt is
+    the masked document. Refused at the exit rather than trusted to the caller: the caller
+    that would make this mistake is the caller that computed the offset wrongly.
+    """
+    p = audited()
+    whole = p.reference()["text_chars"]
+    for offset in (whole, whole + 1):
+        with pytest.raises(PromptError, match="cache_after"):
+            p.for_transport_blocks(cache_after=offset, boundary=CACHE_BOUNDARY,
+                                   ttl=CACHE_TTL)
+
+
+def test_the_blocks_carry_no_text_into_a_record_or_a_repr():
+    """`CacheBlocks` holds prompt text, so it is under `FilledPrompt`'s discipline too.
+
+    A dataclass or a `NamedTuple` here would generate a `__repr__` rendering both blocks —
+    the largest corpus exposure in the project, reachable from any traceback that has this
+    object in a local (`auditor.md` §6, CLAUDE.md on exception text).
+    """
+    text = f"Zzyzxpaciente {SURFACE} Qxwvunosenta"
+    m = masked(text, [pred(14, 14 + len(SURFACE), "NAME", text)])
+    p = assemble_audit_prompt(corpus="es-meddocan", masked=m)
+    ref = p.reference()
+    blocks = p.for_transport_blocks(
+        cache_after=ref["cache_after"], boundary=ref["cache_boundary"], ttl=CACHE_TTL)
+    assert not dataclasses.is_dataclass(blocks)
+    for rendering in (str(blocks), repr(blocks), f"{blocks}"):
+        assert SURFACE not in rendering
+        assert "Zzyzxpaciente" not in rendering
+    record = blocks.reference()
+    assert json.dumps(record)
+    assert SURFACE not in json.dumps(record)
+    assert record["boundary"] == CACHE_BOUNDARY
+    assert record["ttl"] == CACHE_TTL
+    assert record["cached_chars"] + record["tail_chars"] == ref["text_chars"]
+    assert not hasattr(blocks, "text")
+    with pytest.raises(AttributeError):
+        blocks.stashed = "a copy"       # __slots__ keeps the attribute set closed
+
+
+def test_the_blocks_are_built_only_by_the_exit():
+    """`CacheBlocks` refuses an empty side, whichever side it is.
+
+    Constructed directly here — the one place that is done — because the refusal has to hold
+    for a caller that bypassed `for_transport_blocks()`, and a type whose invariant lives in
+    its caller has no invariant.
+    """
+    with pytest.raises(PromptError, match="empty block"):
+        CacheBlocks("frame", "", boundary=CACHE_BOUNDARY, ttl=CACHE_TTL)
+    with pytest.raises(PromptError, match="empty block"):
+        CacheBlocks("", "document", boundary=CACHE_BOUNDARY, ttl=CACHE_TTL)
+    with pytest.raises(PromptError, match="text on both sides"):
+        CacheBlocks("frame", None, boundary=CACHE_BOUNDARY, ttl=CACHE_TTL)
 
 
 # ─── structure: the module writes nothing, and that includes the renderer ────

@@ -13,8 +13,9 @@ records what that costs here: the availability defect shipped four times, three 
 after it was written up, because a written warning is not a control. So the filled prompt
 is not a `str`. `FilledPrompt` has no public text attribute, and every exit that carries the
 text is named for where it goes and enumerated in `EXITS`: `to_terminal()` for a person
-reading a screen and `for_transport()` for the API call. **The enumeration is the guarantee,
-not its length** — see `EXITS` and DESIGN §5.4. `json.dumps`, `open(...).write`, `print` and
+reading a screen, `for_transport()` for the API call, and `for_transport_blocks()` for the
+same call split at a cache boundary. **The enumeration is the guarantee, not its length** —
+see `EXITS` and DESIGN §5.4. `json.dumps`, `open(...).write`, `print` and
 f-string
 interpolation all reach the reference form instead, because that is what `__str__` and
 `__repr__` return. The convention still has to be followed; what changes is that
@@ -94,8 +95,8 @@ from typing import IO, Mapping, Sequence
 
 from .. import sample as sample_module
 from ..corpora.base import (
-    CorpusError, Document, axis, corpus_ids, excluded_types, masked_tag_heterogeneous,
-    rule_langs,
+    CorpusError, Document, axis, check_caching_boundary, check_caching_ttl, corpus_ids,
+    excluded_types, masked_tag_heterogeneous, rule_langs,
 )
 from ..porting.audit import MaskedLine
 from ..rules import rule_layers
@@ -142,6 +143,24 @@ AUDIT_SECTIONS = (AUDIT_FRAME, MASKED_DOCUMENT)
 #: the specification it is reading from the input it is answering about.
 INPUT_BANNER = "=" * 12 + " INPUT FOR THIS CALL " + "=" * 12
 
+#: Where an audit call is split for prompt caching, by name (`config/naming.yaml`
+#: `caching_boundary`, `docs/prompts/auditor.md` §6's third bullet, DESIGN §5.4). Read through
+#: `check_caching_boundary` at import so that a value deleted from `naming.yaml` fails the
+#: import rather than one call, and so that the string in this module and the string in
+#: `metrics.json` cannot drift: there is one, and it is the vocabulary's.
+#:
+#: `after_audit_frame` names the end of §1.1's frame. The masked document is on the far side.
+#: A second boundary constant is not what a moved boundary would need — it would need an entry
+#: in `naming.yaml`, and `naming.yaml` has no value that puts §1.2 on the cached side.
+CACHE_BOUNDARY = check_caching_boundary("after_audit_frame")
+
+#: The cached prefix's declared lifetime (`naming.yaml` `caching_ttl`). Five minutes because
+#: that is what `{"type": "default"}` is — `CacheBlocks.blocks()` emits no other kind, so this
+#: is a record of Bedrock's behaviour and not a knob. The rationale that makes it the right
+#: model is in `naming.yaml`: within a round the calls are seconds apart and between rounds the
+#: gap is 40–80 minutes, so a round pays one write and reads for the rest.
+CACHE_TTL = check_caching_ttl("5m")
+
 
 class PromptError(CorpusError):
     """A prompt that cannot be assembled, or an exit that is refused.
@@ -163,7 +182,94 @@ class PromptError(CorpusError):
 #: cannot reach a file, a log or a `repr`, and is listed here. A `text` property, a
 #: `to_file()`, a `debug()` or a `__str__` returning the text each fail that and are refused
 #: for those reasons rather than for arithmetic.
-EXITS = ("to_terminal", "for_transport", "reference")
+EXITS = ("to_terminal", "for_transport", "for_transport_blocks", "reference")
+
+
+#: What `for_transport_blocks()` returns, and the reason the split is a *type* rather than a
+#: tuple of two strings (DESIGN §5.4, `auditor.md` §6's third bullet, 2026-08-18).
+#:
+#: **The boundary is recorded at the type level because the claim is about which bytes a third
+#: party retains.** `auditor.md` §6 declares that the cached side is the template, the banner
+#: and §1.1's frame — committed bytes and `naming.yaml` values — and that the masked document
+#: is on the far side and is never cached. A pair of strings satisfies that claim by accident
+#: on the day it is written and says nothing on any later day: nothing in `(str, str)` names
+#: which boundary was taken, so a caller that split one block later would produce a
+#: well-formed request and an unchanged record. `CacheBlocks` carries the boundary's
+#: `naming.yaml` value, checked at construction, and `metrics.json`'s `caching` block is
+#: filled from it — so the prompt's sentence, the transport's behaviour and the published
+#: record are one value in three places rather than three restatements.
+class CacheBlocks:
+    """The two content blocks a `cachePoint` sits between, and the boundary they were cut at.
+
+    Not a dataclass and not a `NamedTuple`, for `FilledPrompt`'s reason: both generate a
+    `__repr__` that renders every field, and two of these fields are prompt text. `__slots__`
+    keeps the attribute set closed.
+
+    **`cached` and `tail`, and only the transport unpacks them.** `blocks()` returns the
+    `converse` content list — the one exit — so no caller assembles the `cachePoint` itself;
+    a second assembly site is a second place the boundary could be put somewhere else. The
+    `reference()` form carries the boundary, the TTL and the two lengths and no text, which is
+    what `metrics.json` and a log line may hold.
+
+    **The lengths are the check that the split lost nothing.** `cached_chars + tail_chars`
+    equals the whole prompt's `text_chars`, and `for_transport_blocks()` asserts it: a split
+    that dropped a character would send a prompt that is almost the frozen one, under a
+    `window_freeze.json` hash that attests to the whole (DESIGN §6.3).
+    """
+
+    __slots__ = ("_cached", "_tail", "_boundary", "_ttl")
+
+    def __init__(self, cached: str, tail: str, *, boundary: str, ttl: str) -> None:
+        if not isinstance(cached, str) or not isinstance(tail, str):
+            raise PromptError(
+                "cache blocks are built from text on both sides, got "
+                f"{type(cached).__name__} and {type(tail).__name__}."
+            )
+        if not cached or not tail:
+            raise PromptError(
+                f"a cache boundary produced an empty block ({len(cached)} cached chars, "
+                f"{len(tail)} tail chars). Bedrock's `cachePoint` sits *between* two content "
+                "blocks, so an empty side is not a request it can serve — and an empty tail "
+                "would mean the whole prompt was cached, which is the state "
+                "docs/prompts/auditor.md §6 forbids for a prompt carrying a masked document."
+            )
+        # Checked here rather than at the caller, for `to_terminal`'s reason about guards: a
+        # check at one call site guards one call site, and this value decides what a service
+        # retains.
+        self._boundary = check_caching_boundary(boundary)
+        self._ttl = check_caching_ttl(ttl)
+        self._cached = cached
+        self._tail = tail
+
+    def blocks(self) -> list[dict]:
+        """The `converse` content list: cached text, `cachePoint`, tail. For the transport.
+
+        The one exit that carries the text, and it is shaped for the destination rather than
+        handing the two strings back — `src/llm/bedrock.py` passes this straight into
+        `messages[0]["content"]`. A caller assembling the `cachePoint` from two strings of its
+        own would be the second place the boundary is expressed, and the two could then differ
+        while both looked right.
+        """
+        return [
+            {"text": self._cached},
+            {"cachePoint": {"type": "default"}},
+            {"text": self._tail},
+        ]
+
+    def reference(self) -> dict:
+        """The publishable record: the boundary, the TTL, the two lengths. No text."""
+        return {
+            "boundary": self._boundary,
+            "ttl": self._ttl,
+            "cached_chars": len(self._cached),
+            "tail_chars": len(self._tail),
+        }
+
+    def __str__(self) -> str:
+        return (f"<CacheBlocks {self._boundary} {len(self._cached)}+{len(self._tail)} "
+                f"chars>")
+
+    __repr__ = __str__
 
 
 class FilledPrompt:
@@ -186,11 +292,13 @@ class FilledPrompt:
       is one keystroke away from the intended use.
     - `for_transport()` — the API call. Returns the text with nothing attached; the caller
       is `src/llm/bedrock.py`, which must not log it.
-    A fourth is decided in DESIGN §5.4 and not yet written: `for_transport_blocks()`, the same
-    text for the same call, split into the two content blocks a Bedrock `cachePoint` sits
-    between. It is admissible under the criterion above because it is the same *kind* of exit
-    as `for_transport()` — one destination, one request, a framing difference — and it lands
-    here with `EXITS` when it lands.
+    - `for_transport_blocks(cache_after=, boundary=, ttl=)` — the same call, the same bytes,
+      split into the two content blocks a Bedrock `cachePoint` sits between. Declared
+      2026-08-16 and written 2026-08-18 (DESIGN §5.4's table carries both dates). Admissible
+      under the criterion above because it is the same *kind* of exit as `for_transport()` —
+      one destination, one request, a framing difference — and it returns `CacheBlocks`, which
+      carries the boundary's `naming.yaml` value so that what was cached is recorded rather
+      than implied.
 
     Everything else — `str()`, `repr()`, `json.dumps`, an f-string, a `print` of the
     object, a traceback that renders locals — reaches `reference()` instead. That is the
@@ -240,6 +348,66 @@ class FilledPrompt:
         `src/llm/bedrock.py`'s constraint and `tools/check_bedrock_logging.py` checks it.
         """
         return self._text
+
+    def for_transport_blocks(
+        self, *, cache_after: int, boundary: str, ttl: str
+    ) -> CacheBlocks:
+        """The same text for the same call, split at a declared cache boundary.
+
+        **The same *kind* of exit as `for_transport()`** (DESIGN §5.4, declared 2026-08-16,
+        written 2026-08-18): one destination (the model call, through `src/llm/bedrock.py`),
+        the same bytes, no logging path, named for that destination. What it adds is framing —
+        a Bedrock `cachePoint` needs two content blocks (`docs/notes/baseline-model-family.md`,
+        2026-08-16) — and framing one request differently is not a new place the text can go.
+        It is admissible under `EXITS`'s criterion for exactly that reason, and had caching
+        needed a method that handed the text to a cache client of its own the answer would
+        have been no.
+
+        **The three arguments are all required and none has a default.** `cache_after` is the
+        offset in characters, `boundary` the `naming.yaml` name of what ends there, `ttl` the
+        declared lifetime. A default `boundary` would be the one place the value could stop
+        being passed from the assembler that knows it, and this is the value that decides which
+        bytes a third party retains for five minutes — `auditor.md` §6's third bullet is a
+        property only while nothing can cache a block it never named.
+
+        **The offset is not computed here.** This type holds text and knows nothing about the
+        blocks it was assembled from, so a boundary found by searching for a heading would be
+        this module guessing at another function's composition — and it would keep working,
+        one block further along, if a heading were reworded. `assemble_audit_prompt()` records
+        `cache_after` and `cache_boundary` in the reference form because it is the function
+        that concatenated the pieces, and `src/llm/bedrock.py` reads them from there. One
+        producer, as everywhere else here.
+        """
+        if isinstance(cache_after, bool) or not isinstance(cache_after, int):
+            raise PromptError(
+                f"cache_after must be an integer character offset, got "
+                f"{type(cache_after).__name__}. It comes from the assembler's reference form "
+                "(`cache_after`), which is the one function that knows where the blocks it "
+                "joined end."
+            )
+        if not 0 < cache_after < len(self._text):
+            raise PromptError(
+                f"cache_after is {cache_after} in a prompt of {len(self._text)} characters, "
+                "which puts the boundary at or past an end. `cachePoint` sits between two "
+                "non-empty blocks; an offset at the end would cache the whole prompt, and on "
+                "an audit call that is the masked document (docs/prompts/auditor.md §6)."
+            )
+        blocks = CacheBlocks(
+            self._text[:cache_after], self._text[cache_after:],
+            boundary=boundary, ttl=ttl,
+        )
+        # The split is total. Cheap, and it is the check that a prompt hashed into
+        # `window_freeze.json` was sent whole: a lost character makes the call almost the
+        # frozen one, and the record would attest to the whole (DESIGN §6.3).
+        reference = blocks.reference()
+        if reference["cached_chars"] + reference["tail_chars"] != len(self._text):
+            raise PromptError(
+                f"the split accounts for {reference['cached_chars']} + "
+                f"{reference['tail_chars']} characters and the prompt has {len(self._text)}. "
+                "The two blocks are sent in place of the whole prompt, which is what "
+                "window_freeze.json hashed."
+            )
+        return blocks
 
     # ── what may be recorded ─────────────────────────────────────────────────
 
@@ -1665,6 +1833,18 @@ def assemble_audit_prompt(
     No scores, no rule file, no gold, no previous report: §1.2's withheld table is enforced
     by this signature, which has nowhere to put any of them. A parameter for one would be
     the edit that breaks the role, so the refusal is that the parameter does not exist.
+
+    **The reference form carries `cache_after` and `cache_boundary`, and this is the only
+    function that may compute them** (`auditor.md` §6's third bullet, DESIGN §5.4). The
+    boundary is the end of §1.1's frame: the template, the input banner and the frame are on
+    the cached side — committed bytes and `naming.yaml` values, identical for every document in
+    a round — and **the masked document and its heading are on the far side.** The offset is
+    the length of that prefix, taken from the pieces *as they are joined here* rather than by
+    searching the finished text for a heading. A search would be a second reading of a
+    composition this function performed, and it would go on succeeding one block further along
+    if a heading were reworded — the failure mode being that §1.2 slides onto the cached side
+    while every check still passes. `CACHE_BOUNDARY` names which boundary it is, so the value
+    in `metrics.json` is the value the split was made at.
     """
     if not isinstance(masked, MaskedDocument):
         raise PromptError(
@@ -1686,10 +1866,27 @@ def assemble_audit_prompt(
             "the report recorded the corpus that was not."
         )
 
-    text = "\n\n".join([
+    # ── the cached side of the boundary ──────────────────────────────────────
+    # The template, the banner and §1.1's frame, and nothing after them. Built as its own
+    # value so that `cache_after` is this prefix's length rather than an offset found by
+    # searching the finished prompt — see the docstring. Every byte here is a committed file
+    # or a `config/naming.yaml` value, which is what makes caching it a statement about
+    # public bytes (`auditor.md` §6).
+    cached_prefix = "\n\n".join([
         _auditor_template(),
         INPUT_BANNER,
         frame,
+    ])
+    # The separator that would have joined the prefix to the next block. Counted into the
+    # cached side rather than the tail: it is the boundary's own two characters, and putting
+    # them on the far side would make `cache_after` name an offset one join short of where the
+    # frame ends — a boundary that is right about the blocks and wrong by two characters is a
+    # cache that never hits, since the cached bytes would differ from the previous call's.
+    cache_after = len(cached_prefix) + 2
+
+    text = "\n\n".join([
+        cached_prefix,
+        # ── the far side: the masked document and its heading, never cached ──
         f"### {MASKED_DOCUMENT} The masked document — "
         f"{_count(reference['n_lines'], 'line', 'lines')}, "
         f"{_count(reference['n_tags'], 'mask tag', 'mask tags')}",
@@ -1726,5 +1923,12 @@ def assemble_audit_prompt(
         "masked_document": reference,
         "text_chars": len(text),
         "text_sha256": _digest(text),
+        # The boundary, computed above from the pieces as joined. Present on every audit
+        # prompt whether or not the transport caches: it is a statement about where §1.1 ends
+        # in *this* text, true independently of the call, and a key some calls omit cannot be
+        # compared across calls (`sections_empty`'s reason). Whether caching happened is
+        # `metrics.json`'s `caching` block, and its absence there is what records "unused".
+        "cache_after": cache_after,
+        "cache_boundary": CACHE_BOUNDARY,
         "window_files": {name: file_hash(name) for name in WINDOW_FILES},
     })

@@ -1232,12 +1232,29 @@ written warning is not a control.
 So the filled prompt is not a `str`. `src/llm/prompt.py` defines `FilledPrompt`, which has
 no public accessor that is not named for a destination:
 
-| exit | destination | check |
-|---|---|---|
-| `to_terminal(stream)` | a person reading a screen | refuses a stream that is not a terminal |
-| `for_transport()` | the model call | none; the transport must not log, and `tools/check_bedrock_logging.py` is what checks that |
-| `reference()` | a run block or a log line | returns references, counts and hashes; no text |
-| `for_transport_blocks(cache_after=...)` | the model call, split at a cache boundary | added 2026-08-16; same text as `for_transport()`, in the two content blocks a `cachePoint` needs |
+| exit | destination | declared | written | check |
+|---|---|---|---|---|
+| `to_terminal(stream)` | a person reading a screen | 2026-08-08 | 2026-08-08 | refuses a stream that is not a terminal |
+| `for_transport()` | the model call | 2026-08-08 | 2026-08-08 | none; the transport must not log, and `tools/check_bedrock_logging.py` is what checks that |
+| `reference()` | a run block or a log line | 2026-08-08 | 2026-08-08 | returns references, counts and hashes; no text |
+| `for_transport_blocks(cache_after=...)` | the model call, split at a cache boundary | 2026-08-16 | 2026-08-18 | same text as `for_transport()`, in the two content blocks a `cachePoint` needs |
+
+**The table carries two dates per exit, and the fourth row is why.** *Declared* is when this
+table and the criterion below admitted the exit; *written* is when `src/llm/prompt.py` had it.
+For the three original exits the two coincide — one commit added the type and all three methods
+(2026-08-08) — and the columns are filled in anyway rather than left blank for them, because a
+blank would read as "unknown" and the coincidence is a fact that was checked. The fourth row is
+the case that needs the distinction: it was declared on 2026-08-16 by the restatement below, and
+between then and 2026-08-18 this table said `added 2026-08-16` while the module said "decided in
+DESIGN §5.4 and not yet written". **A declaration and an implementation diverging quietly is a
+recurring failure in this repository** — `tests/mutations/README.md` collects the family, and the
+`auditor.md` §6 correction two paragraphs down is the same shape caught one day later — so the
+state is recorded in the table rather than smoothed over. Collapsing the fourth row to one date
+would also erase the event this row is evidence of: the restatement of the guarantee is *what*
+admitted a fourth exit, and it happened before the exit existed. The question a later reader
+asks is not "when did this method appear" but **"when did this exit pass the admissibility
+criterion, and was it written under the criterion that admitted it"**, and two dates are the
+smallest record that answers it.
 
 **The guarantee is enumeration, not cardinality** (restated 2026-08-16, before the fourth exit
 was written). What the type promises is that **every path by which the text can leave is named

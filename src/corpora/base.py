@@ -433,6 +433,102 @@ def check_agent_role(value: str) -> str:
     return value
 
 
+def caching_boundaries() -> dict[str, str]:
+    """Where a prompt's cached block ends, from `config/naming.yaml`. DESIGN §5.4.
+
+    **One value, and the singleton is the point.** `after_audit_frame` says the cached side
+    is the Auditor's template, the input banner and §1.1's frame — committed bytes and
+    `naming.yaml` values — and that §1.2's masked document is on the far side. That is the
+    boundary `docs/prompts/auditor.md` §6's third bullet declares, and the reason it is a
+    *value* rather than a literal in the transport is that the bullet's claim has to be
+    checkable: a free string would let `"after_frame"` and `"after_the_frame"` land in two
+    arms' files with nothing able to group them, and a reader could not tell whether two
+    arms cached the same bytes.
+
+    **Moving the boundary is an edit here, which is what makes the prompt's guarantee
+    binding.** A value that put the masked document on the cached side is not in this
+    mapping and must not be added without editing that bullet first — the largest corpus
+    exposure in the project (`auditor.md` §6) would otherwise be retained by a service for
+    five minutes because a keyword argument changed.
+
+    A closed vocabulary and **not** an axis, like `agent_role` and `audit_refusal`: it lands
+    in `metrics.json`'s content rather than in a path.
+    """
+    value = naming().get("caching_boundary")
+    if not isinstance(value, dict) or not value:
+        raise CorpusError(
+            "config/naming.yaml has no `caching_boundary` mapping. It is the closed "
+            "vocabulary for where a prompt's cached block ends, it lands in metrics.json's "
+            "`caching` block, and CLAUDE.md keeps such values out of the modules."
+        )
+    bad = [key for key in value if not isinstance(key, str) or not key]
+    if bad:
+        raise CorpusError(
+            f"config/naming.yaml `caching_boundary` has {len(bad)} non-string or empty "
+            "key(s). Each key is a value written to metrics.json."
+        )
+    return dict(value)
+
+
+def check_caching_boundary(value: str) -> str:
+    """Return `value` if it is a declared cache boundary; raise otherwise.
+
+    `check_agent_role`'s reason, with the sharpest stake in this file. The other checked
+    accessors close a *grouping* failure — two spellings of one value split a count. This one
+    closes that too, and underneath it something else: the boundary decides **which bytes a
+    third party retains**, so a caller free to invent one is a caller that can move the masked
+    document onto the cached side and record a name for it that no vocabulary refused. The
+    refusal is what keeps `auditor.md` §6's bullet a property rather than a sentence.
+    """
+    boundaries = caching_boundaries()
+    if value not in boundaries:
+        raise CorpusError(
+            f"{value!r} is not a cache boundary in config/naming.yaml "
+            f"(have: {sorted(boundaries)}). Add it there before a module writes it — and "
+            "read docs/prompts/auditor.md §6's third bullet first: it declares that the "
+            "masked document is on the far side of the boundary and is never cached, so a "
+            "new value that moves the boundary past §1.2 contradicts a committed prompt."
+        )
+    return value
+
+
+def caching_ttls() -> dict[str, str]:
+    """The prompt-cache TTLs `naming.yaml` declares. DESIGN §5.4, measured 2026-08-16.
+
+    Closed for `caching_boundaries()`'s reason plus one this vocabulary has on its own: the
+    string is the same one Bedrock returns in `cacheDetails` (`{"ttl": "5m", ...}`), so a
+    declared value and a reported value are comparable. A TTL invented at a call site would
+    be a number that could not be checked against the envelope that produced it.
+    """
+    value = naming().get("caching_ttl")
+    if not isinstance(value, dict) or not value:
+        raise CorpusError(
+            "config/naming.yaml has no `caching_ttl` mapping. It is the closed vocabulary "
+            "for a prompt cache's lifetime, it lands in metrics.json's `caching` block, and "
+            "CLAUDE.md keeps such values out of the modules."
+        )
+    bad = [key for key in value if not isinstance(key, str) or not key]
+    if bad:
+        raise CorpusError(
+            f"config/naming.yaml `caching_ttl` has {len(bad)} non-string or empty key(s). "
+            "Each key is a value written to metrics.json."
+        )
+    return dict(value)
+
+
+def check_caching_ttl(value: str) -> str:
+    """Return `value` if it is a declared cache TTL; raise otherwise."""
+    ttls = caching_ttls()
+    if value not in ttls:
+        raise CorpusError(
+            f"{value!r} is not a cache TTL in config/naming.yaml (have: {sorted(ttls)}). "
+            "Add it there before a module writes it. The value is also what Bedrock reports "
+            "in `cacheDetails`, so an undeclared one would be a lifetime this project claims "
+            "and the envelope never confirmed."
+        )
+    return value
+
+
 def audit_refusals() -> dict[str, str]:
     """Why an Auditor flag was refused, from `config/naming.yaml`. `auditor.md` §2.3.
 
