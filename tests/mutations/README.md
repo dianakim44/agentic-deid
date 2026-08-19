@@ -1715,6 +1715,147 @@ passes on the mutant. `test_converged_is_not_a_field_and_no_caller_can_supply_on
 this mutation and asserts the shape three ways: absent from `dataclasses.fields`, a `property` on
 the class, and refused as a constructor argument.
 
+### Five on prompt caching, where the saving is real and the result is not
+
+Added 2026-08-18 with schema 8. The family's property is not that the mutants produce wrong
+numbers — three of them produce numbers a service actually charged — it is that **a transport
+optimisation ends up in the column a claim about role specialisation is read off.** DESIGN §11.3
+pre-registers a 1.9× cost standard for `port-loop` against `port-oneshot`, and caching is
+available to `port-loop` and to nothing else on the ladder, because the Auditor is the only agent
+called once per dev document. So every accounting mistake here is directional: it moves the arm
+whose result is in question, and it moves it by an amount nobody has a prior for.
+
+`prompt_tokens_is_what_the_invoice_was_computed_on` is the one the whole schema exists to prevent,
+and it has the best argument of the five: `inputTokens` is what AWS bills, and CLAUDE.md says to
+report cost. Measured 2026-08-16, `inputTokens` was 7193 on a control call and 21 on a cache read
+of the same text — a factor of 340. Since `auditor.md` is 80.7% of an average audit call, and 1.71M
+of a round's 2.12M prompt tokens are that one template sent 250 times, the arm would appear to
+clear the 1.9× standard on the strength of AWS's cache infrastructure. The mutation is
+`min_kills=3` and carries a second edit, which is what makes it worth having as an entry: without
+adjusting the `totalTokens` comparison the mutant refuses every cached call and anyone would
+notice in a minute, so the faithful version keeps the cross-check *passing*. Then nothing in the
+file contradicts it. The `caching` block still reports the reads; what a reader cannot tell is
+whether those reads were already subtracted from `prompt_tokens` or are published beside a raw
+total, because both files have the same shape and neither says which. Note the direction against
+the entry above it: `the_rule_authors_prompt_is_cached_too` costs the arm money and reads as
+conservatism, this one earns the arm its headline and reads as accuracy.
+
+Which tests catch it is worth stating precisely, because one of them does not.
+`test_prompt_tokens_is_the_raw_total_on_all_three_probe_calls` is parametrised over the control,
+the write and the read, and only the last two fail — the control call has no cache tokens, so its
+`prompt_tokens` is identical under the mutation. That is the family's exposure in miniature: an
+uncached arm's cost column cannot see this defect at all, and every rung below `port-loop` is
+uncached. The suite has to carry a cached envelope or it carries nothing.
+
+`the_rule_authors_prompt_is_cached_too` is the same reasoning applied one agent over, and the
+reason it fails is *N*. The Auditor's prefix is one template repeated once per document within a
+round, seconds apart — one write and N−1 reads inside the 5m TTL. The RuleAuthor is called once
+per round and rounds are 40–80 minutes apart, so every write expires unread and the arm buys a
+`cacheWrite` charge per round for nothing. It also breaks §4 in a way no count exposes: the
+boundary goes on `assemble_iteration_prompt`'s return, which round 1 does not take, so rounds 2+
+of an arm are transported differently from round 1 of the same arm. The entry carries two edits
+because one alone is not the mutation — an assembler growing a boundary and a call site consuming
+it is what the change actually looks like — and it is `min_kills=2` because the behavioural test
+(`cachePoint` blocks counted per call) and the structural one (`cache=` keywords read off every
+`invoke` in `src/`) catch different things: the first catches this instance, the second catches
+the shape.
+
+`the_assembled_total_is_trusted_rather_than_checked` is the entry with nothing behavioural to
+catch it on any input the project has ever seen. It deletes the `totalTokens` comparison and
+keeps the key required, so every real response passes and the branch reads as a check found to be
+redundant. What it removes is the reason the 2026-08-16 measurement was worth making: Bedrock
+publishes the same quantity by two paths that do not share an implementation, and `totalTokens`
+was 7197 on the control, the write and the read while the components moved between them. The
+failure it guards is a platform redefining `cacheReadInputTokens` to overlap `inputTokens`, or
+adding a fourth component — which produces plausible numbers in every arm and every file, leaves
+each arm internally consistent, and makes the comparison between them wrong. A mutation that
+removes a check is invisible to every input on which the check passes, so the suite has to carry
+an input on which it must fail; `test_the_assembled_total_is_cross_checked_against_the_envelopes_own`
+perturbs one component of a measured envelope so the sum no longer reaches 7197.
+
+`the_cache_boundary_crosses_onto_the_masked_document` is the near-miss rather than the invented
+one. It moves the boundary past §1.2's heading and its two counts — structurally the same
+sentence on every call, so extending the cached prefix over it reads as taking in a few dozen
+constant characters. The counts are `n_lines` and `n_tags` of *this* document, so the prefix now
+differs per document, the cache misses on nearly every call, and the round pays N writes instead
+of one — visible only as a `write_tokens` figure nobody has a prior for. The recorded boundary
+still says `after_audit_frame`, whose `config/naming.yaml` gloss states which bytes are retained
+and which `auditor.md` §6 publishes to the agent; both statements are now false while the value is
+unchanged. One more join along the same edit and the masked document's own text is what a third
+party retains for five minutes. `tests/test_prompt.py` carries four assertions on this offset,
+which is the redundancy an integer nobody re-derives downstream earns — and only two of them fail
+on this mutant. The cached side still contains the three things `auditor.md` §6 names; it now
+contains a fourth, which is why the test that catches it is the one asserting what must be
+*absent*, and why that assertion had to use the *filled* heading with its counts rather than a
+bare `### 1.2` — the bare string is in the committed template and is legitimately cached, so an
+assertion on it would fail on the correct split and prove nothing about the wrong one.
+
+`caching_is_inferred_from_the_prompt_carrying_a_boundary` is the sixth family, and it is the only
+entry here whose subject is a *design decision* rather than a value. On 2026-08-18 the choice was
+between `invoke(..., cache=True)` and inferring caching from the prompt's shape; the keyword won
+because inference makes the boundary's consumer implicit while its producer stays single. The
+mutant is the rejected design, and on today's code it is **byte-identical**: the only assembler
+that produces a boundary is the only call site that passes the keyword, every refusal in the
+function is kept, and the keyword still works. It reads as removing a redundant argument. The
+failure is in the next commit — the moment any assembler grows a `cache_after`, its calls begin
+being cached at a boundary nobody chose for that prompt, and
+`the_rule_authors_prompt_is_cached_too` arrives as an **omission**: two keys added to a reference
+dict, no `cache=True` in the diff to stop at, §4's byte-identical claim broken with no line to
+point to.
+
+That is an argument about diffs, so no test of current behaviour carries it — which is precisely
+why the mutation had to be written before the defence could be. **And
+`test_cache_is_off_by_default` does not catch it.** The signature is untouched: the default is
+still `False`, still keyword-only, and the override happens in the body. A structural test on the
+parameter asserts that the keyword *exists*, not that it decides anything. What catches the mutant
+is `test_caching_is_never_inferred_from_the_prompt_carrying_a_boundary`, written for this purpose —
+hand `invoke` a boundary-carrying prompt, omit the keyword, require one content block and no
+`caching` record — plus `test_the_cached_call_sends_the_same_bytes_as_the_uncached_one`
+incidentally, whose *uncached* control is a boundary-carrying prompt and so stops being uncached
+on the mutant. Before those two, the decision was held by a docstring plus the coincidence that
+one assembler and one call site happen to line up. A coincidence is not a guarantee, and the
+distance between them is what this section is for.
+
+### The split moved three tests' observation point, and they still passed
+
+Worth recording as its own note, because the mechanism is not a mutation and no mutation would
+have found it. Splitting the Auditor's prompt into two content blocks changed where the prompt
+*is* on the wire, and `tests/test_loop.py`'s `Transport` fake read `messages[0]["content"][0]
+["text"]` — one block, by an assumption that was true when it was written. After the split that
+expression returns `auditor.md` plus the input banner plus §1.1's frame, and stops at the
+boundary: **§1.2's masked document, which is the half three tests search, is simply not in the
+string any more.**
+
+What happened when the split landed is the finding. Of the three call sites, one failed and two
+passed:
+
+- `test_a_later_round_masks_the_previous_rounds_spans_and_not_round_ones` failed — but on its
+  *positive* half, the meta-guard asserting that round 2's Auditor **did** see `Centro` in the
+  clear. Deleting that half from the pre-fix file and rerunning against the split code makes the
+  test pass. So the assertion the test exists for — that round 3's Auditor never sees the term —
+  passed vacuously over prompts whose document half was gone, and the only thing that failed was
+  the guard put there to detect exactly that vacuity.
+- `test_the_previous_rounds_rule_file_is_the_one_shown_as_section_1_2` passed. It reads the
+  RuleAuthor's call, which is still one block, and its filter — `"Auditor prompt" not in text` —
+  keeps working because the banner is on the cached side.
+- The `Transport` fake's own role dispatch passed, for the same reason: it sniffs `"Auditor
+  prompt"`, which the truncated prefix still contains.
+
+The general shape: **a change to how a prompt is transported can silently narrow what a test
+observes, and an assertion of the form "X is not in what was sent" gets *more* likely to pass as
+the observation window shrinks.** Every negative assertion over transported bytes has this
+exposure. Two things contained it here, and neither was luck: the two-sided assertion, which is
+the seal mutations' rule (`test_the_gate_is_not_satisfied_by_an_empty_log`'s reasoning — check
+that the thing you are asserting the absence of is present when it should be), and the fact that
+the fake reads what the transport actually sent rather than what the assembler returned. Had the
+fake been handed `prompt.for_transport()` instead, all three would have passed and the split
+would have been invisible to the suite.
+
+The fix is `sent_text(call)`, which joins the text blocks back across the boundary — not a
+workaround for the split but a reading of it: §4 requires the concatenation to be the bytes the
+uncached call would have sent, so joining is reading what the model read. It is one helper rather
+than three inline expressions so the next transport change has one place to fail.
+
 ## What the seal cost, and what carries the difference
 
 Sealing 250 documents removed checks that cannot be replaced, and pretending

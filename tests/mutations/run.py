@@ -4204,6 +4204,271 @@ MUTATIONS = [
         ),
         min_kills=1,
     ),
+    # ── prompt caching: the transport moved and the cost column must not (DESIGN §11.3) ──
+    # Five mutations, and they are one family: each is a way for a service's transport
+    # optimisation to end up wearing the clothes of a result. The first splits a prompt whose
+    # prefix changes every round; the second and third make the saving unfalsifiable by
+    # deleting the number that contradicts it or the check that verifies it; the fourth moves
+    # the boundary onto the masked document. The fifth is the decision itself — whether the
+    # consumer is a keyword or an inference — and it is the one whose defence had to be built
+    # rather than found.
+    Mutation(
+        name="the_rule_authors_prompt_is_cached_too",
+        path=LOOP,
+        # `run_iteration`'s RuleAuthor call and not `run_iteration_1`'s. The two lines are
+        # identical, so the anchor takes the following line to pick the round-2+ one — which is
+        # also the only one the `also` edit reaches, since round 1 delegates to
+        # `assemble_task_prompt` and gets no boundary. That asymmetry is the mutation's point.
+        anchor=(
+            "    response = invoke(prompt, model_id=model_id, client=client, **kwargs)\n"
+            "    model = response.model_record()"
+        ),
+        replacement=(
+            "    response = invoke(prompt, model_id=model_id, client=client, cache=True, "
+            "**kwargs)\n"
+            "    model = response.model_record()"
+        ),
+        also=((
+            PROMPT,
+            "    return FilledPrompt(text, {\n"
+            '        "block": "iteration",\n'
+            '        "lang": lang,',
+            "    return FilledPrompt(text, {\n"
+            '        "cache_after": len(_template()) + 2,\n'
+            '        "cache_boundary": CACHE_BOUNDARY,\n'
+            '        "block": "iteration",\n'
+            '        "lang": lang,',
+        ),),
+        breaks=(
+            "**The RuleAuthor's prompt is split and cached too, at the end of its template.** "
+            "The two edits together are what makes it faithful: the assembler grows a boundary "
+            "and the call site consumes it, which is the change anyone extending caching to a "
+            "second agent would write. It reads as obvious economy — `rule_author.md` is a "
+            "committed file sent on every round of every arm, so caching it is the same argument "
+            "that justified caching `auditor.md`.\n"
+            "\n"
+            "It is not the same argument, and the difference is *N*. The Auditor's prefix is one "
+            "template repeated once per dev document within a round, seconds apart: one write "
+            "and N−1 reads inside a 5m TTL (`config/naming.yaml`'s `caching_ttl` gloss, measured "
+            "2026-08-16). The RuleAuthor is called **once per round** and rounds are 40–80 "
+            "minutes apart, so every write expires before the next call and the cache never "
+            "hits. What the arm buys is a `cacheWrite` charge on every round — Bedrock prices a "
+            "write above a plain input token — recorded as `write_tokens` with `read_tokens: 0` "
+            "for the arm's whole life. §11.3's cost comparison then reports `port-loop` as more "
+            "expensive than the loop actually is, in the direction that makes the 1.9× standard "
+            "*harder* to clear, which is why nothing looks wrong: a cost overrun that hurts your "
+            "own arm reads as conservatism.\n"
+            "\n"
+            "Worse than the price is what it does to §4. Round 1 of `port-loop` and "
+            "`port-oneshot`'s single call are required to be shown the same bytes, and "
+            "`assemble_task_prompt` is the shared code path that guarantees it. The boundary "
+            "added here is on `assemble_iteration_prompt`'s return, which round 1 does not take "
+            "— so rounds 2+ are transported differently from round 1 of the same arm, and the "
+            "`caching` block for round 1 stays absent while later rounds report a boundary that "
+            "no measurement in this project ever validated. `cache_after` is `len(_template()) + "
+            "2` and nothing checks that it falls where a block ends: the offset is admissible, "
+            "so `for_transport_blocks` accepts it.\n"
+            "\n"
+            "Caught by `test_only_the_auditors_calls_carry_a_cache_point`, which counts "
+            "`cachePoint` blocks per call and asserts the RuleAuthor's is zero — and by "
+            "`test_cache_true_appears_once_in_the_project_and_it_is_the_audit_call`, which reads "
+            "every `invoke` call in `src/` off the syntax tree and requires the single "
+            "`cache=` keyword to be in `src/porting/loop.py`. The second is what makes the "
+            "mutation's *shape* visible: this is the family that arrives as one keyword added at "
+            "a second call site, and a behavioural test on one round would pass on it if the "
+            "fake happened not to distinguish the two prompts."
+        ),
+        min_kills=2,
+    ),
+    Mutation(
+        name="prompt_tokens_is_what_the_invoice_was_computed_on",
+        path=BEDROCK,
+        anchor="    read, write = _cache_tokens(usage)\n    prompt_tokens = input_tokens + read + write",
+        replacement="    read, write = _cache_tokens(usage)\n    prompt_tokens = input_tokens",
+        also=((
+            BEDROCK,
+            "    if prompt_tokens + completion_tokens != total:",
+            "    if prompt_tokens + read + write + completion_tokens != total:",
+        ),),
+        breaks=(
+            "**`prompt_tokens` becomes `inputTokens` — the billed basis — and the cross-check is "
+            "adjusted so it still passes.** The second edit is what makes this the plausible "
+            "version rather than a crash: leave it out and `_usage` refuses every cached call, "
+            "which anyone would notice in a minute. With it, the arithmetic is still verified "
+            "against `totalTokens`, every test that reads a `caching` block still passes, and "
+            "`sum_costs` still adds. The change reads as a *correction* — these are the tokens "
+            "the invoice was computed on, and CLAUDE.md says to report cost.\n"
+            "\n"
+            "What it reports is a 340× reduction in a column that measures work. Measured "
+            "2026-08-16: `inputTokens` was 7193 on the control call and 21 on the cache read, "
+            "for two calls on which the model read the same text. `port-loop`'s prompt tokens "
+            "would fall by roughly the Auditor's share of the round — `auditor.md` is 80.7% of "
+            "an average audit call, and 1.71M of the round's 2.12M prompt tokens are that one "
+            "template sent 250 times — and the arm would appear to clear §11.3's pre-registered "
+            "1.9× standard on the strength of a service's transport optimisation. That is a "
+            "claim about AWS's cache infrastructure sitting in the place a claim about role "
+            "specialisation belongs. Nothing in the file contradicts it: the `caching` block "
+            "would report the reads, but a reader has no way to know that the reads had already "
+            "been *subtracted* from `prompt_tokens` rather than being reported beside a raw "
+            "total, because both files have the same shape and neither says which.\n"
+            "\n"
+            "The direction is what makes it dangerous. The previous mutation costs the arm money "
+            "and reads as conservatism; this one earns the arm its headline result and reads as "
+            "accuracy. Caught by "
+            "`test_prompt_tokens_is_the_raw_total_on_all_three_probe_calls` — twice, on the write "
+            "and the read parametrisations, since the control call has no cache tokens and its "
+            "case is *unaffected*, which is itself the finding: an uncached arm's cost column is "
+            "identical under this mutation and only a cached call can see it. Also by "
+            "`test_the_billed_basis_is_recoverable_and_is_not_the_headline`, which asserts both "
+            "numbers and their difference, and by "
+            "`test_the_write_call_and_the_read_call_are_told_apart_by_the_block`, which requires "
+            "the write and the read to report the same `prompt_tokens` — the property that makes "
+            "the column mean work rather than billing."
+        ),
+        min_kills=3,
+    ),
+    Mutation(
+        name="the_assembled_total_is_trusted_rather_than_checked",
+        path=BEDROCK,
+        anchor="    if prompt_tokens + completion_tokens != total:",
+        replacement="    if False:",
+        breaks=(
+            "**The cross-check against `totalTokens` is removed and the key is still "
+            "required.** The read stays, the type check stays, the message stays, and every "
+            "response this project has ever seen produces identical numbers — so nothing fails "
+            "today and the branch reads as a check that was found to be redundant.\n"
+            "\n"
+            "It removes the only reason the 2026-08-16 measurement was worth making. Bedrock "
+            "publishes the same quantity twice, by paths that do not share an implementation: "
+            "the three components, and its own `totalTokens`, which was 7197 on the control, the "
+            "write and the read while the components moved between them. That redundancy is what "
+            "lets `prompt_tokens = inputTokens + cacheRead + cacheWrite` be *verified* rather "
+            "than asserted from a docstring. Without it the cost column is a single unverified "
+            "sum, and the failure it was built for is the one that cannot be noticed any other "
+            "way: a platform that redefines `cacheReadInputTokens` to overlap `inputTokens`, or "
+            "adds a fourth component, produces plausible numbers in every arm and every file. "
+            "The arms stay internally consistent and the comparison between them is wrong, which "
+            "is the shape of defect DESIGN §11.3 exists to prevent and no downstream test can "
+            "see — `sum_costs` adds whatever it is given, and a leak rate is unaffected.\n"
+            "\n"
+            "Caught by `test_the_assembled_total_is_cross_checked_against_the_envelopes_own`, "
+            "which perturbs one component of a measured envelope so the sum no longer reaches "
+            "7197 and requires the refusal. That is the only test that can catch it: a mutation "
+            "removing a check is invisible to every input on which the check passes, so the "
+            "suite has to carry an input on which it must fail."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="the_cache_boundary_crosses_onto_the_masked_document",
+        path=PROMPT,
+        anchor='    cache_after = len(cached_prefix) + 2',
+        replacement=(
+            '    cache_after = len(cached_prefix) + 2 + len(\n'
+            '        f"### {MASKED_DOCUMENT} The masked document — "\n'
+            "        f\"{_count(reference['n_lines'], 'line', 'lines')}, \"\n"
+            "        f\"{_count(reference['n_tags'], 'mask tag', 'mask tags')}\"\n"
+            '    ) + 2'
+        ),
+        breaks=(
+            "**The boundary moves past §1.2's heading, so the masked document's first bytes are "
+            "on the cached side.** As written it takes in the heading and its two counts and "
+            "nothing else, which is the version that survives review: the heading is "
+            "*structural*, it is the same sentence on every call, and moving it into the cached "
+            "prefix looks like extending the cache by a few dozen constant characters. The "
+            "docstring's claim still reads true — the document is still 'after' the boundary in "
+            "the sense the sentence is skimmed for.\n"
+            "\n"
+            "It is not constant, and it is not the document's neighbour by accident. The counts "
+            "are `n_lines` and `n_tags` of *this* document, so the cached prefix now differs "
+            "between documents: the cache misses on nearly every call and the round pays a write "
+            "per document instead of one — visible only as `write_tokens` roughly N times too "
+            "large in a block whose magnitude nobody has a prior for. And the boundary is now "
+            "the wrong *kind* of thing. `after_audit_frame` is a `config/naming.yaml` value "
+            "whose gloss states exactly which bytes are retained, and `auditor.md` §6 publishes "
+            "that statement to the agent; a boundary one block further along makes both false "
+            "while the recorded value still says `after_audit_frame`. Extend the same edit by "
+            "one more join and the document's masked text itself is what a third party retains "
+            "for five minutes — the offset is the only thing standing between a public-bytes "
+            "claim and corpus text on someone else's disk, and it is an integer nobody re-derives "
+            "downstream.\n"
+            "\n"
+            "Caught by `test_the_masked_document_is_on_the_far_side_and_is_never_cached`, which "
+            "asserts the *filled* heading with this document's counts is absent from the cached "
+            "side — a bare `### 1.2` assertion would fail on the correct split, since that "
+            "string is in the committed template and legitimately cached — and by "
+            "`test_the_boundary_is_the_end_of_the_frame_and_not_one_join_short_or_long`, which "
+            "pins the offset to the frame's end rather than to a neighbourhood of it. The other "
+            "two assertions on this offset "
+            "(`test_the_cached_side_is_the_three_things_the_bullet_names` and "
+            "`test_the_offset_is_not_found_by_searching`) pass on this mutant and are what stop "
+            "the neighbouring variants: the cached side still contains the three things §6 names, "
+            "and it now contains a fourth."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="caching_is_inferred_from_the_prompt_carrying_a_boundary",
+        path=BEDROCK,
+        anchor=(
+            "    if not cache:\n"
+            '        return [{"text": prompt.for_transport()}], None, None\n'
+            "\n"
+            "    reference = prompt.reference()\n"
+            '    missing = [key for key in ("cache_after", "cache_boundary") '
+            "if key not in reference]"
+        ),
+        replacement=(
+            "    reference = prompt.reference()\n"
+            '    if not cache and "cache_after" in reference:\n'
+            "        cache = True\n"
+            "    if not cache:\n"
+            '        return [{"text": prompt.for_transport()}], None, None\n'
+            "\n"
+            '    missing = [key for key in ("cache_after", "cache_boundary") '
+            "if key not in reference]"
+        ),
+        breaks=(
+            "**`cache=True` stops being the decision: a prompt whose reference form carries a "
+            "boundary is cached whether or not anyone asked.** This is the design that was "
+            "considered and rejected on 2026-08-18 (DESIGN §5.4), and the mutation exists "
+            "because a rejected design defended only by a docstring is not defended. Every "
+            "refusal in the function is kept — `cache=True` on a boundary-less prompt still "
+            "raises — the keyword still works, and the behaviour on today's code is "
+            "*byte-identical*, because the only assembler that produces a boundary is the only "
+            "call site that passes the keyword. It reads as removing a redundant argument.\n"
+            "\n"
+            "The failure is not in this commit, it is in the next one. The moment any assembler "
+            "grows a `cache_after` — a second agent, a widened window, a probe reusing "
+            "`FilledPrompt` — its calls begin being cached silently, at a boundary nobody chose "
+            "for that prompt and no measurement validated. The mutation "
+            "`the_rule_authors_prompt_is_cached_too` above then arrives as an **omission** "
+            "rather than an edit: adding two keys to a reference dict starts a cache, with no "
+            "`cache=True` anywhere in the diff for a reviewer to stop at, and §4's byte-identical "
+            "claim about round 1 breaks without a line to point to. That is the whole argument "
+            "for the keyword — the boundary's producer stays single and the consumption decision "
+            "stays explicit — and it is an argument about diffs, so no test of the current "
+            "behaviour can carry it.\n"
+            "\n"
+            "Caught by `test_caching_is_never_inferred_from_the_prompt_carrying_a_boundary`, "
+            "which is the test this mutation was written to force into existence: it hands "
+            "`invoke` a prompt whose reference form carries `cache_after` and `cache_boundary`, "
+            "omits the keyword, and requires one content block and no `caching` record. And "
+            "incidentally by `test_the_cached_call_sends_the_same_bytes_as_the_uncached_one`, "
+            "whose *uncached* control is a boundary-carrying prompt and therefore stops being "
+            "uncached on the mutant.\n"
+            "\n"
+            "**`test_cache_is_off_by_default` does not catch it, and that is the entry's point.** "
+            "The signature is untouched: the default is still `False` and still keyword-only, and "
+            "the override happens in the body. A structural test on the parameter is a test that "
+            "the keyword *exists*, not that it decides anything — so the behavioural test is the "
+            "whole defence, and one purpose-written test is what stands between this decision and "
+            "a docstring. That is the sixth family exactly: before it was written the design was "
+            "held in place by prose plus the coincidence that the one assembler with a boundary "
+            "is the one call site with the keyword."
+        ),
+        min_kills=2,
+    ),
 ]
 
 COUNT_RE = re.compile(r"(\d+) (passed|failed|error|errors)")
