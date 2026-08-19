@@ -250,13 +250,37 @@ def test_a_response_without_usage_is_refused_rather_than_estimated():
     assert "not estimated" in str(e.value)
 
 
-def test_a_partial_usage_block_is_refused():
-    """Zero would be a measurement claiming no tokens were consumed."""
+@pytest.mark.parametrize("absent", ["inputTokens", "outputTokens"])
+def test_a_partial_usage_block_is_refused(absent):
+    """Zero would be a measurement claiming no tokens were consumed.
+
+    The assertion names the *refusal*, not the absent key, and that is the whole content of
+    this test after 2026-08-19. Its first form asserted `"outputTokens" in str(e.value)`, and
+    `absent_token_counts_default_to_zero` — the mutation that gives both reads a default of
+    `0` — survived it at 0 kills: with the default in place this branch does not fire, the
+    `totalTokens` cross-check fires instead, and *that* message interpolates
+    `outputTokens {completion_tokens}` too. So the substring was present under both the
+    working guard and the broken one, and a passing test meant nothing about which had run.
+
+    Not a coverage gap that widened — the guarantee holds either way today, because the
+    cross-check refuses the same input. What the loose assertion cost is the ability to
+    notice this guard being removed, and the guard is the one that covers the partial block
+    whose numbers happen to *agree* with the total, where the cross-check has nothing to say
+    and zeros would be recorded as measurements.
+
+    Both keys are exercised because the mutation edits both reads; the old form left the
+    `inputTokens` half untested.
+    """
     response = reply()
-    del response["usage"]["outputTokens"]
+    del response["usage"][absent]
     with pytest.raises(BedrockError) as e:
         _usage(response)
-    assert "outputTokens" in str(e.value)
+    message = str(e.value)
+    assert "A partial cost block is refused" in message, (
+        "the refusal must be this guard's, not the totalTokens cross-check's downstream of "
+        f"a defaulted 0: {message}"
+    )
+    assert absent in message
 
 
 def test_nothing_in_the_module_counts_tokens_itself():

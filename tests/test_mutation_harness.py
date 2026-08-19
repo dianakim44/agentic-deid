@@ -245,3 +245,36 @@ def test_every_mutation_targets_a_file_that_exists():
     for m in harness.MUTATIONS:
         for path in (m.path, *(p for p, _, _ in m.also)):
             assert os.path.exists(os.path.join(ROOT, path)), f"{m.name}: {path}"
+
+
+def test_every_anchor_is_present_in_its_target():
+    """The same check `apply()` makes, made against the working tree instead of a copy.
+
+    `apply()` already refuses a vanished anchor, so nothing here is a new guarantee —
+    what is new is *when the answer arrives*. `apply()` runs inside the harness, one
+    mutation per full suite run, so a refactor that moves an anchor is reported only when
+    somebody spends the whole run; at 170 mutations and six minutes each that is fifteen
+    hours, and until then the anchor is stale and nothing says so.
+
+    Two were, and that is why this exists rather than the comment above it, which
+    considered a stale *path* and not a stale anchor. `run_fold_skips_axis_validation`
+    stopped matching when §5.5's round widening inserted a branch between `check_run(run)`
+    and the template; `absent_token_counts_default_to_zero` stopped matching when
+    `prompt_tokens` became the raw total and this read was renamed `input_tokens`. Both
+    edits were correct and neither mentioned this harness — which is the point: the drift
+    is caused by ordinary work on the code the mutation is aimed at, so the notice has to
+    be cheap enough to run beside that work.
+
+    It is a string search, the same one `apply()` performs, so it costs milliseconds and
+    fails in the pytest suite on the commit that moves the code.
+    """
+    stale = []
+    for m in harness.MUTATIONS:
+        for path, anchor, _ in ((m.path, m.anchor, m.replacement), *m.also):
+            with open(os.path.join(ROOT, path), encoding="utf-8") as fh:
+                if anchor not in fh.read():
+                    stale.append(f"{m.name} -> {path}")
+    assert not stale, (
+        "anchors no longer present in their target; update them in tests/mutations/run.py "
+        f"so each mutation still tests what its name claims: {stale}"
+    )

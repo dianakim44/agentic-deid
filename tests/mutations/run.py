@@ -1582,8 +1582,14 @@ MUTATIONS = [
     Mutation(
         name="run_fold_skips_axis_validation",
         path=RUN_FOLD,
-        anchor="    check_run(run)\n    template = path_template(\"spans\")",
-        replacement='    template = path_template("spans")',
+        # Re-anchored 2026-08-19: §5.5's round widening inserted the `if iteration is
+        # not None` branch between the validation and the template, so the old two-line
+        # anchor stopped matching. The pair is kept two lines rather than shortened to
+        # `    check_run(run)` because that text is also in `write_errors` — a one-line
+        # anchor would silently move the mutation to the other function, where it would
+        # be about the errors export rather than about `spans_path`'s axis validation.
+        anchor="    check_run(run)\n    if iteration is not None:",
+        replacement="    if iteration is not None:",
         breaks=(
             "Writes `spans.jsonl` without validating the arm's axes, so a misspelled "
             "`porting` value mints a results directory that no axis defines and that "
@@ -1933,12 +1939,17 @@ MUTATIONS = [
     Mutation(
         name="absent_token_counts_default_to_zero",
         path=BEDROCK,
+        # Re-anchored 2026-08-19: `prompt_tokens` became the raw total
+        # (`inputTokens + cacheRead + cacheWrite`, measured 2026-08-16) and the name of
+        # this read moved to `input_tokens`. The mutation is unchanged in meaning — the
+        # `isinstance(..., int)` refusal two lines below accepts a defaulted 0, so a
+        # partial `usage` block still reaches the cost block as a measurement of nothing.
         anchor=(
-            '    prompt_tokens = usage.get("inputTokens")\n'
+            '    input_tokens = usage.get("inputTokens")\n'
             '    completion_tokens = usage.get("outputTokens")'
         ),
         replacement=(
-            '    prompt_tokens = usage.get("inputTokens", 0)\n'
+            '    input_tokens = usage.get("inputTokens", 0)\n'
             '    completion_tokens = usage.get("outputTokens", 0)'
         ),
         breaks=(
@@ -1953,7 +1964,13 @@ MUTATIONS = [
             "— it removes an exception from a code path nobody has seen fire, which is "
             "how defensive zeroes get added.\n"
             "\n"
-            "Caught by `test_a_partial_usage_block_is_refused`."
+            "Caught by `test_a_partial_usage_block_is_refused`, and only since 2026-08-19. "
+            "On the first run after the re-anchoring it SURVIVED at 0 kills: that test "
+            "asserted `\"outputTokens\" in str(e.value)`, the defaulted 0 lets this branch "
+            "pass and the `totalTokens` cross-check refuse instead, and the cross-check's "
+            "message interpolates `outputTokens {completion_tokens}` — so the substring held "
+            "under both the working guard and the broken one. The assertion now names the "
+            "refusal (`A partial cost block is refused`) and runs for both keys."
         ),
         min_kills=1,
     ),

@@ -349,14 +349,21 @@ and becomes the way to omit the hash on a tree that could be read perfectly well
 That is the mutation, and its count of **1** is honest: there is one test that can
 see it, because every other check in `check_run` passes on the contradictory block.
 
-Counts are the number of tests that fail or error, from
-`tests/test_meddocan_loader.py`, `tests/test_split_file.py`, `tests/test_seal.py`,
-`tests/test_release_screen.py`, `tests/test_layer_families.py`,
-`tests/test_scorer.py`, `tests/test_sample.py`, `tests/test_human_arm.py`,
-`tests/test_show_human_window.py`, `tests/test_rules.py` and
-`tests/test_check_rules.py` (531 tests). Errors
-count as kills: a mutation that breaks the module-scoped fixture takes whole tests
-out, and those are caught, not uncounted.
+Counts are the number of tests that fail or error across the whole of `run.py`'s
+`TEST_FILES` — **27 files, 1696 tests as of 2026-08-19**, measured by the harness's own
+baseline run (1695 for the impact-scope run of that day, 1696 after the one assertion it
+found and fixed). Errors count as kills: a mutation that breaks the module-scoped fixture
+takes whole tests out, and those are caught, not uncounted.
+
+**The denominator moved, so counts recorded at different times are not comparable.**
+This paragraph used to name eleven files and 531 tests, which is what `TEST_FILES`
+held when the loader and split-file tables above were first measured; sixteen files
+have joined since. A count is therefore a number *about the suite of the day it was
+measured*, and a table row that has not been re-run under the current list will read
+low against one that has — not because the coverage thinned but because there was
+less suite to fail. The direction to be suspicious of is the other one: a count that
+*fell* while the suite only grew is a real loss of coverage, and that is the reading
+the run of 2026-08-19 was for.
 
 `bucket_unknown_types` is caught by exactly one test, which is the honest number
 and not a comfortable one — the guarantee has a single point of failure. It is
@@ -392,10 +399,10 @@ two.
 
 | mutation | changes | breaks | tests that catch it |
 |---|---|---|---|
-| `sample_seed_from_process_hash` | `sample_seed()` returns `abs(hash(material))` instead of SHA-256 | Python salts string hashing per process, so the seed is stable within a run and different in the next. The recorded seed documents a draw nobody can repeat | **2** |
-| `sample_pool_not_sorted` | the error pool keeps the caller's iteration order instead of `sorted(..., key=e.key)` | the seed pins which *indices* are drawn and the caller's ordering pins which spans those indices hit — reproducible from the log, different in fact | **3** |
-| `non_target_filter_removed` | `non_target_types()` returns an empty set | `OTHER` takes a slot, and with `min_per_type: 1` it takes one in *every* iteration of *every* arm — a permanent slot handed to a type Prohibition 4 forbids writing a rule for | **7** |
-| `non_target_types_hardcoded_not_read_from_config` | `non_target_types()` returns the literal `{"OTHER"}` instead of reading naming.yaml's gloss | nothing, today. The day a corpus ships a second residual bucket, that type is declared, glossed as non-target, forbidden — and drawn anyway, with config and code each looking correct alone | **1** |
+| `sample_seed_from_process_hash` | `sample_seed()` returns `abs(hash(material))` instead of SHA-256 | Python salts string hashing per process, so the seed is stable within a run and different in the next. The recorded seed documents a draw nobody can repeat | **2** (2026-08-19) |
+| `sample_pool_not_sorted` | the error pool keeps the caller's iteration order instead of `sorted(..., key=e.key)` | the seed pins which *indices* are drawn and the caller's ordering pins which spans those indices hit — reproducible from the log, different in fact | **3** (2026-08-19) |
+| `non_target_filter_removed` | `non_target_types()` returns an empty set | `OTHER` takes a slot, and with `min_per_type: 1` it takes one in *every* iteration of *every* arm — a permanent slot handed to a type Prohibition 4 forbids writing a rule for | **9** (2026-08-19) |
+| `non_target_types_hardcoded_not_read_from_config` | `non_target_types()` returns the literal `{"OTHER"}` instead of reading naming.yaml's gloss | nothing, today. The day a corpus ships a second residual bucket, that type is declared, glossed as non-target, forbidden — and drawn anyway, with config and code each looking correct alone | **1** (2026-08-19) |
 
 All three are in the same class and it is a class this table has met before: a wrong
 number in the flattering direction with no symptom. What is new is *where* the symptom
@@ -481,74 +488,74 @@ no enforcement but a field in a log.
 
 | mutation | changes | breaks | tests that catch it |
 |---|---|---|---|
-| `initial_pool_excludes_train_instead_of_selecting_dev` | `split != "dev"` becomes `split == "train"` | the test fold enters the window a person writes rules from — the seal violation that invalidates the experiment, arriving as a plausible spelling of the same filter | **1** |
-| `summary_reports_offsets` | `summarise()` gains a `spans` field of `(doc_id, start, end)` | the view built to be pasted into a terminal or a commit message starts carrying pointers into the corpus. No surface form is quoted, which is why it would survive review | **1** |
-| `human_log_path_from_a_literal` | the arm rebuilds its output paths instead of reading `paths.humanlog` from naming.yaml | two authorities on where this arm writes, identical today; the day the config moves, results are written to one path and read from another | **1** |
+| `initial_pool_excludes_train_instead_of_selecting_dev` | `split != "dev"` becomes `split == "train"` | the test fold enters the window a person writes rules from — the seal violation that invalidates the experiment, arriving as a plausible spelling of the same filter | **1** (2026-08-19) |
+| `summary_reports_offsets` | `summarise()` gains a `spans` field of `(doc_id, start, end)` | the view built to be pasted into a terminal or a commit message starts carrying pointers into the corpus. No surface form is quoted, which is why it would survive review | **1** (2026-08-19) |
+| `human_log_path_from_a_literal` | the arm rebuilds its output paths instead of reading `paths.humanlog` from naming.yaml | two authorities on where this arm writes, identical today; the day the config moves, results are written to one path and read from another | **1** (2026-08-19) |
 | `human_log_allowed_under_any_arm` | the screener's allowed path for `human_log.jsonl` takes `[^/]+` for the porting component instead of the literal `port-human` | a log under any other arm is counted as reviewed, and nothing writes one there — its presence is the signal, and the wildcard is what hides it | **1** |
-| `self_report_defaults_to_none` | `model_consulted` acquires a default of `"none"` | every caller keeps working and every line says no model was consulted — recording that nobody was *asked*, not that nobody consulted a model. A default on this parameter is a default for `rule_author.md` §8 | **1** |
-| `self_report_refuses_the_violation` | `log_line()` raises on `model_consulted="rule_content"` | looks like enforcement, removes the report. §8 binds a person and cannot be enforced by code; all a refusal deletes is the record, after which every log attests to a clean run by construction | **3** |
-| `rendered_window_may_be_redirected` | `show_human_window.py`'s `stdout.isatty()` check becomes `if False` | `> window.txt` succeeds and a DUA corpus's ±120-character contexts are on disk — the file §6 says must not exist. The author sees the same window, the script exits 0, and the leak is a file nobody opens again | **2** |
-| `freeze_guard_only_checks_the_file` | the `arm_has_started()` condition in `freeze_window()` becomes `if False` | restores the hole this repository fell through three times: `rm window_freeze.json` then re-freeze, which `path.exists()` cannot see. The new record hashes today's files and claims to be the opening window | **8** |
-| `arm_started_reads_the_last_line_only` | `arm_has_started()` inspects the final log line instead of every line | appending any null-minutes event re-opens the freeze, and appending is what this arm does constantly. A `read_sample` at iteration 7 makes six iterations of attention re-writable | **1** |
-| `zero_minutes_read_as_not_started` | `is not None` becomes a truthiness test | a logged `human_minutes: 0` reads as "nothing happened", though `log_line()` validates the field to accept 0 because an event can take under a minute | **1** |
-| `started_where_reads_the_worktree_only` | `started_where()` stops consulting git history | reverts the guard to reading `human_log.jsonl` on disk and nothing else, so `rm human_log.jsonl` re-opens the freeze — one file, one command, and the guard's own input is gone | **8** |
-| `a_real_arm_may_draw_a_practice_number` | the band's refusal drops the arm-side half | iteration 901 becomes a legal arm iteration and its provenance says `practice: false`, so a rehearsal's numbers are reportable as a run | **4** |
-| `a_rehearsal_may_draw_a_real_number` | the band's refusal drops the practice-side half | a rehearsal aimed at iteration 1 draws iteration 1. The draw is seeded, so the printed window is byte-for-byte the real one and nothing records that it was read early — there is no artifact to find afterwards | **5** |
-| `the_practice_window_may_overlap_iteration_one` | `practice_pool()` stops subtracting iteration 1's spans | a different iteration number is not a different sample; the spans read in rehearsal are the ones iteration 1 no longer measures honestly | **4** |
-| `a_rule_layer_is_derived_from_the_rule_id` | a span's `layer` comes from a substring test on its `rule_id` instead of the rule's declaration | the one derivation DESIGN §3 forbids, in the form it would actually take. Every span still carries a valid layer from naming.yaml, so §7's per-layer comparison measures the substring test | **1** |
-| `a_gazetteer_term_is_a_regex` | gazetteer terms are interpolated unescaped | makes the regex-free layer a regex layer without saying so. `C.S. (Norte)` is an ordinary institution name and a broken pattern | **2** |
-| `a_gazetteer_term_needs_a_word_character_at_each_edge` | the per-edge boundary assertion becomes `\b` | restores the defect `test_rules.py` caught on its first run: a term beginning or ending in punctuation can never match, so the rule loads, compiles, fires nowhere, and reads as a name that does not occur | **1** |
-| `a_cue_span_swallows_the_cue` | a `context_cue` span covers the cue words as well as the identifier | scored against gold that starts at the name: a `fully_covered` miss that passes `relaxed`, depressing exactly the layer §7 predicts most for and reading as a scoring artefact | **2** |
-| `a_checksum_accepts_every_match` | the check-digit test is skipped | turns `regex_checksum` into `regex`. The layer's whole claim is shape *plus* arithmetic, and its name still says the arithmetic is there | **1** |
-| `an_unimplemented_checksum_is_ignored` | an unknown `checksum:` name loads | raises at match time instead of load time — mid-detection rather than with the rule id in hand. Refusing at load costs a line of output; refusing at first match costs a scoring round | **1** |
-| `a_lexicon_name_may_traverse_directories` | the `[a-z0-9_]+` check on a lexicon name is removed | `es/../../sealed/es-meddocan/test` is a valid-looking lexicon name, and a rule file is the one place an agent-authored artifact names a path | **1** |
-| `the_declared_rule_file_language_is_trusted` | the file's `lang:` is no longer checked against the language it was loaded as | the `rule_id` prefix comes from the load language, so a `cat` file loaded as `es` sends every span's precision to the wrong file, consistently and invisibly (DESIGN §5.2) | **1** |
-| `a_duplicate_rule_id_is_allowed` | two rules may share an id | `by_rule` and the span's `rule_id` are the same identifier, so two rules' attribution merges into one bucket and the per-rule figure belongs to neither | **1** |
-| `a_non_target_type_may_be_a_rule_target` | a rule may target `OTHER` | it is a residual bucket a corpus ships, not a phenomenon; the recall bought is a property of that corpus's annotation practice (Prohibition 4, §9.1) | **1** |
-| `check_rules_reads_every_fold` | the feedback tool's `split == "dev"` filter is dropped | the command an author runs forty times an evening starts scoring across folds. Not a seal break by itself — `sealed/` is not returned by the loader — but it is the step before one | **3** |
-| `check_rules_detects_separately` | the feedback tool iterates rules itself instead of calling `detect_fold` | a second detection implementation, *faithful on the day it is written* — same rules, same documents, same offsets. Caught structurally, because there is nothing behavioural to see yet | **1** |
-| `run_fold_detects_separately` | the run path grows its own detection loop, which dedupes by offsets | what a hand-rolled loop turns into: two rules matching the same bytes collapse to one, so the tool shows the author two matches and the score counted one. Sets and totals both agree; only the multiset does not | **2** |
-| `detect_fold_drops_overlaps` | the shared detector resolves overlaps first-rule-wins | takes the merge decision away from the merge axis. fixed-priority, union and agent-arbiter would then score identically, having been handed a prediction set with the conflicts already settled (DESIGN §4) | **2** |
-| `spans_file_carries_the_surface` | `spans.jsonl` gains a `surface` field | matched corpus text in a published file the screener allows by pattern. This is the edit someone makes to debug a boundary, and it is the DUA violation the field whitelist in `write_spans` exists to prevent | **2** |
-| `run_fold_reads_the_sealed_fold` | the `split == "test"` refusal becomes unreachable | the loader's gate still refuses the import, so not a seal break by itself — what it removes is the layer that says *why*. What reaches the caller instead is a corpus-shaped error that sends them looking for a missing fold | **2** |
-| `run_fold_omits_the_layer` | the published `layer` is the span's `detector` | the derivation DESIGN §3 forbids, in the form it takes at the writer rather than the detector. Every `R` span would read as layer `R`, and §7's per-layer complementarity would collapse to one bucket | **3** |
-| `run_fold_writes_a_null_model_id` | `model_id` is `null` for an arm that called no model | indistinguishable from a field nobody filled in, so the record cannot say whether `R` used no model or the run forgot to write down which one it used. Absent is refused, explicitly-absent is recorded (§5.0) | **21** |
-| `run_fold_hardcodes_the_absent_value` | `"none"` is written as a literal instead of read from naming.yaml | breaks nothing today — that is why it is here. CLAUDE.md requires config-defined vocabulary in results files, and the cost is paid on the day the config moves and one of the two spellings does not | **1** |
-| `run_fold_skips_axis_validation` | `spans.jsonl` is written without `check_run` | a misspelled axis value mints a results directory no axis defines. `write_metrics` still validates, so the failure is an orphan spans file beside no metrics — the halfway state validate-before-write exists to prevent | **1** |
-| `run_fold_writes_unsorted_spans` | the sort before writing is removed | stable today, for an upstream reason rather than a stated one. Reorder the rules in the file and a committed results file gets a diff a reviewer cannot tell from a change in what was detected | **1** |
+| `self_report_defaults_to_none` | `model_consulted` acquires a default of `"none"` | every caller keeps working and every line says no model was consulted — recording that nobody was *asked*, not that nobody consulted a model. A default on this parameter is a default for `rule_author.md` §8 | **1** (2026-08-19) |
+| `self_report_refuses_the_violation` | `log_line()` raises on `model_consulted="rule_content"` | looks like enforcement, removes the report. §8 binds a person and cannot be enforced by code; all a refusal deletes is the record, after which every log attests to a clean run by construction | **3** (2026-08-19) |
+| `rendered_window_may_be_redirected` | `show_human_window.py`'s `stdout.isatty()` check becomes `if False` | `> window.txt` succeeds and a DUA corpus's ±120-character contexts are on disk — the file §6 says must not exist. The author sees the same window, the script exits 0, and the leak is a file nobody opens again | **2** (2026-08-19) |
+| `freeze_guard_only_checks_the_file` | the `arm_has_started()` condition in `freeze_window()` becomes `if False` | restores the hole this repository fell through three times: `rm window_freeze.json` then re-freeze, which `path.exists()` cannot see. The new record hashes today's files and claims to be the opening window | **8** (2026-08-19) |
+| `arm_started_reads_the_last_line_only` | `arm_has_started()` inspects the final log line instead of every line | appending any null-minutes event re-opens the freeze, and appending is what this arm does constantly. A `read_sample` at iteration 7 makes six iterations of attention re-writable | **1** (2026-08-19) |
+| `zero_minutes_read_as_not_started` | `is not None` becomes a truthiness test | a logged `human_minutes: 0` reads as "nothing happened", though `log_line()` validates the field to accept 0 because an event can take under a minute | **1** (2026-08-19) |
+| `started_where_reads_the_worktree_only` | `started_where()` stops consulting git history | reverts the guard to reading `human_log.jsonl` on disk and nothing else, so `rm human_log.jsonl` re-opens the freeze — one file, one command, and the guard's own input is gone | **8** (2026-08-19) |
+| `a_real_arm_may_draw_a_practice_number` | the band's refusal drops the arm-side half | iteration 901 becomes a legal arm iteration and its provenance says `practice: false`, so a rehearsal's numbers are reportable as a run | **4** (2026-08-19) |
+| `a_rehearsal_may_draw_a_real_number` | the band's refusal drops the practice-side half | a rehearsal aimed at iteration 1 draws iteration 1. The draw is seeded, so the printed window is byte-for-byte the real one and nothing records that it was read early — there is no artifact to find afterwards | **5** (2026-08-19) |
+| `the_practice_window_may_overlap_iteration_one` | `practice_pool()` stops subtracting iteration 1's spans | a different iteration number is not a different sample; the spans read in rehearsal are the ones iteration 1 no longer measures honestly | **4** (2026-08-19) |
+| `a_rule_layer_is_derived_from_the_rule_id` | a span's `layer` comes from a substring test on its `rule_id` instead of the rule's declaration | the one derivation DESIGN §3 forbids, in the form it would actually take. Every span still carries a valid layer from naming.yaml, so §7's per-layer comparison measures the substring test | **1** (2026-08-19) |
+| `a_gazetteer_term_is_a_regex` | gazetteer terms are interpolated unescaped | makes the regex-free layer a regex layer without saying so. `C.S. (Norte)` is an ordinary institution name and a broken pattern | **2** (2026-08-19) |
+| `a_gazetteer_term_needs_a_word_character_at_each_edge` | the per-edge boundary assertion becomes `\b` | restores the defect `test_rules.py` caught on its first run: a term beginning or ending in punctuation can never match, so the rule loads, compiles, fires nowhere, and reads as a name that does not occur | **1** (2026-08-19) |
+| `a_cue_span_swallows_the_cue` | a `context_cue` span covers the cue words as well as the identifier | scored against gold that starts at the name: a `fully_covered` miss that passes `relaxed`, depressing exactly the layer §7 predicts most for and reading as a scoring artefact | **2** (2026-08-19) |
+| `a_checksum_accepts_every_match` | the check-digit test is skipped | turns `regex_checksum` into `regex`. The layer's whole claim is shape *plus* arithmetic, and its name still says the arithmetic is there | **1** (2026-08-19) |
+| `an_unimplemented_checksum_is_ignored` | an unknown `checksum:` name loads | raises at match time instead of load time — mid-detection rather than with the rule id in hand. Refusing at load costs a line of output; refusing at first match costs a scoring round | **1** (2026-08-19) |
+| `a_lexicon_name_may_traverse_directories` | the `[a-z0-9_]+` check on a lexicon name is removed | `es/../../sealed/es-meddocan/test` is a valid-looking lexicon name, and a rule file is the one place an agent-authored artifact names a path | **1** (2026-08-19) |
+| `the_declared_rule_file_language_is_trusted` | the file's `lang:` is no longer checked against the language it was loaded as | the `rule_id` prefix comes from the load language, so a `cat` file loaded as `es` sends every span's precision to the wrong file, consistently and invisibly (DESIGN §5.2) | **2** (2026-08-19) |
+| `a_duplicate_rule_id_is_allowed` | two rules may share an id | `by_rule` and the span's `rule_id` are the same identifier, so two rules' attribution merges into one bucket and the per-rule figure belongs to neither | **1** (2026-08-19) |
+| `a_non_target_type_may_be_a_rule_target` | a rule may target `OTHER` | it is a residual bucket a corpus ships, not a phenomenon; the recall bought is a property of that corpus's annotation practice (Prohibition 4, §9.1) | **1** (2026-08-19) |
+| `check_rules_reads_every_fold` | the feedback tool's `split == "dev"` filter is dropped | the command an author runs forty times an evening starts scoring across folds. Not a seal break by itself — `sealed/` is not returned by the loader — but it is the step before one | **3** (2026-08-19) |
+| `check_rules_detects_separately` | the feedback tool iterates rules itself instead of calling `detect_fold` | a second detection implementation, *faithful on the day it is written* — same rules, same documents, same offsets. Caught structurally, because there is nothing behavioural to see yet | **1** (2026-08-19) |
+| `run_fold_detects_separately` | the run path grows its own detection loop, which dedupes by offsets | what a hand-rolled loop turns into: two rules matching the same bytes collapse to one, so the tool shows the author two matches and the score counted one. Sets and totals both agree; only the multiset does not | **4** (2026-08-19) |
+| `detect_fold_drops_overlaps` | the shared detector resolves overlaps first-rule-wins | takes the merge decision away from the merge axis. fixed-priority, union and agent-arbiter would then score identically, having been handed a prediction set with the conflicts already settled (DESIGN §4) | **2** (2026-08-19) |
+| `spans_file_carries_the_surface` | `spans.jsonl` gains a `surface` field | matched corpus text in a published file the screener allows by pattern. This is the edit someone makes to debug a boundary, and it is the DUA violation the field whitelist in `write_spans` exists to prevent | **34** (2026-08-19) |
+| `run_fold_reads_the_sealed_fold` | the `split == "test"` refusal becomes unreachable | the loader's gate still refuses the import, so not a seal break by itself — what it removes is the layer that says *why*. What reaches the caller instead is a corpus-shaped error that sends them looking for a missing fold | **2** (2026-08-19) |
+| `run_fold_omits_the_layer` | the published `layer` is the span's `detector` | the derivation DESIGN §3 forbids, in the form it takes at the writer rather than the detector. Every `R` span would read as layer `R`, and §7's per-layer complementarity would collapse to one bucket | **32** (2026-08-19) |
+| `run_fold_writes_a_null_model_id` | `model_id` is `null` for an arm that called no model | indistinguishable from a field nobody filled in, so the record cannot say whether `R` used no model or the run forgot to write down which one it used. Absent is refused, explicitly-absent is recorded (§5.0) | **45** (2026-08-19) |
+| `run_fold_hardcodes_the_absent_value` | `"none"` is written as a literal instead of read from naming.yaml | breaks nothing today — that is why it is here. CLAUDE.md requires config-defined vocabulary in results files, and the cost is paid on the day the config moves and one of the two spellings does not | **1** (2026-08-19) |
+| `run_fold_skips_axis_validation` | `spans.jsonl` is written without `check_run` | a misspelled axis value mints a results directory no axis defines. `write_metrics` still validates, so the failure is an orphan spans file beside no metrics — the halfway state validate-before-write exists to prevent | **1** (2026-08-19) |
+| `run_fold_writes_unsorted_spans` | the sort before writing is removed | stable today, for an upstream reason rather than a stated one. Reorder the rules in the file and a committed results file gets a diff a reviewer cannot tell from a change in what was detected | **3** (2026-08-19) |
 | `arm_rules_path_drops_the_axes` | `paths.armrules` becomes `rules/{lang}.yaml` — the state before DESIGN §5.3 | `port-oneshot` and `port-loop` then write the same file and the second arm to run overwrites the first's rules. `str.format` ignores unused keys, so nothing raises: every arm's path collapses to one silently. Worse than the `armfreeze` collision it repeats — an overwritten record is visibly gone, an overwritten *input* leaves a complete, consistent metrics.json whose premise no longer exists | **6** |
 | `arm_rules_path_drops_the_iteration` | the four axes stay, `iter{N}/` goes | the collision stays closed and the history does not. `port-loop` rewrites its file every round, and that sequence is what δ/k was computed over and the only answer to "which rules existed at iteration 4". Keeps the last round, discards the arm's process — §5.1's objection to aggregates, applied to inputs | **4** |
 | `arm_rules_path_loses_the_rules_component` | `.../{porting}/iter3/es.yaml` instead of `.../{porting}/rules/iter3/es.yaml` | every axis is present and the overwrite argument is untouched. What breaks is invisible from the path: the screener's `rule_id` mechanism-vocabulary check matches `rules/*.yaml`, and it is Prohibition 2's only enforcement. Unmatched is not rejected — the check never runs and the file is reported clean | **3** |
-| `run_fold_infers_its_own_rule_path` | `run_fold` builds `arm_rules_path()` from its own axis arguments instead of being told | behaviourally invisible on the happy path, which is why the assertion is structural. The cost is that the module has one possible input, so a trial file and the bootstrap each need a special case, and the input becomes a function of the run block — the coupling that lets a run read its own results directory. The hardcoded `iteration=1` is the tell: an inferring version has to invent a round it was never given | **1** |
-| `rule_source_not_recorded` | `rules_source` is dropped from the run block, `rules_version` stays | the version is whatever the author declared, so it survives an overwrite looking correct; only the path names the arm and the iteration. Without it §5.3's decision is undetectable from the published record — the reader sees a well-formed metrics.json either way | **1** |
-| `rule_source_recorded_absolute` | the rule file's path is recorded absolute instead of repo-relative | names a home directory in a published run block, and on a machine where the corpus checkout sits beside the repository it names the layout of DUA data. Still a string, still identifies the file, so every present-and-non-empty assertion passes | **4** |
+| `run_fold_infers_its_own_rule_path` | `run_fold` builds `arm_rules_path()` from its own axis arguments instead of being told | behaviourally invisible on the happy path, which is why the assertion is structural. The cost is that the module has one possible input, so a trial file and the bootstrap each need a special case, and the input becomes a function of the run block — the coupling that lets a run read its own results directory. The hardcoded `iteration=1` is the tell: an inferring version has to invent a round it was never given | **1** (2026-08-19) |
+| `rule_source_not_recorded` | `rules_source` is dropped from the run block, `rules_version` stays | the version is whatever the author declared, so it survives an overwrite looking correct; only the path names the arm and the iteration. Without it §5.3's decision is undetectable from the published record — the reader sees a well-formed metrics.json either way | **2** (2026-08-19) |
+| `rule_source_recorded_absolute` | the rule file's path is recorded absolute instead of repo-relative | names a home directory in a published run block, and on a machine where the corpus checkout sits beside the repository it names the layout of DUA data. Still a string, still identifies the file, so every present-and-non-empty assertion passes | **7** (2026-08-19) |
 | `render_offsets_are_document_offsets` | the rendered window labels document offsets as within-context offsets | an author counting characters lands on the wrong span, and one trusting the number is handed a document coordinate — an invitation to read past the ±120 characters | **1** |
 | `renderer_writes_a_debug_copy` | `render_window()` also writes the rendered text to `/tmp/last_prompt.txt` | the filled prompt on disk — the file rule_author.md §6 says must not exist, ±120 characters of dev text per span. Nothing about the run changes: same prompt, same model input, every content assertion still passes. The screener blocks the committed paths an instance would land under, and `/tmp` is not one of them — which is why the convention is "never written" and not "never committed". Also the reason the renderer's *interior* is checked and not only the type: the type is intact here and protects a value that already escaped | **1** |
 | `filled_prompt_exposes_its_text` | `FilledPrompt` gains a `.text` property | an accessor not named for a destination, which is the distinction the type exists to draw. `to_terminal` checks where it is going, `for_transport` declares it; `.text` answers to a log line, a `json.dumps` of a record that happens to hold it, an f-string in an exception message. Adding it breaks nothing and is the natural edit for a caller wanting to assert on the text | **2** |
-| `terminal_exit_does_not_check_the_destination` | `to_terminal`'s `isatty` check becomes `if False` | the exit writes to whatever it is handed, so a redirected stream receives the window. `show_human_window.py`'s own check is why this is caught rather than fatal — but that one is for the error message and this one is the guarantee, and the next caller of the exit is the orchestrator, which has no check of its own | **2** |
+| `terminal_exit_does_not_check_the_destination` | `to_terminal`'s `isatty` check becomes `if False` | the exit writes to whatever it is handed, so a redirected stream receives the window. `show_human_window.py`'s own check is why this is caught rather than fatal — but that one is for the error message and this one is the guarantee, and the next caller of the exit is the orchestrator, which has no check of its own | **3** (2026-08-19) |
 | `logging_gate_defaults_to_open` | the `checked_today()` condition in `_require_logging_check` becomes `if False` | every call proceeds with no Bedrock model-invocation logging check on record — the state `compliance.md` §3 says cannot be assumed, since it is a mutable account setting and yesterday's `None` is evidence about yesterday. Nothing observable changes: the call succeeds, the arm writes its artefact, the scores are the same numbers. If logging is on, Bedrock is writing the full prompt — ±120 characters of dev-fold context per span — to a bucket in this account, and the only sign from inside the run is that the run worked | **4** |
-| `absent_token_counts_default_to_zero` | `usage.get("inputTokens")` gains a default of `0` | a partial `usage` block becomes a cost block asserting the call consumed nothing, in the same column as measured counts. CLAUDE.md requires cost beside quality so a gain bought at twice the price is legible; a zero does not weaken that comparison but strengthens it wrongly — the arm that lost a field looks free. The two-argument `.get` is the natural edit, removing an exception from a path nobody has seen fire | **1** |
+| `absent_token_counts_default_to_zero` | `usage.get("inputTokens")` gains a default of `0` | a partial `usage` block becomes a cost block asserting the call consumed nothing, in the same column as measured counts. CLAUDE.md requires cost beside quality so a gain bought at twice the price is legible; a zero does not weaken that comparison but strengthens it wrongly — the arm that lost a field looks free. The two-argument `.get` is the natural edit, removing an exception from a path nobody has seen fire | **2** (2026-08-19) |
 | `a_mismatched_model_is_recorded_rather_than_refused` | `_resolution` returns `check_model_resolution(MISMATCH)` where it raises | the mutation that looks like an improvement: it uses the declared vocabulary, loses no information, and puts the disagreement in `metrics.json` where a reader could find it. Recording is strictly more data than refusing — and still wrong, because a `mismatch` row means nobody can say which model produced the artefact, so it is unusable for the one purpose it exists for and writing it down does not make it usable (§10 A2). naming.yaml declares the value so the refusal can name it; declaring is not permission to emit | **2** |
 | `the_client_hardcodes_botocores_default_attempts` | `Config(retries={"max_attempts": 3})` instead of `MAX_ATTEMPTS` | one `invoke()` becomes up to three calls. `MAX_ATTEMPTS = 1`, its comment, and the module docstring's claim that the transport is pinned all stay exactly as they are. The damage is invisible and lands in the cost column: `Response.cost()` reports `llm_calls: 1` because the type is one call, so a throttled run bills three times and reports once — undoing §10 A2's zero-retry symmetry underneath it, in the direction where the throttled arm looks cheap | **1** |
 | `the_reply_text_is_taken_from_the_first_block` | `_text` reads `blocks[:1]` instead of every text block | reverts the client to the shape the response *looks* like it has. Not hypothetical — it is what was written first and it failed on the first real call: this model returns `reasoningContent` and *then* `text`, so a good reply is reported as having none. Kept as a mutation because the fix is invisible in a fixture written from the API docs, which is why `test_bedrock.py`'s fixtures put a reasoning block first by default | **16** |
 | `the_logging_check_reports_an_unreadable_setting_as_clean` | `check_region` returns `(region, CLEAN)` where it raises on `ClientError` | an IAM denial becomes a clean bill of health, the tool appends a dated record for a region it could not read, the client's gate opens on it, and `compliance.md` — cited by the paper's ethics section — carries a measurement nobody made. The worst failure in the pair, because it manufactures evidence rather than losing it, and the plausible edit: `AccessDeniedException` in an unused region reads as noise, and `cloudtrail:DescribeTrails` already returns exactly that for this principal | **4** |
-| `conftest_availability_from_a_load` | the shared availability fixture goes back to deciding availability by loading the corpus | the defect that shipped four times, reverted. Changes nothing until a real loader bug arrives, and then hides it: measured alongside `type_in_both_lists`, **93 tests skip and 78 non-passing outcomes become 3**, reported as a green suite | **1** |
-| `test_file_shadows_the_shared_fixture` | one test file defines its own `corpus_present`, in the defective form | the propagation rather than the defect: the local definition wins over conftest's silently, and only that file's tests are affected — which is how three files carried it unnoticed | **2** |
+| `conftest_availability_from_a_load` | the shared availability fixture goes back to deciding availability by loading the corpus | the defect that shipped four times, reverted. Changes nothing until a real loader bug arrives, and then hides it: measured alongside `type_in_both_lists`, **93 tests skip and 78 non-passing outcomes become 3**, reported as a green suite | **1** (2026-08-19) |
+| `test_file_shadows_the_shared_fixture` | one test file defines its own `corpus_present`, in the defective form | the propagation rather than the defect: the local definition wins over conftest's silently, and only that file's tests are affected — which is how three files carried it unnoticed | **2** (2026-08-19) |
 | `the_patch_check_credits_a_whole_file` | `satisfies` drops the function name and compares only the file | the verdict becomes a subset test: **one executed function in a module vouches for every patched function in it.** `record_access` runs in a dozen tests, so `tree_state` would be credited without ever running — the exact state the audit found. The check still runs, prints a count and exits 0. The weakening to expect, because it is what a false positive tempts you into | **1** |
 | `the_patch_check_credits_a_bare_function_name` | `satisfies` drops the file and compares only the name | the same weakening in the other axis: any `axis` anywhere satisfies `src/corpora/base.py`'s, including one a test defined itself. Separate from the row above because the two are accepted for different reasons — this one looks like tolerance for import aliasing, that one for module copies | **1** |
 | `the_patch_allowlist_stops_requiring_a_reason` | the `why` word-count check becomes `if False` | an exemption no longer has to say why, and the fastest way to close a finding stops being *run the function* and becomes *add two lines of JSON*. Nothing breaks today; what breaks is the review in six months, when nobody can tell an impossible case from a Friday afternoon | **2** |
 | `a_stale_patch_exemption_is_ignored` | the stale-entry comparison becomes `[]` | an exemption outlives the function it describes and waits to cover whatever takes the name next. The failure mode of every allowlist that is never pruned | **1** |
-| `the_arm_freeze_guard_only_checks_the_file` | `orchestrate.freeze_window()`'s refusal becomes `freeze_path().exists()` | **the defect this repository shipped, moved to the arm that will actually run.** `rm window_freeze.json` then re-freeze writes today's hashes and reports success — the sequence `window-freeze-history.md` records running three times. Worse here than for `port-human`: `port-oneshot` writes no per-line hashes, so the record is the *only* thing attesting to the window the call ran under. It is also wrong in the other direction, refusing the pre-call re-freeze §6.3 permits, which is why the count is high | **7** |
-| `the_freeze_record_drops_the_empty_block_marking` | `sections_empty` is dropped from the record | the record stops saying which blocks the call did *not* carry, so a reader must derive it from `INPUT_BLOCKS` — and a reader who knows `INPUT_BLOCKS` is not the reader the field is for. `sampling_applied` survives, so the record still distinguishes the two cases and no longer says what the distinction is about | **2** |
-| `the_freeze_record_claims_the_sampling_parameters_applied` | `sampling_applied` becomes the constant `True` | the field it was added to prevent, restored: a `port-oneshot` record then claims *n*=40 at ±120 characters governed a call that carried no §1.4 at all. §6.3 keeps `sampling_sha256` for comparability with the arms that do use it, which is exactly why the record needs a field saying the hash did not govern this call | **3** |
-| `the_baseline_draws_error_spans` | `orchestrate.freeze_window()` calls `initial_error_pool()` | **DESIGN §4's ladder condition broken in the direction that looks like an improvement.** At iteration 1 the §1.4 pool comes from an empty rule file, so those spans are dev **gold** — the baseline shown 40 of them has dev information `port-loop` call 1 does not, and the two arms differ in two things instead of one. A `port-loop` win is then unattributable at the comparison the paper leads with, and the arm flattered is the rung above. Caught structurally: the plumbing is a two-line addition and a behavioural test notices only once it moves a number | **2** |
-| `the_call_is_logged_after_the_response_is_judged` | `append_call(...)` becomes a lambda, invoked just before `run_fold` | the freeze guard's premise read backwards. The log line is what fixes this arm's window and *n*=1 means there are no per-line hashes to disagree with the record, so between the call and the log the window is still re-freezable. After a successful validation the log is byte-identical, so every assertion about its *contents* passes — what breaks is only the ordering, and only visibly in the branch where the response does not load, which returns having made a call, paid for it, and recorded nothing | **8** |
-| `a_format_failure_writes_zeroed_metrics_too` | the failure branch calls `run_fold` before writing `format_failure.json` | **§10 A2's central distinction erased.** A format failure now also leaves a `metrics.json`, scored over the bootstrap file, and near-zero numbers are indistinguishable from the opposite finding — a rule set that ran and caught almost nothing. This is why the failure is a *file name* and not a `status` field: an aggregation walking `results/` counts the failure as a scored arm with a bad score, understating capability and overstating compliance in one number | **1** |
-| `the_arm_reports_no_model_and_no_cost_to_the_scorer` | `model_record=model, cost=cost` dropped from the arm's `run_fold` call | the published metrics carry `model_id: "none"` — the `naming.yaml` value meaning *no model was used* — and three zeros for cost, for an arm whose whole content is one LLM call. Nothing about the file looks wrong: it is the `R` arm's record written under `port-oneshot`, so the baseline reads as a rules arm that cost nothing. The default is *correct* in `run_fold`, which closes an arm that genuinely calls none, so only a test on this arm's metrics can tell the two apart | **3** |
-| `the_failure_record_paraphrases_the_validator` | `error=str(exc)` becomes a fixed summary string | §10 A2's third recorded content stops being evidence. "The response was not a valid rule file" is not checkable and not comparable: a wrong `lang`, a fenced block and an invented matcher key become one row in the appendix. The raw response is still on disk beside it, so a reader can re-derive the message — which is the work the field saved, and the reason nobody notices it is gone | **3** |
-| `the_parse_error_quotes_the_line_it_choked_on` | `safe_load(fh)` → `safe_load(fh.read())`, **and** the picked-out fields → `{exc}` | two edits that only leak together, which is the finding. `MarkedYAMLError` prints the offending source line when its `Mark` carries a buffer, and a stream leaves it null while a string fills it — so the stream/string change is a refactor with no visible effect (and it is what every other loader here does), and `{exc}` is the second half. Together they put an LLM's response, which can echo its own §1.4 block, into a message bound for terminals and CI logs that `release_screen.py` never reaches | **1** |
+| `the_arm_freeze_guard_only_checks_the_file` | `orchestrate.freeze_window()`'s refusal becomes `freeze_path().exists()` | **the defect this repository shipped, moved to the arm that will actually run.** `rm window_freeze.json` then re-freeze writes today's hashes and reports success — the sequence `window-freeze-history.md` records running three times. Worse here than for `port-human`: `port-oneshot` writes no per-line hashes, so the record is the *only* thing attesting to the window the call ran under. It is also wrong in the other direction, refusing the pre-call re-freeze §6.3 permits, which is why the count is high | **7** (2026-08-19) |
+| `the_freeze_record_drops_the_empty_block_marking` | `sections_empty` is dropped from the record | the record stops saying which blocks the call did *not* carry, so a reader must derive it from `INPUT_BLOCKS` — and a reader who knows `INPUT_BLOCKS` is not the reader the field is for. `sampling_applied` survives, so the record still distinguishes the two cases and no longer says what the distinction is about | **4** (2026-08-19) |
+| `the_freeze_record_claims_the_sampling_parameters_applied` | `sampling_applied` becomes the constant `True` | the field it was added to prevent, restored: a `port-oneshot` record then claims *n*=40 at ±120 characters governed a call that carried no §1.4 at all. §6.3 keeps `sampling_sha256` for comparability with the arms that do use it, which is exactly why the record needs a field saying the hash did not govern this call | **5** (2026-08-19) |
+| `the_baseline_draws_error_spans` | `orchestrate.freeze_window()` calls `initial_error_pool()` | **DESIGN §4's ladder condition broken in the direction that looks like an improvement.** At iteration 1 the §1.4 pool comes from an empty rule file, so those spans are dev **gold** — the baseline shown 40 of them has dev information `port-loop` call 1 does not, and the two arms differ in two things instead of one. A `port-loop` win is then unattributable at the comparison the paper leads with, and the arm flattered is the rung above. Caught structurally: the plumbing is a two-line addition and a behavioural test notices only once it moves a number | **2** (2026-08-19) |
+| `the_call_is_logged_after_the_response_is_judged` | `append_call(...)` becomes a lambda, invoked just before `run_fold` | the freeze guard's premise read backwards. The log line is what fixes this arm's window and *n*=1 means there are no per-line hashes to disagree with the record, so between the call and the log the window is still re-freezable. After a successful validation the log is byte-identical, so every assertion about its *contents* passes — what breaks is only the ordering, and only visibly in the branch where the response does not load, which returns having made a call, paid for it, and recorded nothing | **8** (2026-08-19) |
+| `a_format_failure_writes_zeroed_metrics_too` | the failure branch calls `run_fold` before writing `format_failure.json` | **§10 A2's central distinction erased.** A format failure now also leaves a `metrics.json`, scored over the bootstrap file, and near-zero numbers are indistinguishable from the opposite finding — a rule set that ran and caught almost nothing. This is why the failure is a *file name* and not a `status` field: an aggregation walking `results/` counts the failure as a scored arm with a bad score, understating capability and overstating compliance in one number | **1** (2026-08-19) |
+| `the_arm_reports_no_model_and_no_cost_to_the_scorer` | `model_record=model, cost=cost` dropped from the arm's `run_fold` call | the published metrics carry `model_id: "none"` — the `naming.yaml` value meaning *no model was used* — and three zeros for cost, for an arm whose whole content is one LLM call. Nothing about the file looks wrong: it is the `R` arm's record written under `port-oneshot`, so the baseline reads as a rules arm that cost nothing. The default is *correct* in `run_fold`, which closes an arm that genuinely calls none, so only a test on this arm's metrics can tell the two apart | **4** (2026-08-19) |
+| `the_failure_record_paraphrases_the_validator` | `error=str(exc)` becomes a fixed summary string | §10 A2's third recorded content stops being evidence. "The response was not a valid rule file" is not checkable and not comparable: a wrong `lang`, a fenced block and an invented matcher key become one row in the appendix. The raw response is still on disk beside it, so a reader can re-derive the message — which is the work the field saved, and the reason nobody notices it is gone | **3** (2026-08-19) |
+| `the_parse_error_quotes_the_line_it_choked_on` | `safe_load(fh)` → `safe_load(fh.read())`, **and** the picked-out fields → `{exc}` | two edits that only leak together, which is the finding. `MarkedYAMLError` prints the offending source line when its `Mark` carries a buffer, and a stream leaves it null while a string fills it — so the stream/string change is a refactor with no visible effect (and it is what every other loader here does), and `{exc}` is the second half. Together they put an LLM's response, which can echo its own §1.4 block, into a message bound for terminals and CI logs that `release_screen.py` never reaches | **1** (2026-08-19) |
 | `the_history_is_pre_seeded_with_this_rounds_rate` | the pending history becomes `(*previous_rates, previous_rates[-1])` | the round's own rate is counted twice, so `improvements` gains a `0.0` that is below δ by definition and counts toward stopping — the arm converges a round early with `iterations` one too high and nothing in the file disagreeing with anything else in it. The name says rounds 1..N and the round is N, so handing over a sequence one short is what looks like the bug | **3** |
-| `the_writer_calls_the_stopping_rule_itself` | `run_fold` imports `should_stop` and inlines what `resolve()` does | **no byte of any output changes**, because `resolve()` is exactly that line. §3's pre-registered decision acquires a second home inside the module that publishes it, and the cost is the next edit rather than this one: a writer holding the rule can grow a branch no reader of `src/termination.py` can reproduce. Reads as one indirection removed | **1** |
+| `the_writer_calls_the_stopping_rule_itself` | `run_fold` imports `should_stop` and inlines what `resolve()` does | **no byte of any output changes**, because `resolve()` is exactly that line. §3's pre-registered decision acquires a second home inside the module that publishes it, and the cost is the next edit rather than this one: a writer holding the rule can grow a branch no reader of `src/termination.py` can reproduce. Reads as one indirection removed | **1** (2026-08-19) |
 | `converged_is_stored_beside_the_reason` | `Termination.converged` becomes a dataclass field, set from `reason` by both producers | every published value stays correct and `check_termination`'s cross-check is satisfied, because one producer computes both. What goes is the *mechanism*: `Termination(reason=CEILING, converged=True, …)` becomes constructible, and the hand-assembling caller is who §3's prohibition is about. Frozen hides it — `verdict.converged = True` raises either way | **1** |
 | `a_later_round_audits_and_samples_round_one` | `iteration=previous` → `iteration=ITERATION` at `read_spans` **and** `read_errors` | §1.3's predictions and §1.4's error pool come from round 1, which *is* round *N−1* at round 2. From round 3 on the Auditor reports residual PHI against rules two rounds stale while `masked_from_iteration` still says *N−1*, and the sample asks for errors the arm may already have fixed. The constant is the module's own vocabulary, which is what makes it plausible | **2** |
 | `a_round_with_no_score_walks_back_to_the_last_one` | `_previous_round`'s refusal gains a loop that decrements to the newest scored round | reads as robustness and dissolves the mechanism §5.5 relies on: a format failure ends the arm by *not writing a score*, so walking back reads round 1's file as round 2's, the history holds one rate twice, and a genuine gap is swallowed by the same edit. What the guard buys is which refusal a reader gets — the round named, or a `FoldRunError` about predictions two modules away | **1** |
@@ -1906,6 +1913,16 @@ that large says the file failed to import its own scaffolding. Retargeted onto t
 expression the counts are readable and the mutation is about the thing it names — the same
 kill-count-as-diagnostic reasoning as `### Verifying the mutation`.
 
+**Correction to that run's own record.** e860ac3's commit message reports "Baseline 1692".
+Re-measured on 2026-08-19 by `--collect-only` in a worktree at that commit, over the same
+27-file `TEST_FILES` (byte-identical between e860ac3 and today), the baseline there is
+**1690**; HEAD is **1695**, the five added by 40bd89c. Two tests off, and nothing downstream
+moves — check 5's equal-totals comparison is made against the number each run measures for
+itself, never against the number written in a message. What the wrong figure would cost is a
+future reader reconstructing why a total changed and finding a two-test discrepancy that never
+existed. Corrected here rather than by rewriting the commit: the message is the artefact that
+was wrong, and this file is the one that gets read.
+
 #### How this item was reported, and why that matters here
 
 The sweep's finding was **"no assertion pins non-emptiness"**. It was read — by me, from my own
@@ -2033,9 +2050,16 @@ applies to the code. Two safeguards follow from that:
   Three checks, described in the next section. Skipping them lets the harness count
   its own breakage as a kill.
 
-The maintenance cost is real but bounded: eighty-three anchors, each a line or two,
-and a refactor that breaks one gets a `STALE` message naming the file. That is
-cheaper than the failure mode it prevents.
+The maintenance cost is real but bounded: **187 anchors across 170 mutations**, each a
+line or two, and a refactor that breaks one gets a `STALE` message naming the file.
+That is cheaper than the failure mode it prevents.
+
+It is bounded on the *size* of the cost and it was not, until 2026-08-19, bounded on the
+*latency* of the notice: `STALE` is printed by `apply()`, which runs one mutation per full
+suite run, so a moved anchor was reported only to whoever spent the fifteen hours. Two had
+been stale for days. `tests/test_mutation_harness.py::test_every_anchor_is_present_in_its_target`
+now makes the same string search against the working tree in milliseconds — see "Two stale
+anchors, and a check that was one refactor late" below.
 
 ## Verifying the mutation
 
@@ -2103,6 +2127,46 @@ The general form, worth checking against any future addition here: **anything th
 counts failures as evidence must first establish that the thing failed for the reason
 claimed.** A skip is not a pass, a collection error is not a kill, and a syntax error
 is not thirty-seven tests agreeing with you.
+
+### Two stale anchors, and a check that was one refactor late
+
+Check 1 above — the anchor exists — was working. It was simply not being *asked*. On
+2026-08-19 a sweep of all 187 anchors against the working tree found two that no longer
+matched, which means the last time this harness could have run to completion was before
+the commits that moved them:
+
+- **`run_fold_skips_axis_validation`.** §5.5's round widening inserted an
+  `if iteration is not None:` branch between `spans_path`'s `check_run(run)` and its
+  template, so the old two-line anchor spanned text that was no longer adjacent. Re-anchored
+  onto the new pair, and deliberately kept at two lines: `    check_run(run)` alone also
+  occurs in `write_errors`, and a one-line anchor would have applied cleanly there and
+  reported a real count for a different mutation than the name claims.
+- **`absent_token_counts_default_to_zero`.** `prompt_tokens` became the raw total
+  (`inputTokens + cacheRead + cacheWrite`, measured 2026-08-16) and the read this mutation
+  targets was renamed `input_tokens`. The mutation's meaning survives the rename unchanged —
+  it re-adds the `, 0` default, and the `isinstance(..., int)` refusal two lines below
+  accepts a defaulted 0, so a partial `usage` block still reaches the cost block as a
+  measurement of nothing.
+
+**Neither commit was wrong and neither mentioned this harness**, which is the whole of the
+lesson. The drift is produced by ordinary work on exactly the code a mutation is aimed at —
+the better the mutation's aim, the likelier some future edit moves its anchor. So the notice
+cannot live only in the fifteen-hour run; it has to be cheap enough to fire beside the work
+that causes it. `tests/test_mutation_harness.py::test_every_anchor_is_present_in_its_target`
+performs the same string search `apply()` does, against the working tree, for every anchor
+including `also` edits, in milliseconds. It fails in the ordinary suite on the commit that
+moves the code.
+
+Worth naming the near-miss in the old defences: `test_every_mutation_targets_a_file_that_exists`
+already existed and passed throughout. It checks the *path*, which survives a refactor that
+moves a line inside the file — so the guard that looked like it covered this covered the
+easier half of it. A stale path reads as a deleted module and gets noticed; a stale anchor
+reads as nothing at all.
+
+And the failure mode this closes is milder than the syntax-error one above but the same
+family: a `STALE` mutation is *reported*, so it does not manufacture a false green in the
+run — the run exits non-zero. What it manufactures is a **gate nobody can pass**, and a gate
+that has been unpassable for days is indistinguishable from a gate nobody ran.
 
 ### Hand-built probe trees, and three attributions that were wrong while every count was right
 
@@ -2613,6 +2677,141 @@ including `tests/test_structure.py` — which is why they are phrased as *writes
 paths* rather than *mentions of them*. The first draft used a substring ban and failed on
 the test that forbids the thing and on a docstring that explains why a test exists.
 Mentioning a control is how it stays understood; calling it is the risk.
+
+### The impact-scope run of 2026-08-19, and the fifteen hours it declined to spend
+
+**What ran.** 71 of 170 mutations: the four added by the two commits above
+(`the_suite_glob_points_one_level_deep`, `the_conftest_suite_glob_points_one_level_deep`,
+`the_captured_surface_control_is_scoped_to_the_function`,
+`the_captured_surface_check_reads_only_direct_stream_access`) plus every existing mutation
+whose kill count could be *moved* by the six test files those commits touched. Baseline 1695
+in ~305 s, so ~6 min per mutation; run as eight concurrent shards, each re-measuring the
+baseline for itself, since a shard that inherits somebody else's total cannot make check 5.
+
+**Scope was derived, not chosen.** A count can only move if a mutated line is executed by a
+changed test, so the scope is the changed test functions' runtime reach: `tools/check_rules.py`
+(2), `src/rules.py` (12), `src/eval/run_fold.py` (18), `src/orchestrate.py` (11), the
+window/`human_arm`/`sample` group (19), the three cache-boundary mutations, and two whose
+target *is* a test file. Two exclusions are worth recording because they look wrong:
+
+- **All 17 scorer mutations are out.** `test_run_fold.py`'s changed test monkeypatches
+  `run_fold` with a spy, so the scorer never executes underneath it. Reach, not filename.
+- **`test_run_loop_cli.py` moves nothing at all.** It is not in `TEST_FILES`, and neither is
+  `test_mutation_harness.py`. Only tests the harness runs can appear in a kill count — which
+  is also why the new anchor guard, deliberately outside `TEST_FILES`, changes no number here.
+
+**Result: 72 attempted, 71 caught, one survived at 0, and no count fell.** 72 rather than 71
+because `absent_token_counts_default_to_zero` was pulled in by having had its anchor repaired
+that morning — a mutation whose anchor moved has to be re-measured whether or not it is in
+scope, since the repair is a change to the mutation. Of the 70 the shards measured, 40 came
+back byte-identical to the recorded figure, 13 rose, and 17 had no recorded count to compare
+against, because their sections state `min_kills` in prose rather than a measured number in a
+table. The two re-anchored ones ran separately: `run_fold_skips_axis_validation` at 1, and the
+survivor below. Every table cell touched by this run now carries `(2026-08-19)`, so an unmarked
+cell means *not re-measured under the current 27-file suite* rather than *measured and
+unchanged*. The 17 prose-only ones, measured:
+
+| mutation | measured | `min_kills` |
+|---|---|---|
+| `the_folds_seconds_go_to_the_round_and_not_the_arm` | 76 | 1 |
+| `only_the_score_is_scoped_to_the_round` | 26 | 1 |
+| `the_suite_glob_points_one_level_deep` | 5 | 1 |
+| `the_conftest_suite_glob_points_one_level_deep` | 5 | 1 |
+| `the_arms_total_is_the_last_rounds_cost` | 3 | 1 |
+| `the_round_s_files_are_written_by_every_arm` | 3 | 2 |
+| `the_rule_authors_prompt_is_cached_too` | 2 | 2 |
+| `the_cache_boundary_crosses_onto_the_masked_document` | 2 | 1 |
+| `caching_is_inferred_from_the_prompt_carrying_a_boundary` | 2 | 2 |
+| `drift_is_checked_against_todays_window_not_the_recorded_one` | 2 | 2 |
+| `the_lifecycle_block_moves_into_the_run_block` | 2 | 2 |
+| `the_role_is_appended_at_the_end_of_the_line` | 2 | 1 |
+| `the_call_role_is_written_without_being_validated` | 1 | 1 |
+| `the_final_rounds_duplicate_comes_from_a_second_scoring` | 1 | 1 |
+| `the_recorded_files_list_is_ignored_in_favour_of_the_fields_present` | 1 | 1 |
+| `the_captured_surface_control_is_scoped_to_the_function` | 1 | 1 |
+| `the_captured_surface_check_reads_only_direct_stream_access` | 1 | 1 |
+
+The four largest rises are the ones to read, because none of them is a new assertion about the
+mutated guarantee: `spans_file_carries_the_surface` 2 → 34, `run_fold_omits_the_layer` 3 → 32,
+`run_fold_writes_a_null_model_id` 21 → 45, and `the_folds_seconds_go_to_the_round_and_not_the_arm`
+at 76, the highest count in this file. All four break something every `test_run_fold.py` and
+`test_loop.py` test writes through, so they scale with *how much of the suite exercises the
+writer*, not with how well the guarantee is pinned. **A large kill count is a statement about
+blast radius, and only a small one is a statement about coverage** — which is the same reading
+`### The glob that was right and unasserted` used to reject 28 and 9 in favour of 5 and 5.
+`non_target_types_hardcoded_not_read_from_config` still sits at 1 and is still the honest number.
+
+**Zero decreases across the 70 in scope, and that was the thing being looked for.** Adding
+assertions can only raise a count; a count that fell while the suite grew from 1690 to 1695 would
+mean a test stopped being able to see a defect it used to see — most plausibly one of the six
+edited files having moved its observation point, which is precisely what `### The split moved
+three tests' observation point` records happening before. None of the 70 did. The one decrease
+in the run came from outside that scope and is the section after next: a mutation whose anchor
+had to be repaired, re-measured for that reason, and found surviving at 0.
+
+**What was not run, and when it gets checked.** 99 mutations: the loader, split-file, seal,
+release-screener, vocabulary and `layer_families` groups, all 17 scorer mutations, and the
+remaining `bedrock.py` / `prompt.py` / `loop.py` / audit / termination / iteration-path
+mutations. None of them is reachable from the six changed files, so the expectation is that
+every one is unchanged — but **an expectation is not a measurement, and this is a deferral
+rather than an exemption.** They are checked by the next full 170-mutation run, whose cost is
+the reason for the deferral: ~6 min each is about fifteen hours, and it is the *serial* figure
+that has to be paid before the next commit that changes `TEST_FILES` membership, because that is
+the change this scope rule cannot bound. Sharding is what makes it affordable and was not
+attempted at 170 here.
+
+**Two mutations were stale before this run started**, which means the last time the full gate
+could have passed was before the commits that moved their anchors — recorded in "Two stale
+anchors, and a check that was one refactor late" above, along with the millisecond check that
+now makes the same finding without the fifteen hours.
+
+#### The survivor: an assertion that could not say which guard had refused
+
+`absent_token_counts_default_to_zero` came back **SURVIVED, 0 kills against `min_kills` 1** —
+the first mutation in this file to survive since the fifth of the family. The count it replaced
+was **1**, so this is the run's one decrease, and it was found only because repairing the anchor
+forced a re-measurement of a mutation that was out of scope.
+
+Its only killing test was:
+
+```python
+del response["usage"]["outputTokens"]
+with pytest.raises(BedrockError) as e:
+    _usage(response)
+assert "outputTokens" in str(e.value)
+```
+
+Under the mutation `completion_tokens` defaults to `0`, so the `isinstance(..., int)` refusal
+this test is about does not fire. The call is still refused — the `totalTokens` cross-check
+added on 2026-08-16 catches the same input one guard later — and that message reads
+`… + outputTokens 0 = 67, and totalTokens says 1169`. **The asserted substring is in both
+messages.** Measured, not reasoned: the mutated module raises `the response's token counts do
+not agree with its own total: …` and `"outputTokens" in str(e.value)` is `True`.
+
+Three things worth separating, because the comfortable reading of this is wrong in one direction
+and the alarmed reading is wrong in the other:
+
+- **No guarantee regressed.** A partial `usage` block is refused today, mutated or not. What was
+  lost is the ability of the suite to notice *this* guard going away.
+- **The guard is not redundant.** The cross-check only fires when the numbers disagree with
+  `totalTokens`. A partial block whose remaining numbers happen to *agree* — the absent key
+  genuinely contributing zero to a total that also omits it — passes the cross-check, and with a
+  defaulted `0` a cost block of zeros gets recorded as a measurement. That case is exactly what
+  the mutation names and exactly what nothing was checking.
+- **The defect was in the assertion, not in the code.** Same as `familiares_as_other` and the
+  loader fixture: a test that passes for a reason other than the one it names. Here the reason is
+  a substring shared by two error messages, which is the cheapest possible way for an assertion
+  to stop discriminating — nothing about the test's text looks loose.
+
+Fixed by asserting the refusal rather than the absent key (`"A partial cost block is refused"`,
+which only this branch emits) and by parametrising over both keys, since the mutation edits both
+reads and only `outputTokens` had ever been deleted. Baseline goes 1695 → 1696. Re-measured after
+the fix: **2**.
+
+The general form to check the rest of this file against: **an absence-of-key test must assert
+which guard refused, not that some guard did.** A `pytest.raises(SomeError)` with a substring
+that appears in a neighbouring message is a test of the exception type, and every guard in
+`bedrock.py` raises `BedrockError`.
 
 ## Applied to every loader
 
