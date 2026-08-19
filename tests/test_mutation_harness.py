@@ -253,8 +253,8 @@ def test_every_anchor_is_present_in_its_target():
     `apply()` already refuses a vanished anchor, so nothing here is a new guarantee —
     what is new is *when the answer arrives*. `apply()` runs inside the harness, one
     mutation per full suite run, so a refactor that moves an anchor is reported only when
-    somebody spends the whole run; at 170 mutations and six minutes each that is fifteen
-    hours, and until then the anchor is stale and nothing says so.
+    somebody spends the whole run; at 170 mutations and a measured 271 s each that is
+    nearly thirteen hours serial, and until then the anchor is stale and nothing says so.
 
     Two were, and that is why this exists rather than the comment above it, which
     considered a stale *path* and not a stale anchor. `run_fold_skips_axis_validation`
@@ -278,3 +278,283 @@ def test_every_anchor_is_present_in_its_target():
         "anchors no longer present in their target; update them in tests/mutations/run.py "
         f"so each mutation still tests what its name claims: {stale}"
     )
+
+
+# ─── sharding: the parallel run must be a partition, and provably one tree ───
+#
+# Everything below is about `tests/mutations/parallel.py`, which turns thirteen serial
+# hours into two. The saving is only worth having if a partial run cannot be recorded as
+# a full one, so the driver's refusals are tested here — at millisecond cost, on
+# synthetic shard records — rather than discovered during the two hours.
+
+
+@pytest.mark.parametrize("shards", [1, 2, 3, 8, 13])
+def test_the_shards_partition_the_mutations(shards):
+    """Union of all shards is every mutation, once. Both halves matter, differently.
+
+    A name in two shards is two suite runs spending the same six minutes twice and the
+    gate learning nothing extra. A name in *no* shard is the failure this whole file is
+    about: eight green shards, one guarantee never measured, and a log that reads as a
+    full run. `run.py` slices `MUTATIONS[i::n]`, so this holds by construction — which is
+    exactly the kind of claim that stops holding when somebody adds a filter to the slice.
+    """
+    seen = [m.name for i in range(shards) for m in harness.MUTATIONS[i::shards]]
+    assert sorted(seen) == sorted(m.name for m in harness.MUTATIONS)
+    assert len(seen) == len(set(seen))
+
+
+def test_round_robin_spreads_the_expensive_mutations():
+    """Contiguous blocks would put one file's mutations in one shard, and kill counts
+    range over two orders of magnitude. Not a correctness property — a wall-clock one, and
+    the reason `[i::n]` is a slice rather than a block."""
+    per_shard = [sum(m.min_kills for m in harness.MUTATIONS[i::8]) for i in range(8)]
+    assert max(per_shard) <= 3 * min(per_shard), per_shard
+
+
+def test_the_fingerprint_is_deterministic_and_sees_content(tmp_path):
+    """Two identical trees hash equal; a one-byte edit anywhere makes them differ.
+
+    This is the invariant that lets eight shards claim they measured one tree. Equal
+    baseline *totals* are not enough for that claim: two trees can collect the same number
+    of tests and still behave differently, and a kill count is a statement about behaviour.
+    """
+    a, b = tmp_path / "a", tmp_path / "b"
+    for tree in (a, b):
+        (tree / "src").mkdir(parents=True)
+        (tree / "src" / "x.py").write_text("x = 1\n", encoding="utf-8")
+        (tree / "top.txt").write_text("same\n", encoding="utf-8")
+    assert harness.tree_fingerprint(a) == harness.tree_fingerprint(b)
+
+    (b / "src" / "x.py").write_text("x = 2\n", encoding="utf-8")
+    assert harness.tree_fingerprint(a) != harness.tree_fingerprint(b)
+
+
+def test_the_fingerprint_notices_a_file_that_is_only_renamed(tmp_path):
+    """Content-only hashing would call a rename identical. The path is in the digest
+    because a test file under a different name is collected differently."""
+    a, b = tmp_path / "a", tmp_path / "b"
+    for tree in (a, b):
+        tree.mkdir()
+    (a / "one.py").write_text("x = 1\n", encoding="utf-8")
+    (b / "two.py").write_text("x = 1\n", encoding="utf-8")
+    assert harness.tree_fingerprint(a) != harness.tree_fingerprint(b)
+
+
+def test_the_fingerprint_does_not_follow_symlinks(tmp_path):
+    """`data/raw` and `sealed/` are symlinked into every tree. Hashing through them would
+    read the sealed test fold — a DUA and blinding violation for the sake of a checksum —
+    and would also make the fingerprint depend on corpus size. They are skipped, so a tree
+    with the links hashes the same as one without."""
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "secret.txt").write_text("must not be read\n", encoding="utf-8")
+
+    plain, linked = tmp_path / "plain", tmp_path / "linked"
+    for tree in (plain, linked):
+        tree.mkdir()
+        (tree / "keep.py").write_text("x = 1\n", encoding="utf-8")
+    (linked / "sealed").symlink_to(outside, target_is_directory=True)
+    (linked / "loose.txt").symlink_to(outside / "secret.txt")
+
+    assert harness.tree_fingerprint(plain) == harness.tree_fingerprint(linked)
+
+
+def test_the_marker_is_outside_the_fingerprint(tmp_path):
+    """The marker is written by `apply()`, so including it would make a mutated tree's
+    fingerprint differ from the pristine one it was copied from — and the fingerprint is
+    about which *repository* the shard measured, not what it did to its copy."""
+    a, b = tmp_path / "a", tmp_path / "b"
+    for tree in (a, b):
+        tree.mkdir()
+        (tree / "keep.py").write_text("x = 1\n", encoding="utf-8")
+    (b / harness.MARKER).write_text("probe\n", encoding="utf-8")
+    assert harness.tree_fingerprint(a) == harness.tree_fingerprint(b)
+
+
+# ─── the driver's five refusals ──────────────────────────────────────────────
+
+import importlib.util  # noqa: E402
+import json  # noqa: E402
+
+_spec = importlib.util.spec_from_file_location(
+    "mutations_parallel", os.path.join(ROOT, "tests", "mutations", "parallel.py")
+)
+driver = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(driver)
+
+_CLEAN = {"head": "a" * 40, "porcelain": ""}
+
+
+def _shard(i, names, *, complete=True, fingerprint="f" * 64, baseline=1696, exit=0,
+           aborted=None):
+    return {
+        "shard": i, "exit": exit, "log": f"/tmp/shard{i}.log",
+        "record": {
+            "shard": i, "shards": 2, "selected": list(names),
+            "fingerprint": fingerprint, "baseline_outcomes": baseline,
+            "results": [{"name": n, "verdict": "caught", "kills": 3, "min_kills": 1,
+                         "message": None} for n in names],
+            "complete": complete, "aborted": aborted,
+        },
+    }
+
+
+def test_two_good_shards_are_a_full_run():
+    """The negative controls below are only meaningful if the positive one passes."""
+    shards = [_shard(0, ["a", "c"]), _shard(1, ["b"])]
+    assert driver.check(shards, ["a", "b", "c"], _CLEAN, _CLEAN) == []
+
+
+def test_a_mutation_measured_by_nobody_is_refused():
+    shards = [_shard(0, ["a"]), _shard(1, ["b"])]
+    broken = driver.check(shards, ["a", "b", "c"], _CLEAN, _CLEAN)
+    assert any("never measured" in r and "'c'" in r for r in broken), broken
+
+
+def test_a_mutation_measured_twice_is_refused():
+    """Not merely wasteful: the aggregate's verdict counts would sum past the number
+    registered, and the next run's diff would compare against a doubled entry."""
+    shards = [_shard(0, ["a", "b"]), _shard(1, ["b"])]
+    broken = driver.check(shards, ["a", "b"], _CLEAN, _CLEAN)
+    assert any("more than once" in r for r in broken), broken
+
+
+def test_shards_on_different_trees_are_refused():
+    shards = [_shard(0, ["a"]), _shard(1, ["b"], fingerprint="e" * 64)]
+    broken = driver.check(shards, ["a", "b"], _CLEAN, _CLEAN)
+    assert any("different trees" in r for r in broken), broken
+
+
+def test_equal_baselines_do_not_excuse_unequal_fingerprints():
+    """The whole reason the fingerprint exists. Both shards collected 1696 tests and the
+    run is still refused, because the trees were not the same tree."""
+    shards = [_shard(0, ["a"], baseline=1696),
+              _shard(1, ["b"], baseline=1696, fingerprint="e" * 64)]
+    broken = driver.check(shards, ["a", "b"], _CLEAN, _CLEAN)
+    assert broken and all("baseline" not in r for r in broken), broken
+
+
+def test_disagreeing_baselines_are_refused():
+    shards = [_shard(0, ["a"]), _shard(1, ["b"], baseline=1695)]
+    broken = driver.check(shards, ["a", "b"], _CLEAN, _CLEAN)
+    assert any("baseline" in r for r in broken), broken
+
+
+def test_a_shard_that_never_finished_is_refused():
+    """`complete` is written last on purpose. A shard killed mid-run leaves results that
+    look fine — this is the check that keeps twenty-one good measurements from being
+    read as twenty-two."""
+    shards = [_shard(0, ["a"]), _shard(1, ["b"], complete=False)]
+    broken = driver.check(shards, ["a", "b"], _CLEAN, _CLEAN)
+    assert any("did not finish" in r for r in broken), broken
+
+
+def test_a_shard_that_wrote_nothing_is_refused():
+    """Distinguished from an unfinished shard because it has no results to report on:
+    an absent file is what an OOM kill before the first write looks like."""
+    shards = [_shard(0, ["a"]),
+              {"shard": 1, "exit": -9, "record": None, "log": "/tmp/shard1.log"}]
+    broken = driver.check(shards, ["a", "b"], _CLEAN, _CLEAN)
+    assert any("no JSON" in r for r in broken), broken
+    assert any("never measured" in r for r in broken), broken
+
+
+def test_an_unrecognised_exit_status_is_refused():
+    """0 and 1 are the harness's own verdicts. Anything else — a signal, a traceback in
+    `main` — means the exit code is not reporting on mutations at all."""
+    shards = [_shard(0, ["a"]), _shard(1, ["b"], exit=2)]
+    broken = driver.check(shards, ["a", "b"], _CLEAN, _CLEAN)
+    assert any("unrecognised status" in r for r in broken), broken
+
+
+def test_a_working_tree_that_moved_under_the_run_is_refused():
+    """Not a claim that the counts are wrong — every shard copied before the edit, so
+    they are all about one tree. What is lost is the record's ability to say *which*
+    tree, i.e. whether re-running at this commit reproduces these numbers."""
+    after = {"head": "a" * 40, "porcelain": " M src/x.py"}
+    shards = [_shard(0, ["a"]), _shard(1, ["b"])]
+    broken = driver.check(shards, ["a", "b"], _CLEAN, after)
+    assert any("changed while the run was in flight" in r for r in broken), broken
+
+
+def test_a_commit_during_the_run_is_refused():
+    """A commit can leave `porcelain` identical — clean before, clean after — while
+    moving HEAD out from under the record. Both fields are compared for that reason."""
+    shards = [_shard(0, ["a"]), _shard(1, ["b"])]
+    broken = driver.check(shards, ["a", "b"], _CLEAN, {"head": "b" * 40, "porcelain": ""})
+    assert any("changed while the run was in flight" in r for r in broken), broken
+
+
+def test_a_dirty_tree_is_not_by_itself_a_refusal():
+    """Running the gate on uncommitted work is the normal case — that is when it is
+    useful. Dirtiness is recorded, not refused; only *change* during the run is refused."""
+    dirty = {"head": "a" * 40, "porcelain": " M src/x.py"}
+    shards = [_shard(0, ["a"]), _shard(1, ["b"])]
+    assert driver.check(shards, ["a", "b"], dirty, dirty) == []
+
+
+def test_an_incomplete_run_says_so_in_the_record_it_writes():
+    """The refusal has to survive into `docs/notes/`, not just the exit code: the file is
+    what a reader consults months later, and an unmarked partial entry there is the
+    original failure with a longer fuse."""
+    shards = [_shard(0, ["a"]), _shard(1, ["b"], complete=False)]
+    broken = driver.check(shards, ["a", "b"], _CLEAN, _CLEAN)
+    text, measured = driver.render("INCOMPLETE", broken, shards, ["a", "b"], 42.0,
+                                  _CLEAN, _CLEAN, {"a": 3})
+    assert "INCOMPLETE" in text
+    assert "not a full-run record" in text
+    assert "did not finish" in text
+
+
+def test_the_full_run_covered_the_current_test_files():
+    """The full-run trigger, enforced instead of remembered.
+
+    Every kill count is a fraction of `TEST_FILES`. Change which files are in that list and
+    the counts are not *older*, they are **about a different denominator** — the README says
+    so in its own words, having gone 11 files → 27 and 531 tests → 1696 with a hundred-odd
+    table cells written against the old suite. So the one condition under which nothing short
+    of a full run will do is a change to this list, and that is a decidable condition rather
+    than a judgement call, which is the whole reason it is a test.
+
+    Deliberately a hard failure and not a skip. A skip here is the vacuous absence this file
+    documents twice over — the loader fixture that turned a bug into `pytest.skip`, the
+    assertion that passed on a substring two error messages shared — and "no full-run record
+    exists" is not a reason to pass, it is the finding. Safe to be hard because this file is
+    outside `TEST_FILES`: it cannot redden a mutation baseline, only the human's own suite.
+
+    Cost of satisfying it is about two hours (`tests/mutations/parallel.py`), which is the
+    price of the counts meaning anything. Everything *else* — a narrow `src/` change, a new
+    assertion in one test file — is served by an impact-scope run; see
+    `tests/mutations/README.md` §"When a full run is required".
+    """
+    sidecar = os.path.join(ROOT, "docs", "notes", "mutation-full-runs.counts.json")
+    assert os.path.exists(sidecar), (
+        "no full run has ever been recorded. Run `python3 tests/mutations/parallel.py`; "
+        "until then no kill count in tests/mutations/README.md has a run behind it"
+    )
+    with open(sidecar, encoding="utf-8") as fh:
+        recorded = json.load(fh)
+
+    was, now = list(recorded["test_files"]), list(harness.TEST_FILES)
+    added = [f for f in now if f not in was]
+    removed = [f for f in was if f not in now]
+    assert not added and not removed, (
+        f"TEST_FILES changed since the full run of {recorded['date']} "
+        f"(commit {recorded['commit'][:12]}): added {added}, removed {removed}. Every kill "
+        "count is a fraction of this list, so the recorded ones are now about a different "
+        "suite. A full run is required — impact scope cannot cover this, because the change "
+        "is to the denominator of all 170 counts and not to any one of them"
+    )
+
+
+def test_a_kill_count_that_fell_is_reported_ahead_of_the_increases():
+    """Order is content here. A decrease means a test stopped seeing a defect it used to
+    see, which is the only thing in the report that is a finding rather than a number."""
+    shards = [_shard(0, ["a"]), _shard(1, ["b"])]
+    text, measured = driver.render("full run", [], shards, ["a", "b"], 42.0,
+                                   _CLEAN, _CLEAN, {"a": 9, "b": 1})
+    assert measured == {"a": 3, "b": 3}
+    assert "Decreases" in text
+    assert text.index("Decreases") < text.index("Increases")
+    assert "`a` **9 → 3**" in text
+    assert "`b` 1 → 3" in text

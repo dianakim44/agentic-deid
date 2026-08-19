@@ -21,6 +21,9 @@ mutated file behind.
 from __future__ import annotations
 
 import argparse
+import hashlib
+import json
+import os
 import re
 import shutil
 import subprocess
@@ -4698,6 +4701,45 @@ def outcomes(output: str) -> int:
             + counts.get("error", 0))
 
 
+def tree_fingerprint(tree: Path) -> str:
+    """A hash of everything a shard's suite can read, so N shards can prove they ran on
+    one tree.
+
+    **Equal baselines are not that proof.** Two trees can collect the same number of tests
+    and behave differently, and a kill count is a statement about behaviour. `make_tree`
+    copies the working tree at shard *start* and N shards start seconds apart, so an edit
+    landing inside that window hands two shards different code and identical totals — and
+    the aggregated result would be one number about two trees, with nothing saying so.
+
+    Taken at shard start, which bounds what it can claim: it certifies that every shard
+    *copied* the same tree, not that the working tree stayed still for the whole run. An
+    edit at minute thirty changes no pristine tree and invalidates no count; what it
+    invalidates is the record's provenance, and that is the driver's start/end comparison
+    of `git status --porcelain`, not this.
+
+    Excluded, each for its own reason: `.git/`, which this harness creates per tree so its
+    timestamps differ by construction; symlinks, which are `data/raw` and `sealed` —
+    restricted, shared between shards, read-only in fact, and hashing the second would mean
+    reading the sealed fold; `__pycache__`, never copied in the first place; and the marker,
+    written after this is taken. `os.walk` does not follow symlinks, and the two are pruned
+    explicitly as well, because the cost of being wrong about that default is a sealed read.
+    """
+    parts = []
+    for dirpath, dirnames, filenames in os.walk(tree):
+        dirnames[:] = sorted(
+            d for d in dirnames
+            if d not in (".git", "__pycache__")
+            and not (Path(dirpath) / d).is_symlink()
+        )
+        for name in sorted(filenames):
+            path = Path(dirpath) / name
+            if path.is_symlink() or name == MARKER:
+                continue
+            digest = hashlib.sha256(path.read_bytes()).hexdigest()
+            parts.append(f"{path.relative_to(tree).as_posix()}\0{digest}")
+    return hashlib.sha256("\n".join(parts).encode("utf-8")).hexdigest()
+
+
 def make_tree(tmp: Path) -> Path:
     """A throwaway copy of the repository, enough to run the loader tests.
 
@@ -4801,6 +4843,26 @@ def main() -> int:
         help="apply one mutation to a fresh tree and print the ids of the tests that "
              "failed, rather than a count",
     )
+    parser.add_argument(
+        "--shard", metavar="I/N",
+        help="run slice I of N, round-robin over the full list (0-indexed). Round-robin "
+             "rather than contiguous blocks: kill counts vary by two orders of magnitude "
+             "and adjacent mutations share a target file, so blocks would put the "
+             "expensive neighbours in one shard",
+    )
+    parser.add_argument(
+        "--json", metavar="PATH", type=Path,
+        help="write this shard's results as JSON, for parallel.py to aggregate. Includes "
+             "the pristine tree's fingerprint and a `complete` flag written last, so a "
+             "shard killed mid-run is distinguishable from one that found nothing",
+    )
+    parser.add_argument(
+        "--limit", metavar="N", type=int,
+        help="measure only the first N of the selection. This is for exercising the "
+             "parallel driver end to end in minutes instead of two hours; it is not a "
+             "way to run the gate more cheaply, and parallel.py refuses to write a "
+             "full-run record when it is set",
+    )
     args = parser.parse_args()
 
     by_name = {m.name: m for m in MUTATIONS}
@@ -4820,21 +4882,67 @@ def main() -> int:
             return 2
         selected = [by_name[n] for n in args.names]
 
+    shard = shards = None
+    if args.shard:
+        if args.names:
+            # Silently intersecting the two would produce a shard that is a slice of a
+            # selection, which is not the slice the driver's partition check assumes.
+            print("--shard and explicit names are mutually exclusive", file=sys.stderr)
+            return 2
+        try:
+            shard, shards = (int(part) for part in args.shard.split("/", 1))
+        except ValueError:
+            print(f"--shard wants I/N, got {args.shard!r}", file=sys.stderr)
+            return 2
+        if not 0 <= shard < shards:
+            print(f"--shard {shard}/{shards}: need 0 <= I < N", file=sys.stderr)
+            return 2
+        # Slicing MUTATIONS itself, never `selected`, is what makes the union of all N
+        # shards exactly the full list with no element twice. parallel.py checks that
+        # anyway, because a partition asserted here and checked nowhere is a claim.
+        selected = MUTATIONS[shard::shards]
+
+    if args.limit is not None:
+        if args.limit < 1:
+            print(f"--limit wants a positive count, got {args.limit}", file=sys.stderr)
+            return 2
+        selected = selected[:args.limit]
+
     if args.list:
         for m in selected:
             print(f"{m.name:24} {m.path}  (expect >= {m.min_kills} kills)")
         return 0
 
+    record = {
+        "shard": shard, "shards": shards,
+        "selected": [m.name for m in selected],
+        "fingerprint": None, "baseline_outcomes": None,
+        "results": [],
+        # Written `False` first and flipped last, so a shard killed by ^C or the OOM
+        # reaper leaves a file that says so. "No failures printed" must not be readable
+        # as "nothing failed" — that is the same ambiguity as a skip reading as a pass.
+        "complete": False, "aborted": None,
+    }
+
+    def write_json():
+        if args.json:
+            args.json.write_text(json.dumps(record, indent=1) + "\n", encoding="utf-8")
+
     with tempfile.TemporaryDirectory() as tmpdir:
         tmp = Path(tmpdir)
         pristine = make_tree(tmp)
+        record["fingerprint"] = tree_fingerprint(pristine)
+        print(f"tree:     {record['fingerprint'][:16]}")
 
         baseline = run_suite(pristine)
         if kills(baseline, expect_ran=False) or NOT_RUN_RE.search(baseline):
             print("BASELINE IS NOT GREEN — fix the suite before mutating.")
             print(baseline[-2000:])
+            record["aborted"] = "baseline not green"
+            write_json()
             return 1
         base_outcomes = outcomes(baseline)
+        record["baseline_outcomes"] = base_outcomes
         print(f"baseline: {baseline.strip().splitlines()[-1]}\n")
 
         failures = []
@@ -4859,10 +4967,18 @@ def main() -> int:
             except StaleMutation as exc:
                 print(f"STALE   {mutation.name:24} {exc}")
                 failures.append(mutation.name)
+                record["results"].append(
+                    {"name": mutation.name, "verdict": "stale", "kills": None,
+                     "min_kills": mutation.min_kills, "message": str(exc)})
+                write_json()
                 continue
             except BrokenSuite as exc:
                 print(f"BROKEN  {mutation.name:24} {exc}")
                 failures.append(mutation.name)
+                record["results"].append(
+                    {"name": mutation.name, "verdict": "broken", "kills": None,
+                     "min_kills": mutation.min_kills, "message": str(exc)})
+                write_json()
                 continue
             except ContaminatedTree as exc:
                 # Unreachable through this loop, which copies `pristine` per mutation. Caught
@@ -4870,6 +4986,10 @@ def main() -> int:
                 # is a defect in the harness rather than in the mutation.
                 print(f"DIRTY   {mutation.name:24} {exc}")
                 failures.append(mutation.name)
+                record["results"].append(
+                    {"name": mutation.name, "verdict": "dirty", "kills": None,
+                     "min_kills": mutation.min_kills, "message": str(exc)})
+                write_json()
                 continue
             ok = caught >= mutation.min_kills
             print(
@@ -4878,8 +4998,17 @@ def main() -> int:
             )
             if not ok:
                 failures.append(mutation.name)
+            record["results"].append(
+                {"name": mutation.name, "verdict": "caught" if ok else "survived",
+                 "kills": caught, "min_kills": mutation.min_kills, "message": None})
+            # Rewritten after every mutation rather than once at the end: a run this long
+            # gets interrupted, and twenty-one measurements already paid for should survive
+            # the twenty-second being cut short.
+            write_json()
             shutil.rmtree(tree)
 
+    record["complete"] = True
+    write_json()
     print()
     if failures:
         print(f"FAIL: {len(failures)} of {len(selected)} — {failures}")
