@@ -89,6 +89,13 @@ COPIED = ("src", "tests", "config", "splits", "results", "tools", "docs", "rules
 #: differs from the real one in what the tests measure is worse than no tree.
 COPIED_FILES = (".gitignore", "CLAUDE.md")
 
+#: Written into every mutated tree, one mutation name per line. Its only job is to make a
+#: second edit to the same tree impossible: `apply()` refuses a tree whose marker is
+#: non-empty. Inside the tree rather than beside it so that copying the tree copies the
+#: record — a marker held in the harness's own memory would be exactly as absent from a
+#: hand-built copy as no marker at all.
+MARKER = ".mutations-applied"
+
 
 @dataclass(frozen=True)
 class Mutation:
@@ -116,7 +123,26 @@ class Mutation:
         Three things are checked after every write, because a harness that miscounts
         its own failures as successes is worse than no harness — it reports green.
         See "Verifying the mutation" in README.md.
+
+        Before any of them, the tree is checked for a previous mutation. `main()` copies
+        `pristine` per mutation and never reaches this, but a hand-built probe tree does:
+        three per-test attributions were wrong because a tree was built from a shell whose
+        cwd had drifted into an already-mutated copy, and the second edit landed on top of
+        the first. Nothing in the output distinguishes that — both edits apply cleanly, the
+        suite runs, the count is a real count of a tree nobody meant to build. So the tree
+        records what has been done to it and refuses a second edit
+        (README.md, "Hand-built probe trees").
         """
+        marker = tree / MARKER
+        if marker.exists() and marker.read_text(encoding="utf-8").strip():
+            raise ContaminatedTree(
+                f"{tree} already carries a mutation:\n  "
+                + "\n  ".join(marker.read_text(encoding="utf-8").split())
+                + f"\nApplying {self.name} on top would give a tree with two edits and a "
+                "kill count attributable to neither. Build a fresh tree — `--probe "
+                f"{self.name}` does that in one step."
+            )
+
         for path, anchor, replacement in (
             (self.path, self.anchor, self.replacement),
             *self.also,
@@ -162,9 +188,23 @@ class Mutation:
                         "run is not a mutation that was caught."
                     ) from exc
 
+        # Written last, so a tree whose mutation raised is not marked as carrying one.
+        with marker.open("a", encoding="utf-8") as handle:
+            handle.write(f"{self.name}\n")
+
 
 class StaleMutation(Exception):
     pass
+
+
+class ContaminatedTree(Exception):
+    """The tree already carries a mutation.
+
+    Distinct from StaleMutation for the same reason BrokenSuite is: the diagnosis differs.
+    A stale mutation is fixed by updating an anchor; this one is fixed by building a fresh
+    tree, and it is raised at *construction* rather than after a run, so the wrong count is
+    never produced and never read.
+    """
 
 
 class BrokenSuite(Exception):
@@ -4699,15 +4739,63 @@ def run_suite(tree: Path) -> str:
     return result.stdout + result.stderr
 
 
+FAILING_ID_RE = re.compile(r"^(?:FAILED|ERROR) (\S+)", re.M)
+
+
+def probe(mutation: Mutation) -> int:
+    """Build a tree, apply one mutation, run the suite, print which tests failed.
+
+    This exists because the same thing has to be done by hand otherwise, and by hand it was
+    done wrong: three per-test attributions in README.md were mistaken because a tree was
+    built from a shell whose working directory had drifted into an already-mutated copy. The
+    counts were never wrong — `main()` builds each tree from `pristine` — but the reading of
+    *which* tests caught *which* mutation was, and there is no output that distinguishes the
+    two cases.
+
+    So the shell is removed from the loop: one command, no relative paths, and the tree's
+    absolute path and marker printed with the result so that what was run is on the record
+    beside what it found. `-rA`-style ids rather than a count, because a count is what
+    `main()` already gives and the reason to reach for a probe is wanting the names.
+    """
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tree = make_tree(Path(tmpdir))
+        mutation.apply(tree)
+        print(f"tree:   {tree}")
+        print(f"marker: {(tree / MARKER).read_text(encoding='utf-8').strip()}")
+        print(f"edit:   {mutation.path}\n")
+        output = run_suite(tree)
+        if NOT_RUN_RE.search(output):
+            print("THE SUITE DID NOT RUN — no id below is attributable.")
+            print(output[-2000:])
+            return 1
+        failing = FAILING_ID_RE.findall(output)
+        print(f"{len(failing)} failing:")
+        for test_id in failing:
+            print(f"  {test_id}")
+        return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("names", nargs="*", help="mutations to run (default: all)")
     parser.add_argument("--list", action="store_true", help="list and exit")
+    parser.add_argument(
+        "--probe", metavar="NAME",
+        help="apply one mutation to a fresh tree and print the ids of the tests that "
+             "failed, rather than a count",
+    )
     args = parser.parse_args()
+
+    by_name = {m.name: m for m in MUTATIONS}
+    if args.probe:
+        if args.probe not in by_name:
+            print(f"unknown mutation: {args.probe}", file=sys.stderr)
+            print(f"available: {sorted(by_name)}", file=sys.stderr)
+            return 2
+        return probe(by_name[args.probe])
 
     selected = MUTATIONS
     if args.names:
-        by_name = {m.name: m for m in MUTATIONS}
         unknown = sorted(set(args.names) - set(by_name))
         if unknown:
             print(f"unknown mutation(s): {unknown}", file=sys.stderr)
@@ -4757,6 +4845,13 @@ def main() -> int:
                 continue
             except BrokenSuite as exc:
                 print(f"BROKEN  {mutation.name:24} {exc}")
+                failures.append(mutation.name)
+                continue
+            except ContaminatedTree as exc:
+                # Unreachable through this loop, which copies `pristine` per mutation. Caught
+                # anyway: if it ever fires here the copy has stopped being pristine, and that
+                # is a defect in the harness rather than in the mutation.
+                print(f"DIRTY   {mutation.name:24} {exc}")
                 failures.append(mutation.name)
                 continue
             ok = caught >= mutation.min_kills

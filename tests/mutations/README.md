@@ -1896,9 +1896,10 @@ happens to contain `test_*.py`, and the self-reference cannot be satisfied by an
 the right one.
 
 The mutation is the glob one level deeper — `(TESTS / "tests").glob("test_*.py")` — in each of
-the two files, since the two copies gate ten checks between them and neither pin covers the
-other. Both are caught, at 5 kills each. The first attempt moved `TESTS` itself and scored 28
-kills in one file and 9 in the other, which is
+the two files: `the_suite_glob_points_one_level_deep` and
+`the_conftest_suite_glob_points_one_level_deep`, since the two copies gate ten checks between
+them and neither pin covers the other. Both are caught, at 5 kills each. The first attempt
+moved `TESTS` itself and scored 28 kills in one file and 9 in the other, which is
 not evidence about this guarantee: `ROOT = TESTS.parent` in one file and `CONFTEST = TESTS /
 "conftest.py"` in the other mean a moved constant breaks unrelated machinery, and a kill count
 that large says the file failed to import its own scaffolding. Retargeted onto the glob
@@ -2043,7 +2044,14 @@ claim is only worth reading if X was actually broken — and the two ways it can
 be both produce a *larger* N than a working mutation. The harness therefore verifies
 its own edit before believing the count.
 
-Three checks in `Mutation.apply()`, after the write:
+One check in `Mutation.apply()` *before* the write:
+
+0. **The tree carries no earlier mutation.** `.mutations-applied` is read first and a
+   non-empty marker is refused. This is the one check aimed at the operator rather than at
+   the code: two edits on one tree apply cleanly, run cleanly, and give a real count of a
+   tree nobody meant to build. See "Hand-built probe trees" below for the run it invalidated.
+
+Three more after the write:
 
 1. **The anchor exists.** Otherwise nothing is edited and whatever was already
    failing is reported as the kill. Reported `STALE`, exit non-zero.
@@ -2062,7 +2070,7 @@ Two more at the run level:
    baseline's. A mutation changes *which* tests pass, never *how many exist*; a
    smaller total means the suite was damaged rather than challenged.
 
-`tests/test_mutation_harness.py` tests all five, including the indentation case
+`tests/test_mutation_harness.py` tests all six, including the indentation case
 specifically. A check against false greens that is itself unchecked is the same
 category of problem one level further up.
 
@@ -2126,21 +2134,41 @@ own numbers are structurally defended and the per-test attributions in this file
 so **the attributions are the part of every section here that a reader should treat as the
 weaker claim.**
 
-The recurrence fix worth building, in the same shape as the three checks above — make the
-tree able to answer what it is, rather than trusting the operator to remember:
+The recurrence fix, in the same shape as the three checks above — make the tree able to
+answer what it is, rather than trusting the operator to remember. All three are built:
 
-1. **`apply()` writes a marker.** Append the mutation's name to `.mutations-applied` at the
-   tree root, and refuse to apply to a tree whose marker is already non-empty. The
-   contaminated trees would have failed at construction with `mutation 5 already applied`
-   instead of producing a plausible failure list. A single-mutation harness has no use for
-   a second edit, so the refusal costs nothing and closes the case.
+1. **`apply()` writes a marker.** The mutation's name is appended to `.mutations-applied` at
+   the tree root, and a tree whose marker is non-empty is refused — `ContaminatedTree`, a
+   distinct exception for the same reason `BrokenSuite` is one: the diagnosis differs, and
+   this one is fixed by building a fresh tree. The contaminated trees would have failed at
+   construction naming the mutation already there, instead of producing a plausible failure
+   list. A single-mutation harness has no use for a second edit, so the refusal costs
+   nothing and closes the case.
+
+   Two details that are not incidental. The marker is written **last**, after all three
+   verification checks pass, so a tree whose mutation raised `STALE` is not marked as
+   carrying one — otherwise fixing an anchor and retrying reports contamination for a reason
+   that is not true, which is its own misleading refusal. And it lives **inside** the tree
+   rather than in the harness's memory, because a marker the harness holds is exactly as
+   absent from a hand-copied tree as no marker at all, and hand-copying is the thing that
+   went wrong.
 2. **A `--probe NAME` subcommand.** It builds a tree, applies one mutation, runs the suite,
-   prints the failing test ids *and* the absolute path and the marker's contents. Then no
-   attribution is ever produced by a hand-assembled tree, and the reading that goes into a
-   `breaks` text comes from the same code that produced the count beside it.
+   and prints the failing test ids *and* the tree's absolute path and the marker's contents.
+   No attribution is produced by a hand-assembled tree any more, and the reading that goes
+   into a `breaks` text comes from the same code path that produced the count beside it. It
+   prints ids rather than a number on purpose: a number is what `main()` already gives, and
+   wanting the names is the only reason to reach for a probe.
 3. **No relative paths.** `make_tree()` takes a `Path` and `ROOT` is absolute, so the
    library was never at risk; the drift was in the shell that called it. `--probe` removes
    the shell from the loop, which is the durable half of this.
+
+Verified by construction rather than by inspection: `tests/test_mutation_harness.py` has
+three tests for the marker — a second `apply()` on the same tree raises and **edits
+nothing**, the marker names which mutation, and a stale mutation leaves the tree usable —
+and the refusal was also exercised on a real `make_tree()` copy, where applying a second
+mutation to an already-mutated tree failed at construction and the second edit did not land.
+`--probe the_suite_glob_points_one_level_deep` prints the five ids behind that mutation's
+kill count, which is the exact kind of reading that was done by hand and got wrong.
 
 ### The fourth of the family: a guard whose precondition the operator controlled
 

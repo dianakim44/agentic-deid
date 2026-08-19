@@ -129,6 +129,52 @@ def test_every_edit_of_a_multi_part_mutation_is_verified(tmp_path):
         _mutation(also=(("m.py", "not present anywhere", ""),)).apply(tmp_path)
 
 
+# ─── step 0: the tree must not already carry a mutation ─────────────────────
+
+
+def test_a_second_mutation_on_the_same_tree_is_refused(tmp_path):
+    """The probe-tree contamination, as a check.
+
+    Three per-test attributions in README.md were wrong because a tree was built from a
+    shell whose working directory had drifted into an already-mutated copy, and the second
+    edit landed on top of the first. Every count in that run was right — `main()` copies
+    `pristine` per mutation — and the reading of which tests caught which mutation was not.
+    Nothing in the output tells the two apart: both edits apply cleanly, the suite runs, and
+    the number is a real number about a tree nobody meant to build.
+
+    So the refusal is at *construction*: the second `apply()` raises before the suite runs,
+    and the count that could be misread is never produced.
+    """
+    tree = _tree(tmp_path)
+    _mutation().apply(tree)
+    with pytest.raises(harness.ContaminatedTree, match="already carries a mutation"):
+        _mutation(name="second", anchor="x = 2", replacement="x = 3").apply(tree)
+    assert (tree / "m.py").read_text(encoding="utf-8") == "x = 2\n", (
+        "the refused mutation must not have edited anything"
+    )
+
+
+def test_the_marker_names_what_was_applied(tmp_path):
+    """The marker is read by a human when a probe result looks surprising, so it has to say
+    *which* mutation, not merely that there was one. `--probe` prints it beside the tree's
+    absolute path for that reason."""
+    tree = _tree(tmp_path)
+    _mutation(name="the_first_one").apply(tree)
+    assert (tree / harness.MARKER).read_text(encoding="utf-8").strip() == "the_first_one"
+
+
+def test_a_stale_mutation_leaves_the_tree_usable(tmp_path):
+    """A mutation that raised did not mutate, so the tree must not be marked as carrying
+    one. Otherwise fixing an anchor and retrying reports contamination instead — a refusal
+    for a reason that is not true, which is its own kind of misleading count."""
+    tree = _tree(tmp_path)
+    with pytest.raises(harness.StaleMutation):
+        _mutation(anchor="y = 9").apply(tree)
+    assert not (tree / harness.MARKER).exists()
+    _mutation().apply(tree)
+    assert (tree / "m.py").read_text(encoding="utf-8") == "x = 2\n"
+
+
 # ─── reading pytest's output ────────────────────────────────────────────────
 
 
