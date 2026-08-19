@@ -198,6 +198,9 @@ def test_no_sealed_path_is_constructed(tmp_path, corpus_present):
     # `sealed` appears only in prose about not touching it, never as a path join.
     assert "sealed_root" not in src
     out = run("--corpus", CORPUS, "--rules", str(rule_file(tmp_path, CUE_RULE)))
+    # `run()` pins the return code; the presence check pins the surface. Without it the
+    # absence below holds over any output at all, including none.
+    assert "es:probe_cue" in out.stdout, "the tool printed no rule line, so nothing was read"
     assert "sealed" not in out.stdout
 
 
@@ -249,11 +252,17 @@ def test_no_precision_or_f1_is_printed(tmp_path, corpus_present):
 
     A ratio computed here over one unmerged rule file would be a second number with the
     same name as the real one and a different value.
+
+    The `es:probe_cue` pin is the presence control. Three absences over `data` are all
+    satisfied by an empty string, and the filter below narrows the surface further, so a run
+    that printed nothing — or printed only `#` lines — would pass this test having measured
+    nothing at all.
     """
     out = run("--corpus", CORPUS, "--rules", str(rule_file(tmp_path, CUE_RULE))).stdout
     # The `#` lines are the tool saying where the metrics *do* come from, which is the
     # opposite of printing one; the assertion is about the data lines.
     data = "\n".join(l for l in out.splitlines() if not l.startswith("#")).lower()
+    assert "es:probe_cue" in data, "no data line was printed, so the absences prove nothing"
     for name in ("f1", "precision", "recall"):
         assert name not in data, f"{name} printed on a data line"
 

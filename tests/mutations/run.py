@@ -4544,6 +4544,60 @@ MUTATIONS = [
         ),
         min_kills=1,
     ),
+    # The two new checks in section 3b are structural checks over the suite, and the failure
+    # mode of a structural check is reporting nothing. Both mutations narrow what the check
+    # can see rather than deleting it, because deletion is loud and narrowing is what actually
+    # happened to the first draft of each.
+    Mutation(
+        name="the_captured_surface_control_is_scoped_to_the_function",
+        path=STRUCTURE,
+        # `surface_key` is what makes a control count only for the surface it was made on.
+        # Collapsing it to a constant makes every control license every absence in the same
+        # function, which is the loose form the companion check's docstring rejects.
+        anchor="                    if surface_key(c, provenance, derived) in controlled:",
+        replacement="                    if controlled:",
+        breaks=(
+            "**Any positive membership anywhere in the test silences every absence in it.** This "
+            "is not a hypothetical loosening: it is the first draft, and it was wrong on a real "
+            "site. `tests/test_run_fold.py`'s pre-fix form pinned `\"iter4\" in printed`, then made "
+            "a *second* CLI call and asserted `\"iter\" not in capsys.readouterr().out`. "
+            "`readouterr()` drains the buffer, so the pin is over a surface that no longer exists "
+            "by the time the absence is asserted — and function-scoped, the test reads as "
+            "controlled. The mutation restores exactly that blindness.\n"
+            "\n"
+            "Caught by `test_the_captured_surface_check_reports_a_control_on_another_surface`, "
+            "which constructs the two-call shape and asserts it is reported. The check's own "
+            "assertion over the live suite cannot catch this: the suite is clean, and a check that "
+            "has been widened to accept more still reports nothing on a tree with nothing to "
+            "report. That is the whole reason section 3b carries capability tests at all — the "
+            "same argument as section 4 for the profiler check."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="the_captured_surface_check_reads_only_direct_stream_access",
+        path=STRUCTURE,
+        # Alias-following is what takes the check from 2 of 7 known sites to 7 of 7.
+        anchor="    return any(re.search(rf\"\\b{re.escape(name)}\\b\", expr) for name in derived)",
+        replacement="    return False",
+        breaks=(
+            "**The check sees only `\"x\" not in result.stdout` and misses `out = result.stdout` "
+            "followed by `\"x\" not in out.lower()`.** Measured against the pre-fix tree the "
+            "difference is 2 sites reported out of the 7 the sweep found by hand — five of them "
+            "bind a name first, and one reads it back through a comprehension and a `join`, so "
+            "the container's source text contains no stream token at all.\n"
+            "\n"
+            "This is the failure mode of a structural check in its most ordinary form: a rule that "
+            "matches the shape nobody writes is green, is committed, and covers nothing. It was "
+            "found by running the check against `HEAD~2`'s tests and *counting* what it reported "
+            "against the known answer, which is the only way to find it — on the fixed tree both "
+            "the mutant and the real check report zero.\n"
+            "\n"
+            "Caught by `test_the_captured_surface_check_follows_an_alias`, which is the known "
+            "answer written down as a test."
+        ),
+        min_kills=1,
+    ),
 ]
 
 COUNT_RE = re.compile(r"(\d+) (passed|failed|error|errors)")

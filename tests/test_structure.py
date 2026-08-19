@@ -41,6 +41,7 @@ from __future__ import annotations
 import ast
 import importlib.util
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -374,6 +375,371 @@ def test_a_failing_suite_is_not_a_clean_verdict(checker):
     The unreadable-state rule, one more time: an unusable measurement is not a good one."""
     source = CHECKER.read_text(encoding="utf-8")
     assert "did not pass" in source and "status != 0" in source
+
+
+# ─── 3b. an absence over a surface that can be empty needs a control ─────────
+#
+# `tests/mutations/README.md`, "The split moved three tests' observation point": an
+# assertion of the form "X is not in what was produced" gets *more* likely to pass as the
+# thing produced gets smaller, and an empty surface satisfies every such assertion at once.
+# The sweep that followed found two shapes where the surface can go empty from a change
+# nobody would connect to the test, and both are checked here.
+
+#: Expressions that name a surface produced by a run rather than by a data structure: a
+#: subprocess's streams and pytest's captured output. What they have in common is that a
+#: tool dying before it printed leaves an empty string, and `"x" not in ""` is true.
+CAPTURED_SURFACE = ("stdout", "stderr", "readouterr")
+
+#: Ways a test can establish that the surface was really produced. A return code says the
+#: run got to the end; a positive membership says something arrived on the stream itself.
+#: `check=True` and `expect=` are the two helper idioms in this suite.
+SURFACE_CONTROLS = ("returncode", "check=True", "expect=")
+
+
+def negative_membership(fn: ast.AST):
+    """Every `assert ... not in <container>` in a function, as (lineno, container source).
+
+    Unwraps `ast.BoolOp` because `assert a not in x and b not in x` is one statement and
+    two assertions, and the second is the one a reader skims.
+    """
+    for node in ast.walk(fn):
+        if not isinstance(node, ast.Assert):
+            continue
+        tests = ([node.test] if isinstance(node.test, ast.Compare)
+                 else [v for v in getattr(node.test, "values", [])
+                       if isinstance(v, ast.Compare)])
+        for compare in tests:
+            for op, comparator in zip(compare.ops, compare.comparators):
+                if isinstance(op, ast.NotIn):
+                    yield node.lineno, ast.unparse(comparator)
+
+
+def derived_from_captured(fn: ast.AST) -> set[str]:
+    """Names in a function that hold captured output, following aliases to a fixed point.
+
+    `out = run(...).stdout` then `low = out.lower()` puts both `out` and `low` here. Without
+    the second step the check reads only the syntactic form — `"x" not in result.stdout` — and
+    misses the far more common `out = ....stdout` followed by `"x" not in out.lower()`, which
+    is five of the seven sites the sweep found. A rule that catches the shape nobody writes is
+    a rule that passes.
+    """
+    names, changed = set(), True
+    while changed:
+        changed = False
+        for name, value in assignments(fn):
+            if name in names:
+                continue
+            if reads_captured(ast.unparse(value), names):
+                names.add(name)
+                changed = True
+    return names
+
+
+def assignments(fn: ast.AST):
+    """Every single-target name assignment in a function, as (name, value node)."""
+    for node in ast.walk(fn):
+        if (isinstance(node, ast.Assign) and len(node.targets) == 1
+                and isinstance(node.targets[0], ast.Name)):
+            yield node.targets[0].id, node.value
+
+
+def reads_captured(expr: str, derived: set[str]) -> bool:
+    """Whether an expression reads captured output, directly or through one of `derived`."""
+    if any(surface in expr for surface in CAPTURED_SURFACE):
+        return True
+    return any(re.search(rf"\b{re.escape(name)}\b", expr) for name in derived)
+
+
+def surface_root(node: ast.AST) -> str:
+    """The leftmost name in an attribute/call/subscript chain: `out.lower()` → `out`."""
+    while True:
+        if isinstance(node, ast.Attribute):
+            node = node.value
+        elif isinstance(node, ast.Call):
+            node = node.func
+        elif isinstance(node, ast.Subscript):
+            node = node.value
+        else:
+            return node.id if isinstance(node, ast.Name) else ast.unparse(node)
+
+
+def surface_key(node: ast.AST, provenance: dict[str, str], derived: set[str]) -> str:
+    """Which captured surface an expression is ultimately reading.
+
+    A control counts only for the surface it was made on, and the surface has to be found
+    *inside* the expression rather than at its root: the negative is written over
+    `out.lower()`, over `"\\n".join(l for l in out.splitlines() ...)`, over
+    `[l for l in done.stdout ... ]`. All three read one stream, and the root of the outermost
+    node is `out`, a string constant and a list comprehension respectively.
+
+    An inline `capsys.readouterr()` is keyed to its own line, because the call **drains** the
+    buffer: two occurrences are two surfaces and the second cannot have been established by
+    anything before it. `tests/test_run_fold.py`'s pre-fix form is that shape — it pinned
+    `"iter4" in printed`, made a second call, and asserted `"iter" not in
+    capsys.readouterr().out`. Scoped to the function the first licenses the second; scoped to
+    the surface the second is uncontrolled, which is what it was.
+    """
+    for sub in ast.walk(node):
+        if isinstance(sub, ast.Call) and "readouterr" in ast.unparse(sub.func):
+            return f"readouterr@{sub.lineno}"
+    key = None
+    for sub in ast.walk(node):
+        if isinstance(sub, ast.Attribute) and sub.attr in CAPTURED_SURFACE:
+            key = surface_root(sub.value)
+            break
+    if key is None:
+        for sub in ast.walk(node):
+            if isinstance(sub, ast.Name) and sub.id in derived:
+                key = sub.id
+                break
+    if key is None:
+        key = surface_root(node)
+    seen = set()
+    while key in provenance and key not in seen:
+        seen.add(key)
+        key = provenance[key]
+    return key
+
+
+def surface_provenance(fn: ast.AST, derived: set[str]) -> dict[str, str]:
+    """Each bound name mapped to the surface its value was read from, one hop per entry."""
+    provenance: dict[str, str] = {}
+    for name, value in assignments(fn):
+        origin = surface_key(value, {}, derived - {name})
+        if origin != name:
+            provenance[name] = origin
+    return provenance
+
+
+def uncontrolled_absences(module: ast.AST) -> list[str]:
+    """Absences over captured output in a module, minus the ones carrying a control.
+
+    Separated from the test so the two capability tests below run the same code over a tree
+    they construct, instead of over the suite. The suite is clean, so a check that has been
+    quietly narrowed reports zero there and reports zero here, and the two are
+    indistinguishable without a tree that has something to find.
+    """
+    reports = []
+    for fn in ast.walk(module):
+        if not isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        if any(token in ast.unparse(fn) for token in SURFACE_CONTROLS):
+            continue
+        derived = derived_from_captured(fn)
+        provenance = surface_provenance(fn, derived)
+        controlled = set()
+        for node in ast.walk(fn):
+            if not isinstance(node, ast.Assert):
+                continue
+            for compare in ([node.test] if isinstance(node.test, ast.Compare)
+                            else [v for v in getattr(node.test, "values", [])
+                                  if isinstance(v, ast.Compare)]):
+                for op, c in zip(compare.ops, compare.comparators):
+                    if isinstance(op, ast.In) and reads_captured(ast.unparse(c), derived):
+                        controlled.add(surface_key(c, provenance, derived))
+            # A name bound from a captured stream and then asserted truthy: an empty stream
+            # gives an empty value and the assertion fails, so that is a control for the
+            # surface it was derived from.
+            if isinstance(node.test, ast.Name) and node.test.id in derived:
+                controlled.add(surface_key(node.test, provenance, derived))
+            if (isinstance(node.test, ast.Call) and ast.unparse(node.test.func) == "len"
+                    and node.test.args
+                    and reads_captured(ast.unparse(node.test.args[0]), derived)):
+                controlled.add(surface_key(node.test.args[0], provenance, derived))
+        for node in ast.walk(fn):
+            if not isinstance(node, ast.Assert):
+                continue
+            for compare in ([node.test] if isinstance(node.test, ast.Compare)
+                            else [v for v in getattr(node.test, "values", [])
+                                  if isinstance(v, ast.Compare)]):
+                for op, c in zip(compare.ops, compare.comparators):
+                    if not isinstance(op, ast.NotIn):
+                        continue
+                    container = ast.unparse(c)
+                    if not reads_captured(container, derived):
+                        continue
+                    if surface_key(c, provenance, derived) in controlled:
+                        continue
+                    reports.append(f"{node.lineno} in {fn.name} — over {container}")
+    return reports
+
+
+def test_no_absence_is_asserted_over_captured_output_without_a_control():
+    """An absence over a subprocess's stdout, in a test that never checks the run produced
+    any.
+
+    Found by sweeping the suite after the caching split: of nineteen such assertions,
+    twelve carried a control and seven did not. `tests/test_run_arm_cli.py` states the
+    reason in its own docstring — "this test passed unchanged while the baseline cell
+    printed nothing but a refusal" — so this is a check against a defect that has already
+    happened here once, not a hypothetical.
+
+    Three things count as a control, and the third was added because the first draft of
+    this check reported it as a gap:
+
+      * a return code, or a helper that pins one (`check=True`, `expect=`);
+      * a positive membership on a captured stream;
+      * **a truthiness assertion over a value derived from one** — `calls = [line for line
+        in done.stdout.splitlines() if ...]` followed by `assert calls`. That is a control
+        and a good one: an empty stream gives an empty list and the assertion fails. The
+        rule missing it was a false positive of exactly the kind the companion check's
+        docstring argues against, so it is recognised rather than worked around.
+
+    Two things it took a measurement to get right, and both were found by running the check
+    against the pre-fix tree and counting what it reported — 2 of the 7 known sites, which is
+    a rule that would have been committed green and covered nothing:
+
+      * **Aliases are followed.** `out = result.stdout` then `"x" not in out.lower()` has no
+        surface token in the container at all. Matching the syntactic form `... not in
+        result.stdout` catches the shape nobody writes; five of the seven sites bind a name
+        first, and one of them reads it back through a comprehension and a `join`.
+      * **The control is scoped to the surface, not to the function.** A positive membership
+        anywhere in the test is the loose form the companion check's docstring rejects, and
+        here it is not merely weak but wrong: `tests/test_run_fold.py`'s pre-fix form pinned
+        `"iter4" in printed`, made a *second* CLI call, and asserted `"iter" not in
+        capsys.readouterr().out` — and `readouterr()` drains the buffer, so the pin says
+        nothing about the surface the absence is over. Function-scoped, it looks controlled.
+
+    Still deliberately coarse on *which* stream of one run: a test that pins `done.stdout`
+    and then asserts an absence on `done.stderr` passes, because the run demonstrably ran.
+    What it cannot do is assert only absences.
+    """
+    offenders = [f"{path.name}:{report}"
+                 for path in suite_files()
+                 for report in uncontrolled_absences(tree(path))]
+    assert not offenders, (
+        "these assert an absence over captured output without establishing that the run "
+        "produced any, so an empty stream satisfies them:\n  " + "\n  ".join(offenders)
+    )
+
+
+def absences_over_one_block(module: ast.AST) -> list[str]:
+    """Absences over a name bound by integer-subscripting a `content` list, in a module.
+
+    Separated from its test for the reason `uncontrolled_absences` is: the suite is clean now,
+    so the check reports nothing whether or not it still works.
+    """
+    reports = []
+    for fn in ast.walk(module):
+        if not isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        indexed = set()
+        for name, value in assignments(fn):
+            source = ast.unparse(value)
+            if '"content"' not in source and "'content'" not in source:
+                continue
+            if isinstance(value, ast.Subscript):
+                indexed.add(name)
+        if not indexed:
+            continue
+        source = ast.unparse(fn)
+        joined = "for b in" in source or "join(" in source
+        for lineno, container in negative_membership(fn):
+            if container in indexed and not joined:
+                reports.append(f"{lineno} in {fn.name} — {container} was read by "
+                               "subscripting a content list")
+    return reports
+
+
+def test_the_one_block_check_reports_the_shape_that_broke():
+    """The capability half, on the literal expression the cache split truncated.
+
+    Every check in section 3b is an assertion that a list is empty, and the suite is clean, so
+    all three pass on a tree where they have been narrowed to nothing. This one constructs the
+    `messages[0]["content"][0]["text"]` read that `tests/test_loop.py` had and asserts it is
+    reported — the same argument section 4 makes for the profiler check, applied here.
+    """
+    reported = absences_over_one_block(ast.parse(
+        "def test_x():\n"
+        "    sent = fake.calls[0]['messages'][0]['content'][0]['text']\n"
+        "    assert 'bootstrap' not in sent\n"
+    ))
+    assert len(reported) == 1 and "sent" in reported[0], reported
+
+    joined = absences_over_one_block(ast.parse(
+        "def test_x():\n"
+        "    sent = ''.join(b['text'] for b in fake.calls[0]['messages'][0]['content'])\n"
+        "    assert 'bootstrap' not in sent\n"
+    ))
+    assert joined == [], joined
+
+
+def test_no_absence_is_asserted_over_a_block_read_by_index():
+    """The narrow form of the transport rule, and deliberately only the narrow form.
+
+    A prompt sent as one content block became two when the Auditor's prefix was cached, and
+    `messages[0]["content"][0]["text"]` — correct when written — began returning the prompt
+    truncated at the cache boundary. Three tests in `tests/test_loop.py` searched the half
+    that had vanished; one failed, and it failed on its *positive* guard. So an absence over
+    a value obtained by integer-subscripting a `content` list is checked for a control.
+
+    **Why this is not the general rule.** The general rule — "every negative assertion needs
+    a positive control on the same surface" — was written, run over the suite, and rejected
+    on the evidence. Two failure modes, both fatal:
+
+      * *False positives.* The controls that exist are mostly not on the syntactically same
+        container. `tests/test_prompt.py`'s cache test guards `document not in cached` with
+        `document in tail` — a different name, a sibling surface — and a checker demanding
+        the same container flags it. Run over this suite the strict form reported 172 sites
+        where careful reading finds a couple of dozen.
+      * *Trivial evasion.* Loosening it to "any positive membership anywhere in the
+        function" makes the check satisfiable by one unrelated assertion, which is how the
+        real offender (`tests/test_show_human_window.py`, no return code and no presence)
+        would have been silenced rather than fixed.
+
+    "Is this the surface the negative searches" is a semantic question, and a structural
+    check that answers it wrongly in either direction is worse than a narrow one that
+    answers a smaller question correctly. This is the smaller question: the literal shape
+    that broke, which would have fired on the day the split landed.
+    """
+    offenders = [f"{path.name}:{report}"
+                 for path in suite_files()
+                 for report in absences_over_one_block(tree(path))]
+    assert not offenders, (
+        "these assert an absence over one block of a content list, which a transport change "
+        "that splits the prompt shrinks without failing anything (DESIGN §5.4). Read the "
+        "blocks joined, as `tests/test_loop.py`'s `sent_text()` does:\n  "
+        + "\n  ".join(offenders)
+    )
+
+
+def test_the_captured_surface_check_follows_an_alias():
+    """The measured half of the check above, on the shape five of the seven sites had.
+
+    Reading `result.stdout` into a name and asserting over `name.lower()` leaves no stream
+    token in the container at all, so a rule matching the syntactic form reports nothing here
+    and stays green — it reported 2 of the 7 known sites before aliases were followed. The
+    known answer is written down as a test rather than left as a measurement in a commit
+    message, because the measurement is what a later simplification would silently undo.
+    """
+    reported = uncontrolled_absences(ast.parse(
+        "def test_x():\n"
+        "    out = run('--counts-only').stdout\n"
+        "    assert 'context' not in out.lower()\n"
+    ))
+    assert len(reported) == 1 and "out.lower()" in reported[0], reported
+
+
+def test_the_captured_surface_check_reports_a_control_on_another_surface():
+    """A positive membership in the same test does not license an absence over a *different*
+    surface, and the case is real rather than invented.
+
+    `tests/test_run_fold.py` pinned `"iter4" in printed`, then made a second CLI call and
+    asserted `"iter" not in capsys.readouterr().out`. `readouterr()` drains the buffer, so the
+    two names are two surfaces and the pin says nothing about the second one — while the test
+    reads, to a human and to a function-scoped checker alike, as controlled. This is the
+    counterexample to the loose form the companion check's docstring rejects: there it is
+    argued as trivially evadable, and here it is wrong on a site that was in the suite.
+    """
+    reported = uncontrolled_absences(ast.parse(
+        "def test_x(capsys):\n"
+        "    main(['--iteration', '4'])\n"
+        "    printed = capsys.readouterr().out\n"
+        "    assert 'iter4' in printed\n"
+        "    main([])\n"
+        "    assert 'iter' not in capsys.readouterr().out\n"
+    ))
+    assert len(reported) == 1 and "readouterr" in reported[0], reported
 
 
 # ─── 4. the check is capable of failing ──────────────────────────────────────

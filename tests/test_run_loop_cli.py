@@ -315,9 +315,12 @@ def test_round_one_promises_no_audit_report_and_no_auditor_call():
     frozen — so a whole-output search here would forbid printing the window.
     """
     done = dry()
-    assert "auditreport" not in done.stdout
     calls = [line for line in done.stdout.splitlines() if line.startswith("calls")]
     assert calls, f"the plan printed no call count:\n{done.stdout}"
+    # `calls` above is the presence control for both absences: an empty or truncated plan
+    # fails it rather than satisfying `"auditreport" not in ""`. Ordered so the control
+    # runs first, which is the whole point of having one.
+    assert "auditreport" not in done.stdout
     assert f"1 {orchestrate.RULE_AUTHOR}" in calls[0]
     assert loop.AUDITOR not in calls[0], calls[0]
 

@@ -1791,9 +1791,14 @@ def test_the_cli_names_the_round_directory_only_when_there_is_one(monkeypatch, t
     assert "errors.jsonl" not in printed
 
     # A non-iterating run has no round to name, and a line reading `iter1/` would be the
-    # printed form of the artefact this arm deliberately does not write.
+    # printed form of the artefact this arm deliberately does not write. `readouterr()`
+    # drains the buffer, so the presence check is on this second call's own output: the
+    # `iter4` assertion above says nothing about whether this call printed anything, and
+    # `"iter" not in ""` is true.
     module.main(base)
-    assert "iter" not in capsys.readouterr().out
+    second = capsys.readouterr().out
+    assert "leak rate" in second, "the second run printed nothing, so the absence proves nothing"
+    assert "iter" not in second
 
 
 def test_the_cli_help_names_the_sealed_path(corpus_present):

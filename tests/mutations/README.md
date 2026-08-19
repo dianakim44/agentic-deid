@@ -1921,6 +1921,60 @@ reporting. The rule for these records: **state a sweep result as something that 
 false.** "`suite_files()` has no assertion that its result is non-empty; it currently returns 33
 files" is one sentence and cannot be read as the other claim. "The glob is unasserted" can.
 
+### Promoting the sweep into two checks, and the two ways the first draft was green and blind
+
+The sweep that found the vacuous-absence family is prose, and prose does not fail. Two of its
+classes are structural enough to become checks, and both now live in `tests/test_structure.py`
+§3b. What is worth recording is not that they exist but **how each first draft passed while
+covering almost nothing**, because that is the failure mode of every check in this file and it
+was invisible from the fixed tree.
+
+The method that found it: run the new check against `HEAD~2` — the tree *before* the seven sites
+were fixed — and count what it reports against the seven the sweep found by hand. On the fixed
+tree the answer is zero either way, so a narrowed check and a working one are indistinguishable.
+
+**The captured-output check (class B).** Draft one reported **2 of 7**.
+
+- *It matched the shape nobody writes.* `assert "x" not in result.stdout` has a stream token in
+  the container; five of the seven sites bind a name first — `out = run(...).stdout`, then
+  `assert "context" not in out.lower()` — and one reads it back through a comprehension and a
+  `join`, so the container's source text names no stream at all. Fixed by following aliases to a
+  fixed point, and by locating the surface *inside* the expression rather than at its root.
+- *Its control was scoped to the function, and one real site made that wrong rather than merely
+  weak.* `tests/test_run_fold.py` pinned `"iter4" in printed`, then made a **second** CLI call
+  and asserted `"iter" not in capsys.readouterr().out`. `readouterr()` drains the buffer, so the
+  pin is over a surface that no longer exists when the absence is asserted — and to a
+  function-scoped checker, and to a reader, the test looks controlled. This is the concrete
+  counterexample to the loose form the class-A docstring rejects on principle: there it is
+  argued as trivially evadable, here it is simply wrong on a site that was in the suite.
+
+A third correction went the other way. Draft one flagged `tests/test_run_loop_cli.py:323`, whose
+control is `calls = [l for l in done.stdout.splitlines() if ...]` followed by `assert calls` — a
+real control, and a good one, since an empty stream gives an empty list. **The rule was fixed,
+not the test.** That is the same false-positive class the class-A docstring argues against, found
+in the companion check.
+
+**The one-block check (class A).** Deliberately narrow: an absence over a name obtained by
+integer-subscripting a `content` list, which is the literal expression the cache split truncated.
+The broad rule — "every negative needs a positive on the same surface" — was written, run, and
+rejected on measurement: strict, it reported 172 sites where careful reading finds a couple of
+dozen (`tests/test_prompt.py` guards `document not in cached` with `document in tail`, a sibling
+surface); loose, it is satisfiable by one unrelated assertion, which would have silenced the real
+offender instead of fixing it. The narrow form fires on exactly the shape that broke, and would
+have fired the day the split landed.
+
+**Both are mutated, and both mutations exist because of the above.** Not deletions — deleting a
+check is loud. `the_captured_surface_control_is_scoped_to_the_function` collapses `surface_key`
+to a truthiness test, restoring draft one's blindness to the `readouterr()` site.
+`the_captured_surface_check_reads_only_direct_stream_access` stops following aliases, restoring
+2-of-7. Neither is caught by the checks' own assertions over the live suite — the suite is clean,
+so a widened check reports zero exactly as the real one does. They are caught by three capability
+tests that run the check bodies over a constructed tree with the known answer written down, which
+is why `uncontrolled_absences()` and `absences_over_one_block()` are functions and not test
+bodies. Section 4 makes the identical argument for the profiler check, and this is that argument
+applied one level down: **a check whose only evidence is a green suite is the defect it exists to
+prevent.**
+
 ## What the seal cost, and what carries the difference
 
 Sealing 250 documents removed checks that cannot be replaced, and pretending

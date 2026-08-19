@@ -205,6 +205,20 @@ def an_answer(text: str, **kw) -> FakeRuntime:
     return FakeRuntime(reply(text, **kw))
 
 
+def sent_text(call: dict) -> str:
+    """The prompt a `converse` call carried, joined back across any cache boundary.
+
+    Same helper and same reason as `tests/test_loop.py`'s: a prompt sent as two text blocks
+    with a `cachePoint` between them (DESIGN §5.4) is truncated at the boundary by anything
+    reading `content[0]["text"]`, and an absence asserted over the truncated half passes for
+    the wrong reason. This arm's prompt is one block today — the RuleAuthor's is not cached —
+    so joining is a no-op that stays correct if it ever becomes two.
+    `tests/test_structure.py::test_no_absence_is_asserted_over_a_block_read_by_index` is what
+    requires it here rather than leaving it to be remembered.
+    """
+    return "".join(b["text"] for b in call["messages"][0]["content"] if "text" in b)
+
+
 def calls(*arm) -> list[dict]:
     """Every line of this arm's `agent_calls.jsonl`, parsed."""
     path = log_path(*(arm or ARM))
@@ -947,7 +961,7 @@ def test_the_log_line_carries_no_prompt_and_no_response(arm):
     run_arm(**ARM_KW, model_id=MODEL, client=fake)
     line = calls()[0]
     text = json.dumps(line, ensure_ascii=False)
-    sent = fake.calls[0]["messages"][0]["content"][0]["text"]
+    sent = sent_text(fake.calls[0])
     assert UNPARSEABLE not in text
     assert sent not in text
     for fragment in sent.split("\n"):
@@ -1270,7 +1284,7 @@ def test_the_prompt_sent_carries_the_task_frame_and_an_empty_rule_file(arm):
     """
     fake = an_answer(UNPARSEABLE)
     run_arm(**ARM_KW, model_id=MODEL, client=fake)
-    sent = fake.calls[0]["messages"][0]["content"][0]["text"]
+    sent = sent_text(fake.calls[0])
     assert "### 1.1" in sent and "### 1.2" in sent
     assert "EMPTY. There is no current rule file" in sent
     assert "### 1.3 — EMPTY for this call" in sent
@@ -1288,7 +1302,7 @@ def test_the_arm_does_not_show_the_bootstrap_rule_file(arm):
     (bootstrap / "es.yaml").write_text(GOOD_RULES, encoding="utf-8")
     fake = an_answer(UNPARSEABLE)
     run_arm(**ARM_KW, model_id=MODEL, client=fake)
-    sent = fake.calls[0]["messages"][0]["content"][0]["text"]
+    sent = sent_text(fake.calls[0])
     assert "probe_org" not in sent
     assert "EMPTY. There is no current rule file" in sent
     line = calls()[0]["prompt_reference"]

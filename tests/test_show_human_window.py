@@ -71,8 +71,16 @@ def test_counts_only_may_be_captured(corpus_present):
 def test_counts_only_carries_no_offsets_and_no_context(corpus_present):
     """The mode that exists to be pasted anywhere. `summarise()` already guarantees
     this; the script is a second place it could be lost, since it formats its own
-    output rather than dumping the dict."""
-    out = run("--corpus", CORPUS, "--iteration", "1", "--counts-only").stdout
+    output rather than dumping the dict.
+
+    The three absences are preceded by a return code and a presence, because all three
+    hold over an empty string: a script that died before printing would satisfy every one
+    of them. `run()` does not check the return code, so nothing else here would notice.
+    """
+    result = run("--corpus", CORPUS, "--iteration", "1", "--counts-only")
+    assert result.returncode == 0, result.stderr
+    out = result.stdout
+    assert "PROFESSION" in out, "the counts were not printed, so the absences prove nothing"
     assert "context" not in out.lower()
     assert "offsets" not in out.lower()
     # The seed and the counts are numbers; a (doc_id, offset) pair would show up as a
