@@ -1897,7 +1897,8 @@ the right one.
 
 The mutation is the glob one level deeper — `(TESTS / "tests").glob("test_*.py")` — in each of
 the two files, since the two copies gate ten checks between them and neither pin covers the
-other. Both are caught. The first attempt moved `TESTS` itself and scored 28 kills, which is
+other. Both are caught, at 5 kills each. The first attempt moved `TESTS` itself and scored 28
+kills in one file and 9 in the other, which is
 not evidence about this guarantee: `ROOT = TESTS.parent` in one file and `CONFTEST = TESTS /
 "conftest.py"` in the other mean a moved constant breaks unrelated machinery, and a kill count
 that large says the file failed to import its own scaffolding. Retargeted onto the glob
