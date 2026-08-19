@@ -1977,6 +1977,52 @@ counts failures as evidence must first establish that the thing failed for the r
 claimed.** A skip is not a pass, a collection error is not a kill, and a syntax error
 is not thirty-seven tests agreeing with you.
 
+### Hand-built probe trees, and three attributions that were wrong while every count was right
+
+The five caching mutations were each `ok`, and then the question was the one this README
+answers per section: *which* tests killed them. `main()` reports a number and discards the
+tree, so the by-hand method is to rebuild a tree, apply one mutation, and run pytest with
+`-x` off and the failure list read off the tail. That is what happened, and it is where the
+error entered.
+
+The trees were built by calling `make_tree()` and `apply()` from a shell whose working
+directory had drifted into `/tmp/probe2/repo` — an earlier probe tree that already carried
+mutation 5's edit. Trees created from there inherited it. Two mutations were then credited
+with killers belonging to a mutation they were never combined with in any real run:
+mutation 2 (`prompt_tokens_is_what_the_invoice_was_computed_on`) appeared to have six, of
+which two were mutation 5's, and the boundary mutation likewise. Both `breaks` texts were
+corrected against clean trees rebuilt with absolute paths. Mutation 2's real figure is
+four, and the shape of those four is the finding the entry now states: the write and read
+parametrisations fail and **the control case does not**, because on a call that sends no
+cache point `inputTokens` already *is* the raw total, so the mutated arithmetic and the
+correct arithmetic agree there.
+
+**What was wrong was the reading, not the harness.** `main()` copies `pristine` afresh for
+every mutation, `apply()` verifies its own three conditions, and `outcomes()` compares the
+suite size against the baseline; nothing in that path can pick up a second mutation's edit,
+and the published counts — 2, 4, 1, 2, 2 — were correct before and after the correction.
+The contamination was entirely in the hand-built trees standing beside it, and the damage
+was to prose that named tests. That is a mild failure and an instructive one: the harness's
+own numbers are structurally defended and the per-test attributions in this file are not,
+so **the attributions are the part of every section here that a reader should treat as the
+weaker claim.**
+
+The recurrence fix worth building, in the same shape as the three checks above — make the
+tree able to answer what it is, rather than trusting the operator to remember:
+
+1. **`apply()` writes a marker.** Append the mutation's name to `.mutations-applied` at the
+   tree root, and refuse to apply to a tree whose marker is already non-empty. The
+   contaminated trees would have failed at construction with `mutation 5 already applied`
+   instead of producing a plausible failure list. A single-mutation harness has no use for
+   a second edit, so the refusal costs nothing and closes the case.
+2. **A `--probe NAME` subcommand.** It builds a tree, applies one mutation, runs the suite,
+   prints the failing test ids *and* the absolute path and the marker's contents. Then no
+   attribution is ever produced by a hand-assembled tree, and the reading that goes into a
+   `breaks` text comes from the same code that produced the count beside it.
+3. **No relative paths.** `make_tree()` takes a `Path` and `ROOT` is absolute, so the
+   library was never at risk; the drift was in the shell that called it. `--probe` removes
+   the shell from the loop, which is the durable half of this.
+
 ### The fourth of the family: a guard whose precondition the operator controlled
 
 `freeze_window()` was documented as refusing to overwrite an existing freeze record, and
