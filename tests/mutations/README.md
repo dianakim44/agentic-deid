@@ -1856,6 +1856,70 @@ workaround for the split but a reading of it: §4 requires the concatenation to 
 uncached call would have sent, so joining is reading what the model read. It is one helper rather
 than three inline expressions so the next transport change has one place to fail.
 
+### The glob that was right and unasserted
+
+**A near-miss, not an incident.** Nothing broke. `suite_files()` returns 33 files and always
+has, and the eight loops that consume it have been examining the suite they claim to examine.
+What is being recorded is that *no assertion made that true* — the glob was correct by
+construction, and on the day it stopped being correct nothing would have said so.
+
+The shape is the quietest one in this file. Eight callers do
+
+```python
+for path in suite_files():
+    assert <something is absent from path>
+```
+
+split three ways in `tests/test_structure.py` and five in `tests/test_conftest.py`, and one of
+the five is `assert CONFTEST not in suite_files()` — an assertion that an empty list satisfies
+for no reason at all. Every one of them passes over `[]`. So a `suite_files()` that returned
+nothing would produce no failure anywhere: **no assertion failing was the whole of the evidence
+that the eight were working**, and that evidence is indistinguishable from the evidence a
+suite-wide pass over nothing produces. There is no error message to read, no count that looks
+wrong, no test to bisect. It is the same exposure as the Auditor split above — an absence
+asserted over a surface that shrank — with the surface being a directory listing instead of a
+wire payload, and with the shrink not having happened yet.
+
+The pin goes *inside* the helper rather than into a test of its own:
+
+```python
+files = sorted(TESTS.glob("test_*.py"))
+assert Path(__file__).resolve() in files, (...)
+```
+
+Inside, because a separate `test_suite_files_is_not_empty` would leave the eight loops still
+trusting an unchecked surface — they would inherit nothing, and the family's signature failure
+is exactly a caller trusting a surface somebody else checked once. And *this file finding
+itself* rather than a count or a bare `assert files`: a count drifts as test files are added,
+non-emptiness still passes if the glob drifts sideways into a neighbouring directory that
+happens to contain `test_*.py`, and the self-reference cannot be satisfied by any directory but
+the right one.
+
+The mutation is the glob one level deeper — `(TESTS / "tests").glob("test_*.py")` — in each of
+the two files, since the two copies gate ten checks between them and neither pin covers the
+other. Both are caught. The first attempt moved `TESTS` itself and scored 28 kills, which is
+not evidence about this guarantee: `ROOT = TESTS.parent` in one file and `CONFTEST = TESTS /
+"conftest.py"` in the other mean a moved constant breaks unrelated machinery, and a kill count
+that large says the file failed to import its own scaffolding. Retargeted onto the glob
+expression the counts are readable and the mutation is about the thing it names — the same
+kill-count-as-diagnostic reasoning as `### Verifying the mutation`.
+
+#### How this item was reported, and why that matters here
+
+The sweep's finding was **"no assertion pins non-emptiness"**. It was read — by me, from my own
+wording — as **"the glob returns empty"**, and the next instruction was to fix a glob that was
+never broken. The 6,614 in the sweep output was the loops' iteration count, which is a number
+that could only exist if the list were non-empty; it was reported beside the finding and read as
+corroborating the opposite of what it says.
+
+Both statements are about the same line and only one is falsifiable by looking at it. "Returns
+empty" is checked in one command. "Nothing pins non-emptiness" is a claim about the *absence* of
+an assertion elsewhere, and absence claims are what this entire family of findings is about — so
+a sweep report that states them loosely is reproducing, in its own prose, the defect it is
+reporting. The rule for these records: **state a sweep result as something that can be checked
+false.** "`suite_files()` has no assertion that its result is non-empty; it currently returns 33
+files" is one sentence and cannot be read as the other claim. "The glob is unasserted" can.
+
 ## What the seal cost, and what carries the difference
 
 Sealing 250 documents removed checks that cannot be replaced, and pretending

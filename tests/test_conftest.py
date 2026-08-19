@@ -62,7 +62,21 @@ AVAILABILITY_CALLS = PATH_RESOLVERS
 
 
 def suite_files() -> list[Path]:
-    return sorted(TESTS.glob("test_*.py"))
+    """Every test file, with the glob's result pinned before it is returned.
+
+    Five tests below depend on this list being the suite. Four loop over it and assert an
+    absence inside the loop, so an empty list passes all four having examined nothing, and
+    `test_conftest_is_not_in_the_forbidden_set_by_accident` asserts `CONFTEST not in` it —
+    which an empty list satisfies for no reason at all. `tests/test_structure.py` holds the
+    same helper and the same exposure; the reasoning for the shape of the pin is written
+    out there, and `tests/mutations/README.md` records why it was unasserted for so long.
+    """
+    files = sorted(TESTS.glob("test_*.py"))
+    assert Path(__file__).resolve() in files, (
+        f"suite_files() globbed {TESTS} and did not find this file. Every loop over it "
+        "asserts an absence, so the result is a suite-wide pass over nothing."
+    )
+    return files
 
 
 def tree(path: Path) -> ast.Module:

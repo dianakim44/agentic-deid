@@ -68,7 +68,27 @@ def checker():
 
 
 def suite_files() -> list[Path]:
-    return sorted(TESTS.glob("test_*.py"))
+    """Every test file, with the glob's result pinned before it is returned.
+
+    Three tests below loop over this and assert an absence inside the loop, so an empty
+    list makes all three pass having examined nothing — and `tests/test_conftest.py`'s
+    copy of this function feeds five more, one of which (`CONFTEST not in suite_files()`)
+    would go from true-for-the-right-reason to true-for-no-reason. Nothing asserted that
+    until now; the glob was correct by construction and would have failed silently on the
+    day it stopped being (`tests/mutations/README.md`, "the glob that was right and
+    unasserted").
+
+    The pin is *this file finding itself* rather than a count or a bare non-emptiness
+    check: a count drifts as files are added, non-emptiness survives a glob that has
+    drifted to a neighbouring directory with tests in it, and the self-reference cannot
+    be satisfied by any directory but the right one.
+    """
+    files = sorted(TESTS.glob("test_*.py"))
+    assert Path(__file__).resolve() in files, (
+        f"suite_files() globbed {TESTS} and did not find this file. Every loop over it "
+        "asserts an absence, so the result is a suite-wide pass over nothing."
+    )
+    return files
 
 
 def tree(path: Path) -> ast.Module:

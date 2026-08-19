@@ -203,6 +203,8 @@ AUDIT = "src/porting/audit.py"
 CONFTEST = "tests/conftest.py"
 TEST_RUN_FOLD = "tests/test_run_fold.py"
 PROMPT = "src/llm/prompt.py"
+STRUCTURE = "tests/test_structure.py"
+TEST_CONFTEST = "tests/test_conftest.py"
 BEDROCK = "src/llm/bedrock.py"
 #: The gate's producer. Mutated like any other guard, and for a sharper reason than
 #: most: this file is what writes the compliance record the paper cites, so a defect
@@ -4468,6 +4470,79 @@ MUTATIONS = [
             "is the one call site with the keyword."
         ),
         min_kills=2,
+    ),
+    # The two below mutate a *test* file rather than production code, which is unusual here
+    # and is the point: the thing being broken is a suite-wide observation surface, and no
+    # production edit can reach it. `TESTS` one level deeper is the whole mutation.
+    Mutation(
+        name="the_suite_glob_points_one_level_deep",
+        path=STRUCTURE,
+        # The glob and not `TESTS` itself. `ROOT = TESTS.parent` here, so moving `TESTS`
+        # also moves `CHECKER` and `ALLOWLIST` and the run reports 28 kills — a number that
+        # says the file broke, not that the guarantee is held. Mutating the glob leaves
+        # every other constant intact, so the kills that remain are the pin's own.
+        anchor='files = sorted(TESTS.glob("test_*.py"))',
+        replacement='files = sorted((TESTS / "tests").glob("test_*.py"))',
+        breaks=(
+            "**`suite_files()` globs a directory that does not exist and returns `[]`.** Three "
+            "tests here loop over it and assert an absence *inside* the loop — no test may call "
+            "`setprofile`, write to the checker or its allowlist, or `setattr` one of the "
+            "checker's own functions — so an empty list passes all three having examined nothing. "
+            "Every file in the suite could patch `load_allowlist` to return `{}` and this file "
+            "would report the same green.\n"
+            "\n"
+            "The mutation is `(TESTS / \"tests\").glob(...)`, which is the plausible edit rather "
+            "than an invented one: it is what someone writes who reads the constant's name and "
+            "not its initialiser, and from the repository root it looks right. It is applied to "
+            "the glob and **not** to `TESTS`, which was the first attempt: `ROOT = TESTS.parent` "
+            "here, so moving the constant moves `CHECKER` and `ALLOWLIST` too and the run "
+            "reported 28 kills. A count that large is the file failing to import its own "
+            "machinery, not evidence about this guarantee — the same rule as everywhere else in "
+            "this harness, that a kill count is only readable when the edit is the thing named.\n"
+            "\n"
+            "Caught by `suite_files()`'s own pin, which asserts this file is among what the glob "
+            "found. That is a self-reference and not a count or a non-emptiness check: a count "
+            "drifts as files are added, and non-emptiness would still pass if the glob drifted to "
+            "another directory that happens to contain `test_*.py`. The pin lives in the helper "
+            "rather than in a test of its own so that all three loops inherit it — putting it in "
+            "one test would leave the other two trusting a surface nothing had checked, which is "
+            "the shape this whole family is about.\n"
+            "\n"
+            "Recorded in README.md as a near-miss and not an incident: the glob was correct the "
+            "whole time. What was missing was any assertion that made it so."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="the_conftest_suite_glob_points_one_level_deep",
+        path=TEST_CONFTEST,
+        # The glob, for the reason given above: `CONFTEST = TESTS / "conftest.py"` here, so
+        # moving `TESTS` breaks unrelated tests as well and the count stops being readable.
+        anchor='files = sorted(TESTS.glob("test_*.py"))',
+        replacement='files = sorted((TESTS / "tests").glob("test_*.py"))',
+        breaks=(
+            "The same edit in the file that holds the second copy of `suite_files()`, because the "
+            "same defect in two files is two defects and a mutation of one says nothing about the "
+            "other. Five tests depend on the list here, and the fifth is the interesting one: "
+            "`test_conftest_is_not_in_the_forbidden_set_by_accident` asserts `CONFTEST not in "
+            "suite_files()`. On an empty list that assertion is **true**, and it is true for none "
+            "of the reasons it was written for — the rule it guards is that conftest is exempt "
+            "*because it is the one place*, and an empty suite makes the exemption vacuous rather "
+            "than granted.\n"
+            "\n"
+            "The four loops above it — no skip from inside a fixture, no corpus path resolved "
+            "outside a test body, no fixture redefined, every shared fixture used — go silent at "
+            "the same time. Between this file and `tests/test_structure.py` the two globs gate "
+            "eight assertions over the whole suite, which is why the pin is in the helper in both "
+            "places.\n"
+            "\n"
+            "Applied to the glob rather than to `TESTS` for the reason the entry above gives, with "
+            "one addition specific to this file: `CONFTEST = TESTS / \"conftest.py\"`, so a moved "
+            "constant makes `CONFTEST` a path that does not exist and the `not in` assertion "
+            "passes for a *third* wrong reason. Isolating the glob keeps the mutation about the "
+            "suite list."
+        ),
+        min_kills=1,
     ),
 ]
 
