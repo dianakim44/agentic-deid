@@ -61,6 +61,16 @@
       "why": "Korean prose reviewing which Bedrock model families could run the port-oneshot baseline after port-human's retirement (DESIGN 4.1). Holds model ids, a probe result table, and the trade-offs of each option. No corpus text, no spans: the only strings sent to Bedrock to produce it were 'Reply with the single word: ok'."
     },
     {
+      "path": "tools/probe_call_variance.py",
+      "sniff": "Korean prose",
+      "why": "The Korean is the note this tool writes: render() composes docs/notes/call-variance.md's headings, its per-draw tables and the sentence warning that a rule_id Jaccard is not a behavioural figure. Same false positive as tools/release_screen.py's, one sniffer over — a tool whose output is Korean prose holds Korean prose as literals. It sends a committed prompt template and a corpus id and holds no span, offset, matcher or document text; its draws are loaded out of a temporary directory and its rows carry counts, rule_ids and hashes only."
+    },
+    {
+      "path": "docs/notes/call-variance.md",
+      "sniff": "Korean prose",
+      "why": "Korean prose recording how far the same prompt's output moves when the input does not: rule counts, rule_id overlap, layer distributions, completion tokens and response hashes across repeated calls. rule_id values are agent-authored identifiers this screener already checks against a vocabulary, and no matcher, span, offset or document text is recorded. The Korean here is the note's own explanation of why the probe does not score dev."
+    },
+    {
       "path": "docs/notes/port-human-practice.md",
       "sniff": "Korean prose",
       "why": "Korean prose recording that a practice session happened before port-human iteration 1, its date and its reserved iteration number, and what that adds to DESIGN 11.1's memory carry-over asymmetry. Deliberately holds nothing about what was seen or written during it: recording that would make it an input to iteration 1 that no agent arm receives."

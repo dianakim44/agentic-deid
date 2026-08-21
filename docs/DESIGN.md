@@ -543,6 +543,90 @@ underlying standard expressed in its own fold's units. Editing the 26, the floor
 corpus's δ by hand after a run makes the rungs incomparable exactly as a mid-ladder model
 change would (§4).
 
+#### Call-to-call variance, and how a δ crossing is to be read against it — 2026-08-21
+
+δ answers "is this round's improvement small enough to stop". It does not answer "is this
+round's improvement larger than what the same prompt would have produced twice", and those are
+different questions with different instruments. The first is a pre-registered threshold. The
+second is a property of the *measuring apparatus* — how much of a round-to-round difference is
+the model rather than the rules — and until 2026-08-21 the only figure available for it was an
+accident: `port-loop` round 1 sent a prompt byte-identical to `port-oneshot-nofence`'s (same
+`text_sha256`, same 14,071 prompt tokens, same model id) and got 31 rules against 27, 14
+`rule_id`s in common, and leak-rate `fully_covered` 0.596 against 0.560. **Δ 0.0361 at a fixed
+input, from n = 2.** That is more than seven times δ's floor.
+
+**The interpretation rule.** A round-to-round change smaller than the measured call-to-call
+variance is not an improvement, and may not be reported as one. Where a report says an
+iteration improved, it says so against this figure; where the change is inside it, the honest
+statement is that the round did not move the leak rate detectably. And **when termination fires
+on δ, the report states whether the crossing is inside the measured variance** — a run that
+stopped because two consecutive rounds moved less than δ, where δ is well below the noise the
+instrument produces at rest, converged on the threshold rather than on the corpus, and a reader
+cannot tell those apart from `reason: converged` alone.
+
+**δ is not touched, and that is the point rather than a caveat.** Raising δ to sit above the
+measured variance would be exactly the mid-ladder retune the timing rule above forbids: a
+`port-loop` result now exists, so a revision to δ, k or the ceiling arrives with partial results
+attached and is a new pre-registration for a new arm. What this clause adds is a sentence the
+report must carry, not a number the harness compares against. Pre-registration constrains the
+*decision procedure* — δ = `max(0.005, 26/n_dev)`, k = 2, ceiling 8, evaluated the same way it
+was before any call was made — and it does not and cannot forbid learning more about the
+instrument afterwards. A measurement that changes what a stop *means* while leaving untouched
+when a stop *happens* adds grounds for interpretation. One that moved the threshold would be
+choosing the threshold with the arm's numbers in view, which is the thing being prevented.
+Anyone checking this can check it mechanically: no δ, k or ceiling value changes in this
+section, and `src/porting/termination.py` is not edited by the commit that adds this clause.
+
+**Measured by `tools/probe_call_variance.py`, recorded in `docs/notes/call-variance.md`.** The
+probe sends round 1's prompt n times and reports the spread of the rule sets — rule count range,
+`rule_id` overlap, layer distribution range. It is a probe in `tools/probe_prompt_cache.py`'s
+sense: nothing imports it, no arm runs it, it creates no arm and no result directory, and its
+draws are loaded out of a temporary directory so `results/` is untouched.
+
+**The probe does not score, and the reason is a rule rather than a cost.** Scoring five draws
+on dev would give the leak-rate spread directly — the figure this clause actually wants, instead
+of a rule-set spread that is a lower bound on it. It is still not done. Five dev scores sitting
+in a note become a channel: a person reads which draw scored better on dev, and what they
+learned reaches the next prompt. Nothing in the harness carries it, so nothing in the harness
+can refuse it. **That is dev overfitting, not a sealed-fold violation** — the test fold is not
+touched and §6's seal is not at issue — and it is the same *kind* of thing as §6's ban on
+choosing a dev checkpoint with test numbers: a selection made on data the selection was not
+supposed to see, laundered through a human rather than through code. The rules the arms are
+held to are permitted to see dev; a *measurement of the instrument* is not an arm and has no
+such licence, and taking one anyway would make "dev is what rules are developed against"
+quietly mean "dev is what prompts are developed against" as well.
+
+So the leak-rate variance stays **unmeasured** and is not inferred from the rule-set spread.
+The two are not proportional in any direction anyone has established: a draw could differ by
+eight `rule_id`s that all target the same surfaces and score identically, or agree on every id
+and differ in one regex that costs a hundred spans. Writing "≈0.03" from a Jaccard would be an
+estimate presented as a measurement, which is the failure `docs/notes/mutation-full-runs.md`
+exists to prevent one directory over. The one real figure — 0.0361 from n = 2 — is cited as
+what it is: a single pair, at the same prompt, and the only leak-rate variance measured.
+
+**Two bounds, in opposite directions, and they are about different quantities.** They are easy
+to run together and the consequence of doing so is a misreading in the direction of
+reassurance, so both are stated here and argued in the note. (a) The rule-set spread is a
+**lower** bound on *what varies* — it shows the model does not answer the same question the
+same way, and says nothing about how much leak rate that costs. (b) The same spread is an
+**upper** bound on *round-to-round `rule_id` divergence*, because the probe's five draws all
+carried round 1's §1.2 — the block is present and declares itself empty (`rules_empty: true`),
+so the model invented 28–31 names with none of its own in view. From round 2 on, §1.2 carries
+the previous round's complete file and the prompt asks for a complete file back, so naming is
+continuation rather than invention and there is no reason to expect the same spread. So a
+round-to-round `by_rule` overlap may be *compared* against these figures as a ceiling and never
+as an expectation. Reading round 3 sharing half its rules with round 2 as "inside the measured
+variance, therefore normal" is the inversion: an anchored round reaching an unanchored ceiling
+is an event to explain, not a result to accept. The anchored spread is unmeasured and cannot be
+measured until a round-2 prompt exists to repeat.
+
+**If the five-draw leak-rate spread is later needed, the clause comes first.** It is a
+foreseeable need — a second corpus, or a δ crossing that has to be defended — and the order is
+not negotiable: a DESIGN clause explicitly permitting a *non-arm run* to score dev, naming what
+may be recorded from it and what may not reach a prompt, is written and committed before any
+such run is made. Not afterwards with the numbers in hand, for the reason the timing rule above
+gives about δ.
+
 ### Span provenance
 
 Every detected span carries **layer · detector · rule ID · score**.
