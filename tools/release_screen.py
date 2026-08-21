@@ -268,6 +268,22 @@ RULE_ID_VOCAB = {
     # 월 이름 표기). 개인을 지목할 수 없고, `config/naming.yaml` 의 lang 축이
     # 아니라 영어 언어명이므로 축 어휘 규약과 충돌하지 않는다.
     "spanish", "catalan", "german", "korean", "english",
+    # 2026-08-21, 세 번째 확장. 두 범주이고, 둘 다 이 어휘에 **이미 있는 대상의
+    # 하위 종류**다 — 파생형·약어가 아니라 같은 칸의 빈 자리다 (DESIGN §3).
+    #
+    #   - **표기 규약의 이름.** `dmy`/`mdy`/`ymd` 는 날짜 성분의 순서이고, 순서를
+    #     규약으로 고정한 것에도 이름이 있다. `date_iso_pattern` 은 `iso` 하나로
+    #     순서·구분자·자릿수를 다 서술한다. 같은 칸: 규약 이름(`iso`), 규약이
+    #     아니라 지역 관행이라는 표시(`local`·`locale`), 시각을 수로 적는 형태
+    #     (`timestamp`·`epoch`). 어느 것도 개인을 지목할 수 없다.
+    #   - **연락 수단의 종류.** `phone`·`fax`·`email`·`url` 은 수단이고, 수단에는
+    #     종류가 있다 — `phone_landline` 은 유선이라는 종류를 말한다. 같은 칸:
+    #     `landline`·`mobile`·`cell`·`cellular`·`pager`·`extension`·`website`,
+    #     그리고 수단 전체를 가리키는 `contact`. `street`/`hospital` 이 거리·기관의
+    #     종류인 것과 같은 층위이고, 특정 회선·특정 사람을 가리키지 않는다.
+    "iso", "local", "locale", "timestamp", "epoch",
+    "landline", "mobile", "cell", "cellular", "pager", "extension",
+    "website", "contact",
 }
 #: 코드형 토큰. 국가별 식별자 약어와 자릿수 표기는 기제 어휘가 아니지만
 #: 규칙 이름에 정상적으로 나타난다 (`nhc_checksum`, `cp_5digit`).
@@ -328,6 +344,16 @@ RULE_ID_VOCAB_BY_LANG = {
         # 경칭·역할. 이름 앞에 오는 표지이고 이름이 아니다.
         "don", "dona", "sr", "sra", "srta", "doctor", "doctora", "dr", "dra",
         "paciente", "medico", "enfermero", "enfermera", "familiar",
+        # 2026-08-21, 세 번째 확장. `licenciado` 가 걸렸고, 그것은 이 칸의 빈
+        # 자리였다 — 학위·직위 경칭은 `don`·`doctor` 와 같은 범주이고, 스페인어
+        # 임상 노트의 서명란에서 이름 앞에 오는 표지다. 걸린 낱말 하나가 아니라
+        # 칸을 채운다: 학위 경칭의 남녀형과 약어, 그리고 서명하는 직위의 이름들.
+        # 어느 것도 한 사람을 지목할 수 없다 — 배제 범주 셋 그대로다.
+        "licenciado", "licenciada", "lic", "profesor", "profesora", "prof",
+        "senor", "senora", "senorita", "especialista", "residente", "adjunto",
+        "titular", "colegiado", "cirujano", "cirujana", "matrona",
+        "auxiliar", "tecnico", "tecnica", "celador", "fisioterapeuta",
+        "psicologo", "psicologa", "farmaceutico", "farmaceutica",
         # 문서 상용구. 임상 노트의 서식 낱말.
         "firmado", "atendido", "remitido", "derivado", "ingreso", "alta",
         "consulta", "informe", "servicio", "nacido", "nacida", "fecha",

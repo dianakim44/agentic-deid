@@ -1987,6 +1987,11 @@ commitment here is not to stop widening; it is that **the third occurrence is ev
 the design and has to be treated as such**, because two data points cannot distinguish "a
 closed set being completed" from "a closed set that cannot be completed", and three begin to.
 
+> **The third arrived on 2026-08-21, and the prediction this section recorded about it was
+> wrong.** What was written was: *"it predicts the third occurrence will again be a spelling
+> variant rather than a new language."* It was neither. The review it triggered is below,
+> after the record of the first two that the prediction was drawn from.
+
 **Were the two the same cause? Partly — and the difference is the useful part.**
 
 - **First widening (`ebac362`, 2026-08-11, first `port-oneshot` run).** 23 of 28 rule names
@@ -2004,6 +2009,17 @@ closed set being completed" from "a closed set that cannot be completed", and th
   spelling in circulation, i.e. the identical category to an entry the *first* widening had
   itself just added — and `gaz`, the short form of `gazetteer`, a word already in the English
   vocabulary and also a value on the `layer` axis.
+- **Third widening (2026-08-21, `port-loop` round 1).** Three names, three tokens:
+  `title_licenciado_prefix`, `date_iso_pattern`, `phone_landline`. Split across the same two
+  homes as the first widening — `iso` and `landline` into the English mechanism vocabulary,
+  `licenciado` into the Spanish layer — and **not one of them a variant of anything already
+  there.** `licenciado` is a degree-title honorific, the same category as `don` and `doctor`,
+  which the layer had and which `licenciado` was simply missing from. `iso` names a date
+  *notation* where the set had component *orders* (`dmy`/`mdy`/`ymd`). `landline` names a kind
+  of `phone`, where the set had the channels (`phone`/`fax`/`email`/`url`) and not their kinds.
+  Each was answered by filling the category rather than adding the token: degree honorifics
+  with both genders and their abbreviations plus the signing roles beside them; notation names
+  and locale markers beside `iso`; the telephone kinds and `contact` beside `landline`.
 
 So the shared cause is narrower than "target-language tokens": it is **abbreviation and
 inflection of concepts the vocabulary already contains**. `nuss`/`nass` and
@@ -2014,8 +2030,62 @@ recurred is the *closed-set-of-surface-forms* failure, which the per-language la
 address because they are also closed sets of surface forms. That is the pattern to watch, and
 it predicts the third occurrence will again be a spelling variant rather than a new language.
 
-**Options for a root fix, if the third arrives — recorded, not chosen, and nothing is changed
-now.** The constraints any of them must respect: the screener imports only the standard
+**That prediction was wrong, and it is left standing above with the correction here — 2026-08-21.**
+Not one of `iso`, `landline`, `licenciado` is a spelling variant, an abbreviation or an
+inflection of an entry the set already held. All three are **absent members of categories the
+set already had**, which is a third possibility the dichotomy above did not contain: it offered
+"a derivational variant" or "a new language", and the observation was neither. The error was
+generalising from two events that shared a mechanism (`nuss`→`nass`, `gazetteer`→`gaz`) to a
+claim about the *next* event, when what those two established was only that derivational
+variants are *one* of the ways the set is incomplete.
+
+**What that costs, stated plainly: the fix this section had pre-chosen would have prevented
+none of it.** Option 1 below — normalise plural and prefix relations before matching — is
+aimed precisely at `gaz` ⊂ `gazetteer`. `iso`, `landline` and `licenciado` are not prefixes or
+plurals of any entry, so a normalising matcher screens them exactly as the current one does.
+The pre-chosen minimum response was therefore a correct response to the *observed past* and
+not to the recurrence, which is the specific way a prediction recorded as a decision rule can
+mislead: it made a fix feel ready.
+
+**The review this section committed to, conducted 2026-08-21.** The question it was to decide
+was whether "a closed vocabulary of mechanism words, maintained by hand, per language" is a
+check that converges. On three data points the answer is **no, it does not converge on its own
+— and it does not have to, because what it costs is now measurable and small.** Each new
+rule-authoring call is a fresh sample of natural mechanism vocabulary, so each one can name a
+category member the set lacks; that source is not exhausted by any amount of hand-filling. But
+the post-layer rate is 2 tokens (`port-oneshot-nofence`) and 3 tokens (`port-loop` round 1) per
+rule file, against 23 of 28 names before the layer existed — the structural fix did the work,
+and what remains is a per-call trickle. So the mechanism stays, and the response is to make the
+trickle cheap rather than to replace the check. **Option 3 is the chosen response for the fourth
+occurrence** — have the screener print a proposed vocabulary entry for each unrecognised token,
+with the file and rule it came from — and it is chosen *and not implemented here*, because
+implementing it inside the widening it was diagnosed by is how a change arrives without its own
+review. Options 2 and 4 are rejected on the reasoning already recorded below: 2 weakens the
+guarantee the check exists to make, and 4 relocates enforcement away from the pre-commit gate.
+
+**A fourth prediction, and the grounds for it.** Two post-layer rule files have been screened
+and both carried unrecognised tokens (2 and 3). That is the whole of the evidence, so the
+prediction is restricted to what it supports: **round 2's rule file will very likely carry
+between one and four unrecognised tokens, and they will be absent members of existing
+categories rather than derivational variants.** Grounds: 2 of 2 post-layer files did this, the
+generator is the same model on a prompt that differs only in §§1.2–1.4, and the categories most
+recently found incomplete (notation names, channel kinds, role honorifics) are the ones a rule
+author reaches for when it renames a mechanism. What would falsify it: a clean round 2, or a
+token that *is* a variant of an existing entry. **No prediction is made about rounds 3–8** —
+the widening just made covers three categories at once, so the next file is screened against a
+different set than the last two were, and there is no measurement of what that changes.
+
+**One more thing this occurrence repeated, and it is procedural.** All three widenings were
+made with `test_every_current_false_positive_is_covered` failing. This time it was deliberate
+and is on the record: commit `e6a0097` published the arm's rule file with the finding reported
+in its message rather than folding the vocabulary change into the results commit, which keeps
+the widening reviewable as its own diff at the cost of one red commit in between. That is the
+trade the fourth option under "make the widening cheap" is about, and it is the reason the
+proposed-entry line is worth having: it moves the reviewer's work off reconstructing a category
+under a red suite.
+
+**Options for a root fix — recorded 2026-08-12 before the third arrived, and the choice among
+them is stated above.** The constraints any of them must respect: the screener imports only the standard
 library and runs before every commit (so no YAML, no model call, no network); the check is the
 only enforcement Prohibition 2 has (§5.3); and the vocabulary must not be bound into
 `docs/prompts/rule_author.md`, because that changes call 1's bytes and makes every existing
@@ -2060,6 +2130,12 @@ arm a different arm (§6.3), besides testing naming compliance instead of rule a
 maintained by hand, per language" is a check that converges. If widening three is again a
 spelling variant, the answer is no and the first option is the minimum response. If it is a
 genuinely new category, the vocabulary is doing its job and the entry is just an entry.
+
+> **Neither branch fired.** Widening three was not a spelling variant and not a new category —
+> it was three absent members of categories already present, so the two-branch rule above had
+> no answer for what happened. The review was conducted anyway and its outcome is recorded
+> above; this sentence stays as written because a decision rule that did not cover the case is
+> worth being able to read afterwards.
 
 **Dirty working tree.** A sealed evaluation run with uncommitted changes produces a
 log row whose commit hash does not describe the code that ran. Three options were
