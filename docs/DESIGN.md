@@ -2221,6 +2221,56 @@ genuinely new category, the vocabulary is doing its job and the entry is just an
 > above; this sentence stays as written because a decision rule that did not cover the case is
 > worth being able to read afterwards.
 
+**Fourth widening (2026-08-23, `port-loop` round 2), and the fourth prediction was also
+wrong.** Seven tokens across nine names: `text`, `standalone`, `org` into the English
+mechanism vocabulary; `localidad`, `instituto` into the Spanish layer; `cipa`, `ncol` into
+`RULE_ID_ALLOWED_TOKENS`. Against the prediction recorded above — *one to four unrecognised
+tokens, and absent members of existing categories rather than derivational variants* — both
+halves failed, and both of the falsifiers that prediction named its own name fired:
+
+- **The count was 7, outside the predicted 1–4.** The grounds were two post-layer files at 2
+  and 3 tokens; the third data point is more than double the largest of them. The rule file
+  also grew from 31 rules to 37, so a per-file count was being predicted for a file of
+  unpredicted size — a flaw in the *quantity chosen*, not just in the estimate, and the same
+  flaw would recur for rounds 3–8 since nothing bounds how many rules a round writes.
+- **Two of the seven are derivational variants of entries already present**, which the
+  prediction said would not happen. `ncol` is the abbreviation of `número de colegiado` and
+  `colegiado` was already in the Spanish layer — the exact `gazetteer`/`gaz` relation.
+  `cipa` reads as the four-letter form of `cip`, which `RULE_ID_ALLOWED_TOKENS` already held —
+  the exact `nuss`/`nass` relation. The other five are absent members as predicted
+  (`org` is the general word for a category whose members `hospital`/`clinic`/`institution`
+  were all present; `text` names a rendering where `numeric`/`written`/`spelled` were present;
+  `localidad`/`instituto` are Spanish kinds beside `provincia` and `hospital`).
+- **One of the seven is neither**, and this is a third thing the dichotomy did not contain:
+  `standalone` names a **box the vocabulary did not have**. The set held `cue`, `trigger`,
+  `context`, `window`, `with` and `without` — every word for a cue *being there*, and
+  `without` only as a modifier. No word named the contextless variant of a rule as a thing,
+  which is what `date_year_standalone` and `postal_code_standalone` needed. So the fourth
+  occurrence produced all three kinds at once: variants, absent members, and a missing
+  category.
+
+**The observation worth keeping is about the predictions rather than the tokens: they were
+wrong in opposite directions.** The third prediction said *it will be a derivational variant*
+and got none. The fourth said *it will not be a derivational variant* and got two. A single
+generator produced both outcomes under prompts differing only in §§1.2–1.4, which is the
+strongest available evidence that the kind of the next unrecognised token is not the sort of
+thing these four observations can predict — each prediction was drawn from the immediately
+preceding widening and each was refuted by the one immediately after. **So no fifth prediction
+is made, and that abstention is the finding rather than a gap in the record.** What can be said
+without predicting: the per-file count has been 2, 3 and 7, all after the structural fix and
+all far below the pre-layer 23 of 28, so the trickle is real and the mechanism holds. What
+cannot: which box the next token will come from, or whether there will be a box.
+
+**The response was the same as the third: fill the categories, not the names.** Fourteen tokens
+were added for the institution box, nine for the rendering box, nine for the contextless box,
+thirteen and sixteen for the two Spanish boxes, six for the identifier abbreviations — against
+seven observed. Most were not seen in any run, which is the point (`ebac362`'s reasoning): a
+vocabulary that grows one observation at a time is a denylist wearing a positive face. Two of
+the Spanish additions (`barrio`, `sala`) are also Spanish surnames, and they were included
+rather than skipped because the guarantee is about the *assembled* name — `salud` (a given
+name), `alta` and `consulta` have all been in the set since the first widening for the same
+reason, and `barrio_lopez` is still refused, on `lopez`.
+
 **Dirty working tree.** A sealed evaluation run with uncommitted changes produces a
 log row whose commit hash does not describe the code that ran. Three options were
 considered and the choice is: **refuse by default, `--allow-dirty` proceeds and

@@ -284,6 +284,37 @@ RULE_ID_VOCAB = {
     "iso", "local", "locale", "timestamp", "epoch",
     "landline", "mobile", "cell", "cellular", "pager", "extension",
     "website", "contact",
+    # 2026-08-23, 네 번째 확장. 세 범주이고, 세 번째는 앞의 셋과 다른 종류다 —
+    # 앞의 것들은 있는 칸의 빈 자리였는데 이것은 **없던 칸**이다 (DESIGN §6.1).
+    #
+    #   - **기관의 종류, 그리고 그 범주를 가리키는 총칭.** `hospital`·`clinic`·
+    #     `centre`·`ward`·`unit`·`service`·`department`·`institution`·`company`·
+    #     `insurer` 가 이미 있는데 그 전체를 가리키는 낱말이 없었다 —
+    #     `hospital_org` 의 `org` 가 그것이다. 총칭과 그 약어를 넣고, 같은 칸에서
+    #     빠져 있던 기관 종류들을 함께 채운다. 어느 것도 한 기관을 지목하지 않는다:
+    #     `institute` 는 기관의 종류이고 `Instituto Cajal` 은 기관의 이름이다.
+    #   - **성분을 어떤 표기로 적었는가.** `numeric`·`alpha`·`alphanumeric`·
+    #     `written`·`spelled`·`roman`·`ordinal`·`long`·`short` 가 있고, 글자로
+    #     적었다는 것 자체를 말하는 낱말이 없었다 — `date_month_year_text` 의
+    #     `text` 다. 같은 칸: 글자/낱말 표기(`text`·`textual`·`word`·`words`),
+    #     섞인 표기(`mixed`), 자리를 채운 표기(`padded`·`unpadded`), 그리고 그
+    #     자리가 어느 쪽인지(`leading`·`trailing` — `left`·`right`·`before`·
+    #     `after` 와 같은 층위).
+    #   - **단서 없이 홀로 성립하는 규칙.** 이것은 빈 자리가 아니라 없던 칸이다.
+    #     어휘에는 단서가 **있다는** 쪽의 낱말만 있었다 (`cue`·`trigger`·
+    #     `context`·`window`·`with`·`without`) — `without` 은 수식어이고, 단서를
+    #     아예 두지 않는 변종 자체를 부르는 이름이 없었다. `date_year_standalone`·
+    #     `postal_code_standalone` 이 그 이름을 요구했다. 칸을 만들고 채운다:
+    #     `standalone`·`alone`·`bare`·`isolated`·`freestanding`·`inline`, 그리고
+    #     그 반대쪽 표기(`anchor`·`anchored`·`unanchored`). 규칙이 어디에 걸리는지에
+    #     대한 서술이고 무엇에 걸리는지가 아니므로 개인을 지목할 수 없다.
+    "organisation", "organization", "org", "institute", "agency", "facility",
+    "laboratory", "lab", "pharmacy", "practice", "foundation", "school",
+    "university", "employer",
+    "text", "textual", "word", "words", "mixed", "padded", "unpadded",
+    "leading", "trailing",
+    "standalone", "alone", "bare", "isolated", "freestanding", "inline",
+    "anchor", "anchored", "unanchored",
 }
 #: 코드형 토큰. 국가별 식별자 약어와 자릿수 표기는 기제 어휘가 아니지만
 #: 규칙 이름에 정상적으로 나타난다 (`nhc_checksum`, `cp_5digit`).
@@ -298,6 +329,19 @@ RULE_ID_ALLOWED_TOKENS = {
     # this set had it. Both spellings are in circulation in Spanish clinical text,
     # so listing one and not the other is a gap rather than a distinction.
     "nass",
+    # 2026-08-23, the fourth widening. `port-loop` round 2 wrote `cipa_cue` and
+    # `ncol_cue`, and both are this set's own category — a scheme abbreviation that
+    # appears in a rule name because the rule reads that scheme's field label. CIPA
+    # is the autonomous-community personal health id, so `cip` was here and its
+    # four-letter form was not; NCOL is `número de colegiado`, whose long form
+    # `colegiado` the Spanish layer already held. Those two are the first tokens in
+    # four widenings that are derivational relations of entries already present —
+    # the relation this set was built for (`nuss`/`nass`) — and the response is the
+    # same as for those: fill the category rather than the two names, with the
+    # Spanish clinical id schemes that a rule author can reach for and this set
+    # lacked. None is a value: an abbreviation names the scheme, and the number it
+    # abbreviates never appears in a rule name.
+    "cipa", "ncol", "naf", "tsi", "nuhsa", "sip",
 }
 
 # ─── 언어별 층 ──────────────────────────────────────────────────────────────
@@ -363,6 +407,22 @@ RULE_ID_VOCAB_BY_LANG = {
         "calle", "avenida", "plaza", "paseo", "carretera", "camino", "via",
         "numero", "piso", "puerta", "codigo", "postal", "provincia",
         "hospital", "centro", "salud", "clinica", "ambulatorio", "servicio",
+        # 2026-08-23, 네 번째 확장. `localidad` 와 `instituto` 가 걸렸고, 위 두 칸의
+        # 빈 자리다 — 행정 구역의 **종류**와 기관의 **종류**이고, 둘 다 고유명이
+        # 아니다. 걸린 두 낱말이 아니라 칸을 채운다.
+        #
+        # 배제 범주 셋은 그대로다. 이 낱말 중 몇 개는 스페인어 성으로도 쓰인다
+        # (`Barrio`·`Sala`) — 그것이 걸림돌이 아닌 이유는 이미 목록에 있는
+        # `salud`(María Salud)·`alta`·`consulta` 가 통과하는 이유와 같다: 보증은
+        # **조립된 이름이 개인을 지목할 수 없다**는 것이고, 보통명사 한 토큰으로는
+        # 지목이 성립하지 않는다. 한 사람만 가리킬 수 있는 낱말은 여전히 들어가지
+        # 않고, `barrio_lopez` 는 `lopez` 때문에 그대로 걸린다.
+        "localidad", "poblacion", "municipio", "barrio", "distrito",
+        "comarca", "ciudad", "pueblo", "region", "pais", "comunidad",
+        "autonoma", "autonomica",
+        "instituto", "institucion", "fundacion", "laboratorio", "farmacia",
+        "consultorio", "residencia", "unidad", "departamento", "seccion",
+        "planta", "sala", "urgencias", "mutua", "aseguradora", "organizacion",
         # 문법어. 복합 이름을 잇는다 (`atendido_por_cue`).
         "por", "del", "de", "la", "el", "los", "las", "en", "y",
     },
