@@ -2398,6 +2398,71 @@ because §1.4's parameters are still part of what the *template* specifies and a
 record has to be comparable to this one; what is added is the statement that this arm read
 that section empty.
 
+#### `auditor.md` is not edited to raise the Auditor's format-compliance rate — decided 2026-08-23
+
+`port-loop` round 2 on `es-meddocan` made 250 Auditor calls and **206 of them returned a
+response the validator refused as `malformed` before any flag in it could be read** — 82.4%.
+The remaining 44 documents emitted 316 flag items, of which 167 survived and 149 were refused
+individually. The prompt is explicit about the envelope (§2.1: one JSON object, no fence, no
+preamble, no extra field) and `src/porting/audit.py` accepts exactly what §2.1 specifies, so
+the two do not disagree: the failure is the model departing from an instruction it was given,
+at a rate of four calls in five.
+
+**That number is a result of this arm and is reported as one.** The obvious repair — restate
+§2.1 more forcefully, add a worked negative example, move the envelope rule to the end of the
+prompt where recency helps — would very likely work, and taking it now is the exact shape of
+post-hoc adjustment this section exists to forbid. The sequence would be: run the arm, read
+the arm's score, find the arm's weakest component, change the arm's inputs, re-run, report the
+better number. Every step is defensible in isolation and the composite is a result tuned on
+the thing it is reporting. §6.3's freeze mechanism already refuses it mechanically — the
+window is hashed on all 252 `agent_calls.jsonl` lines and `arm_has_started()` refuses a
+re-freeze — but the mechanism only stops a *silent* edit. What stops a declared one is the
+argument, and the argument is here so it does not have to be reconstructed under the pressure
+of a bad number.
+
+**The pressure is specifically that the result was good.** Round 2's leak rate improved 0.289,
+which is 8× the measured call-to-call spread (§3). A failing round invites debugging and gets
+scrutiny; a round that improved a lot *while wasting 82% of its calls* invites the thought
+that the same design would do even better with one small prompt fix, and that thought is the
+dangerous one, because the improvement makes the edit feel like unlocking the design rather
+than tuning the report. Both readings are available and only one is testable, so the untested
+one does not get to change the inputs.
+
+**What a prompt revision is, if it is wanted, is a new arm.** §4's `port-oneshot-nofence`
+already set this precedent for exactly this class of change: a revised prompt got a new
+`{porting}` value rather than a re-run of the old one, because a run under different prompt
+bytes is not the same experiment and averaging it with the old one would be comparing two
+things under one name. So a format-hardened Auditor is a new `{porting}` value, run from round
+1 on its own rules and scored against this arm rather than replacing it — and the comparison it
+then supports is worth more than the repaired number would have been, since it measures what
+envelope compliance is worth in leak rate instead of assuming it. The value has to be added to
+`config/naming.yaml` before it exists.
+
+**What may change without touching the prompt, and what that is not.** `malformed` is one
+reason covering three distinct call-level branches in `validate_flags()`/`parse_response`
+(the response is not JSON; it is JSON but not a one-key `flags` object; `flags` is not a
+list), and the report records none of the three. So round 2's record cannot say *how* the
+envelope broke — the measurements available rule out truncation (max completion 735 tokens
+against a 32,768 limit), bulk prose (characters-per-completion-token is 2.085 on the parsed
+responses and 2.089 on the refused ones, a 0.2% difference), harder documents (identical
+median `n_input_spans`, `n_lines` and `n_tags` in both groups) and any drift over the run
+(the 44 parsed calls are scattered across all ten 25-call buckets), and they cannot
+distinguish the three branches. Splitting the reason is a *recording* change in the harness,
+not a change to what the agent is shown, and it is therefore not the edit this section
+forbids. It is also not free: it changes `config/naming.yaml`'s `audit_refusal` vocabulary
+mid-arm, so round 3 would run under different harness code than round 2, which the `commit`
+field records but the freeze does not cover. That trade is a separate decision and is not
+taken here.
+
+**A reporting hazard this uncovered, recorded because the field name invites it.**
+`audit_report.json`'s `documents_with_no_flags` was 206 in round 2 — and it is the *same 206
+documents* as the malformed set, exactly. The field reads as a fact about the corpus ("206
+documents had no residual PHI") and in this round it is a fact about the envelope ("206
+responses could not be parsed"). §2.1's own distinction — `{"flags": []}` means audited and
+clean, an absent entry means not audited — held for zero documents this round: not one call
+returned a well-formed empty list. Any report that cites `documents_with_no_flags` without the
+malformed count beside it is stating the opposite of what happened.
+
 ---
 
 ## 7. Data
