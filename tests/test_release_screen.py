@@ -697,6 +697,142 @@ def test_unprefixed_ids_are_screened_too():
     assert rs.rule_id_findings("  - rule_id: doctor_prefix\n") == []
 
 
+# ─── proposed vocabulary entries (DESIGN §6.1, option 3) ───────────────────
+#
+# Four widenings in, three of them made with `test_every_current_false_positive_is_covered`
+# failing and the mutation harness refusing to run on a red baseline. The proposal lines
+# exist so the reviewer judges a category instead of reconstructing one from a count. What
+# these tests pin is the part that is easy to lose: it is off by default, because an
+# unrecognised token is the best candidate in the file for being a surface form and
+# `sniff()`'s message reaches CI logs.
+
+_PROPOSE_FILE = ("rules:\n"
+                 "  - rule_id: es:hospital_org\n"
+                 "  - rule_id: es:zzqq_widget_cue\n"
+                 "  - rule_id: es:widget_pattern\n")
+
+
+def test_a_proposal_names_the_token_and_the_rule_it_came_from():
+    """The two things the reviewer needs: which word, and what reached for it."""
+    got = rs.rule_id_proposals(_PROPOSE_FILE, "es")
+    assert got == [("zzqq", "es:zzqq_widget_cue"),
+                   ("widget", "es:zzqq_widget_cue"),
+                   ("widget", "es:widget_pattern")]
+
+
+def test_one_token_in_two_rules_is_two_proposals():
+    """Deduplicated on the pair, not on the token.
+
+    Which rule reached for a word is the evidence the category judgement runs on:
+    `widget` inside a `_cue` name and inside a `_pattern` name are different claims
+    about what box it belongs in. Collapsing to one line would throw that away, and
+    the collapse is the obvious tidying.
+    """
+    got = rs.rule_id_proposals(_PROPOSE_FILE, "es")
+    assert [t for t, _ in got].count("widget") == 2
+    dup = rs.rule_id_proposals("  - rule_id: es:widget_widget_cue\n", "es")
+    assert dup == [("widget", "es:widget_widget_cue")], (
+        "the same token twice in one rule is one proposal")
+
+
+@pytest.mark.parametrize("rule_id", [
+    "es:García",              # capitalised — a shape finding
+    "es:born_1978",           # a 3+ digit run
+    "ko:김철수",               # non-ASCII
+])
+def test_a_shape_finding_proposes_nothing(rule_id):
+    """A shape finding is about the id as a whole and has no offending token.
+
+    Proposing one would invite adding a capitalised surname to the vocabulary as
+    though it were a missing mechanism word, which is the one outcome this machinery
+    must not make convenient.
+    """
+    text = f"  - rule_id: {rule_id}\n"
+    assert rs.rule_id_findings(text, lang="es"), f"{rule_id} should be a finding"
+    assert rs.rule_id_proposals(text, "es") == []
+
+
+def test_every_proposed_token_is_genuinely_outside_all_three_homes():
+    """The proposal and the finding come from one computation (`_rule_id_scan`).
+
+    A second implementation of the lookup would drift, and the drift a reader would
+    not notice is a proposal for a token the check does not object to — an entry
+    added for nothing, widening the vocabulary on a misreading.
+    """
+    for token, _ in rs.rule_id_proposals(_PROPOSE_FILE, "es"):
+        low = token.lower()
+        assert low not in rs.RULE_ID_VOCAB
+        assert low not in rs.RULE_ID_ALLOWED_TOKENS
+        assert low not in rs.RULE_ID_VOCAB_BY_LANG["es"]
+        assert not rs.RULE_ID_CODE_TOKEN.match(low)
+
+
+def test_a_clean_file_proposes_nothing():
+    assert rs.rule_id_proposals("  - rule_id: es:hospital_org\n", "es") == []
+    assert rs.format_proposals("rules/es.yaml", "es", []) == []
+
+
+def test_the_proposal_respects_the_language_layer():
+    """`localidad` is Spanish vocabulary now, so it is a proposal only outside `es`.
+
+    The same property `rule_id_findings` has, asserted on the proposals because they
+    are what a reviewer acts on: proposing a token the file's own layer already holds
+    would send someone to add a duplicate entry.
+    """
+    text = "  - rule_id: localidad_cue\n"
+    assert rs.rule_id_proposals(text, "es") == []
+    assert rs.rule_id_proposals(text, "de") == [("localidad", "localidad_cue")]
+
+
+def test_proposals_are_off_by_default_and_printed_on_request(tmp_path):
+    """The correction option 3 needed, pinned at the CLI.
+
+    `sniff()` refuses to quote a `rule_id` because it may be a surface form and its
+    message reaches terminals and CI logs (CLAUDE.md). An unrecognised token is the
+    likeliest surface form in the file, so the proposal lines cannot be default
+    output. Both halves are asserted: silence without the flag, and the token itself
+    with it.
+    """
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    rules = tmp_path / "rules"
+    rules.mkdir()
+    (rules / "es.yaml").write_text(_PROPOSE_FILE, encoding="utf-8")
+    script = os.path.join(ROOT, "tools", "release_screen.py")
+    empty = tmp_path / "allow.json"
+    empty.write_text('{"version": 1, "entries": []}\n', encoding="utf-8")
+
+    def run(*extra):
+        return subprocess.run(
+            [sys.executable, script, "--root", str(tmp_path),
+             "--allowlist", str(empty), *extra],
+            capture_output=True, text=True).stdout
+
+    quiet = run()
+    assert "zzqq" not in quiet, "the default report quoted an unrecognised token"
+    assert "PROPOSED" not in quiet
+    loud = run("--propose")
+    assert "zzqq" in loud and "es:zzqq_widget_cue" in loud
+    assert "rules/es.yaml" in loud
+    # The banner is the reason the flag exists, so it is not optional decoration.
+    assert "CI log" in loud
+
+
+def test_propose_says_so_when_there_is_nothing_to_propose(tmp_path):
+    """Zero is a measurement. A section that vanishes reads as a section that failed."""
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    rules = tmp_path / "rules"
+    rules.mkdir()
+    (rules / "es.yaml").write_text("rules:\n  - rule_id: es:hospital_org\n",
+                                   encoding="utf-8")
+    empty = tmp_path / "allow.json"
+    empty.write_text('{"version": 1, "entries": []}\n', encoding="utf-8")
+    out = subprocess.run(
+        [sys.executable, os.path.join(ROOT, "tools", "release_screen.py"),
+         "--root", str(tmp_path), "--allowlist", str(empty), "--propose"],
+        capture_output=True, text=True).stdout
+    assert "nothing to propose" in out
+
+
 def test_real_fetch_scripts_are_clean_under_forced_sniff():
     """The committed acquisition scripts must survive the stricter sniff.
 

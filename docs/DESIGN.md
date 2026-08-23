@@ -2271,6 +2271,28 @@ rather than skipped because the guarantee is about the *assembled* name — `sal
 name), `alta` and `consulta` have all been in the set since the first widening for the same
 reason, and `barrio_lopez` is still refused, on `lopez`.
 
+**Option 3 is implemented in the commit after this one, and it needed a correction option 3
+did not anticipate.** As recorded above, the option was to have the screener "print a proposed
+vocabulary entry for each unrecognised token, with the file and rule it came from". That
+conflicts with a rule this file's own `sniff()` already follows and states in a comment: the
+`rule_id` is **not** quoted in the finding, because it may be the surface form itself and the
+message reaches terminals, CI logs and issues that nothing screens (CLAUDE.md). An
+unrecognised token is by construction the best candidate in the file for being a surname, so
+printing it by default would route the least screened value onto the least screened path — the
+option as written would have been a small leak channel added in the name of convenience. The
+resolution keeps both properties: `rule_id_proposals()` and `format_proposals()` compute the
+lines, and they are printed only under an explicit `--propose` whose banner says what the
+operator is about to read. The default output is byte-identical to before. Nothing the option
+was for is lost, because the reviewer who runs `--propose` is reading a rule file that is
+published by path anyway; what is kept is that the automatic pre-commit path stays quiet.
+
+**And it is implemented now rather than on the fifth occurrence.** The purpose is to make a
+widening cheap and visible *before* the next one, and an option chosen on the third occurrence,
+deferred on the fourth, would be a tool that arrives after every event it was meant to help
+with. Its own review is the paragraph above and the split diff: the vocabulary change and the
+proposal machinery are two commits, so the widening is still reviewable as its own diff and
+the new code is not hidden inside it.
+
 **Dirty working tree.** A sealed evaluation run with uncommitted changes produces a
 log row whose commit hash does not describe the code that ran. Three options were
 considered and the choice is: **refuse by default, `--allow-dirty` proceeds and

@@ -526,6 +526,24 @@ def rule_id_findings(text, lang=None):
         which language a file is in gets the English vocabulary, which is the behaviour
         this function had before the layer existed.
     """
+    return [(value, why) for value, why, _ in _rule_id_scan(text, lang)]
+
+
+def _rule_id_scan(text, lang=None):
+    """`(id, why, unknown_tokens)` per finding. The one place the check is computed.
+
+    Split out from `rule_id_findings()` so `rule_id_proposals()` can name the tokens
+    without a second implementation of the vocabulary lookup. A second implementation
+    is the failure mode this project has already met twice (DESIGN §5.3's one-writer
+    argument, and `_to_document()`'s refusal to re-derive the masker's arithmetic):
+    the two copies disagree first on whichever file nobody screened, and here that
+    disagreement would be a proposal for a token the check does not actually object to
+    — or worse, silence about one it does.
+
+    `unknown_tokens` is empty for every finding except the vocabulary one, because the
+    shape and length findings are about the id as a whole and have no offending token
+    to name.
+    """
     lang = (lang or "").strip().lower()
     extra = RULE_ID_VOCAB_BY_LANG.get(lang, frozenset()) if lang else frozenset()
     out = []
@@ -545,15 +563,15 @@ def rule_id_findings(text, lang=None):
         shape = next((why for pattern, why in RULE_ID_RULES
                       if pattern.search(body)), None)
         if shape:
-            out.append((value, shape))
+            out.append((value, shape, ()))
             continue
         if len(body) > RULE_ID_MAX_LEN:
             out.append((value, f"longer than {RULE_ID_MAX_LEN} characters — a "
-                               "mechanism description is short; a phrase is not"))
+                               "mechanism description is short; a phrase is not", ()))
             continue
         if len(parts) > RULE_ID_MAX_PARTS:
             out.append((value, f"more than {RULE_ID_MAX_PARTS} parts — that is a "
-                               "phrase rather than a name"))
+                               "phrase rather than a name", ()))
             continue
 
         # Then the vocabulary. This is the check that implements Prohibition 2's
@@ -568,8 +586,64 @@ def rule_id_findings(text, lang=None):
             out.append((value, f"{len(unknown)} token(s) outside the mechanism "
                                "vocabulary — a name assembled only from mechanism "
                                "words cannot designate an individual, which is why "
-                               "the check is a vocabulary and not a blacklist"))
+                               "the check is a vocabulary and not a blacklist",
+                        tuple(unknown)))
     return out
+
+
+#: Where a proposed entry goes, per token. The screener cannot decide the category —
+#: that judgement is the review — so it names the two homes and lets the reviewer pick.
+PROPOSAL_HOMES = (
+    "RULE_ID_VOCAB            (an English mechanism or structure word)",
+    f"RULE_ID_VOCAB_BY_LANG[{{lang!r}}]  (a clinical formula in that language)",
+    "RULE_ID_ALLOWED_TOKENS   (a national identifier-scheme abbreviation)",
+)
+
+
+def rule_id_proposals(text, lang=None):
+    """`(token, rule_id)` for every token the vocabulary did not recognise.
+
+    DESIGN §6.1's option 3, chosen on the third widening for the fourth: the reviewer's
+    job becomes judging a category rather than reconstructing one from a count. Three
+    widenings out of four were made under a red baseline with the mutation harness
+    refusing to run, and that is when a category is least well judged.
+
+    **This is not printed by default, and the reason is a conflict option 3 did not
+    notice.** As recorded, option 3 was to print the proposed entry "with the file and
+    rule it came from" — but `sniff()` deliberately does *not* quote the id, because it
+    may be the surface form itself and its message reaches terminals, CI logs and
+    issues where nothing screens it (CLAUDE.md). An unrecognised token is precisely the
+    candidate for being a surname, so printing it by default would put the least
+    screened value on the least screened path. The resolution keeps both properties:
+    the default output is unchanged, and the proposal lines are emitted only under an
+    explicit `--propose`, whose banner says what the operator is about to read. That
+    costs nothing the option was for — the reviewer reads the rule file anyway, which is
+    published by path — and it keeps the automatic path quiet.
+
+    Order is the file's, deduplicated on `(token, rule_id)`: one token in two rules is
+    two lines, because which rule reached for it is what the category judgement needs.
+    """
+    seen, out = set(), []
+    for value, _, unknown in _rule_id_scan(text, lang):
+        for token in unknown:
+            key = (token.lower(), value)
+            if key not in seen:
+                seen.add(key)
+                out.append((token, value))
+    return out
+
+
+def format_proposals(path, lang, proposals):
+    """The `--propose` lines for one file. Returns [] when there is nothing to propose."""
+    if not proposals:
+        return []
+    homes = [h.format(lang=lang or "?") for h in PROPOSAL_HOMES]
+    lines = [f"  {path}   (lang {lang or 'none'})"]
+    for token, rule_id in proposals:
+        lines.append(f'    "{token}",   # from rule_id {rule_id}')
+    lines.append("    choose one home per token:")
+    lines.extend(f"      - {h}" for h in homes)
+    return lines
 
 # ─── known false positives ──────────────────────────────────────────────────
 # Five files trip the content sniffer for reasons that are not note text, on every
@@ -939,6 +1013,11 @@ if __name__ == "__main__":
     ap.add_argument("--allowlist", default=None,
                     help="path to the known-false-positive list "
                          "(default: tools/screen_allowlist.json)")
+    ap.add_argument("--propose", action="store_true",
+                    help="for each rule_id token the vocabulary did not recognise, "
+                         "print a proposed entry with the rule it came from. QUOTES "
+                         "THE TOKEN AND THE ID: run it in a terminal you are willing "
+                         "to read a surface form in, never in CI.")
     a = ap.parse_args()
 
     # Before anything is screened. A rejected allowlist must not produce a report at
@@ -996,6 +1075,35 @@ if __name__ == "__main__":
     if unpublishable:
         print(f"   {len(unpublishable)} more are gitignored and cannot be published "
               "(machine-local config, editor settings).")
+
+    # DESIGN §6.1's option 3, and off unless asked for — see rule_id_proposals(). The
+    # files are taken from the suspect list rather than by re-walking the tree: a
+    # vocabulary finding is what put a rule file there, so the list already names every
+    # file with something to propose, and re-walking would be a second traversal that
+    # could disagree with the one the report was computed from.
+    if a.propose:
+        blocks = []
+        for p, why in sorted(suspect):
+            if not why.startswith("rule_id shape"):
+                continue
+            lang = rule_file_lang(p)
+            try:
+                text = open(os.path.join(a.root, p), "rb").read(400_000).decode(
+                    "utf-8", "ignore")
+            except OSError:
+                continue
+            blocks.extend(format_proposals(p, lang, rule_id_proposals(text, lang)))
+        print("\nPROPOSED VOCABULARY ENTRIES (--propose)")
+        print("   These lines quote the token and the rule_id. An unrecognised token is "
+              "the\n   best candidate for being a surface form, so this output does not "
+              "belong in a\n   CI log, an issue or a paste. It is here because judging a "
+              "category is cheaper\n   than reconstructing one, and every widening so "
+              "far was judged under a red suite.")
+        if blocks:
+            for line in blocks:
+                print(line)
+        else:
+            print("   nothing to propose — no rule file has an unrecognised token.")
 
     # A list nobody prunes eventually permits something by accident, and a renamed
     # file loses its exemption silently — the hit reappears as unexpected under the

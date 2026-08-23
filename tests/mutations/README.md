@@ -160,7 +160,7 @@ wrong, so that way gets a mutation.
 | `sealed_exempt_from_exit_code` | `if blocked or suspect` becomes `if suspect` | the exit status stops depending on BLOCKED. Its own mutation because the SEALED change moved exactly this line's meaning — SEALED must not affect the exit code and BLOCKED must, and one edit could get the first half right and the second half wrong | **1** |
 | `allowlist_may_name_corpus_paths` | `load_allowlist` stops refusing entries under `data/` and `sealed/` | the allowlist's one hard limit. `deny(p)` below still covers most corpus paths, so the edit looks harmless until `data/README.md` — the single file published out of a denied prefix, and therefore not denied. With this, a four-line JSON entry silences the content sniffer on a file inside the corpus tree | **1** |
 | `filled_prompt_paths_allowed` | the `prompts/(filled|rendered)/` deny pattern stops matching | a filled RuleAuthor prompt at `prompts/filled/iter03.md` — carrying the ±120-character context of every sampled dev error — reads as an ordinary file under `prompts/`, an ALLOW_HINTS prefix. Not merely unblocked: reported clean | **4** |
-| `rule_id_vocabulary_not_checked` | the mechanism-vocabulary check in `rule_id_findings` is removed, leaving the shape rules | the screener returns to its first version, which passes every legitimate name and also passes `es:perez_ruiz` — a surname published through `metrics.json`'s `by_rule` block, which is on the *allow* list | **20** |
+| `rule_id_vocabulary_not_checked` | the mechanism-vocabulary check in `rule_id_findings` is removed, leaving the shape rules | the screener returns to its first version, which passes every legitimate name and also passes `es:perez_ruiz` — a surname published through `metrics.json`'s `by_rule` block, which is on the *allow* list | **24** (2026-08-23, was 20) |
 
 `allowlist_may_name_corpus_paths` is the same shape as the two rows above it: a mechanism added to *reduce*
 noise, mutated at the point where reducing noise turns into suppressing the signal.
@@ -205,6 +205,15 @@ a positive mechanism vocabulary, because a name assembled only from mechanism wo
 *cannot* designate an individual. The mutation is the argument for that design, since it
 demonstrates that the natural alternative fails silently and in the direction that
 publishes a surname through `metrics.json`.
+
+Its count moved 20 → 24 on 2026-08-23, and the four are the `--propose` tests. That is the
+reading worth recording rather than the number: the proposal lines are computed from
+`_rule_id_scan`, the same pass the finding comes from, so deleting the vocabulary check
+silences the proposals too and the tests that name a token notice. Had the proposals been a
+second implementation of the lookup — the obvious way to write them — those four tests would
+still pass with the check gone, and the mutation's count would have held at 20 while the
+screener's own report and its proposal block disagreed about what the vocabulary contains.
+The rise is the evidence that the one-writer split did what it was for.
 
 ### The language layer: four mutations on a check that was wrong in the safe direction
 
@@ -358,7 +367,11 @@ out, and those are caught, not uncounted.
 1696-test suite run each, recorded in `docs/notes/mutation-full-runs.md` with the commit and
 the `TEST_FILES` list they are counts of. One date for all of them, stated here once, is a
 property worth having and a recent one: see §"Running all of it" for what it costs and when
-it is owed again.
+it is owed again. **One cell carries its own date**, and that is what the exception looks
+like: `rule_id_vocabulary_not_checked` was re-measured on 2026-08-23 under a 1706-test suite
+and rose, so the cell says so rather than sitting unmarked among counts it is not comparable
+to. The 2026-08-19 markers were retired because the minority became everyone (§"The first
+full run"); a minority of one is what they were for.
 
 **Counts recorded at different times are not comparable, because the denominator moved.**
 This paragraph used to name eleven files and 531 tests, which is what `TEST_FILES` held when
