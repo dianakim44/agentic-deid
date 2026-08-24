@@ -234,6 +234,17 @@ Rows below this line are machine-appended. Each is one run of the tool; none rep
 | eu-central-1 | `None` |
 | ap-northeast-2 | `None` |
 
+**Gate check 2026-08-24** (`tools/check_bedrock_logging.py`):
+
+| region | `loggingConfig` |
+|---|---|
+| us-east-1 | `None` |
+| us-east-2 | `None` |
+| us-west-2 | `None` |
+| eu-west-1 | `None` |
+| eu-central-1 | `None` |
+| ap-northeast-2 | `None` |
+
 ## 4. What still has to hold, beyond the serving path
 
 Bedrock being an acceptable path is necessary and not sufficient. The remaining
