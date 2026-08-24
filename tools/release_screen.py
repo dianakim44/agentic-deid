@@ -221,6 +221,25 @@ RULE_ID_KEY = re.compile(r"^\s*(?:-\s*)?rule_id\s*:\s*(.+?)\s*(?:#.*)?$", re.M)
 # 이것이 Prohibition 2 의 기준(임상 상용구 허용 / 개인 지목 금지)을 상관관계가
 # 아니라 성질로 구현하는 유일한 방법이다.
 #
+# **기제와 내용 — 확장을 판정하는 기준이고, 세 집합 전부에 적용된다 (2026-08-24).**
+# `rule_id` 는 규칙이 **무엇으로 작동하는지** 이름 짓는다. 무엇을 담는지가 아니다.
+# 내용은 `terms` 목록과 `pattern` 안에 있고 이름에는 없다. `spanish_city_gaz` 는
+# 기제 이름이고 `madrid_gaz` 는 내용 이름이다 — 두 규칙은 같은 사전을 가질 수 있고,
+# 다른 것은 이름이 사전의 *구성 원리*를 말하는지 사전의 *한 항목*을 말하는지다.
+#
+# **왜 "개인을 지목하는가" 만으로는 부족한가.** 그 기준만 쓰면 지명이 통과한다 —
+# `madrid` 도 `espana` 도 개인을 지목하지 않는다. 그러면 어휘는 "사람 이름이 아닌 것
+# 전부" 로 번져 나가고, 이 검사가 실제로 막고 있는 것(성씨가 이름을 타고 들어오는 것)
+# 의 경계가 사라진다. 범주 이름은 이미 여기 있다 (`city`·`town`·`province`·`region`·
+# `country`); 그 범주의 **한 원소**를 요구하는 이름은 기제를 다 서술하지 못했다는
+# 표시이므로, 어휘를 넓히는 것이 아니라 이름을 고치는 것이 답이다.
+#
+# 두 기준은 순서대로 적용된다: 내용 이름이면 기각하고, 기제 이름이면 그 다음에
+# 개인 지목 여부를 본다. 아래 언어층 머리말의 배제 범주 2번(`calle` 는 거리의
+# 종류이고 거리 이름이 아니다)과 네 번째 확장의 `institute`/`Instituto Cajal` 이
+# 이 기준의 두 사례이고, 이 문단은 그 둘을 언어층·기관 범주에서 일반 기준으로
+# 올린 것이다. 판정 기록은 DESIGN §6.1 의 여섯 번째 확장 항목에 있다.
+#
 # 어휘는 영어·구조 용어이고 코퍼스 텍스트가 아니므로 커밋해도 안전하다.
 # 목록에 없는 낱말이 필요하면 여기 추가한다 — naming.yaml 이 모든 축 값에 이미
 # 부과하는 것과 같은 비용이고, 누군가 이의를 제기할 수 있는 diff 가 된다.
@@ -338,6 +357,20 @@ RULE_ID_VOCAB = {
     "location", "area", "id", "other", "tagger",
     "parenthetical", "parenthesised", "parenthesized", "bracketed", "quoted",
     "unquoted", "enclosed", "wrapped", "prefixed", "suffixed", "delimited",
+    # 2026-08-24, 여섯 번째 확장. 한 범주이고 **없던 칸**이다. 네 토큰이 제안되었고
+    # 둘은 기각되었다 (`viena`·`espana` — 내용 이름이다, 위 머리말과 DESIGN §6.1).
+    #
+    #   - **나이의 구간.** 어휘에는 나이의 **단위**만 있었다 (`age`·`year`·`month`·
+    #     `day` 와 복수형). `age_months_infant` 의 `infant` 는 단위가 아니라 그 단위로
+    #     나이를 적는 **구간**이고, 구간이 곧 패턴 계열이다 — 영아 나이는 개월로 적고
+    #     성인 나이는 연으로 적으므로, 구간을 말하는 것이 그 규칙의 기제를 말하는
+    #     것이다. `landline` 이 회선의 종류를 말해 `phone` 의 하위 기제를 서술하는
+    #     것과 같은 층위다. 칸을 만들고 채운다. 구간은 계급이고 원소가 아니므로 —
+    #     특정 나이는 내용이고 `infant` 는 범주다 — 위 기제/내용 기준을 통과하고,
+    #     어느 개인도 지목하지 않는다.
+    "infant", "neonate", "neonatal", "newborn", "perinatal", "gestational",
+    "paediatric", "pediatric", "juvenile", "adolescent", "adult", "elderly",
+    "geriatric",
 }
 #: 코드형 토큰. 국가별 식별자 약어와 자릿수 표기는 기제 어휘가 아니지만
 #: 규칙 이름에 정상적으로 나타난다 (`nhc_checksum`, `cp_5digit`).
@@ -455,6 +488,16 @@ RULE_ID_VOCAB_BY_LANG = {
         "evolucion", "tratamiento", "juicio", "clinico", "historia", "resumen",
         "epicrisis", "seguimiento", "derivacion", "interconsulta", "pruebas",
         "analitica", "medicacion",
+        # 2026-08-24, 여섯 번째 확장. `responsable` 이 걸렸고 (`responsable_clinico_cue`,
+        # 단서는 `Responsable clínico:` 라는 서식 표지), 이것은 **문서 상용구** 칸의 빈
+        # 자리다 — `firmado`·`atendido`·`remitido`·`derivado` 와 같은 범주이고 같은
+        # 형태(과거분사·역할 표지)다. `clinico` 는 다섯 번째 확장에서 이미 들어왔으므로
+        # 걸린 토큰은 하나뿐이었다. 걸린 낱말이 아니라 칸을 채운다: 문서에서 책임·요청·
+        # 확인의 주체를 지정하는 표지들. 이 낱말들은 규칙이 **무엇으로 창을 여는지**를
+        # 말하므로 기제 이름이고 (단서 자체가 기제다), 어느 개인도 지목하지 않는다.
+        "responsable", "encargado", "supervisor", "solicitante", "peticionario",
+        "informante", "referente", "autorizado", "validado", "revisado",
+        "emitido", "dirigido", "elaborado", "cumplimentado", "registrado",
         # 문법어. 복합 이름을 잇는다 (`atendido_por_cue`).
         "por", "del", "de", "la", "el", "los", "las", "en", "y",
     },
@@ -616,9 +659,10 @@ def _rule_id_scan(text, lang=None):
                    and not RULE_ID_CODE_TOKEN.match(p.lower())]
         if unknown:
             out.append((value, f"{len(unknown)} token(s) outside the mechanism "
-                               "vocabulary — a name assembled only from mechanism "
-                               "words cannot designate an individual, which is why "
-                               "the check is a vocabulary and not a blacklist",
+                               "vocabulary — a rule_id names what the rule works "
+                               "by, not what it contains; content belongs in terms "
+                               "and pattern, and a name built only from mechanism "
+                               "words cannot designate an individual",
                         tuple(unknown)))
     return out
 

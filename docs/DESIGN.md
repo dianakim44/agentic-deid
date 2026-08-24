@@ -738,6 +738,59 @@ instrument cannot resolve, and an arm capped at 8 with its last two at 0.15 was 
 mid-descent. `reason: ceiling` says the same thing about both. So the comparison is owed on every
 stop, and a stop is the one moment at which the arm's result becomes the thing that gets cited.
 
+#### Step or decay: the criterion for reading round 5, and why no second prediction is made — written 2026-08-24, before round 5 runs
+
+**No numeric prediction is made for round 5.** The clause above predicted rounds 4–8 from a
+geometric decay and round 4 came in at 0.033498 against 0.021386 predicted — 1.57× high, and the
+diagnosis (§7, this date) is that the functional form was wrong about the **kind** of move a round
+can make, not about its size: a layer that had covered nothing woke up and supplied 89% of the
+round. Re-fitting the same exponential to three points and predicting round 5 from it would fail
+for the identical reason, and it would fail *less visibly*, because a re-fit after one miss looks
+like it learned something. So what is fixed in advance instead is only the rule for classifying
+the round after it runs — which is the part that can be gamed by choosing it afterwards, and
+therefore the part that has to be written down first.
+
+**The criterion.** Let `L` be the round's net reduction in leaked spans (`fully_covered`,
+`modes.fully_covered.leak.leaked`), and let `t` be the `phi_type` with the largest reduction of
+its own `by_type.leaked`. Round 5 is a **step** if all three hold:
+
+- **S1 — concentration.** `t`'s reduction is ≥ 50% of `L`.
+- **S2 — novelty.** Some layer `ℓ` has `complementarity.by_type[t].layers.covered[ℓ]` in round 4
+  at ≤ 10% of its round-5 value. Written as `prev ≤ 0.1 × now` rather than as a ratio so that
+  `0 → n` is included rather than undefined.
+- **S3 — sufficiency.** That same `ℓ`'s round-5 covered count within `t` is ≥ `t`'s reduction.
+  Without this a layer contributing three spans could claim a hundred-span gain.
+
+If S1 holds but S2 or S3 does not, the round is a **decay**: the gain came from mechanisms that
+were already contributing. If S1 does not hold, the round is a **decay** by dispersion — no single
+type carried it. If `L ≤ 0`, or if `t`'s share falls in 45–55%, the round is **unclassifiable**
+and is reported as that. A binary that always answers is a binary that answers when it shouldn't.
+
+**Calibrated against the three transitions that already exist, which is the only reason to trust
+the thresholds at all.** Applying it backwards: round 2 → decay (top type `NAME`, share 0.346, S1
+fails); round 3 → decay (top type `ID`, share 0.516, S1 **passes**, S2 fails because
+`regex_checksum` went 180 → 394 and was already active); round 4 → **step** (top type
+`LOCATION_AREA`, share 0.892, `gazetteer` 0 → 284 with 284 ≥ 157). Two decays and one step, and
+the one step is the round independently diagnosed as one before this criterion was written.
+
+**The load-bearing condition is S2, not S1, and this is worth stating because the 50% threshold
+looks like the substance.** Round 3 clears S1 and round 4's margin over it is enormous, so
+concentration on its own separates nothing — it is novelty that does the work. That also means the
+45–55% abstention band is a guard on the weakest condition rather than on the decisive one, and a
+round rejected only by S1 while passing S2 and S3 should be reported with all three values shown
+rather than filed as a decay on a single number.
+
+**This classification is orthogonal to the variance band and does not replace it.** A step can be
+smaller than 0.0361 and a decay can be larger; round 4 was a step whose gain was inside the band
+(0.928×). Both readings are owed on every round: whether the gain is resolvable by the instrument,
+and whether it came from a new mechanism or an old one. Neither answers the other, and the
+termination rule reads neither — it reads the first difference and nothing else.
+
+**What may not happen after round 5 runs.** These three conditions and the two thresholds are not
+revised in light of round 5's numbers. If round 5 comes out unclassifiable, that is the recorded
+outcome and not an occasion to move a boundary; if the criterion turns out to be the wrong
+instrument, the finding is recorded and a replacement is written before round 6, in that order.
+
 ### Span provenance
 
 Every detected span carries **layer · detector · rule ID · score**.
@@ -2458,6 +2511,90 @@ touched, section headings and enclosure forms, are not axes and remain open, whi
 honest state: the class that could be closed was closed, and the classes that cannot be are
 still one observation at a time.
 
+#### Sixth widening (2026-08-24, `port-loop` round 4) — two of four tokens are rejected, and the criterion that rejects them is now written down
+
+Four tokens were proposed and **two were admitted**: `responsable` into the Spanish layer,
+`infant` into the English mechanism vocabulary. `viena` and `espana` were **refused**. This is
+the first widening that refuses anything, and the refusal is the substance of the entry — the
+two admissions are ordinary category-filling of the kind the four preceding entries describe.
+
+**The criterion, stated generally for the first time.** A `rule_id` names **what the rule works
+by**, not what it contains. Content lives in the `terms` list and inside `pattern`; it does not
+live in the name. `spanish_city_gaz` is a mechanism name and `madrid_gaz` is a content name, and
+the two rules can hold the identical gazetteer — what differs is whether the name states the
+list's *organising principle* or one of its *members*.
+
+**Why the criterion the check already had is not enough.** That criterion is "can the assembled
+name designate an individual", and under it a place name passes: neither `madrid` nor `espana`
+designates a person. Admit them and the vocabulary drifts towards "everything that is not a
+person's name", which dissolves the boundary the check actually defends — a surname entering the
+repository through a rule name. The category words are already present (`city`, `town`,
+`province`, `region`, `country`, and in the Spanish layer `ciudad`, `pais`, `provincia`,
+`localidad`, `municipio`); a name that needs a *member* of one of those categories is evidence
+that the name failed to describe the mechanism, so the repair is to the name and not to the
+vocabulary. The two criteria are ordered: content name → refuse; mechanism name → then ask
+whether it can designate an individual.
+
+Both refused tokens illustrate that the repair costs nothing. `date_viena_pattern` matches a
+city name followed by a four-digit year, so its mechanism name is `city_year_pattern` and every
+token of that is already admitted. `pais_espana`'s cue is the label `País:` — the rule **never
+matches `España` at all**, so the content name is not merely prohibited, it is inaccurate about
+the rule it names. Its mechanism name is `pais_cue`, and `pais` has been admitted since the
+fourth widening. Neither refusal asks the model for a vocabulary it does not have.
+
+**Which of the five preceding widenings this reverses: none.** The audit was run token by token
+against the new axis and no admitted entry is a content name. Four findings are worth recording
+because three of them are the distinction already being applied locally, under other names:
+
+- **The distinction is not new; its scope was.** The Spanish layer's header has excluded place
+  names since the first widening, and argues it in exactly this form — `calle` is a *kind* of
+  street and not a street's name, `centro`/`salud` are kinds of institution and not one
+  institution. The fourth widening wrote `institute` 는 기관의 종류이고 `Instituto Cajal` 은
+  기관의 이름이다. `RULE_ID_ALLOWED_TOKENS` closes with "an abbreviation names the scheme, and
+  the number it abbreviates never appears in a rule name". Three statements of the same rule, each
+  scoped to the category that provoked it. This entry promotes them to the general criterion and
+  changes no admission.
+- **Three admissions keep their place but lose their recorded reason.** The language names
+  (`spanish`, `catalan`, `german`, `korean`, `english`, first widening) and `iso` (third) were
+  each argued on "개인을 지목할 수 없다" alone — the criterion this entry demotes to second.
+  Both survive re-argument on mechanism grounds: a language name states which lexicon the pattern
+  is written against, and `iso` states which ordering-and-delimiter convention it follows. Both
+  are properties of the mechanism, and neither is a member of the class it names — `spanish` is
+  not a Spanish month, `iso` is not a date. `roman`, in the original set and so not from any
+  widening, is the same case. **Re-argument, not reversal**: nothing moves, and what is wrong is
+  a comment rather than a set.
+- **`nhs` and `nuhsa` are where the distinction will be misapplied.** They derive from an
+  institution and a region respectively, so a reader holding only the new axis will reach to pull
+  them. They stay: the token names an identifier *scheme*, a scheme is a validation procedure, and
+  a validation procedure is the mechanism. The set already says so.
+- **One structural collision, currently latent.**
+  `test_every_phi_type_and_layer_token_is_in_the_vocabulary` admits tokens by axis membership,
+  which is a *different* warrant from the mechanism/content judgement. Every current `phi_type`
+  and `layer` value is a category name, so the two agree today; a future axis value that is not
+  would be forced into the vocabulary by the test, over this criterion. Recorded rather than
+  fixed — the fifth widening's argument for closing that category is that axis values are
+  categories *by definition*, and if that ever stops holding the axis is the thing to fix.
+
+Per instruction nothing on that list was changed, here or in the screener.
+
+**The screener stays red on this arm, and that is an observation rather than a defect.** After
+the widening, `iter4/es.yaml` still reports two `rule_id` findings and will keep reporting them
+for as long as the file exists. Nothing is broken: the model named two rules by their content,
+the check caught both, and the check is correct to refuse. `BLOCKED` is 0 and `SUSPECT` does not
+stop a commit (CLAUDE.md), so the red is visible without being load-bearing. What it records is
+the first case of the vocabulary being used as designed — four proposals, two categories filled,
+two refusals — instead of as a list that grows to whatever arrived.
+
+**And it cannot be fixed in this arm.** The place to teach the model this distinction is
+Prohibition 2 in `docs/prompts/rule_author.md`, which is a frozen window file for
+`R / sup-free / port-loop` (§6.3) — editing it changes the bytes of every subsequent call and
+makes rounds 5+ a different arm from rounds 1–4. That is the same constraint recorded above for
+why the vocabulary must not be bound into the prompt, arriving from the other direction. So the
+criterion goes into the screener and into this section, `window_drift` stays clean, and the arm
+finishes with a prompt that does not contain the rule its own output motivated. The prompt edit
+belongs to the next arm, and until it is made, this refusal is enforced after the fact rather
+than requested in advance.
+
 **Dirty working tree.** A sealed evaluation run with uncommitted changes produces a
 log row whose commit hash does not describe the code that ran. Three options were
 considered and the choice is: **refuse by default, `--allow-dirty` proceeds and
@@ -2854,6 +2991,53 @@ give a per-layer complementarity breakdown, and the four values there are exactl
 the four rows of the table above. §5 is left as it is: the rules/tagger breakdown
 stays the headline decomposition, and the per-layer view is an additional cut over
 the same detections, not a replacement.
+
+#### The instrument's first load-bearing use, and what it showed the layer table assumes — 2026-08-24, `port-loop` round 4
+
+The per-layer cut above had never carried a result. Round 4 is the first time it did, and it is
+recorded here rather than in §3 because what it revealed is a gap in *this* section's table.
+
+**Attribution works, and it works through the `layer` field rather than through the type table.**
+Checked directly rather than assumed: all 5986 predicted spans in `iter4/spans.jsonl` carry a
+`layer` value, none is missing, and `modes.*.complementarity.layers.covered` aggregates them —
+so the figures below are the provenance field of §3 grouped, not a per-type table read sideways.
+
+| covered (`fully_covered`) | round 1 | round 2 | round 3 | round 4 |
+|---|---|---|---|---|
+| `context_cue` | 1167 | 1692 | 1879 | 1994 |
+| `regex_checksum` | 1203 | 1949 | 2357 | **2324** |
+| `gazetteer` | 0 | 0 | 19 | **317** |
+| `tagger` | 0 | 0 | 0 | 0 |
+
+**A layer silent for three rounds supplied the fourth round's result.** Within
+`LOCATION_AREA` the gazetteer covered 0, 0, 0 and then **284**; the arm's leaked count fell
+1201 → 1025 (−176) and `LOCATION_AREA` alone fell 521 → 364 (−157), so **89% of round 4's entire
+improvement is one type, reached by a layer that had contributed nothing to it before.** Two
+things must be kept apart here: the gazetteer *supplied* 284 covered spans, and the net new
+coverage was 157 (`rules_only` 813 → 970). The merge is a union, so a layer's supply and its
+contribution differ by exactly the overlap — and `regex_checksum` fell in the same round, 2357 →
+2324 overall and 586 → 544 within `LOCATION_AREA`, which is that overlap made visible. Reporting
+284 as the gain would double-count; reporting 157 as the supply would hide that a dormant layer
+woke up.
+
+**This is not a test of the prediction above, and calling it one would be the easy mistake.** The
+prediction is about what happens when *realisation* falls — a note-type or language contrast.
+Round 4 holds corpus, fold and language fixed and varies only the rule file. What it tests is the
+instrument: that the four rows exist, are populated from provenance, and disagree with the
+aggregate. They do — the rules/tagger dichotomy of §5 records round 4 as `rules_only` rising and
+nothing else, which is true and says nothing about a gazetteer replacing regex coverage.
+
+**What it does refute is a presupposition of the table.** The four rows are graded by sensitivity
+to realisation, and `gazetteer` is graded **none**. That grading silently assumes the layer is
+populated: a layer at 0 spans has no sensitivity to measure, and in this arm three of four rounds
+had `gazetteer` ≈ 0 while `tagger` was 0 throughout. **Whether a layer is available at all is
+decided by the rule author, not by the corpus** — which is a second axis the table does not have,
+and it sits upstream of both of the hypothesis's factors. A note-type contrast run against an arm
+whose author happened not to write a gazetteer would report "gazetteer recall approximately flat"
+and be reading a flat line at zero. The prediction therefore needs a precondition attached: it is
+testable only across arms whose rule files populate the layer being compared, and per-layer
+availability has to be reported alongside the per-layer recall, not assumed from the fact that the
+row exists. Two of the four rows in this arm currently fail that precondition.
 
 The consequence for corpus selection is that **a language is an interval, not a
 point.** English spans nearly the whole range on its own. German's interval is
