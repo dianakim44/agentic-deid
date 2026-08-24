@@ -2293,6 +2293,60 @@ with. Its own review is the paragraph above and the split diff: the vocabulary c
 proposal machinery are two commits, so the widening is still reviewable as its own diff and
 the new code is not hidden inside it.
 
+#### Fifth widening (2026-08-23, `port-loop` round 3) — the mechanism worked, and one of the three categories should not have been a category at all
+
+Three tokens, `motivo`, `parenthetical` and `location`, and this is the first widening whose
+tokens were not reconstructed by hand: `--propose`, committed one commit before round 3 ran,
+printed all three with the rules that reached for them on its first live use. That is the
+whole return on option 3, and it is worth stating plainly because the four preceding widenings
+each cost a manual reconstruction from a count and were each judged under a red suite. No
+prediction was made about this widening and so none was missed — the abstention recorded above
+held, and what follows is a description rather than a scoring.
+
+**Two of the three are ordinary, and the third is a missing invariant wearing a category's
+clothes.** `motivo` is an empty slot in an open box: the Spanish layer already held `ingreso`,
+`alta`, `consulta` and `informe`, which are clinical-note *section headings*, and a section
+heading is where a rule decides to put its window. `parenthetical` is the same shape as the
+fourth widening's derivational pairs, in the direction the third widening's rejected option 1
+was aimed at — `paren` was already in the set, and the word for the *form* produced by that
+delimiter was not. Option 1's normalisation would have caught this token and would still not
+have caught `ncol` or `cipa`, which is the same verdict as before with one more data point
+rather than a reason to revisit it.
+
+**`location` is different, and the difference is that no observation was needed.** It is a
+value of this project's own `phi_type` axis in `config/naming.yaml`, as are `area`, `id` and
+`other`; `tagger` is the one remaining value of the `layer` axis. An axis value is a category
+*this repository defined*, a category name designates a class rather than a member, and a rule
+author naming the type a rule targets is doing the ordinary thing (`en_location_cue`). So these
+words were never candidates for exclusion, and their absence was an oversight rather than a
+judgement — demonstrably so: `gaz` was admitted on 2026-08-12 with "it is also a `layer` axis
+value" as part of the argument. The right argument was already written down and was applied to
+one word instead of to the axis.
+
+**The response is therefore not a longer list.**
+`test_every_phi_type_and_layer_token_is_in_the_vocabulary` reads both axes from
+`naming.yaml` and requires every token, so adding a `phi_type` or a `layer` fails the suite
+until the vocabulary follows in the same commit. This closes the category rather than filling
+it: there is no sixth widening of this kind. The two axes are named explicitly and the other
+six are not — `corpus`, `detector`, `porting`, `split`, `supervision` and `lang` name the
+experiment rather than what a rule does, they do not appear in rule names, and admitting them
+would put `es-meddocan` in the mechanism vocabulary for nothing.
+
+The screener stays dependency-free (stdlib only, because it runs before every commit), so the
+invariant lives in the test rather than in a `naming.yaml` read inside `release_screen.py`.
+That is the same trade as `RULE_ID_VOCAB_BY_LANG` keying on the file path rather than on the
+id prefix: the check itself stays cheap and the thing that could drift is pinned by a test.
+
+**What this says about the four widenings before it.** Three of the five have now produced a
+token that was a generic of kinds already present — `contact` (third), `org` (fourth),
+`location` (fifth) — and in the fifth case the generic was sitting in `naming.yaml` the whole
+time. The pattern is not "the vocabulary is short of words" but "the vocabulary was assembled
+from kinds and the names of the kinds' categories were left out". `phi_type` and `layer` are
+the two axes where that omission is now impossible. The other two categories this widening
+touched, section headings and enclosure forms, are not axes and remain open, which is the
+honest state: the class that could be closed was closed, and the classes that cannot be are
+still one observation at a time.
+
 **Dirty working tree.** A sealed evaluation run with uncommitted changes produces a
 log row whose commit hash does not describe the code that ran. Three options were
 considered and the choice is: **refuse by default, `--allow-dirty` proceeds and

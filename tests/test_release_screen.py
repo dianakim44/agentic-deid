@@ -697,6 +697,45 @@ def test_unprefixed_ids_are_screened_too():
     assert rs.rule_id_findings("  - rule_id: doctor_prefix\n") == []
 
 
+# ─── the axis words are in the vocabulary by definition ────────────────────
+
+def test_every_phi_type_and_layer_token_is_in_the_vocabulary():
+    """`naming.yaml`'s own category names cannot be outside the mechanism vocabulary.
+
+    This is an invariant rather than a list, and it exists because the list version
+    failed twice. `gaz` was admitted on 2026-08-12 partly on the grounds that it is
+    also a `layer` axis value — the right argument, applied to one word. `tagger`, the
+    remaining `layer` value, stayed out; so did `location`, `area`, `id` and `other`
+    from `phi_type`, until `en_location_cue` tripped the screener in `port-loop` round 3
+    and made it the fifth widening (DESIGN §6.1).
+
+    The argument does not depend on observing a rule name. An axis value is a category
+    this project defined, a category name designates a class and not a member, and a
+    rule author naming the type a rule targets is doing the ordinary thing. So the
+    whole class closes here: add a `phi_type` or a `layer` and this fails until the
+    vocabulary follows in the same commit.
+
+    Only these two axes. `corpus`, `detector`, `porting`, `split`, `supervision` and
+    `lang` name the experiment rather than what a rule does, they never appear in a rule
+    name, and admitting them would put `es-meddocan` in the vocabulary for nothing.
+    """
+    sys.path.insert(0, ROOT)
+    from src.corpora import base
+
+    tokens = set()
+    for name in ("phi_type", "layer"):
+        values = base.axis(name)
+        assert values, f"{name} axis is empty — naming.yaml did not load"
+        for value in values:
+            tokens.update(str(value).lower().split("_"))
+
+    missing = sorted(t for t in tokens if t not in rs.RULE_ID_VOCAB)
+    assert not missing, (
+        f"phi_type/layer tokens outside RULE_ID_VOCAB: {missing}. These are "
+        "naming.yaml's own category names; add them to the vocabulary in the same "
+        "commit that adds the axis value.")
+
+
 # ─── proposed vocabulary entries (DESIGN §6.1, option 3) ───────────────────
 #
 # Four widenings in, three of them made with `test_every_current_false_positive_is_covered`

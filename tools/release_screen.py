@@ -315,6 +315,29 @@ RULE_ID_VOCAB = {
     "leading", "trailing",
     "standalone", "alone", "bare", "isolated", "freestanding", "inline",
     "anchor", "anchored", "unanchored",
+    # 2026-08-23, 다섯 번째 확장. 두 범주이고, 첫째는 **범주가 아니라 누락된 불변식**이다.
+    #
+    #   - **`config/naming.yaml` 의 `phi_type`·`layer` 축 값.** `location`·`area`·`id`·
+    #     `other`·`tagger` 가 빠져 있었다. 이것들이 여기 있어야 하는 이유는 관찰이
+    #     아니라 정의다 — 축 값은 이 프로젝트가 스스로 정한 **범주 이름**이고, 범주
+    #     이름은 개인을 지목할 수 없다. 규칙 작성자가 규칙의 대상 유형을 이름에 쓰는
+    #     것은 자연스럽고(`en_location_cue`), `gaz` 를 넣을 때 이미 "layer 축의 값
+    #     이름이기도 하다" 를 근거로 든 바 있다. 그때 낱말 하나만 넣고 축 전체를
+    #     보지 않은 것이 이 확장의 원인이다. 그래서 이번에는 목록이 아니라 불변식으로
+    #     닫는다: `test_every_phi_type_and_layer_token_is_in_the_vocabulary` 가
+    #     naming.yaml 의 두 축을 읽어 전량을 요구하므로, 축에 값이 추가되면 어휘도
+    #     같은 변경에서 따라오거나 스위트가 빨개진다. 이 범주의 여섯 번째 확장은 없다.
+    #   - **성분을 무엇으로 둘러쌌는가.** `paren`·`bracket`·`quote` 는 구분자 *문자*
+    #     이고, 그 문자로 감싼 **형태**를 부르는 낱말이 없었다 — `parenthetical_country`
+    #     의 `parenthetical` 이 그것이다. `paren` 이 이미 있으므로 이것은 같은 칸의
+    #     파생형이고, 세 번째 확장에서 기각된 option 1(정규화)이 잡았을 두 번째
+    #     토큰이다 (DESIGN §6.1). 칸을 채운다: 감싼 형태(`parenthetical`·
+    #     `parenthesised`·`parenthesized`·`bracketed`·`quoted`·`unquoted`·`enclosed`·
+    #     `wrapped`), 그리고 이미 있는 `prefix`·`suffix`·`delimiter` 의 분사형
+    #     (`prefixed`·`suffixed`·`delimited`).
+    "location", "area", "id", "other", "tagger",
+    "parenthetical", "parenthesised", "parenthesized", "bracketed", "quoted",
+    "unquoted", "enclosed", "wrapped", "prefixed", "suffixed", "delimited",
 }
 #: 코드형 토큰. 국가별 식별자 약어와 자릿수 표기는 기제 어휘가 아니지만
 #: 규칙 이름에 정상적으로 나타난다 (`nhc_checksum`, `cp_5digit`).
@@ -423,6 +446,15 @@ RULE_ID_VOCAB_BY_LANG = {
         "instituto", "institucion", "fundacion", "laboratorio", "farmacia",
         "consultorio", "residencia", "unidad", "departamento", "seccion",
         "planta", "sala", "urgencias", "mutua", "aseguradora", "organizacion",
+        # 2026-08-23, 다섯 번째 확장. `motivo` 가 걸렸고 (`motivo_ingreso_cue`),
+        # 이것은 임상 노트의 **절 제목**이라는 칸의 빈 자리다. 그 칸은 이미 열려
+        # 있었다 — `ingreso`·`alta`·`consulta`·`informe` 가 그것이고, MEDDOCAN 노트의
+        # 절 제목은 규칙이 창을 어디에 걸지 결정하는 가장 흔한 단서다. 걸린 한 낱말이
+        # 아니라 칸을 채운다. 절 제목은 서식의 일부이고 개인을 지목하지 않는다.
+        "motivo", "antecedentes", "anamnesis", "exploracion", "diagnostico",
+        "evolucion", "tratamiento", "juicio", "clinico", "historia", "resumen",
+        "epicrisis", "seguimiento", "derivacion", "interconsulta", "pruebas",
+        "analitica", "medicacion",
         # 문법어. 복합 이름을 잇는다 (`atendido_por_cue`).
         "por", "del", "de", "la", "el", "los", "las", "en", "y",
     },
