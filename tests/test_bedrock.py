@@ -31,7 +31,8 @@ sys.path.insert(0, str(ROOT))
 from src.corpora.base import CorpusError                          # noqa: E402
 from src.llm import bedrock as bedrock_module                     # noqa: E402
 from src.llm.bedrock import (                                     # noqa: E402
-    DATED, DEFAULT_MAX_TOKENS, MAX_ATTEMPTS, MISMATCH, MODEL_FIELD_PATHS, UNRESOLVED,
+    DATED, DEFAULT_MAX_TOKENS, MAX_ATTEMPTS, MISMATCH, MODEL_FIELD_PATHS,
+    READ_TIMEOUT_SECONDS, UNRESOLVED,
     BedrockError, Response, _reported_ttl, _resolution, _text, _usage, invoke,
 )
 from src.llm.prompt import CACHE_BOUNDARY, CACHE_TTL, FilledPrompt  # noqa: E402
@@ -594,8 +595,20 @@ def test_there_is_no_retry_parameter():
 
 def test_the_transport_is_pinned_to_one_attempt():
     """3 (botocore's default) would make three calls out of one, so `llm_calls` would
-    undercount and the cost column would be wrong."""
+    undercount and the cost column would be wrong.
+
+    This asserted only `MAX_ATTEMPTS == 1` until 2026-08-24 and so verified nothing about
+    the transport: the constant was correct and was being passed to botocore's
+    `max_attempts`, which counts retries *after* the initial request, so one call was
+    going out as up to two. A constant can be pinned, named and tested and still reach the
+    wrong key, which is why this now reads the client botocore actually built.
+    """
     assert MAX_ATTEMPTS == 1
+    client = bedrock_module._client("us-east-1")
+    assert client.meta.config.retries["total_max_attempts"] == 1, (
+        "the built client permits more than one HTTP attempt per call — check whether "
+        "MAX_ATTEMPTS is being passed as max_attempts (retries) instead of "
+        "total_max_attempts (total)")
 
 
 def test_the_client_builder_passes_the_pinned_attempts():
@@ -608,6 +621,31 @@ def test_the_client_builder_passes_the_pinned_attempts():
     numbers = [n.value for n in ast.walk(builder)
                if isinstance(n, ast.Constant) and isinstance(n.value, int)]
     assert not numbers, f"_client hardcodes {numbers} instead of naming the constant"
+
+
+def test_the_read_timeout_is_set_explicitly_and_not_inherited():
+    """botocore's default is 60s, and it ended `port-loop` round 5 four rounds short of
+    the pre-registered ceiling: the RuleAuthor call climbed 37.0 -> 56.1s over rounds 1-4
+    because each reply restates a larger rule file, then timed out twice at 60s. An
+    inherited default that bounds how many rounds an arm can run has to be a decision, so
+    the value is named and this test is what stops it going back to being absent."""
+    assert READ_TIMEOUT_SECONDS > 60, (
+        "the read timeout must exceed botocore's default, or setting it buys nothing")
+    fn = ast.parse(MODULE.read_text(encoding="utf-8"))
+    builder = next(n for n in ast.walk(fn)
+                   if isinstance(n, ast.FunctionDef) and n.name == "_client")
+    names = {n.id for n in ast.walk(builder) if isinstance(n, ast.Name)}
+    assert "READ_TIMEOUT_SECONDS" in names, "_client does not set a read timeout"
+    kwargs = {kw.arg for call in ast.walk(builder)
+              if isinstance(call, ast.Call) for kw in call.keywords if kw.arg}
+    assert "read_timeout" in kwargs, "the timeout constant is named but never passed"
+    # The control-plane client makes no inference and must not borrow this patience: a
+    # metadata call that hangs should fail fast. `_control_client` is checked separately
+    # for attempts, and the same separation applies here.
+    control = next(n for n in ast.walk(fn)
+                   if isinstance(n, ast.FunctionDef) and n.name == "_control_client")
+    control_names = {n.id for n in ast.walk(control) if isinstance(n, ast.Name)}
+    assert "READ_TIMEOUT_SECONDS" not in control_names
 
 
 def test_one_invoke_is_one_call():

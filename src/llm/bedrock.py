@@ -47,6 +47,43 @@ cost column would be wrong, and a throttled run would differ from an unthrottled
 the record does not show. One call is one call. A caller who wants a second one makes it, and
 it appears in the count.
 
+**And the pin did not do that until 2026-08-24, which is the more useful half of this
+paragraph.** The config said `retries={"max_attempts": 1}`, and botocore's `max_attempts`
+counts *retries on top of* the initial request — "setting this value to 2 will result in the
+request being retried at most two times after the initial request", its own documentation says,
+and 0 is what means no retries. So the setting that existed to stop one call becoming several
+permitted two, and `total_max_attempts` is the key that means what this module claims. The
+error was invisible in the only place anyone looked: `test_the_transport_is_pinned_to_one_attempt`
+asserted `MAX_ATTEMPTS == 1`, which is a fact about a constant and not about the transport. A
+number can be pinned, named, documented, tested and still be handed to the wrong key. The test
+now reads the built client's effective config instead.
+
+**What that means for the arms already run is not repairable and is therefore reported.** Every
+call before this date — all `port-oneshot` arms and `port-loop` rounds 1–5 — went out under a
+transport permitting 2 attempts. `llm_calls` counts calls the loop *made*, which is still
+correct as a count of intended inferences; what is not knowable is whether any of them were
+retried underneath, because a botocore retry leaves no trace in `agent_calls.jsonl`. So for
+those rounds the HTTP request count is a lower bound and the token figures may omit a retried
+attempt's share. No correction is possible after the fact, and inventing one would be worse
+than the gap.
+
+**The read timeout is set explicitly, and the reason it is worth a paragraph is that it was
+not.** The paragraph above reasons about `max_attempts` because 3 was the wrong default; the
+timeout sat at botocore's default of 60s and was never a decision at all, which is how it came
+to end an arm. `port-loop` round 5's RuleAuthor call timed out twice at 60s on 2026-08-24 after
+that call had taken 37.0s, 39.8s, 51.0s and 56.1s in rounds 1–4 — a monotone climb, because
+each round's prompt carries the previous rule file and each reply must restate it. So the
+transport's patience was a hidden ceiling on the number of rounds an arm could run, sitting
+below the pre-registered ceiling of 8 and invisible until it fired. With `MAX_ATTEMPTS = 1`
+there is no second chance: the timeout discarded the 250 Auditor calls the round had already
+paid for. `READ_TIMEOUT_SECONDS` carries the projection it was chosen against.
+
+The general lesson, which is why this is here and not only at the constant: **an inherited
+default is not a decision, and the ones that bound an experiment are worth finding before they
+fire.** `max_attempts` was audited because it would have corrupted a number that gets
+published. This one corrupted nothing and merely stopped the work, which is why nobody looked
+at it — and it still cost a round.
+
 **`model_id` is a required keyword argument with no default.** Every rung's model is passed
 from the top (`src/orchestrate.py`) so that A2's two-family comparison is a parameter and not
 a code path. A default here would be the one place the parameter could stop being one.
@@ -77,7 +114,35 @@ MODEL_FIELD_PATHS = ("/model",)
 
 #: Transport attempts. One, and named here so the reason is attached to the number
 #: rather than living in a config dict — see the module docstring.
+#:
+#: Passed as botocore's `total_max_attempts`, which counts the initial request, and *not*
+#: as `max_attempts`, which counts retries on top of it. That distinction was got wrong
+#: here until 2026-08-24: `retries={"max_attempts": 1}` permitted two HTTP attempts per
+#: call, which is the exact undercount the module docstring says the pin exists to
+#: prevent. `total_max_attempts=1` is what "one call is one call" actually spells.
 MAX_ATTEMPTS = 1
+
+#: How long a single `converse` may take to answer. Set explicitly because the value
+#: this replaces was botocore's inherited default of 60s, and that default ended a
+#: round: `port-loop` round 5's RuleAuthor call timed out twice at 60s on 2026-08-24,
+#: after the same call took 37.0s, 39.8s, 51.0s and 56.1s in rounds 1 through 4. The
+#: growth is structural rather than incidental — each round's §1.2 carries the previous
+#: round's whole rule file and the reply must restate it plus the new rules, so response
+#: size rises every round (7209 → 8738 → 10959 → 11985 chars) and generation time with
+#: it. A 60s ceiling therefore terminated the arm four rounds below its pre-registered
+#: ceiling of 8, for a reason that is a property of the transport and not of the loop.
+#:
+#: 300s is chosen against the projection rather than the observation: +6s per round
+#: from round 4 puts rounds 5–8 at roughly 62/68/74/80s, so this is about 4× the worst
+#: case an eight-round arm can reach. Generous on purpose and for the same reason
+#: `DEFAULT_MAX_TOKENS` is — with `MAX_ATTEMPTS = 1` a timeout is fatal to the round and
+#: costs the 250 Auditor calls already spent, so the asymmetry is total: too high wastes
+#: wall time on a call that was going to fail anyway, too low discards a round's work.
+#: The Auditor calls are nowhere near it (mean 4.3s, max 22.5s over 1000 calls).
+#:
+#: This is a change to the transport and not to the call: no prompt byte moves, so it is
+#: not a window file (§6.3) and rounds either side of it are the same arm.
+READ_TIMEOUT_SECONDS = 300
 
 #: Default output budget. Generous on purpose, and the reason is measured rather than
 #: guessed: reasoning tokens are drawn from this same budget (2026-08-08 — at
@@ -216,7 +281,13 @@ class Response:
 
 
 def _client(region: str | None):
-    """A `bedrock-runtime` client with transport retries pinned to one attempt.
+    """A `bedrock-runtime` client with retries pinned to one attempt and an explicit read timeout.
+
+    Both numbers are named constants because both defaults were wrong for this use in
+    opposite directions: botocore retries 3 times, which would make `llm_calls` lie, and
+    it waits 60s, which ended `port-loop` round 5 four rounds short of its ceiling. The
+    connect timeout is left at the default deliberately — an unreachable endpoint should
+    fail fast, and it is a different failure from a model that is still writing.
 
     `boto3` is imported here rather than at module scope so that importing this module —
     which the tests and the AST checks do — needs no AWS dependency at all.
@@ -227,7 +298,8 @@ def _client(region: str | None):
     return boto3.client(
         "bedrock-runtime",
         region_name=region,
-        config=Config(retries={"max_attempts": MAX_ATTEMPTS, "mode": "standard"}),
+        config=Config(retries={"total_max_attempts": MAX_ATTEMPTS, "mode": "standard"},
+                      read_timeout=READ_TIMEOUT_SECONDS),
     )
 
 

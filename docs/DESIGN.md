@@ -791,6 +791,60 @@ revised in light of round 5's numbers. If round 5 comes out unclassifiable, that
 outcome and not an occasion to move a boundary; if the criterion turns out to be the wrong
 instrument, the finding is recorded and a replacement is written before round 6, in that order.
 
+#### The ceiling of 8 was not reachable, and the thing that bounded it was a botocore default — found 2026-08-24, round 5's two failed attempts
+
+Round 5 was attempted twice and both attempts died in the same place: `ReadTimeoutError` on the
+single RuleAuthor call, after all 250 Auditor calls had completed. The cause is not a network
+fault, and the numbers say so — that call took **37.0s, 39.8s, 51.0s, 56.1s** in rounds 1 through
+4, against botocore's default `read_timeout` of **60s**.
+
+**The climb is structural, not incidental.** §1.2 of each round's prompt carries the previous
+round's entire rule file, and the prompt asks for a complete file rather than a patch, so every
+round's reply must restate everything before it and add to it. Response size went 7209 → 8738 →
+10959 → 11985 chars over four rounds. Generation time rises with it, monotonically, by
+construction of the loop. **So the transport's patience was a ceiling on the number of rounds an
+arm could run, and it sat at round 5 — three rounds below the pre-registered ceiling of 8.**
+
+**This is a result about the prediction written above, of a kind that prediction could not have.**
+That clause predicted `converged` at round 7 and listed gains for rounds 4 through 8. Rounds 6, 7
+and 8 were not reachable when it was written; it was predicting the behaviour of rounds the
+harness could not execute, and no amount of care about δ, k or the decay constant would have
+surfaced that, because the limit was in neither the rule nor the corpus. The termination rule
+itself is unaffected — it reads first differences and its ceiling is a policy about how many rounds
+*may* run, not a claim about how many *can*. What is affected is any reading of `reason: ceiling`
+as evidence that an arm was still improving at 8: an arm could equally have stopped at 5 with a
+traceback. There is now a third way for a loop to end, alongside `converged` and `ceiling`, and it
+is not in the `termination` block because it produces no metrics file at all.
+
+**The fix and its cost.** `READ_TIMEOUT_SECONDS = 300` is now set explicitly in
+`src/llm/bedrock.py`, chosen against the projection (+6s/round from round 4 puts rounds 5–8 near
+62/68/74/80s, so ~4× the worst case an eight-round arm reaches) rather than against the one
+observation. It is a transport change and not a call change — no prompt byte moves, the file is
+not in the window (§6.3), and rounds either side of it are the same arm. Each failed attempt cost
+**250 Auditor calls, 2,318,577 prompt tokens, 26,085 completion tokens, 980.6s** and produced
+nothing, and `run_iteration` computes a round's cost from its own in-process calls, so those two
+attempts appear in `agent_calls.jsonl` and in no `metrics.json`. The arm's published
+`cost_to_date` therefore understates true spend by two such attempts. Recorded here because
+CLAUDE.md makes cost a headline alongside quality, and a spend that produced nothing is exactly
+the figure a cost column is tempted to lose.
+
+**A second defect, found while fixing the first, and worse in kind.** `MAX_ATTEMPTS = 1` was being
+passed to botocore's `retries={"max_attempts": ...}`, which counts retries *after* the initial
+request — so the setting that exists to guarantee "one call is one call" was permitting **two**.
+The key that means what this project claims is `total_max_attempts`. The test that should have
+caught it asserted `MAX_ATTEMPTS == 1`, a fact about a constant rather than about the transport,
+and it passed throughout. **Every call in every arm run before this date went out under a
+transport permitting two HTTP attempts.** `llm_calls` remains a truthful count of the inferences
+the loop *intended*; what is unknowable is whether any were retried underneath, because a botocore
+retry leaves no line in `agent_calls.jsonl`. For those rounds the HTTP request count is a lower
+bound. No correction is possible after the fact and none is invented.
+
+**The generalisation worth keeping.** Both defects are inherited defaults meeting a documented
+intention that was never checked against behaviour. The retry pin was audited because it would
+corrupt a published number; the timeout was not audited because it corrupts nothing and merely
+stops the work — and it is the one that cost a round. **An inherited default is not a decision,
+and the defaults that bound an experiment are worth enumerating before one of them fires.**
+
 ### Span provenance
 
 Every detected span carries **layer · detector · rule ID · score**.
