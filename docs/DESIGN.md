@@ -859,6 +859,31 @@ spent and cannot be recovered. That is what `calls_unmeasured` counts — for ro
 2 — and it is why the four token and time totals in any such block are lower bounds whenever it is
 above zero.
 
+**Round 6's first attempt, and the gate that was wrong until it fired — 2026-08-24.** The first
+attempt at round 6 took a Bedrock `500 Internal Server Error` on Auditor call 123 of 250. Nothing
+retried it and nothing was supposed to: `total_max_attempts=1` is the pin above, and a botocore
+retry would make `llm_calls` a count of intentions rather than of requests. So the round died with
+122 calls paid for — 1,133,206 prompt tokens and 490.9 s — and re-running it is the recovery
+§5.5.2 sanctioned.
+
+What that exposed is that the new block's *gate* was the draw count, and the draw count counts
+**preserved audit reports**. An attempt that dies partway through the audit writes no report, so
+`next_draw` returned 1, `draws_before` was 0, and `abandoned_spend` came back `None` — publishing,
+under the absent-means-unrecorded convention, a round that looked untouched. Worse, it was
+undetectable in the file: absence is *defined* to carry no claim, so nothing about the record would
+have looked wrong. The gate is now the union of the two records — a preserved draw, **or** a logged
+line, is enough — and one consequence is worth stating plainly: `attempts_abandoned` is a **lower
+bound** where `calls_abandoned` is not. Two attempts that both die mid-audit still read 1, because
+nothing in the log marks where one attempt ended and the next began, and recovering the true count
+would mean dividing lines by the fan-out and assuming the fan-out never changed. A visible lower
+bound is preferred to an invisible guess; the exact count is in the `draw*/` listing and the round's
+lines in the call log, both of which a reader has.
+
+Round 6's abandoned spend therefore **is** recorded, in the round that finally scores — which is
+the difference from round 5's, two paragraphs up. Round 5's attempts predate the field and their
+figures stay in this document; round 6's attempt is contemporaneous with it, so the block is written
+by the first writer of that file rather than backfilled by a second.
+
 **The generalisation worth keeping.** Both defects are inherited defaults meeting a documented
 intention that was never checked against behaviour. The retry pin was audited because it would
 corrupt a published number; the timeout was not audited because it corrupts nothing and merely
@@ -2525,6 +2550,17 @@ that produced nothing cost". `metrics.json` schema 9's `abandoned_spend` block d
 the call log at the moment the attempt begins — see §3's clause on round 5's two failed attempts for
 the figures, for why round 5's own are not backfilled, and for the two of them that are
 unmeasurable rather than merely unrecorded.
+
+**The draw count is a record of completed audits, and not of spend — round 6 is the case that made
+the difference matter.** An attempt that dies partway through the audit writes no report, so it
+leaves no draw directory to number: `draw_index` stays 1 while the round has already paid for
+however many calls it got through. The block therefore gates on either record, a draw **or** a
+logged line, and `attempts_abandoned` is a lower bound in consequence (§3's round-6 clause states
+both the fix and the bound). Two things follow for the paragraph above. A re-run of a *scored* round
+is still detectable, because a scored round completed its audit and so does have a draw to number.
+And the plan `tools/run_loop.py` prints before any call is paid for shows the round's logged-call
+count whenever the two records disagree, since `draw 1` on its own would read as a round that had
+spent nothing.
 
 ---
 

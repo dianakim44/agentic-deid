@@ -197,10 +197,11 @@ def _abandoned_spend(corpus: str, detector: str, supervision: str, porting: str,
                      *, iteration: int, draws_before: int) -> dict | None:
     """What earlier, abandoned attempts at this round spent — `scorer.REQUIRED_ABANDONED`, or None.
 
-    `None` when this is the round's first attempt, which is how "nothing was abandoned" is
-    recorded (schema 9): the block is omitted rather than written as zeros, for the reason
-    `caching` is, and here the two states behind a zero would be "no attempt was abandoned" and
-    "an attempt was abandoned and cost nothing", the second of which cannot happen.
+    `None` only when this round has neither a preserved draw nor a logged call, which is how
+    "nothing was abandoned" is recorded (schema 9): the block is omitted rather than written as
+    zeros, for the reason `caching` is, and here the two states behind a zero would be "no attempt
+    was abandoned" and "an attempt was abandoned and cost nothing", the second of which cannot
+    happen.
 
     **Measured from the call log, which is the only place the number exists.** Every call the
     abandoned attempts completed wrote a line to `agent_calls.jsonl` with its own cost, and every
@@ -208,37 +209,56 @@ def _abandoned_spend(corpus: str, detector: str, supervision: str, porting: str,
     moment this attempt begins, are exactly the abandoned spend. Nothing is inferred from the
     draw count and nothing is inferred from the fan-out — the costs are read, one line at a time.
 
-    **`calls_unmeasured` is where the honesty is.** A call that died in transport wrote no line:
-    `append_call` runs after `invoke` returns, and a `ReadTimeoutError` means it never returned.
-    Worse, such a call has no usage report at all, so its prompt tokens were spent and can never
-    be recovered — this is DESIGN §3's HTTP-attempt limitation appearing as a hole in a different
-    record. What *can* be counted is how many attempts hit it: an abandoned attempt that got as
-    far as writing its audit draw and left no RuleAuthor line for this round is an attempt that
-    died on the RuleAuthor call. So `calls_unmeasured` is the draws already written minus the
-    RuleAuthor lines already logged, floored at zero, and the four token and time totals beside
-    it are lower bounds whenever it is above zero. `scorer.REQUIRED_ABANDONED` says so where the
-    block is validated, because that is where a reader of the schema looks.
+    **The draw count is not the gate, and this was got wrong until round 6 failed.** `draws_before`
+    counts *preserved audit reports*, and an attempt dies wherever it dies: round 6's first attempt
+    took a Bedrock 500 on auditor call 123 of 250, so it left 122 logged calls and no draw
+    directory at all. Gating on `draws_before < 1` therefore returned `None` for a round that had
+    already spent 122 calls, which is the silent disappearance this block exists to prevent — and
+    it would have been *undetectable* in the published file, because absence is defined to mean
+    unrecorded. The gate is the union of the two records: a draw, or a line, is enough.
+
+    **So `attempts_abandoned` is a lower bound and `calls_abandoned` is not.** The two are sourced
+    differently on purpose. `calls_abandoned` sums the lines themselves and cannot undercount what
+    was logged. `attempts_abandoned` is `max(draws_before, 1 if any line else 0)`: it recovers the
+    attempt that died before writing a draw, but if *two* attempts died that way it still reads 1,
+    since nothing in the log marks where one attempt ended and the next began. Recovering the true
+    count would mean dividing lines by the fan-out and assuming the fan-out never changed, which
+    trades a visible lower bound for an invisible guess. A reader who needs the exact number has
+    both public records — the `draw*/` listing and the round's lines in the call log.
+
+    **`calls_unmeasured` is where the rest of the honesty is.** A call that died in transport wrote
+    no line: `append_call` runs after `invoke` returns, and a 500 or a `ReadTimeoutError` means it
+    never returned. Worse, such a call has no usage report at all, so its prompt tokens were spent
+    and can never be recovered — this is DESIGN §3's HTTP-attempt limitation appearing as a hole in
+    a different record. What *can* be counted is how many attempts hit it: an abandoned attempt
+    that left no RuleAuthor line for this round died on or before the RuleAuthor call, and each
+    such attempt lost exactly the one call it died on. So `calls_unmeasured` is the abandoned
+    attempts minus the RuleAuthor lines already logged, floored at zero, and it inherits
+    `attempts_abandoned`'s lower-bound status. The four token and time totals beside it are lower
+    bounds whenever it is above zero. `scorer.REQUIRED_ABANDONED` says so where the block is
+    validated, because that is where a reader of the schema looks.
 
     The arithmetic is here and not in `scorer.sum_costs`: that function adds `REQUIRED_COST`
     blocks and this block deliberately shares no key with them, so that it can never be summed
     into the figure DESIGN §11.3's comparison is read off. The driver is what re-ran and the
     driver is what knows.
     """
-    if draws_before < 1:
-        return None
     lines = [line for line in read_calls(corpus, detector, supervision, porting)
              if line.get("iteration") == iteration]
+    if draws_before < 1 and not lines:
+        return None
+    attempts = max(draws_before, 1 if lines else 0)
     authored = sum(1 for line in lines if line.get("role") == RULE_AUTHOR)
     costs = [line.get("cost") or {} for line in lines]
     return {
-        "attempts_abandoned": draws_before,
+        "attempts_abandoned": attempts,
         "calls_abandoned": sum(int(cost.get("llm_calls", 0)) for cost in costs),
         "prompt_tokens_abandoned": sum(int(cost.get("prompt_tokens", 0)) for cost in costs),
         "completion_tokens_abandoned": sum(int(cost.get("completion_tokens", 0))
                                            for cost in costs),
         "wall_seconds_abandoned": round(
             sum(float(cost.get("wall_seconds", 0.0)) for cost in costs), 3),
-        "calls_unmeasured": max(0, draws_before - authored),
+        "calls_unmeasured": max(0, attempts - authored),
     }
 
 
@@ -647,9 +667,12 @@ def run_iteration(iteration: int, *, corpus: str, lang: str, model_id: str,
     `draw_index` and `abandoned_spend` are returned together because neither is readable without
     the other. A `draw_index` of 3 says two earlier attempts at this round were abandoned, and
     `abandoned_spend` is what they spent; a caller holding the second without the first cannot
-    tell how many attempts it aggregates. `abandoned_spend` is `None` at `draw_index` 1, which is
-    the absent-means-unrecorded convention of the block it carries and not a zero
-    (`_abandoned_spend`, `scorer.REQUIRED_ABANDONED`).
+    tell how many attempts it aggregates. The two do **not** agree in one direction: a
+    `draw_index` of 1 can still carry an `abandoned_spend`, because an attempt that died before
+    finishing its audit left logged calls and no draw to number (`_abandoned_spend`, which gates on
+    either record). `abandoned_spend` is `None` only when both records are empty, which is the
+    absent-means-unrecorded convention of the block it carries and not a zero
+    (`scorer.REQUIRED_ABANDONED`).
 
     `caching` is the round's transport record and it is present in both returns for
     `cost_to_date`'s reason — it is what tells a reader how to read `cost.prompt_tokens`, so a

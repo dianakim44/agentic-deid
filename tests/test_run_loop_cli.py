@@ -418,6 +418,39 @@ def test_a_re_run_is_announced_before_the_calls_are_paid_for(monkeypatch, tmp_pa
     assert "draw3/audit_report.json" in plan
 
 
+def test_a_round_that_spent_calls_without_writing_a_draw_says_so(monkeypatch, tmp_path):
+    """**What round 6 taught, in the one place a person can still act on it.**
+
+    Round 6's first attempt took a Bedrock 500 on auditor call 123 of 250. The audit never
+    completed, so no draw directory was written and `next_draw` returned 1 — correctly, since it
+    numbers preserved reports. A plan that printed only `draw 1   (this round has not been audited
+    before)` would then have told the operator the round was untouched while 122 paid calls sat in
+    the log.
+
+    So the plan reads the second, independent record and shows the count whenever the two records
+    disagree. The draw number is still 1, because that is what the next report will be called.
+    """
+    import json as _json
+
+    detector, supervision, porting = uncalled_cell()
+    monkeypatch.setattr(orchestrate, "ROOT", tmp_path)
+    path = orchestrate.log_path(CORPUS, detector, supervision, porting)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "w", encoding="utf-8") as fh:
+        for n in range(122):
+            fh.write(_json.dumps({
+                "call_id": f"g{n}", "iteration": 2, "role": "auditor",
+                "cost": {"llm_calls": 1, "prompt_tokens": 100, "completion_tokens": 10,
+                         "wall_seconds": 2.0}}) + "\n")
+    _, _, plan = _later_plan(monkeypatch, root=tmp_path)
+    assert "draw         1" in plan, "the next report is still draw 1"
+    assert "has not been audited before" not in plan, (
+        "the plan called a round with 122 paid calls unaudited")
+    assert "122 logged calls" in plan
+    assert "recorded as abandoned" in plan
+    assert "Confirm this round wrote no metrics.json" in plan
+
+
 def test_round_one_promises_no_draw_because_it_makes_no_audit_call(monkeypatch):
     """Round 1 audits nothing, so a draw number there would be a count of attempts at a call
     that is not made — the same reason its plan omits `auditreport`."""

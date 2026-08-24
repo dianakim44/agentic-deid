@@ -1215,9 +1215,85 @@ def test_the_abandoned_spend_counts_only_this_rounds_lines(tree):
 
 
 def test_the_first_attempt_of_a_round_reads_no_block_at_all(tree):
-    """`None`, not a block of zeros, and not an error on an arm with no log yet."""
+    """`None`, not a block of zeros, and not an error on an arm with no log yet.
+
+    "First attempt" means **both** records are empty — no draw and no logged call. The two are
+    checked as a union rather than the draw count alone, for the reason the next test gives.
+    """
     a_frozen_arm(tree)
     assert loop._abandoned_spend(*ARM, iteration=2, draws_before=0) is None
+
+
+def test_an_attempt_that_died_before_writing_a_draw_is_still_counted(tree):
+    """**Round 6's regression, and the case that showed the draw count is the wrong gate.**
+
+    Round 6's first attempt took a Bedrock 500 on auditor call 123 of 250. The audit never
+    finished, so no `draw1/` directory was written and `next_draw` correctly returned 1 — but 122
+    calls had been paid for and logged. Gating the block on `draws_before < 1` returned `None` for
+    that round, which under the absent-means-unrecorded convention publishes "nothing was
+    abandoned" and is exactly the silent disappearance the block exists to prevent.
+
+    So a logged line is sufficient on its own. `attempts_abandoned` reads 1 here even though no
+    draw exists, and `calls_unmeasured` reads 1 because the attempt logged no RuleAuthor line —
+    the call it died on is one whose tokens were spent and never reported.
+    """
+    a_frozen_arm(tree)
+    with open(log_path(*ARM), "a", encoding="utf-8") as fh:
+        for n in range(122):
+            fh.write(json.dumps({
+                "call_id": f"d{n}", "iteration": 6, "role": "auditor",
+                "cost": {"llm_calls": 1, "prompt_tokens": 100, "completion_tokens": 10,
+                         "wall_seconds": 2.0}}) + "\n")
+    block = loop._abandoned_spend(*ARM, iteration=6, draws_before=0)
+    assert block is not None, (
+        "a round with 122 paid calls and no preserved draw reported nothing abandoned")
+    assert block["attempts_abandoned"] == 1
+    assert block["calls_abandoned"] == 122
+    assert block["prompt_tokens_abandoned"] == 12200
+    assert block["wall_seconds_abandoned"] == 244.0
+    assert block["calls_unmeasured"] == 1
+
+
+def test_the_attempt_count_is_a_lower_bound_and_the_call_count_is_not(tree):
+    """The two figures are sourced differently and only one of them can undercount.
+
+    `calls_abandoned` sums the lines themselves, so it is exact for everything that was logged.
+    `attempts_abandoned` is `max(draws_before, 1 if any line else 0)`, so two attempts that both
+    died mid-audit — leaving lines but no draws — still read 1: nothing in the log marks where one
+    attempt ended and the next began. Dividing lines by the fan-out would recover the number only
+    by assuming the fan-out never changed, trading a visible lower bound for an invisible guess.
+
+    This test pins the undercount deliberately. It is a documented limit, not a bug to be fixed by
+    making the number up, and the exact count stays available in the two public records.
+    """
+    a_frozen_arm(tree)
+    with open(log_path(*ARM), "a", encoding="utf-8") as fh:
+        for n in range(30):  # two dead attempts' worth, no draw from either
+            fh.write(json.dumps({
+                "call_id": f"e{n}", "iteration": 6, "role": "auditor",
+                "cost": {"llm_calls": 1, "prompt_tokens": 10, "completion_tokens": 1,
+                         "wall_seconds": 0.5}}) + "\n")
+    block = loop._abandoned_spend(*ARM, iteration=6, draws_before=0)
+    assert block["calls_abandoned"] == 30, "the exact figure is exact"
+    assert block["attempts_abandoned"] == 1, "the lower bound is a lower bound"
+
+
+def test_a_preserved_draw_outranks_the_logged_lines_in_the_attempt_count(tree):
+    """When both records speak, the larger is taken. Two preserved draws are two attempts even if
+    the second died early enough to log almost nothing, and the reverse — lines but no draw — is
+    covered above. `max` of the two is the only combination that never reads below what either
+    record alone establishes.
+    """
+    a_frozen_arm(tree)
+    with open(log_path(*ARM), "a", encoding="utf-8") as fh:
+        fh.write(json.dumps({
+            "call_id": "f0", "iteration": 6, "role": "auditor",
+            "cost": {"llm_calls": 1, "prompt_tokens": 10, "completion_tokens": 1,
+                     "wall_seconds": 0.5}}) + "\n")
+    block = loop._abandoned_spend(*ARM, iteration=6, draws_before=2)
+    assert block["attempts_abandoned"] == 2
+    assert block["calls_abandoned"] == 1
+    assert block["calls_unmeasured"] == 2
 
 
 def test_the_draw_number_is_taken_before_the_audit_calls_are_made(tree, corpus_present):

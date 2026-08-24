@@ -231,14 +231,30 @@ def _plan(args, history, n_docs: int) -> list[str]:
         # why the draw mechanism exists, and re-running a *scored* one is §6's prohibition that
         # nothing in the driver refuses. So the plan says the number and says which check the
         # reader owes — this is the last moment before 250 calls are paid for.
+        #
+        # The draw number alone does not answer "has this round spent anything", and round 6 is
+        # the proof: its first attempt took a Bedrock 500 partway through the audit, so it left
+        # 122 logged calls and no draw to number, and a plan reporting only `draw 1` would have
+        # read as a virgin round. The logged-call count is a second, independent record and it is
+        # shown whenever the two disagree.
         draw = audit.next_draw(corpus=args.corpus, detector=args.detector,
                                supervision=args.supervision, porting=args.porting,
                                iteration=args.iteration, root=ROOT)
-        lines.append(f"draw         {draw}" + (
-            "   (this round has not been audited before)" if draw == 1 else
-            f"   — attempts 1-{draw - 1} left reports under draw*/ and their spend will be "
-            "recorded as abandoned. Confirm this round wrote no metrics.json before "
-            "proceeding (DESIGN §5.5.2, §6)"))
+        logged = sum(1 for line in orchestrate.read_calls(
+            args.corpus, args.detector, args.supervision, args.porting)
+            if line.get("iteration") == args.iteration)
+        if draw > 1:
+            note = (f"   — attempts 1-{draw - 1} left reports under draw*/ and their spend will "
+                    "be recorded as abandoned. Confirm this round wrote no metrics.json before "
+                    "proceeding (DESIGN §5.5.2, §6)")
+        elif logged:
+            note = (f"   — no preserved report, but this round already has {logged} logged "
+                    "calls, so an earlier attempt died before finishing its audit. Their spend "
+                    "will be recorded as abandoned. Confirm this round wrote no metrics.json "
+                    "before proceeding (DESIGN §5.5.2, §6)")
+        else:
+            note = "   (this round has not been audited before and has spent no calls)"
+        lines.append(f"draw         {draw}{note}")
 
     keys = (*ARM_KEYS, *ROUND_KEYS) if history is None else \
         (*ARM_KEYS, *ROUND_KEYS, AUDIT_KEY)
