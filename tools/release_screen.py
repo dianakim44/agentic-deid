@@ -721,7 +721,7 @@ def format_proposals(path, lang, proposals):
     lines.extend(f"      - {h}" for h in homes)
     return lines
 
-# ─── known false positives ──────────────────────────────────────────────────
+# ─── listed sniffer hits: false positives, and acknowledged violations ──────
 # Five files trip the content sniffer for reasons that are not note text, on every
 # single run. Printed in full they were five lines nobody read, which meant a sixth
 # — a real one — would have arrived unnoticed. Same problem the SEALED line solved
@@ -730,8 +730,43 @@ def format_proposals(path, lang, proposals):
 # The list is data rather than code, and committed, so adding an entry is a diff
 # someone can object to. Its rules are enforced in load_allowlist(), not documented
 # and hoped for.
+#
+# `acknowledged` is a second list, added 2026-08-24, and it says the opposite thing
+# about its files: the hit is REAL. It exists because a false-positive list is the
+# wrong shape for a true positive, and the only two ways to clear one without such a
+# list are both worse than the finding. Deleting the file destroys an arm's committed
+# artefact to make a checker quiet. Filing it under `entries` writes "known false
+# positive" next to something that is not one, which is a lie in the exact place a
+# reader would go to check. So the third category is the honest one, and the price of
+# using it is stated in the entry: `why_real` says why the hit is genuine, and
+# `fixed_when` says what will make it go away. Both are mandatory, because an
+# acknowledged violation with no stated exit is a permanent exemption wearing a
+# temporary label.
+#
+# The two lists get opposite reporting, and that asymmetry is the design rather than
+# an inconsistency. A false positive is permanent by nature — CLAUDE.md will always be
+# Korean — so it is counted and not printed. An acknowledged violation is temporary by
+# its own declaration, so it is printed in full on every run, `fixed_when` included.
+# One is a status line and the other is a debt line, and a debt line that stops
+# appearing is a debt nobody pays.
+#
+# What this must not become is a way to make findings go away. Three things hold it:
+# the same path rules as `entries` (so it can never widen what the path rules
+# publish), the same `sniff` pin (so a *different* hit on an acknowledged file is
+# still UNEXPECTED and still gates), and a path may appear in only one of the two
+# lists — a file cannot be both a false positive and a real violation, and an entry
+# that claims both is refused rather than resolved.
 ALLOWLIST = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                          "screen_allowlist.json")
+
+#: Which list an entry came from. Carried on the entry rather than kept in a second
+#: mapping, so there is no way to hold an entry without holding what it claims. A dict
+#: assembled by hand — every caller outside load_allowlist() — has no `kind` and reads
+#: as a false positive, which is what every such caller meant before this existed:
+#: acknowledgement is only ever reachable by putting an entry in the acknowledged
+#: array of a committed file.
+FALSE_POSITIVE = "false_positive"
+ACKNOWLEDGED = "acknowledged"
 
 
 class AllowlistError(Exception):
@@ -745,7 +780,13 @@ class AllowlistError(Exception):
 
 
 def load_allowlist(path=None):
-    """Read the allowlist and validate every entry. Returns {path: entry}.
+    """Read both lists and validate every entry. Returns {path: entry}, `kind` attached.
+
+    One mapping rather than two, keyed on path, because the invariant that matters is
+    that a path has exactly one verdict. Two mappings would make a path present in both
+    representable, and then something has to decide which wins — at which point the
+    honest answer ("the file is described twice and the descriptions contradict") has
+    already been thrown away.
 
     Four rules, each with a specific abuse in mind:
 
@@ -763,6 +804,22 @@ def load_allowlist(path=None):
         a new fact about the file rather than the known one.
       - **A real reason.** Short or absent text produces entries nobody can evaluate
         later, which get renewed forever.
+
+    All four apply to both lists, and the path rules apply to the acknowledged list for
+    a sharper reason than to `entries`: acknowledging a hit is the one act here that
+    admits the sniffer was right, so it is the one an author reaching for a quiet run
+    would reach for first. It still cannot name a corpus path, a sealed path, a denied
+    path or a pattern. The list can only ever describe a file the path rules already
+    publish — the same guarantee `entries` has, and it is not weakened by the entry
+    saying something worse about the file.
+
+    Two rules are specific to the acknowledged list. It takes `why_real` and
+    `fixed_when` instead of `why`: two fields rather than one because "this is a real
+    violation" and "this is when it stops being one" are separate claims, and an entry
+    with only the first is an exemption with no end. And `why` on an acknowledged entry
+    is refused rather than ignored, because the way this list gets misused is by
+    copy-pasting an entry across from `entries`, where the reason would be silently
+    dropped and the two mandatory fields silently absent.
     """
     path = path or ALLOWLIST
     try:
@@ -776,10 +833,19 @@ def load_allowlist(path=None):
     except json.JSONDecodeError as exc:
         raise AllowlistError(f"{path} is not valid JSON: {exc}")
 
+    # Both lists walk the same loop, so the path rules below cannot come to differ
+    # between them by editing one branch. Indices are per-list, so an error message
+    # names the entry a reader can count to in the file.
+    listed = ([(FALSE_POSITIVE, i, e)
+               for i, e in enumerate(data.get("entries", []))]
+              + [(ACKNOWLEDGED, i, e)
+                 for i, e in enumerate(data.get("acknowledged", []))])
+
     entries = {}
-    for i, entry in enumerate(data.get("entries", [])):
+    for kind, i, entry in listed:
         p = entry.get("path", "")
-        where = f"{path} entry {i}"
+        where = (f"{path} entry {i}" if kind == FALSE_POSITIVE
+                 else f"{path} acknowledged entry {i}")
         if not p:
             raise AllowlistError(f"{where} has no path")
         if any(c in p for c in "*?[]") or p.endswith("/"):
@@ -799,10 +865,36 @@ def load_allowlist(path=None):
             raise AllowlistError(
                 f"{where}: {p!r} has no `sniff`. State which hit is expected, so a "
                 "different one is still reported.")
-        if len(entry.get("why", "").split()) < 5:
+        # Before the per-kind fields, so the message for a path listed twice says that
+        # rather than complaining about whichever field the second copy is missing.
+        if p in entries:
             raise AllowlistError(
-                f"{where}: {p!r} needs a `why` that a reader can evaluate later.")
-        entries[p] = entry
+                f"{where}: {p!r} is listed twice. A path gets one verdict — and if the "
+                "two entries are in different lists, they say the hit is a false "
+                "positive and that it is a real violation. Delete the one that is "
+                "wrong; there is no reading in which both are right.")
+        if kind == FALSE_POSITIVE:
+            if len(entry.get("why", "").split()) < 5:
+                raise AllowlistError(
+                    f"{where}: {p!r} needs a `why` that a reader can evaluate later.")
+        else:
+            if entry.get("why"):
+                raise AllowlistError(
+                    f"{where}: {p!r} has a `why`. An acknowledged entry takes "
+                    "`why_real` and `fixed_when` instead — it is not claiming the hit "
+                    "is harmless, so the field that would say so is refused rather "
+                    "than ignored.")
+            if len(entry.get("why_real", "").split()) < 5:
+                raise AllowlistError(
+                    f"{where}: {p!r} needs a `why_real` saying why the hit is a "
+                    "genuine violation. Acknowledging one without stating what it is "
+                    "makes the list indistinguishable from the false-positive list.")
+            if len(entry.get("fixed_when", "").split()) < 5:
+                raise AllowlistError(
+                    f"{where}: {p!r} needs a `fixed_when` saying what will clear it. "
+                    "Without it the entry is a permanent exemption labelled as a "
+                    "temporary one, which is the only way this list can do harm.")
+        entries[p] = dict(entry, kind=kind)
     return entries
 
 
@@ -996,10 +1088,17 @@ def screen_tree(root):
 
 
 def partition_suspect(suspect, allowlist, root=".", allowlist_path=None):
-    """Sort sniffer hits into (known, unexpected, unpublishable, stale).
+    """Sort hits into (known, acknowledged, unexpected, unpublishable, stale).
 
-      - 'known' matches an allowlist entry, *and* matches the kind of hit that entry
-        expects. Reported as a count.
+      - 'known' matches a false-positive entry, *and* matches the kind of hit that
+        entry expects. Reported as a count.
+      - 'acknowledged' matches an acknowledged entry the same way. Reported in full,
+        every run, with the entry — the opposite treatment to 'known' and for the
+        opposite reason: this one is a real violation and is supposed to be paid off.
+        Tested before publishability on purpose. An acknowledged hit on a gitignored
+        file is still reported as acknowledged rather than folded into a count, because
+        someone wrote down that it is real and that statement outranks the accident of
+        git not seeing the file today.
       - 'unexpected' is everything else git can see. This is the only category that
         gates a commit, and it is the reason the other three exist: five permanent
         lines meant a sixth arrived among them unread.
@@ -1016,17 +1115,23 @@ def partition_suspect(suspect, allowlist, root=".", allowlist_path=None):
 
     A path in the allowlist whose sniff kind has *changed* is unexpected, not known.
     That is a new fact about the file, and being previously excused for a different
-    reason is not a reason to excuse it.
+    reason is not a reason to excuse it. This holds for acknowledged entries too, and it
+    is what stops one from becoming a blanket pass on its file: the entry covers the hit
+    it names and nothing else, so a second, different violation in an already-
+    acknowledged file still turns the run red.
     """
     paths = [p for p, _ in suspect]
     ignored = git_ignored(paths, root)
     tracked = git_tracked(paths, root)
 
-    known, unexpected, unpublishable = [], [], []
+    known, acknowledged, unexpected, unpublishable = [], [], [], []
     for path, why in suspect:
         entry = allowlist.get(path)
         if entry and why.startswith(entry["sniff"]):
-            known.append((path, why))
+            if entry.get("kind") == ACKNOWLEDGED:
+                acknowledged.append((path, why, entry))
+            else:
+                known.append((path, why))
         elif path in tracked or path not in ignored:
             unexpected.append((path, why, entry))
         else:
@@ -1043,7 +1148,7 @@ def partition_suspect(suspect, allowlist, root=".", allowlist_path=None):
     stale = sorted(p for p in allowlist
                    if os.path.realpath(root) == os.path.realpath(describes)
                    and not os.path.exists(os.path.join(root, p)))
-    return known, unexpected, unpublishable, stale
+    return known, acknowledged, unexpected, unpublishable, stale
 
 
 def screen_history():
@@ -1126,10 +1231,12 @@ if __name__ == "__main__":
     print(f"\nQuarantined (gitignored)  : {len(quarantined)}   (denied but git cannot see them — expected once a corpus is on disk)")
     for prefix, n in sorted(Counter("/".join(p.split("/")[:2]) for p in quarantined).items()):
         print(f"   {n:6d}  {prefix}/")
-    known, unexpected, unpublishable, stale = partition_suspect(
+    known, acknowledged, unexpected, unpublishable, stale = partition_suspect(
         suspect, allowlist, a.root, a.allowlist)
 
     summary = f"{len(known)} known"
+    if acknowledged:
+        summary += f", {len(acknowledged)} acknowledged"
     if unpublishable:
         summary += f", {len(unpublishable)} gitignored"
     if unexpected:
@@ -1151,6 +1258,20 @@ if __name__ == "__main__":
     if unpublishable:
         print(f"   {len(unpublishable)} more are gitignored and cannot be published "
               "(machine-local config, editor settings).")
+
+    # Its own line, always printed, never zero-suppressed — and printed in full, which
+    # is the exact opposite of what happens to `known` twenty lines up. The reason for
+    # the inversion is that these are real. A false positive that keeps printing trains
+    # people to skip the section; an acknowledged violation that stops printing has been
+    # forgotten, which is the only failure mode this category has. Zero is worth
+    # printing too: it is the difference between "no outstanding violations" and "the
+    # list is not being consulted", and those look identical if the line disappears.
+    print(f"\nACKNOWLEDGED violations   : {len(acknowledged)}   "
+          "(real, recorded, unfixed — read `fixed when`; does not gate, see below)")
+    for p, why, entry in sorted(acknowledged):
+        print(f"   {p}  <- {why}")
+        print(f"      real because  {entry['why_real']}")
+        print(f"      fixed when    {entry['fixed_when']}")
 
     # DESIGN §6.1's option 3, and off unless asked for — see rule_id_proposals(). The
     # files are taken from the suspect list rather than by re-walking the tree: a
@@ -1208,5 +1329,18 @@ if __name__ == "__main__":
     # five files, which trains exactly the habit that makes the tool useless. Stale
     # entries do not fail either: they are a housekeeping signal, and failing on them
     # would put pressure on someone to delete an entry to get a green run.
+    #
+    # Acknowledged violations do not fail either, and this is the uncomfortable one,
+    # because unlike every other non-gating category these hits are real. The argument
+    # is the same argument, and it is about which gate does the work. A red exit code
+    # here does not fix a rule_id the model already wrote into a committed artefact; it
+    # only stops the exit code from being able to say anything about the *next* change,
+    # and it took the mutation gate down with it — `tests/mutations/run.py` aborts on a
+    # non-green baseline, so a permanently-red suite does not make the project stricter,
+    # it makes 170 mutations unmeasurable. The gate that holds this category is the
+    # review gate, not the exit code: a committed diff to a JSON file, literal path,
+    # pinned sniff kind, and two prose fields that a reader can disagree with. Cheap to
+    # add and expensive to defend is the right shape here. Cheap to add and impossible
+    # to distinguish from a false positive was the shape before.
     if blocked or unexpected:
         sys.exit(1)

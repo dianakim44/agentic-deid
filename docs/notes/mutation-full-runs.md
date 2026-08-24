@@ -14,6 +14,51 @@ totals and deltas.
 An `INCOMPLETE` entry is kept rather than deleted. A refused run is evidence about the
 harness, and removing it would leave the log reading as though the run never happened.
 
+---
+
+## Outstanding re-measurement debt — maintained by hand
+
+Not written by `parallel.py`. This section names counts in the record below that are no longer
+comparable to the current suite, so the next full run knows what it is settling rather than
+rediscovering it. An entry is deleted only when a full run has re-measured it; an entry cleared by
+an impact-scope run is marked measured and kept until then, because a scope run cannot restate the
+full run's denominator.
+
+CLAUDE.md's rule that re-anchored mutations are re-measured **regardless of whether they fell in
+scope** is what this section serves: an anchor edit is a change to the mutation itself, so its old
+count describes a different experiment, and that fact is invisible from the count alone.
+
+**`the_client_hardcodes_botocores_default_attempts` — re-anchored in `efe11e1` (2026-08-24).**
+The 2026-08-20 record says 1 kill. That number was measured against the anchor
+`config=Config(retries={"max_attempts": MAX_ATTEMPTS, "mode": "standard"}),`, a line that no longer
+exists: `55e7b35` changed the key to `total_max_attempts`, which is the key that actually means what
+`MAX_ATTEMPTS = 1` claims. Until it was re-anchored the mutation was not merely stale but **broken**
+— it would have raised `StaleMutation` — so the old count was not going to be reproduced by any run.
+
+*Measured 2026-08-24 by scope run: **2 kills** (was 1), baseline 1724 tests, tree
+`d6bcf094d3c89f45`.* The second killer is `test_the_transport_is_pinned_to_one_attempt`, which now
+asserts against the built client's `retries` rather than against the constant — the assertion whose
+absence let the live defect pass for sixteen days. Still owed to the next full run, which is the
+only place this becomes comparable to the other 169.
+
+**`tests/test_release_screen.py` gained the acknowledged-violations tests (2026-08-24).** Ten new
+tests and eight edited call sites, for `screen_allowlist.json`'s third category. `TEST_FILES`
+membership is unchanged, so the denominator holds and an impact-scope run is what CLAUDE.md calls
+for. Two things make the scope wider than the diff looks:
+
+- The new tests exercise `load_allowlist`'s path rules and `partition_suspect`'s categories
+  directly, so the mutations anchored there can gain killers.
+- `test_every_acknowledged_entry_is_a_hit_that_actually_happens` asserts that each acknowledged
+  entry still *matches a live sniffer hit*. Any mutation that stops the `rule_id` vocabulary check
+  from firing on this arm's round-4 and round-5 rule files now breaks that assertion — so the
+  vocabulary and language-layer mutations are in scope through a test that never mentions them.
+  This is the runtime-reach rule doing its job: filename overlap would have missed it entirely.
+
+No expectation of "unchanged" is recorded for anything here, per CLAUDE.md — there is no comparable
+value until it is measured.
+
+---
+
 ## 2026-08-20 — full run
 
 - commit `50ea5e236015` (dirty working tree)

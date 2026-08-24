@@ -845,6 +845,113 @@ corrupt a published number; the timeout was not audited because it corrupts noth
 stops the work — and it is the one that cost a round. **An inherited default is not a decision,
 and the defaults that bound an experiment are worth enumerating before one of them fires.**
 
+#### Three ways a loop ends, and only two of them are in the `termination` block — 2026-08-24
+
+The vocabulary had two endings. There are three, and the third was discovered by hitting it.
+
+| ending | recorded where | what it says about the arm |
+|---|---|---|
+| `converged` | `termination.reason`, with `converged: true` | k consecutive improvements below δ. A statement about the arm. |
+| `ceiling` | `termination.reason`, with `converged: false` | the cap was reached without that happening. A statement about the budget. |
+| **incomplete** | **nowhere** — no `metrics.json` exists for the round | the round did not finish. A statement about the harness. |
+
+**Incomplete is neither of the other two, and the distinction is not a technicality.** Both recorded
+endings mean the loop *decided* to stop: one because the rule fired, one because the budget ran
+out, and §3 already forbids describing the second as the first. An incomplete round is a round
+whose leak rate does not exist, so there is nothing for the rule to read and nothing for the cap
+to count. It cannot be filed under `ceiling` — the cap was not reached — and it obviously cannot be
+filed under `converged`. `should_stop` never sees it: the exception is raised inside
+`run_iteration` before any rate is produced, so `Termination` is never constructed and no
+`termination` block is written. **An arm that ends this way ends with its last completed round's
+metrics as the newest file in the tree, which is indistinguishable from an arm that is simply
+paused.** That is the reporting hazard: the two other endings announce themselves in a published
+file, and this one is visible only as an absence.
+
+Nothing is added to `termination_reasons` in `config/naming.yaml` for it. A reason value would have
+to be written into a `metrics.json`, and the defining property of this ending is that there is no
+`metrics.json` to write it into; inventing a round-6 metrics file whose only content is "round 6
+did not happen" would make an absent measurement look like a present one. The record belongs in
+prose and in `agent_calls.jsonl`, which does carry the calls the failed attempts made.
+
+**The period the pre-registered ceiling of 8 was unreachable, and why.** From `68484be`
+(2026-08-08), the commit that introduced the Bedrock client, to `55e7b35` (2026-08-24), the client
+inherited botocore's default `read_timeout` of 60s. §1.2 of each round's prompt carries the
+previous round's whole rule file and asks for a complete file rather than a patch, so RuleAuthor
+wall time rises monotonically **by construction of the loop** — 37.0s, 39.8s, 51.0s, 56.1s across
+rounds 1–4. Round 5 crossed 60s and failed twice in the same place. So for the whole of that
+period the reachable number of rounds was bounded by the transport rather than by δ, k or the cap,
+and **for this arm the bound sat at 5 — three rounds below the pre-registered ceiling of 8.** The
+bound was never visible in any config: it was the interaction of a default with a growth rate, and
+neither of those is a parameter of the experiment.
+
+**Round 4's prediction forecast rounds that could not have run.** The clause above predicted
+`converged` at round 7 and listed expected gains for rounds 4 through 8. Rounds 6, 7 and 8 were
+not executable when it was written. This is not a flaw in the prediction's reasoning and no
+re-derivation of δ, k or the decay constant would have exposed it, because the limit was in neither
+the rule nor the corpus. It is a demonstration that a pre-registration can be internally sound and
+still range over states the apparatus cannot reach — which is an argument for enumerating the
+apparatus's defaults alongside the rule's constants, not for weakening the rule.
+
+**The pre-registration stands, and the reason is that the ceiling policy was not touched.** δ, k
+and the ceiling of 8 are unchanged; the fix was `READ_TIMEOUT_SECONDS` in `src/llm/bedrock.py`, a
+transport constant that moves no prompt byte and is not a window file (§6.3). §3's prohibition on
+revising the decision procedure mid-arm is therefore not engaged: nothing in the decision procedure
+moved, and rounds either side of the fix are the same arm. What does change is the *reading* of one
+of its outcomes. `reason: ceiling` may no longer be taken as evidence that an arm was still
+improving when its budget ran out, because until this date an arm could equally have ended at 5
+with a traceback — and if it had, the `termination` block would have said nothing at all.
+
+#### The two-HTTP-attempts defect, stated as a limitation — 2026-08-24
+
+Recorded as a limitation rather than a fixed bug, because the fix does not reach backwards. From
+`68484be` (2026-08-08) to `55e7b35` (2026-08-24), `MAX_ATTEMPTS = 1` was passed to botocore's
+`retries={"max_attempts": ...}`, which counts retries *after* the initial request. Every call in
+every arm run in that window went out under a transport permitting **two** HTTP attempts.
+
+**What is unaffected, stated precisely, because this is where a limitation gets overstated.** The
+*content* of every response is unaffected. A botocore retry re-sends the same request and returns
+one response to the caller; the loop received exactly one reply per `invoke`, and `response_sha256`,
+`response_chars`, the rule files, the audit reports, every span and every leak rate are what they
+would have been under a single-attempt transport. `llm_calls` is likewise unaffected: it counts the
+inferences the loop *intended* and it counted them correctly. **No published measurement of quality
+is in question.**
+
+**What is unknowable, also stated precisely: the number of HTTP requests actually issued, and
+therefore the true spend.** A botocore retry leaves no line in `agent_calls.jsonl` — the log is
+written by `invoke` once per successful call — so for every round run before this date the recorded
+request count is a **lower bound**, and the token and dollar figures derived from it are lower
+bounds too. Note what does *not* follow: a retried request is billed, so an undetected retry
+inflates real cost above the recorded figure. The direction of the error is known even though its
+size is not. No correction is possible after the fact and none is invented.
+
+**The retry was firing, and this is measured rather than inferred.** Round 5's two failed attempts
+give the direct evidence. In each, the last Auditor call is timestamped in `agent_calls.jsonl` and
+the traceback is timestamped by the run's output file:
+
+| attempt | last Auditor logged | `ReadTimeoutError` written | elapsed |
+|---|---|---|---|
+| 1 | 04:09:49Z | 04:11:51Z | **122s** |
+| 2 | 04:57:17Z | 04:59:19Z | **122s** |
+
+Two 60s read timeouts plus ~2s of local prompt construction. A single attempt would have shown
+~62s. Identical to the second across two independent runs, which is what makes it evidence rather
+than a coincidence — and it is a rare case where a *failure* measured the transport more precisely
+than any success could, because a success reveals only that the response arrived in time.
+
+**The consequence for wall time, which is the figure most likely to be quoted without this
+caveat.** `wall_time` is measured around `invoke` and therefore includes any retry botocore
+performed inside it. Every per-round and per-arm wall time recorded before this date may contain
+retried requests; a round whose wall time looks anomalous against its neighbours may be recording
+one retry rather than one slow generation, and the two are indistinguishable from the log. This
+matters for the cost-per-arm comparison CLAUDE.md requires, because it means wall time is not a
+clean proxy for compute in those rounds. It does not matter for the *quality* comparison, and the
+two should not be caveated together.
+
+**Scope.** Every arm, every corpus, every round before `55e7b35` — `port-oneshot`,
+`port-oneshot-nofence`, the variance probe of `docs/notes/call-variance.md`, the model-family probe
+of `docs/notes/baseline-model-family.md`, and `port-loop` rounds 1–4. Round 5 is the first round
+run under `total_max_attempts`, so it is the first round whose recorded request count is exact.
+
 ### Span provenance
 
 Every detected span carries **layer · detector · rule ID · score**.
@@ -2185,6 +2292,57 @@ work the field would save that is not already done one layer up. `write_errors()
 its six fields rather than dumping the object for this reason — a whitelist refuses the new
 field on the day it is added, and this file is the one where "the day it is added" means
 publishing it into the window §1.4 builds.
+
+#### 5.5.2 Re-running an incomplete round overwrites its audit report, and the log and the report then disagree — open, 2026-08-24
+
+**The retry is legitimate. The record is the problem.** Round 5 was attempted three times: two
+attempts died on the RuleAuthor call after their 250 Auditor calls had completed, and the third
+succeeded. Re-running was the right action — the round had produced no leak rate, so nothing was
+scored, nothing was selected, and no result was seen and re-rolled. §6's prohibition is on choosing
+between outcomes, and there were no outcomes to choose between.
+
+What the three attempts left behind is inconsistent. `run_iteration` runs the Auditor
+unconditionally and writes `iter5/audit_report.json` with no reuse path, so:
+
+- `agent_calls.jsonl` holds **750** Auditor lines for iteration 5 — three complete draws, all
+  logged, correctly.
+- `iter5/audit_report.json` holds **one** draw, the third. The first two were overwritten, and the
+  first was overwritten unseen.
+
+So the two files disagree about how many times the arm audited, and neither is wrong on its own
+terms: the log records calls and the report records the latest artefact. The disagreement is only
+visible to a reader who counts, and the count is 3× what a reader would expect from the round's
+`llm_calls`. **The substantive fact is that round 5's prompt was built from a second redraw of the
+Auditor** — not a selected one, but not the first one either, and the sampling that fed §1.4 is
+therefore a draw whose two predecessors are unrecoverable.
+
+**Options, none chosen.** Recorded here so the decision is made deliberately rather than by whoever
+next hits a mid-round failure:
+
+1. **Preserve every draw.** Write `audit_report.json` per attempt — `audit_report.attempt2.json`, or
+   a directory of draws — so the log's 750 lines have 750 lines' worth of artefact behind them.
+   Strongest record and the only option under which the overwritten draws are recoverable at all.
+   Costs a path convention, a `release_screen.py` deny rule per new name (the report is denied
+   today by an exact-name pattern, so a new name is unscreened until the pattern is widened — see
+   the `the_audit_report_is_allowed_instead_of_denied` mutation), and it makes an arm's directory
+   listing carry its failure history, which no other artefact does.
+2. **Stamp the draw on the report.** Keep one file, add `attempt: 3` and the count of prior
+   discarded draws. Cheapest, and it removes the *silent* disagreement without removing the
+   disagreement: the reader learns that two draws existed and are gone. Requires deciding where the
+   attempt counter lives, since the failing process cannot increment anything durable — it dies
+   before writing — so the count would have to be recovered from `agent_calls.jsonl`, which makes
+   the report's honesty depend on a log it does not read.
+3. **Refuse to re-run an incomplete round.** Make `run_iteration` detect that iteration *n* already
+   has Auditor lines in `agent_calls.jsonl` with no `metrics.json`, and require an explicit flag to
+   proceed. Turns a silent overwrite into a decision at the point it is made, which is the only
+   option that catches the case where re-running is *not* legitimate — a round that failed after
+   scoring, where a re-run would be a second draw with the first one's result already known. Costs
+   the most: a resume/force story, and a failure mode where a genuinely stuck arm needs a flag to
+   move, which is exactly when nobody wants to be reading documentation.
+
+The three are not exclusive; 2 and 3 compose, and 1 subsumes 2's information at higher cost. What
+they trade against each other is *record completeness* versus *the number of things that must be
+right for the record to be true*. Not decided here.
 
 ---
 

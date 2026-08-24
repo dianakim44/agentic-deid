@@ -1,10 +1,32 @@
 {
   "version": 1,
   "note": [
-    "Known false positives of tools/release_screen.py's content sniffer.",
+    "Two lists, and they say opposite things about their files.",
+    "",
+    "`entries` is known FALSE POSITIVES of tools/release_screen.py's content sniffer.",
     "An entry says: this file trips the sniffer, for this reason, and the reason is",
     "not note text. Nothing here weakens the path rules — a file must already be",
     "publishable by path to be sniffed at all.",
+    "",
+    "`acknowledged` is the opposite claim: the hit is REAL, it is recorded, and it is",
+    "not fixed. It exists because a false-positive list is the wrong shape for a true",
+    "positive, and the alternatives are worse — deleting the file destroys an arm's",
+    "committed artefact to quiet a checker, and filing it under `entries` writes",
+    "'known false positive' next to something that is not one, in the exact place a",
+    "reader would go to check. Two extra fields are mandatory: `why_real` says why the",
+    "hit is genuine, `fixed_when` says what will clear it. An acknowledged violation",
+    "with no stated exit is a permanent exemption wearing a temporary label.",
+    "",
+    "Neither list gates the exit code; `acknowledged` is printed in full on every run",
+    "instead, because it is a debt line rather than a status line. The gate that holds",
+    "it is this diff. Path rules are identical for both lists — an acknowledged entry",
+    "can no more name a corpus or sealed path than a false-positive one, and its",
+    "`sniff` is pinned the same way, so a DIFFERENT hit on an acknowledged file is",
+    "still UNEXPECTED and still fails. A path may appear in only one list.",
+    "",
+    "`why_real` and `fixed_when` are committed prose and carry no surface form, span or",
+    "offset — the same rule as every other file here. Describing the shape of a",
+    "violation does not require quoting it.",
     "",
     "Rules the screener enforces on this file, so they cannot be quietly relaxed:",
     "  - Literal paths only. No wildcards, no directory prefixes. The lesson of the",
@@ -89,6 +111,20 @@
       "path": "tools/release_screen.py",
       "sniff": "clinical note header",
       "why": "This is the file that searches for that header, and its own docstring and CLINICAL_HEADER pattern quote it. Self-match, present since the first version."
+    }
+  ],
+  "acknowledged": [
+    {
+      "path": "results/es-meddocan/R/sup-free/port-loop/rules/iter4/es.yaml",
+      "sniff": "rule_id shape (2 of them)",
+      "why_real": "Two rule_ids in this arm's round-4 rule file name a rule by its content rather than by its mechanism: each embeds a place name as the identifier of a gazetteer or pattern rule. That is Prohibition 2 of docs/prompts/rule_author.md, and the mechanism-vocabulary check caught it correctly. The tokens were judged on 2026-08-24 during the sixth widening and REFUSED — admitting place names would turn the vocabulary into 'everything that is not a person's name' and weaken the surname-ingress check that is the whole point of it. So this is not a widening that has not happened yet; it is a violation with no legitimate repair.",
+      "fixed_when": "It is not fixed in this arm. docs/prompts/rule_author.md is frozen for the duration of the port-loop arm (DESIGN §6.3), so the prompt that produced the name cannot be strengthened without making every round of this arm a different arm. The entry clears when the arm's rule files are superseded or when a future arm runs against a prompt that states the mechanism/content distinction, whichever comes first. The pinned sniff count is what keeps it honest: a widening that reduced the finding count would break the pin and force this entry to be re-argued rather than silently inherited."
+    },
+    {
+      "path": "results/es-meddocan/R/sup-free/port-loop/rules/iter5/es.yaml",
+      "sniff": "rule_id shape (6 of them)",
+      "why_real": "Round 5's rule file repeats round 4's two content-named place tokens — same violation, same refusal, and worth noting as a recurrence rather than a new fact, because the frozen prompt gives the model no way to learn from round 4's finding. It also carries four further tokens the vocabulary does not have: one Spanish age-band word, one Spanish clinical formula word, and two that read as genuine mechanism words (a prefix mechanism and a punctuation-delimiter mechanism). Those four are candidates for a seventh widening and are NOT judged here. Filing them under this entry admits that the entry currently covers more than the two refusals, which is the honest cost of a per-path list.",
+      "fixed_when": "Partly at the seventh widening, which must judge the four unjudged tokens on the mechanism/content criterion and either admit them to the vocabulary or refuse them. That widening will drop the finding count below six and break this entry's pinned sniff, turning the hit UNEXPECTED and forcing the entry to be rewritten around whatever survives — which is the intended coupling. The two place tokens will survive it, for the reason recorded on the iter4 entry."
     }
   ]
 }

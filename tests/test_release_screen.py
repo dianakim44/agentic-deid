@@ -1264,12 +1264,24 @@ GOOD = {"path": "docs/x.md", "sniff": "Korean prose",
 
 
 def test_the_real_allowlist_loads_and_validates():
-    """The committed list must satisfy its own rules, or the screener refuses to run."""
+    """The committed list must satisfy its own rules, or the screener refuses to run.
+
+    Both lists, and each against its own required fields: a false positive says why it
+    is harmless, an acknowledged violation says why it is real and when it goes. The
+    path rules are asserted over both together, because that is the one guarantee that
+    must not differ between them.
+    """
     entries = rs.load_allowlist()
     assert entries
     for path, entry in entries.items():
-        assert entry["sniff"] and entry["why"]
+        assert entry["sniff"]
         assert not rs.deny(path)
+        if entry["kind"] == rs.ACKNOWLEDGED:
+            assert entry["why_real"] and entry["fixed_when"]
+            assert "why" not in entry
+        else:
+            assert entry["kind"] == rs.FALSE_POSITIVE
+            assert entry["why"]
 
 
 def test_the_real_allowlist_has_no_stale_entries():
@@ -1284,12 +1296,39 @@ def test_every_current_false_positive_is_covered():
 
     If a change introduces a new sniffer hit, this fails — which is the whole purpose
     of the allowlist. Adding the file to the list is a deliberate, reviewable act.
+
+    "Covered" means covered by one of the two lists, and an acknowledged hit satisfies
+    this test without being harmless. That is deliberate: a permanently-failing test is
+    not a stricter project, it is an unmeasurable one — `tests/mutations/run.py` aborts
+    on a non-green baseline, so the two round-4/round-5 rule_id violations were taking
+    170 mutations down with them. The claim this test makes is "every current hit has
+    been looked at and written down", not "every current hit is fine".
     """
     _, _, _, suspect, _ = rs.screen_tree(ROOT)
-    _, unexpected, _, _ = rs.partition_suspect(suspect, rs.load_allowlist(), ROOT)
+    _, _, unexpected, _, _ = rs.partition_suspect(suspect, rs.load_allowlist(), ROOT)
     assert not unexpected, (
         "unexpected sniffer hits: "
         f"{[(p, why) for p, why, _ in unexpected]}")
+
+
+def test_every_acknowledged_entry_is_a_hit_that_actually_happens():
+    """The other direction, and the one that keeps the list from going stale quietly.
+
+    `test_the_real_allowlist_has_no_stale_entries` catches an entry whose *file* is
+    gone. This catches an entry whose file is present and no longer trips the sniffer
+    the way the entry says — a violation that was fixed, or a `sniff` pin that has
+    drifted off the finding it was written for. Either way the entry is now excusing
+    nothing, and an acknowledged violation nobody can reproduce is indistinguishable
+    from one nobody fixed.
+    """
+    _, _, _, suspect, _ = rs.screen_tree(ROOT)
+    _, acknowledged, _, _, _ = rs.partition_suspect(
+        suspect, rs.load_allowlist(), ROOT)
+    listed = {p for p, e in rs.load_allowlist().items()
+              if e["kind"] == rs.ACKNOWLEDGED}
+    matched = {p for p, _, _ in acknowledged}
+    assert listed == matched, (
+        f"acknowledged entries that no longer match a hit: {sorted(listed - matched)}")
 
 
 # ─── what the allowlist may not contain ────────────────────────────────────
@@ -1346,6 +1385,75 @@ def test_an_entry_without_a_sniff_kind_is_refused(tmp_path):
         rs.load_allowlist(p)
 
 
+ACK = {"path": "docs/x.md", "sniff": "Korean prose",
+       "why_real": "the sniffer is right and this really is a violation",
+       "fixed_when": "the arm that produced it is superseded by another"}
+
+
+def _acklist(tmp_path, acknowledged, entries=()):
+    p = tmp_path / "ack.json"
+    p.write_text(json.dumps({"version": 1, "entries": list(entries),
+                             "acknowledged": list(acknowledged)}), encoding="utf-8")
+    return str(p)
+
+
+def test_an_acknowledged_entry_loads_and_carries_its_kind(tmp_path):
+    entries = rs.load_allowlist(_acklist(tmp_path, [ACK]))
+    assert entries["docs/x.md"]["kind"] == rs.ACKNOWLEDGED
+
+
+@pytest.mark.parametrize("missing", ["why_real", "fixed_when"])
+def test_an_acknowledged_entry_needs_both_fields(tmp_path, missing):
+    """Two fields, both mandatory, and the reasons are different.
+
+    Without `why_real` the entry is indistinguishable from a false positive, which
+    defeats the point of having a second list. Without `fixed_when` it is a permanent
+    exemption labelled as a temporary one, which is the only way this list can do harm.
+    """
+    entry = {k: v for k, v in ACK.items() if k != missing}
+    with pytest.raises(rs.AllowlistError, match=missing):
+        rs.load_allowlist(_acklist(tmp_path, [entry]))
+
+
+def test_an_acknowledged_entry_may_not_carry_a_why(tmp_path):
+    """Refused rather than ignored. The way this list gets misused is by copy-pasting an
+    entry across from `entries`, where `why` would be silently dropped and the two
+    required fields silently absent."""
+    with pytest.raises(rs.AllowlistError, match="acknowledged entry takes"):
+        rs.load_allowlist(_acklist(tmp_path, [{**ACK, "why": GOOD["why"]}]))
+
+
+@pytest.mark.parametrize("path", [
+    "sealed/es-meddocan/test/brat/doc.txt",
+    "data/raw/es-meddocan/note.txt",
+    "data/README.md",
+    "docs/*.md",
+])
+def test_the_acknowledged_list_obeys_the_same_path_rules(tmp_path, path):
+    """The sharper case, because acknowledging is the one act that concedes the sniffer
+    was right — so it is the first thing an author wanting a quiet run reaches for. It
+    still cannot name a corpus path, a sealed path or a pattern: this list can only ever
+    describe a file the path rules already publish."""
+    with pytest.raises(rs.AllowlistError,
+                       match="data/|sealed/|denied|pattern or a directory"):
+        rs.load_allowlist(_acklist(tmp_path, [{**ACK, "path": path}]))
+
+
+def test_a_path_in_both_lists_is_refused(tmp_path):
+    """A file cannot be both a false positive and a real violation. Refused rather than
+    resolved by precedence — a precedence rule would silently pick one of two
+    contradictory statements about the same file."""
+    with pytest.raises(rs.AllowlistError, match="listed twice"):
+        rs.load_allowlist(_acklist(tmp_path, [ACK], entries=[GOOD]))
+
+
+def test_a_duplicate_path_within_one_list_is_refused(tmp_path):
+    """Previously the second entry silently overwrote the first, so a stricter `sniff`
+    could be cancelled by a looser copy further down the file."""
+    with pytest.raises(rs.AllowlistError, match="listed twice"):
+        rs.load_allowlist(_acklist(tmp_path, [], entries=[GOOD, GOOD]))
+
+
 def test_a_missing_or_broken_allowlist_is_refused(tmp_path):
     """Not "carry on without it": every known hit would then read as new."""
     with pytest.raises(rs.AllowlistError, match="missing"):
@@ -1375,9 +1483,10 @@ def test_a_known_hit_is_counted_not_printed(tmp_path):
     subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
     (tmp_path / "docs").mkdir()
     (tmp_path / "docs" / "x.md").write_text("x", encoding="utf-8")
-    known, unexpected, _, _ = rs.partition_suspect(
+    known, acknowledged, unexpected, _, _ = rs.partition_suspect(
         [("docs/x.md", "Korean prose (9 runs)")], {"docs/x.md": GOOD}, str(tmp_path))
     assert known and not unexpected
+    assert not acknowledged, "an entry with no `kind` is a false positive, as it was"
 
 
 def test_a_different_sniff_kind_on_a_known_file_is_unexpected(tmp_path):
@@ -1385,7 +1494,7 @@ def test_a_different_sniff_kind_on_a_known_file_is_unexpected(tmp_path):
     clinical-header pattern is a new fact about it, and being previously excused for
     another reason is not a reason to excuse this."""
     subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
-    known, unexpected, _, _ = rs.partition_suspect(
+    known, _, unexpected, _, _ = rs.partition_suspect(
         [("docs/x.md", "clinical note header")], {"docs/x.md": GOOD}, str(tmp_path))
     assert not known
     assert unexpected[0][0] == "docs/x.md"
@@ -1394,7 +1503,7 @@ def test_a_different_sniff_kind_on_a_known_file_is_unexpected(tmp_path):
 
 def test_an_unlisted_visible_hit_is_unexpected(tmp_path):
     subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
-    _, unexpected, _, _ = rs.partition_suspect(
+    _, _, unexpected, _, _ = rs.partition_suspect(
         [("docs/new.md", "clinical note header")], {}, str(tmp_path))
     assert len(unexpected) == 1
 
@@ -1408,17 +1517,85 @@ def test_a_gitignored_hit_is_unpublishable_not_unexpected(tmp_path):
     subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
     (tmp_path / ".gitignore").write_text("local.yaml\n", encoding="utf-8")
     (tmp_path / "local.yaml").write_text("x", encoding="utf-8")
-    _, unexpected, unpublishable, _ = rs.partition_suspect(
+    _, _, unexpected, unpublishable, _ = rs.partition_suspect(
         [("local.yaml", "Korean prose (9 runs)")], {}, str(tmp_path))
     assert not unexpected
     assert unpublishable == [("local.yaml", "Korean prose (9 runs)")]
+
+
+def test_an_acknowledged_hit_is_its_own_category_and_does_not_gate(tmp_path):
+    """Not `known` — the count would hide it — and not `unexpected` — the exit code
+    would make the gate unpassable, which is what took the mutation harness down."""
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs" / "x.md").write_text("x", encoding="utf-8")
+    entries = rs.load_allowlist(_acklist(tmp_path, [ACK]))
+    known, acknowledged, unexpected, _, _ = rs.partition_suspect(
+        [("docs/x.md", "Korean prose (9 runs)")], entries, str(tmp_path))
+    assert not known and not unexpected
+    assert [p for p, _, _ in acknowledged] == ["docs/x.md"]
+
+
+def test_a_different_hit_on_an_acknowledged_file_still_gates(tmp_path):
+    """The property that stops an entry becoming a blanket pass on its file. The entry
+    covers the hit it names; a second, different violation in the same file is still
+    UNEXPECTED and still fails."""
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    entries = rs.load_allowlist(_acklist(tmp_path, [ACK]))
+    _, acknowledged, unexpected, _, _ = rs.partition_suspect(
+        [("docs/x.md", "clinical note header")], entries, str(tmp_path))
+    assert not acknowledged
+    assert unexpected[0][0] == "docs/x.md"
+
+
+def test_an_acknowledged_hit_is_reported_even_when_gitignored(tmp_path):
+    """Publishability is not the question here. Someone wrote down that the hit is real,
+    and that statement outranks the accident of git not seeing the file today."""
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    (tmp_path / ".gitignore").write_text("docs/x.md\n", encoding="utf-8")
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs" / "x.md").write_text("x", encoding="utf-8")
+    entries = rs.load_allowlist(_acklist(tmp_path, [ACK]))
+    _, acknowledged, _, unpublishable, _ = rs.partition_suspect(
+        [("docs/x.md", "Korean prose (9 runs)")], entries, str(tmp_path))
+    assert [p for p, _, _ in acknowledged] == ["docs/x.md"]
+    assert not unpublishable
+
+
+def test_an_acknowledged_violation_is_printed_in_full_and_exits_zero(tmp_path):
+    """The reporting inversion, end to end. `known` is counted and not printed; this is
+    printed with both fields on every run, because it is a debt line and a debt line
+    that stops appearing is a debt nobody pays."""
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs" / "x.md").write_text(NOTE, encoding="utf-8")
+    p = _acklist(tmp_path, [{**ACK, "sniff": "clinical note header"}])
+    script = os.path.join(ROOT, "tools", "release_screen.py")
+    r = subprocess.run([sys.executable, script, "--root", str(tmp_path),
+                        "--allowlist", p], capture_output=True, text=True)
+    assert r.returncode == 0, r.stdout
+    assert "ACKNOWLEDGED violations   : 1" in r.stdout
+    assert ACK["why_real"] in r.stdout
+    assert ACK["fixed_when"] in r.stdout
+
+
+def test_the_acknowledged_line_is_printed_when_there_are_none(tmp_path):
+    """Zero is worth printing: it is the difference between "nothing outstanding" and
+    "the list is not being consulted", and those look identical if the line vanishes."""
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    p = _acklist(tmp_path, [])
+    script = os.path.join(ROOT, "tools", "release_screen.py")
+    r = subprocess.run([sys.executable, script, "--root", str(tmp_path),
+                        "--allowlist", p], capture_output=True, text=True)
+    assert r.returncode == 0
+    assert "ACKNOWLEDGED violations   : 0" in r.stdout
 
 
 def test_a_stale_entry_is_reported(tmp_path):
     """A list nobody prunes eventually permits something by accident, and a renamed
     file loses its exemption silently — the orphaned entry is the clue."""
     p = _allowlist(tmp_path, [{**GOOD, "path": "docs/gone.md"}])
-    _, _, _, stale = rs.partition_suspect(
+    _, _, _, _, stale = rs.partition_suspect(
         [], rs.load_allowlist(p), str(tmp_path), p)
     assert stale == ["docs/gone.md"]
 
@@ -1429,7 +1606,7 @@ def test_staleness_is_not_reported_against_another_tree(tmp_path):
     A check that cries wolf on a temporary tree is one people learn to skip on the
     tree that matters.
     """
-    _, _, _, stale = rs.partition_suspect([], rs.load_allowlist(), str(tmp_path))
+    _, _, _, _, stale = rs.partition_suspect([], rs.load_allowlist(), str(tmp_path))
     assert stale == []
 
 
