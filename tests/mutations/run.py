@@ -2015,13 +2015,26 @@ MUTATIONS = [
     Mutation(
         name="the_client_hardcodes_botocores_default_attempts",
         path=BEDROCK,
-        anchor='        config=Config(retries={"max_attempts": MAX_ATTEMPTS, "mode": "standard"}),',
-        replacement='        config=Config(retries={"max_attempts": 3, "mode": "standard"}),',
+        anchor='        config=Config(retries={"total_max_attempts": MAX_ATTEMPTS, "mode": "standard"},',
+        replacement='        config=Config(retries={"total_max_attempts": 3, "mode": "standard"},',
         breaks=(
             "One `invoke()` becomes up to three calls to Bedrock. `MAX_ATTEMPTS = 1` and "
             "its comment stay exactly as they are, which is the point — the constant "
             "still documents a guarantee the code no longer keeps, and the module "
             "docstring still says the transport is pinned.\n"
+            "\n"
+            "**Re-anchored 2026-08-24, and the reason is that this mutation was describing "
+            "a live defect.** The anchor was the `max_attempts` spelling, and that key "
+            "counts retries *after* the initial request — so the pristine tree already "
+            "permitted two attempts per call, and the sentence above about a constant "
+            "documenting a guarantee the code does not keep was true of the code as "
+            "written rather than only of the mutant. The fix passes "
+            "`total_max_attempts`, which counts the initial request, and this mutation "
+            "now perturbs that key. Re-anchoring is a change to the mutation, so its "
+            "kill count is re-measured on the next full run regardless of scope "
+            "(CLAUDE.md) — and the count is not comparable to the old one for a second "
+            "reason: the mutant it describes was previously only two attempts away from "
+            "the baseline and is now three.\n"
             "\n"
             "The damage is in the cost column and it is invisible: `Response.cost()` "
             "reports `llm_calls: 1` because the type is one call, so a throttled run "
@@ -2031,8 +2044,12 @@ MUTATIONS = [
             "that got throttled is the arm that looks cheap.\n"
             "\n"
             "Caught by `test_the_client_builder_passes_the_pinned_attempts`, which reads "
-            "`_client`'s syntax tree and requires the name rather than the number. "
-            "Structural because the behavioural check needs a throttle to fire."
+            "`_client`'s syntax tree and requires the name rather than the number, and "
+            "now also by `test_the_transport_is_pinned_to_one_attempt`, which reads the "
+            "built client's effective `total_max_attempts`. The second is the one that "
+            "would have caught the live defect: the first checks that a name is used and "
+            "cannot see which key it is handed to, which is exactly how a mutation "
+            "describing the bug coexisted with the bug."
         ),
         min_kills=1,
     ),
