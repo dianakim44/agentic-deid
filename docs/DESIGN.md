@@ -1068,6 +1068,40 @@ these is in force for any arm now running:
 The choice between them is a decision about the *next* arm and it is not made here, because making
 it here while `port-loop` is mid-flight is what §3's pre-registration exists to prevent.
 
+#### Round 6 did not fire it — recorded 2026-08-24, after the round
+
+The obligation above did not bind, and the clause is left standing because whether it binds is a
+fact about round 7 as much as it was about round 6. Dev leak `fully_covered` went 0.233536 →
+**0.176247** (1,227 → 926 leaked spans), a first difference of **+0.057290**; relaxed went 0.192234
+→ 0.133422. `improvements` reads `[0.288923, 0.078607, 0.033498, -0.038447, 0.057290]`, so the k = 2
+window holds one below-δ round and one clear improvement, `all(g < d ...)` is false, and
+`termination.reason` is `null`. The arm continues to round 7 with the ceiling at 8.
+
+Two consequences worth stating because they are easy to leave implicit. **The regression did not
+compound**, so nothing was published under a `converged` that contradicted its own trajectory —
+the three-part obligation above was written for a round that did not happen, which is the outcome
+a pre-registration wants and not evidence it was unnecessary. And **round 6 is now the arm's best
+round as well as its latest** (0.176247 against round 4's 0.195089), so the gap between "best" and
+"published" that §5.5 makes visible is currently zero. Neither fact retires anything: the window
+still contains a negative gain, and a below-δ round 7 fires `converged` on a two-round window whose
+other member is round 6's improvement, which is the rule working as written.
+
+**The classification, under the criterion fixed before round 5 and not revised since.** Round 6 is
+a **decay**. `L = 301`; the top type is `AGE`, whose leaked count went 294 → 84, a reduction of 210
+and a share of **0.698**, so S1 passes and passes well outside the 45–55% abstention band. S2 and
+S3 cannot be satisfied by the same layer: within `AGE` the only layer covering anything is
+`regex_checksum`, which went 227 → 437 — a real contribution, easily sufficient for S3, but nowhere
+near S2's `prev ≤ 0.1 × now` (227 against 43.7), because it was already the layer doing the work.
+The three layers that do satisfy S2 do so vacuously at 0 → 0 and fail S3 by covering nothing. So
+the gain came from a mechanism already contributing, which is what decay names. All three values are
+shown per the clause's own instruction, even though the rejection here is by S2 and S3 rather than
+by S1.
+
+**And the variance reading, which is owed separately.** The gain is 1.587× the measured
+call-to-call variance of 0.0361 (n = 2), so unlike round 4's 0.928× it sits outside what the
+instrument resolves. Both readings are given because neither answers the other: round 6 is a gain
+the instrument can see, produced by a mechanism that was already running.
+
 ### Span provenance
 
 Every detected span carries **layer · detector · rule ID · score**.
