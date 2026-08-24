@@ -627,6 +627,117 @@ may be recorded from it and what may not reach a prompt, is written and committe
 such run is made. Not afterwards with the numbers in hand, for the reason the timing rule above
 gives about δ.
 
+#### Predicted improvements for rounds 4–8, and the reporting obligation when termination fires — written 2026-08-24, before round 4 runs
+
+**Why this is written now.** Two `port-loop` improvements exist and they decay steeply. The
+extrapolation below says the loop will keep running for three or four more rounds and that none
+of those rounds' improvements will be distinguishable from the variance the clause above
+measured. That is a claim about rounds that have not happened, and it is worth nothing unless it
+is on the record before they do — written afterwards it is not a prediction but a description,
+and a description of a decay one has already seen is unfalsifiable. So it is recorded here,
+`results/es-meddocan/R/sup-free/port-loop/iter4/` empty, with the arithmetic exposed so that a
+reader can check both the prediction and its failure.
+
+**It is not a pre-registration and changes no decision procedure.** δ, k and the ceiling are
+untouched, for the reason the clause immediately above gives and does not need restating; nothing
+in `src/termination.py` is edited by the commit that adds this clause, and it can be checked the
+same mechanical way. What this adds is a number to be wrong about and one sentence a report must
+carry.
+
+**The observed decay, from the two improvements that exist.** Both are `fully_covered`, which is
+the mode `loop._leak_rates()` reads and therefore the mode the stopping rule runs on.
+
+| | dev leak `fully_covered` | improvement | as spans of 5,254 | vs δ = 0.005 | vs measured variance 0.0361 |
+|---|---|---|---|---|---|
+| round 1 | 0.596117 | — | — | — | — |
+| round 2 | 0.307195 | **0.288923** | 1,518 | 57.8× | 8.0× |
+| round 3 | 0.228588 | **0.078607** | 413 | 15.7× | 2.18× |
+
+The ratio of the second improvement to the first is **0.27207**, i.e. a decay of about **1/3.68
+per round**. That is one ratio from two gains — n = 1 — and a geometric model fitted to it has
+exactly as much support as that sentence implies. It is used because it is the only decay the arm
+has shown and because a prediction has to be committed to a functional form to be wrong; it is
+not used because there is evidence the decay is geometric.
+
+**The prediction: gain(n) = 0.078607 × 0.27207^(n−3).**
+
+| round | predicted improvement | as spans | predicted leak | > δ = 0.005 | inside variance 0.0361 |
+|---|---|---|---|---|---|
+| 4 | **0.021386** | 112.4 | 0.2072 | yes (4.3×) | **yes** (0.59× of it) |
+| 5 | **0.005819** | 30.6 | 0.2014 | yes, by 1.16× | **yes** (0.16×) |
+| 6 | **0.001583** | 8.3 | 0.1998 | no | **yes** (0.04×) |
+| 7 | 0.000431 | 2.3 | 0.1994 | no | yes |
+| 8 | 0.000117 | 0.6 | 0.1993 | no | yes |
+
+**The headline prediction, stated so that it can fail.** Round 6 is the first round below δ,
+round 7 is the second, so k = 2 is satisfied at round 7 and the arm stops with
+`reason: converged`, `iterations: 7`, one round short of the ceiling. And **every improvement
+from round 4 onward is inside the measured call-to-call variance** — round 4's predicted gain is
+0.59× of 0.0361, and rounds 5–8 are an order of magnitude below it. So the predicted ending is a
+loop that runs four more rounds, spends roughly 4 × 2.22M ≈ 8.9M tokens doing it, and produces
+no round whose improvement the interpretation rule above permits calling an improvement. The
+termination rule keeps it running; the variance figure says the running is not visible.
+
+**Where the prediction is fragile, computed rather than hedged.** The whole thing turns on one
+ratio r, so the round at which δ is first crossed is a function of r alone:
+
+Gains fall monotonically for any r < 1, so convergence at round n is bound by one condition —
+gain(n−1) < δ — and the boundaries are exact:
+
+- r < 0.0636 → round 4 already below δ, k = 2 at **round 5** (a collapse, not a decay).
+- r < 0.2522 → round 5 below δ, so k = 2 is satisfied at **round 6**. Observed r is 0.2721, only
+  **7.9% above** this boundary. Round 5's predicted 0.005819 is 1.16× δ, i.e. 30.6 spans against
+  δ's 26 — under five spans of headroom on a fold of 5,254. Convergence at round 6 is therefore
+  inside the prediction's own slack and would not count as a miss.
+- r < 0.3992 → k = 2 at **round 7**. This is the prediction.
+- r < 0.5022 → k = 2 at **round 8**, converged on its last permitted round.
+- r ≥ 0.5022 → no two consecutive rounds below δ within the cap, and the arm terminates
+  `ceiling` at 8. That needs the decay to be **1.85× weaker** than observed.
+
+So the prediction in its falsifiable form is: **`converged` at round 6, 7 or 8 — not `ceiling`.**
+A `ceiling` stop falsifies it, and so does any single round 4–8 whose improvement exceeds 0.0361,
+because such a round would be both a real improvement and evidence the decay is not geometric.
+Either outcome is a result and is to be reported as one, not absorbed.
+
+**The relaxed lower bound is already past this point and predicted to fall below δ at round 4.**
+Its gains are 0.256757 (round 2) and 0.030453 (round 3) — a ratio of 0.11861, decaying nearly
+2.3× faster than the headline — putting round 4 at **0.003612**, below δ. Round 3's relaxed gain
+was already inside the variance and was reported as not an improvement. The two modes are
+therefore predicted to disagree about round 4 in the way that matters: the headline gain clears
+δ while the lower bound does not, and neither clears the noise. CLAUDE.md makes `fully_covered`
+the headline and the stopping rule follows it, so the arm continues on the headline's arithmetic
+while its lower bound has stopped moving.
+
+**The reporting obligation, in the same form as the ceiling/converged distinction.** §3 already
+requires that a ceiling stop be distinguishable from a convergence stop in `metrics.json`, and
+`Termination.converged` makes the contradictory record unconstructable rather than rejected. This
+is that requirement's counterpart one level up, on the report rather than on the record, and it
+is **mandatory in the same way**: whenever termination fires, the report that announces it
+**must** state, for both kinds of stop,
+
+1. **which ending it was** — `converged` or `ceiling`, taken from the `termination` block and not
+   from the shape of the numbers; and
+2. **whether the final improvements are inside the measured call-to-call variance**, with the
+   figure cited and the comparison shown — for a `converged` stop, the k improvements that
+   satisfied the rule; for a `ceiling` stop, the last k improvements, which by construction did
+   *not* satisfy it and whose size is exactly what tells a reader whether the cap cut off a
+   productive arm or an already-flat one.
+
+A report that gives the reason and omits the comparison is incomplete, and so is one that says
+"the improvement was small" without the variance figure beside it. The reason this is an
+obligation on prose and not a field in `metrics.json` is the one the clause above states: the
+variance figure is a single measured pair from a note, not a quantity the harness holds, and
+writing it into the record would give a published file a number with no measurement behind it.
+Prose can carry "0.0361, n = 2, one pair" honestly; a JSON field cannot.
+
+**And the reason the obligation binds `ceiling` too, though the clause above only named δ.** A
+δ-fired stop inside the variance band converged on the threshold rather than on the corpus, which
+is why that case was named first. But the mirror case is just as unreadable from the reason
+alone: an arm capped at 8 with its last two improvements at 0.03 was still moving in a way the
+instrument cannot resolve, and an arm capped at 8 with its last two at 0.15 was cut off
+mid-descent. `reason: ceiling` says the same thing about both. So the comparison is owed on every
+stop, and a stop is the one moment at which the arm's result becomes the thing that gets cited.
+
 ### Span provenance
 
 Every detected span carries **layer · detector · rule ID · score**.
