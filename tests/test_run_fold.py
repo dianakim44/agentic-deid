@@ -661,6 +661,47 @@ def test_a_rule_arm_writes_no_lifecycle_block(ran):
     assert "model_lifecycle" not in json.loads(metrics.read_text(encoding="utf-8"))
 
 
+ABANDONED = {"attempts_abandoned": 2, "calls_abandoned": 500,
+             "prompt_tokens_abandoned": 1_262_000, "completion_tokens_abandoned": 41_500,
+             "wall_seconds_abandoned": 4102.5, "calls_unmeasured": 2}
+
+
+def test_the_abandoned_spend_is_passed_through_and_not_merged(tmp_path, probe_file,
+                                                             corpus_present):
+    """Its own argument, like `model_lifecycle` and `caching`, and validated at the writer.
+
+    A zero default here would be this function asserting that no attempt at the round was
+    abandoned, and it has no way to know: what re-ran is the driver, and the count comes off the
+    call log. So the parameter defaults to `None` and `None` writes no block (schema 9).
+    """
+    _, metrics, _ = rf.run_fold(**ARM, rules={"es": probe_file}, root=tmp_path, iteration=3,
+                                cost=ROUND_COST, cost_to_date=ARM_COST,
+                                abandoned_spend=ABANDONED)
+    written = json.loads(metrics.read_text(encoding="utf-8"))
+    assert written["abandoned_spend"] == ABANDONED
+    assert "abandoned_spend" not in written["cost"]
+    assert "abandoned_spend" not in written["cost_to_date"]
+    assert written["cost"]["prompt_tokens"] == ROUND_COST["prompt_tokens"]
+
+
+def test_a_round_that_abandoned_nothing_writes_no_such_block(ran):
+    """The `R` arm re-ran nothing because it re-runs nothing, and the absence is the record —
+    which is only readable because `SCHEMA_VERSION` says this writer could have written one."""
+    _, metrics, _ = ran
+    assert "abandoned_spend" not in json.loads(metrics.read_text(encoding="utf-8"))
+
+
+def test_the_writers_refusal_is_not_reimplemented_here(tmp_path, probe_file, corpus_present):
+    """Validation stays in `scorer.write_metrics`, so the block in `format_failure.json` and the
+    block here are checked by one function. What this asserts is that the refusal still arrives.
+    """
+    from src.eval.scorer import ScorerError
+    with pytest.raises(ScorerError, match="attempts_abandoned"):
+        rf.run_fold(**ARM, rules={"es": probe_file}, root=tmp_path, iteration=3,
+                    cost=ROUND_COST, cost_to_date=ARM_COST,
+                    abandoned_spend={**ABANDONED, "attempts_abandoned": 0})
+
+
 # ─── every rule file the corpus declares ─────────────────────────────────────
 
 

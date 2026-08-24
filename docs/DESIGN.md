@@ -839,6 +839,26 @@ the loop *intended*; what is unknowable is whether any were retried underneath, 
 retry leaves no line in `agent_calls.jsonl`. For those rounds the HTTP request count is a lower
 bound. No correction is possible after the fact and none is invented.
 
+**Where that spend now goes, and why round 5's is not being put there.** The figures above are the
+reason `metrics.json` schema 9 has an `abandoned_spend` block (`scorer.REQUIRED_ABANDONED`,
+2026-08-24): a round's `cost` is measured around the attempt that succeeded, so an arm that burned
+two complete audit passes publishes the figure of an arm that burned none, and the block is what
+ends that. Round 5's own two attempts are **recoverable** — every one of their 500 Auditor calls
+logged its cost to `agent_calls.jsonl` — but they are **not backfilled**, and the decision is
+§5.5's one-writer rule rather than a difficulty: editing `iter5/metrics.json` now would make
+something a second writer of an already published file, which is the property that makes the two
+copies of a round's score trustworthy in the first place. So `iter5/metrics.json` carries no
+`abandoned_spend` block, its absence there means "a writer that had no such field" rather than
+"nothing was abandoned", and `schema_version: 8` on that file is what says which of the two it is.
+The numbers stay here, where they were written before the field existed.
+
+Two of the six figures the block would have held are not merely unrecorded but **unmeasurable**,
+and this is the same hole as the paragraph above rather than a new one: each attempt's RuleAuthor
+call died in `ReadTimeoutError`, so it returned no usage report at all and its prompt tokens were
+spent and cannot be recovered. That is what `calls_unmeasured` counts — for round 5 it would read
+2 — and it is why the four token and time totals in any such block are lower bounds whenever it is
+above zero.
+
 **The generalisation worth keeping.** Both defects are inherited defaults meeting a documented
 intention that was never checked against behaviour. The retry pin was audited because it would
 corrupt a published number; the timeout was not audited because it corrupts nothing and merely
@@ -951,6 +971,77 @@ two should not be caveated together.
 `port-oneshot-nofence`, the variance probe of `docs/notes/call-variance.md`, the model-family probe
 of `docs/notes/baseline-model-family.md`, and `port-loop` rounds 1–4. Round 5 is the first round
 run under `total_max_attempts`, so it is the first round whose recorded request count is exact.
+
+#### The stopping rule is unsigned, so a regression counts toward convergence — recorded 2026-08-24, before it can fire
+
+**Round 5's result first, because it is what makes this reachable rather than hypothetical.** Dev
+leak `fully_covered` went 0.195089 → **0.233536** (1,025 → 1,227 leaked spans), a first difference
+of **−0.038447**: the arm's first regression. Relaxed went 0.154739 → 0.192234. F1 moved +0.0014 and
+would have called the round neutral, which is CLAUDE.md's headline rule earning its keep on a real
+round rather than in the abstract. Under the criterion fixed before the round ran, round 5 is
+**unclassifiable** — its own `L ≤ 0` clause fires at `L = −202` — and that is the recorded outcome,
+per the clause above that says it would be. The regression's magnitude is 1.065× the measured
+call-to-call variance of 0.0361 (n = 2, one pair), so it is at the edge of what the instrument
+resolves rather than clearly outside it.
+
+**The mechanical fact.** `should_stop` evaluates `all(g < d for g in gains[-k:])`. That comparison
+is **signed**: there is no `abs()`, and none was intended — the rule as pre-registered asks whether
+the leak rate *improved by at least δ*, and a round that got worse did not. So −0.038447 < 0.005 is
+a below-δ round, and the improvements list now reads `[0.288923, 0.078607, 0.033498, -0.038447]`
+with one of k = 2 already satisfied.
+
+**What follows, stated before the round that would do it.** If round 6's first difference is also
+below δ — of *either* sign, including a second regression — the arm records
+`reason: converged, iterations: 6` while its final leak rate is worse than round 4's. That record
+would be correct against the rule and misleading against the word. The rule's own defence of this
+is already in §3: a difference rule "can terminate at any level, including a bad one", and this is
+that failure mode with the sign flipped, which the clause anticipated in level and not in
+direction.
+
+**The rule is not being changed.** For the reason the pre-registration clause gives at the top of
+§3 and the reason `#### Step or decay` gives about its own thresholds — neither is restated here.
+Nothing in `src/termination.py` is edited by the commit that adds this clause, checkable the same
+mechanical way.
+
+**The reporting obligation, fixed now so it is not composed after the fact.** This is a third
+requirement on the report alongside the two in `#### Predicted improvements`, and it binds only
+when `converged` fires with any negative value among the k improvements that satisfied the rule.
+When it does, the report **must** state, in addition to the two obligations already standing:
+
+1. **That the final round was not the arm's best round**, naming the best round by dev leak
+   `fully_covered` and giving both figures. Not "the arm converged at 0.23" but "the arm converged
+   at 0.234 at round 6, having reached 0.195 at round 4".
+2. **The whole trajectory**, every round's leak rate and every first difference, in the report
+   itself and not by reference to a directory. A converged-on-regression arm cannot be read from
+   its endpoint, and a reader given only the endpoint has been given the one number that misleads.
+3. **That the published result is nonetheless the final round**, per §5.5, with the reason — so
+   that the gap between "best" and "published" is visible as a design choice and not as an
+   oversight.
+
+This does not license publishing the best round instead. Choosing a round after seeing the leak
+rates is choosing a result, which §5.5 refuses; the obligation is to make the cost of not choosing
+visible.
+
+**Candidates for the next arm's pre-registration — recorded as candidates and applied to nothing.**
+Listed so that the choice is made against a menu written while the problem was fresh, and none of
+these is in force for any arm now running:
+
+- **Absolute-value rule.** `all(abs(g) < d ...)`, so a regression is a *change* rather than a
+  non-improvement and does not count toward convergence. Cost: an arm oscillating by more than δ
+  never converges and always ends at the ceiling.
+- **Non-negativity guard.** Keep the signed comparison but require every one of the k rounds to
+  have `g ≥ 0` for `converged`; a negative gain in the window forces the reason to something else.
+  Needs a fourth reason value in `naming.yaml` (`regressed`, say), which is the honest cost — a new
+  reason is a new outcome the paper has to report on.
+- **Monotone-best rule.** Terminate on k below-δ rounds *measured against the best round so far*
+  rather than against the immediately previous one. Cost: it changes what `improvements` means, and
+  the list stops being first differences, which §3 requires it to be for checkability.
+- **Do nothing and report it.** Keep the rule and rely on the obligation above. Cost: the record
+  says `converged` on an arm that got worse, and every reader who sees the field and not the prose
+  is misled. This is the current state and it is a candidate rather than a default.
+
+The choice between them is a decision about the *next* arm and it is not made here, because making
+it here while `port-loop` is mid-flight is what §3's pre-registration exists to prevent.
 
 ### Span provenance
 
@@ -2240,6 +2331,38 @@ are the artefact and plumbing questions the two of those leave open.
   purpose rather than duplicated: one absent `metrics.json` stops the next round whether it is
   absent because the round failed or because it never ran.
 
+#### The arm's published result is its final round, never its best — stated explicitly 2026-08-24
+
+**This was already true of the implementation and was nowhere stated as a policy.** The un-iterated
+pair is rewritten every round (above), so after the last round `paths.metrics` holds that round's
+score and `paths.spans` its predictions. Nothing chooses. That is the intended behaviour and it is
+recorded here as a decision rather than left as a consequence, because a consequence is something a
+later commit can change without noticing it was load-bearing, and a decision is not.
+
+**Choosing the best round is forbidden, and the reason is the one §3 gives about δ.** The best round
+is identifiable only from the leak rates, i.e. only after the arm has run. Picking it is selecting a
+result with the result in view — the same objection §3 records against choosing δ with
+`port-oneshot`'s number known, and against §11.3's cost threshold picked after the fact. It would
+also make the reported figure depend on a choice no other arm in the ladder makes: `port-oneshot`
+has one round and cannot select, so a selecting `port-loop` would be compared against a
+non-selecting baseline and would win partly by the selection.
+
+This is not hypothetical for `port-loop` on es-meddocan. Round 4 reached 0.195089 and round 5
+0.233536, so the arm's best round is not its last, and if it terminates now the published headline
+is the worse number. That is the cost of the rule and it is paid rather than avoided.
+
+**Publishing the whole trajectory is therefore an obligation, not a courtesy.** A final-round
+headline is only honest if the rounds behind it are visible, so every report of a `port-loop` result
+publishes, for every round, the dev leak rate in both modes and the first difference. The per-round
+paths already make this possible without any new artefact — `iter{N}/metrics.json` exists for every
+round and each carries its own `termination` block, which is exactly what §5.5's per-round
+duplication was for. The obligation is on the report, because a reader who has to reconstruct the
+trajectory from a directory listing will not.
+
+The `converged`-on-a-regression case adds two further requirements to the same report (§3, this
+date): name the best round explicitly with both figures, and say that the final round is what is
+published and why. Those are stated there rather than repeated here.
+
 #### 5.5.1 `errors.jsonl` is not a `FilledPrompt`, and where that stops being true
 
 Asked and answered while implementing the export, 2026-08-12, and recorded because the
@@ -2293,7 +2416,7 @@ its six fields rather than dumping the object for this reason — a whitelist re
 field on the day it is added, and this file is the one where "the day it is added" means
 publishing it into the window §1.4 builds.
 
-#### 5.5.2 Re-running an incomplete round overwrites its audit report, and the log and the report then disagree — open, 2026-08-24
+#### 5.5.2 Re-running an incomplete round overwrites its audit report, and the log and the report then disagree — decided 2026-08-24 (1 + 2, not 3)
 
 **The retry is legitimate. The record is the problem.** Round 5 was attempted three times: two
 attempts died on the RuleAuthor call after their 250 Auditor calls had completed, and the third
@@ -2316,8 +2439,9 @@ visible to a reader who counts, and the count is 3× what a reader would expect 
 Auditor** — not a selected one, but not the first one either, and the sampling that fed §1.4 is
 therefore a draw whose two predecessors are unrecoverable.
 
-**Options, none chosen.** Recorded here so the decision is made deliberately rather than by whoever
-next hits a mid-round failure:
+**Options as they were framed, before the choice.** Kept in the words they were written in, because
+the decision below reads as obvious once made and the record of what it was weighed against is the
+part that does not survive paraphrase:
 
 1. **Preserve every draw.** Write `audit_report.json` per attempt — `audit_report.attempt2.json`, or
    a directory of draws — so the log's 750 lines have 750 lines' worth of artefact behind them.
@@ -2342,7 +2466,65 @@ next hits a mid-round failure:
 
 The three are not exclusive; 2 and 3 compose, and 1 subsumes 2's information at higher cost. What
 they trade against each other is *record completeness* versus *the number of things that must be
-right for the record to be true*. Not decided here.
+right for the record to be true*.
+
+**Decided: 1 and 2 together, and 3 refused.** Implemented 2026-08-24 in `src/porting/audit.py`
+(`draw_path`, `next_draw`, `with_draws_total`) and `src/porting/loop.py`.
+
+**3 is refused, and the hole it would have closed stays open. Named here, not glossed.** A re-run of
+an *incomplete* round is explicitly allowed and needs no flag: refusing it means a transport timeout
+ends the arm, which is precisely what happened at round 5 and is a harness failure recorded as a
+result. But the case option 3 was written for is **not** unreachable. `run_iteration(N)` reads
+rounds 1..*N−1* and consults the stopping rule on their rates; nothing in it looks at whether round
+*N* already has a `metrics.json`. So re-running a round that **did** score is permitted today, and
+it would overwrite that round's result with a second draw taken in knowledge of the first — which
+is §6's prohibition, not a bookkeeping problem. `tests/test_loop.py` demonstrates the mechanism
+directly by running round 2 twice.
+
+What the decision buys against that case is **detectability, not prevention**, and the two must not
+be confused. Before this change a re-run of a scored round left no trace at all: one report, one
+metrics file, and a call log whose count nobody reconciles. After it, the same act leaves a
+`draw2/` directory, a `draw_index: 2` in the canonical report, and an `abandoned_spend` block whose
+`attempts_abandoned` is above zero — so a reader who checks can see that it happened, and the
+sealed-eval discipline that exists for exactly this class of act (§6) has something to check. A
+guard is still the right thing and is not written here, because the flag it needs is a resume story
+and this change was scoped to the record rather than to the control flow. **Anyone re-running a
+round must confirm it produced no `metrics.json` first**; that is a rule about conduct until it is a
+rule in code, and it is written down so that it is one or the other rather than neither.
+
+**1 is implemented as a subdirectory and not a filename suffix, and that detail is the whole of the
+screener cost the option was charged for.** `paths.auditdraw` is
+`…/iter{iteration}/draw{draw}/audit_report.json`. `tools/release_screen.py` denies this file by name
+— `(^|/)audit_report\.json$`, so that `metrics.json` and `spans.jsonl` in the same round directory
+stay publishable — and a `audit_report.draw2.json` would escape that pattern, making the fix a
+widening of a deny rule to cover a newly invented name, under time pressure, on the rule protecting
+a map of the identifiers a round failed to catch. A subdirectory inherits the protection with **no
+screener edit at all**; `tests/test_audit.py` asserts the deny through `deny()` rather than by
+reading the pattern. `next_draw` is one past the highest existing `draw{M}/` rather than a count of
+them, so a gap stays a gap instead of causing a number to be reused and a preserved report
+overwritten — the one failure this path exists to prevent.
+
+**2 is implemented as `draw_index` plus an optional `draws_total`, and the option's stated
+weakness is answered rather than accepted.** The objection was that the failing process cannot
+increment anything durable, so the count would have to come from `agent_calls.jsonl` and the
+report's honesty would depend on a log it does not read. It comes from the directory listing
+instead: `next_draw` reads the state the previous attempts left on disk, which is exactly the
+record that survives a process dying. `draw_index` is always written because it is always knowable
+— the driver is the thing that re-ran. `draws_total` follows `caching`'s convention: present where
+knowable, absent where not, so **its presence means this report is the latest draw**. The preserved
+copy at `paths.auditdraw` is written first and without the total, the canonical copy at
+`paths.auditreport` is rewritten at every draw with it, and a reader then holds two independent
+counts to check against each other — the field, and the number of `draw{M}/` directories. Writing
+`draws_total: 2` into a round that turns out to have three draws would publish a false count, and
+going back to re-stamp preserved reports would make something a second writer of an already
+published file, which §5.5's one-writer rule refuses.
+
+**And the spend of the abandoned attempts is accounted separately, which neither option covered.**
+The draws answer "how many times was this round audited"; they do not answer "what did the attempts
+that produced nothing cost". `metrics.json` schema 9's `abandoned_spend` block does, measured off
+the call log at the moment the attempt begins — see §3's clause on round 5's two failed attempts for
+the figures, for why round 5's own are not backfilled, and for the two of them that are
+unmeasurable rather than merely unrecorded.
 
 ---
 

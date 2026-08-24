@@ -504,9 +504,9 @@ def test_the_four_iteration_scoped_paths_split_two_and_two():
     """
     from src.corpora.base import path_template
     axes = dict(corpus="es-meddocan", detector="R", supervision="sup-free",
-                porting="port-loop", iteration=3)
+                porting="port-loop", iteration=3, draw=2)
     allowed = {"itermetrics", "iterspans"}
-    denied = {"auditreport", "itererrors"}
+    denied = {"auditreport", "itererrors", "auditdraw"}
     for key in allowed | denied:
         rel = path_template(key).format(**axes)
         assert f"/iter{axes['iteration']}/" in rel, (
@@ -546,7 +546,7 @@ def test_no_two_path_keys_name_one_file():
     """
     from src.corpora.base import naming
     values = dict(corpus="es-meddocan", detector="R", supervision="sup-free",
-                  porting="port-loop", iteration=3, lang="es")
+                  porting="port-loop", iteration=3, lang="es", draw=2)
     seen: dict[str, str] = {}
     for key, template in naming()["paths"].items():
         try:

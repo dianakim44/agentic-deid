@@ -57,6 +57,36 @@ for. Two things make the scope wider than the diff looks:
 No expectation of "unchanged" is recorded for anything here, per CLAUDE.md — there is no comparable
 value until it is measured.
 
+*Measured 2026-08-24 by scope run, 8 mutations, baseline 1724 tests, tree `f4a0adba011f890c`. All
+eight caught; the working tree was byte-identical before and after.*
+
+| mutation | 2026-08-20 | now |
+|---|---|---|
+| `allowlist_may_name_corpus_paths` | 1 | **2** |
+| `rule_id_vocabulary_not_checked` | 20 | **25** |
+| `the_language_layer_is_keyed_on_the_id_the_model_wrote` | 2 | **3** |
+| `sealed_exempt_from_exit_code` | 1 | 1 |
+| `staged_sealed_not_escalated` | 2 | 2 |
+| `a_disagreeing_prefix_still_opens_the_layer` | 1 | 1 |
+| `an_unknown_language_gets_every_layer` | 1 | 1 |
+| `the_language_layer_is_a_substring_test` | 1 | 1 |
+
+The two rises worth naming are the second and third rows, because they are the ones the paragraph
+above predicted and neither is anchored in a file the diff touched.
+`test_every_acknowledged_entry_is_a_hit_that_actually_happens` asserts a live sniffer hit, so a
+mutation that stops the vocabulary check from firing now fails a `test_release_screen.py` test that
+never mentions the vocabulary. The prediction was recorded before the measurement and the
+measurement agrees with it, which is the only order in which that is worth anything.
+
+Five of the eight came back identical, and that is recorded as a measurement and not as a
+reassurance: an unchanged count under a *changed* suite is a fact about reach, namely that these
+five are killed by tests the diff did not touch.
+
+**Still owed to the next full run — all eight, plus
+`the_client_hardcodes_botocores_default_attempts` above.** A scope run cannot restate the full
+run's denominator, so these nine numbers are measured but not yet comparable to the other 161.
+The 161 are deferred to the next full run, not exempt from it.
+
 ---
 
 ## 2026-08-20 — full run

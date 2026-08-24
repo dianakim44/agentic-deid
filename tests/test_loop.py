@@ -1051,3 +1051,186 @@ def test_a_round_that_cannot_produce_a_scored_file_is_refused_before_anything_ru
     with pytest.raises(OrchestrateError):
         loop.run_iteration(2, **kw, client=Transport())
     assert calls() == [{"call_id": "c1", "iteration": 1, "role": "rule_author"}]
+
+
+# ─── a round re-run: draws, and the spend that bought nothing (§5.5.2) ───────
+# An incomplete round may be re-attempted, because refusing the re-run lets a transport timeout
+# end the arm — round 5 of the real `port-loop` died twice on the RuleAuthor call after all 250
+# audit calls had completed. Each attempt audits the fold again, so one round can hold 250 × M
+# Auditor lines in the log against one canonical report, and the two things these tests are about
+# are that no attempt's report is lost and that no attempt's spend is either.
+
+
+def draw_report(tree, iteration: int, draw: int) -> dict:
+    from src.porting.audit import draw_path
+    return json.loads(draw_path(corpus=CORPUS, detector="R", supervision="sup-free",
+                                porting="port-loop", iteration=iteration, draw=draw,
+                                root=tree).read_text(encoding="utf-8"))
+
+
+def test_a_round_audited_once_is_draw_one_and_abandons_nothing(tree, corpus_present):
+    """The state of every round in the record before this existed, and the default is the fact.
+
+    `draw_index` is written unconditionally because it is always knowable; `abandoned_spend` is
+    absent because absence is how "nothing was abandoned" is recorded (schema 9). A zero block
+    would say something different and something false — an abandoned attempt that spent nothing
+    cannot happen.
+    """
+    run_round_1(tree)
+    out = run_round(tree, 2)
+    assert out["draw_index"] == 1
+    assert out["abandoned_spend"] is None
+    assert "abandoned_spend" not in round_metrics(tree, 2)
+    assert json.loads(out["audit_report_path"].read_text(encoding="utf-8"))["draw_index"] == 1
+    assert draw_report(tree, 2, 1)["draw_index"] == 1
+
+
+def test_a_re_run_round_does_not_overwrite_the_earlier_draws_report(tree, corpus_present):
+    """**The failure this path exists to prevent.** Before it, attempt 2 wrote over attempt 1's
+    report and `agent_calls.jsonl` and `audit_report.json` then disagreed about how many times
+    the round was audited — with the log being the one that was right.
+
+    Both preserved reports are compared for content, not just existence: a second draw writing an
+    identical file would satisfy an existence check while still having lost attempt 1's record.
+
+    **This test also exhibits the hole DESIGN §5.5.2 refused to close.** The round it re-runs here
+    *scored*, and the driver permits that: nothing in `run_iteration` looks at whether round *N*
+    already has a `metrics.json`, so a second draw taken in knowledge of the first is mechanically
+    available and is §6's prohibition. What this change bought is that the act now leaves `draw2/`,
+    a `draw_index: 2` and a non-zero `attempts_abandoned` behind it — detectability, not
+    prevention. Nothing here should be read as endorsing the re-run of a scored round.
+    """
+    run_round_1(tree)
+    first = run_round(tree, 2, Transport(audit_text=NO_FLAGS))
+    second = run_round(tree, 2, Transport(audit_text=NO_FLAGS))
+    assert (first["draw_index"], second["draw_index"]) == (1, 2)
+    assert first["audit_draw_path"] != second["audit_draw_path"]
+    assert draw_report(tree, 2, 1)["draw_index"] == 1
+    assert draw_report(tree, 2, 2)["draw_index"] == 2
+    assert first["audit_report_path"] == second["audit_report_path"]
+
+
+def test_the_canonical_copy_carries_the_total_and_a_preserved_draw_does_not(tree,
+                                                                           corpus_present):
+    """Presence of `draws_total` means "this is the latest draw", which is a readable fact
+    rather than a convention. It is absent from the preserved copies because at the moment
+    draw 2 is written nobody knows whether there will be a draw 3, and writing `2` there would
+    publish a false count in every round that turns out to have more.
+    """
+    run_round_1(tree)
+    run_round(tree, 2)
+    out = run_round(tree, 2)
+    canonical = json.loads(out["audit_report_path"].read_text(encoding="utf-8"))
+    assert canonical["draw_index"] == 2 and canonical["draws_total"] == 2
+    assert "draws_total" not in draw_report(tree, 2, 1)
+    assert "draws_total" not in draw_report(tree, 2, 2)
+    # Two independent counts of the same thing, which is the point of keeping both.
+    round_dir = out["audit_draw_path"].parent.parent
+    assert canonical["draws_total"] == sum(
+        1 for child in round_dir.iterdir() if child.name.startswith("draw"))
+
+
+def test_the_re_run_totals_the_abandoned_attempts_from_the_log(tree, corpus_present):
+    """Measured from `agent_calls.jsonl`, which is the only place the number exists.
+
+    Nothing is inferred from the draw count or the fold size: the lines already present for this
+    round when the attempt begins are read one at a time. The first attempt here made 250 audit
+    calls and one RuleAuthor call, so 251 is the count that must appear — and `calls_unmeasured`
+    is 0 because that attempt's RuleAuthor call did return and did log its usage.
+    """
+    from src.eval.run_fold import load_fold
+
+    n_docs = len(load_fold(CORPUS, "dev"))
+    run_round_1(tree)
+    first = run_round(tree, 2)
+    second = run_round(tree, 2)
+    block = second["abandoned_spend"]
+    assert block["attempts_abandoned"] == 1
+    assert block["calls_abandoned"] == n_docs + 1 == first["cost"]["llm_calls"]
+    assert block["prompt_tokens_abandoned"] == first["cost"]["prompt_tokens"]
+    assert block["calls_unmeasured"] == 0
+    assert round_metrics(tree, 2)["abandoned_spend"] == block
+
+
+def test_the_abandoned_spend_is_not_summed_into_what_the_arm_published(tree, corpus_present):
+    """**The whole reason the block is named the way it is.** This is spend that bought no
+    result, and adding it to the figure DESIGN §11.3's 1.9× standard is read off would price the
+    rung for work that produced nothing while making it look more productive per token.
+
+    So the re-run's `cost` is the successful attempt's own, and every key of the abandoned block
+    is suffixed such that `sum_costs` would reject it outright.
+    """
+    from src.eval.scorer import REQUIRED_COST, sum_costs
+
+    run_round_1(tree)
+    first = run_round(tree, 2)
+    second = run_round(tree, 2)
+    assert second["cost"]["llm_calls"] == first["cost"]["llm_calls"]
+    assert set(second["cost"]) == set(REQUIRED_COST)
+    assert not set(second["abandoned_spend"]) & set(REQUIRED_COST)
+    with pytest.raises(Exception):
+        sum_costs([second["cost"], second["abandoned_spend"]])
+
+
+def test_an_attempt_that_died_on_the_rule_author_call_is_counted_as_unmeasured(tree):
+    """**Where the honesty is.** A call that never returned wrote no log line and reported no
+    usage, so its tokens are gone for good — DESIGN §3's HTTP-attempt limitation as a hole in a
+    different record. What can still be counted is how many attempts hit it: a draw written with
+    no RuleAuthor line for the round is an attempt that died on that call.
+
+    So the four totals beside `calls_unmeasured` are lower bounds whenever it is above zero, and
+    this is the case that makes them so.
+    """
+    a_frozen_arm(tree)
+    path = log_path(*ARM)
+    with open(path, "a", encoding="utf-8") as fh:
+        for n in range(3):
+            fh.write(json.dumps({
+                "call_id": f"a{n}", "iteration": 4, "role": "auditor",
+                "cost": {"llm_calls": 1, "prompt_tokens": 100, "completion_tokens": 10,
+                         "wall_seconds": 1.5}}) + "\n")
+    block = loop._abandoned_spend(*ARM, iteration=4, draws_before=1)
+    assert block["attempts_abandoned"] == 1
+    assert block["calls_abandoned"] == 3
+    assert block["prompt_tokens_abandoned"] == 300
+    assert block["wall_seconds_abandoned"] == 4.5
+    assert block["calls_unmeasured"] == 1
+
+
+def test_the_abandoned_spend_counts_only_this_rounds_lines(tree):
+    """Every line carries the round it belonged to, and an attempt at round 4 must not be
+    charged for round 3's calls — which would make the abandoned figure grow with the arm's
+    length rather than with what was abandoned.
+    """
+    a_frozen_arm(tree)
+    path = log_path(*ARM)
+    with open(path, "a", encoding="utf-8") as fh:
+        for iteration in (3, 4):
+            fh.write(json.dumps({
+                "call_id": f"c{iteration}", "iteration": iteration, "role": "auditor",
+                "cost": {"llm_calls": 1, "prompt_tokens": 100, "completion_tokens": 10,
+                         "wall_seconds": 1.0}}) + "\n")
+    assert loop._abandoned_spend(*ARM, iteration=4,
+                                draws_before=1)["prompt_tokens_abandoned"] == 100
+
+
+def test_the_first_attempt_of_a_round_reads_no_block_at_all(tree):
+    """`None`, not a block of zeros, and not an error on an arm with no log yet."""
+    a_frozen_arm(tree)
+    assert loop._abandoned_spend(*ARM, iteration=2, draws_before=0) is None
+
+
+def test_the_draw_number_is_taken_before_the_audit_calls_are_made(tree, corpus_present):
+    """Ordering, and it is load-bearing twice over: the number goes into the report those calls
+    produce, and the abandoned spend has to be totalled from the log *as it stands now* —
+    after this attempt logs its own 250 lines the two attempts are no longer separable.
+    """
+    run_round_1(tree)
+    run_round(tree, 2)
+    fake = Transport()
+    out = run_round(tree, 2, fake)
+    n_before = out["abandoned_spend"]["calls_abandoned"]
+    assert n_before == fake.audit_calls + 1, (
+        "the abandoned total absorbed this attempt's own calls, which means the log was read "
+        "after the audit ran rather than before")
+    assert draw_report(tree, 2, 2)["draw_index"] == 2

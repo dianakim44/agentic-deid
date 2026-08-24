@@ -138,7 +138,7 @@ from ..llm.prompt import (
 from ..orchestrate import (
     CALLED, FORMAT_FAILURE, ONESHOT_SECTIONS, RULE_AUTHOR, SCORED, OrchestrateError,
     _digest, _run_block, _write_failure, _write_rules, append_call, arm_has_called,
-    call_line, freeze_window, window_drift,
+    call_line, freeze_window, read_calls, window_drift,
 )
 from ..rules import RuleError, arm_rules_path, load_rules
 from ..sample import config as sampling_config, draw
@@ -191,6 +191,55 @@ SUPERVISION = "sup-free"
 #: **Nothing derives it** — not from the template filename, not from which assembler produced
 #: the prompt (DESIGN §5.5, and §3's layer-from-detector-name prohibition one field over).
 AUDITOR = "auditor"
+
+
+def _abandoned_spend(corpus: str, detector: str, supervision: str, porting: str,
+                     *, iteration: int, draws_before: int) -> dict | None:
+    """What earlier, abandoned attempts at this round spent — `scorer.REQUIRED_ABANDONED`, or None.
+
+    `None` when this is the round's first attempt, which is how "nothing was abandoned" is
+    recorded (schema 9): the block is omitted rather than written as zeros, for the reason
+    `caching` is, and here the two states behind a zero would be "no attempt was abandoned" and
+    "an attempt was abandoned and cost nothing", the second of which cannot happen.
+
+    **Measured from the call log, which is the only place the number exists.** Every call the
+    abandoned attempts completed wrote a line to `agent_calls.jsonl` with its own cost, and every
+    line carries the round it belonged to. So the lines already present for this round, at the
+    moment this attempt begins, are exactly the abandoned spend. Nothing is inferred from the
+    draw count and nothing is inferred from the fan-out — the costs are read, one line at a time.
+
+    **`calls_unmeasured` is where the honesty is.** A call that died in transport wrote no line:
+    `append_call` runs after `invoke` returns, and a `ReadTimeoutError` means it never returned.
+    Worse, such a call has no usage report at all, so its prompt tokens were spent and can never
+    be recovered — this is DESIGN §3's HTTP-attempt limitation appearing as a hole in a different
+    record. What *can* be counted is how many attempts hit it: an abandoned attempt that got as
+    far as writing its audit draw and left no RuleAuthor line for this round is an attempt that
+    died on the RuleAuthor call. So `calls_unmeasured` is the draws already written minus the
+    RuleAuthor lines already logged, floored at zero, and the four token and time totals beside
+    it are lower bounds whenever it is above zero. `scorer.REQUIRED_ABANDONED` says so where the
+    block is validated, because that is where a reader of the schema looks.
+
+    The arithmetic is here and not in `scorer.sum_costs`: that function adds `REQUIRED_COST`
+    blocks and this block deliberately shares no key with them, so that it can never be summed
+    into the figure DESIGN §11.3's comparison is read off. The driver is what re-ran and the
+    driver is what knows.
+    """
+    if draws_before < 1:
+        return None
+    lines = [line for line in read_calls(corpus, detector, supervision, porting)
+             if line.get("iteration") == iteration]
+    authored = sum(1 for line in lines if line.get("role") == RULE_AUTHOR)
+    costs = [line.get("cost") or {} for line in lines]
+    return {
+        "attempts_abandoned": draws_before,
+        "calls_abandoned": sum(int(cost.get("llm_calls", 0)) for cost in costs),
+        "prompt_tokens_abandoned": sum(int(cost.get("prompt_tokens", 0)) for cost in costs),
+        "completion_tokens_abandoned": sum(int(cost.get("completion_tokens", 0))
+                                           for cost in costs),
+        "wall_seconds_abandoned": round(
+            sum(float(cost.get("wall_seconds", 0.0)) for cost in costs), 3),
+        "calls_unmeasured": max(0, draws_before - authored),
+    }
 
 
 def _check_inputs(corpus: str, lang: str, model_id: str) -> None:
@@ -450,7 +499,8 @@ def _leak_rates(*, corpus: str, detector: str, supervision: str, porting: str,
 
 def _audit_fold(documents, predictions, *, corpus: str, iteration: int, model_id: str,
                 max_tokens: int | None, client, control_client, detector: str,
-                supervision: str, porting: str) -> tuple[dict, list[dict], list[dict | None]]:
+                supervision: str, porting: str,
+                draw_index: int = 1) -> tuple[dict, list[dict], list[dict | None]]:
     """The Auditor over one fold: one call per document. Returns (report, costs, caching).
 
     **One call per document is `auditor.md` §1.3's decision and this function is where the
@@ -538,8 +588,12 @@ def _audit_fold(documents, predictions, *, corpus: str, iteration: int, model_id
     # because it records what it was told; the numbers are the round being run and the round
     # whose predictions were masked, and the consumer — `prompt._audit_block` — checks both
     # against its own round.
+    # `draws_total` is deliberately not passed: this function builds the payload that is written
+    # to `paths.auditdraw` and preserved, and that copy is the one for which the total is not
+    # knowable (DESIGN §5.5.2, `audit.report`). The caller adds it to the canonical copy.
     return (audit.report(audits, corpus=corpus, iteration=iteration,
-                         masked_from_iteration=iteration - 1), costs, caching)
+                         masked_from_iteration=iteration - 1,
+                         draw_index=draw_index), costs, caching)
 
 
 def _written_termination(metrics_file) -> dict:
@@ -584,10 +638,18 @@ def run_iteration(iteration: int, *, corpus: str, lang: str, model_id: str,
     first: it is the fact about the call a reader needs before any of the axes, and there is no
     default, because a default round number is a round chosen by whichever caller forgot.
 
-    Returns `run_iteration_1()`'s shape with six keys added — `audit_report_path`,
-    `window_drift`, `cost_to_date`, `caching`, `termination` and `stop` — so a caller that reads
-    one round reads all of them and the fields that differ are named rather than inferred.
-    Nothing in it is a summary that has to be trusted: every value is also on disk.
+    Returns `run_iteration_1()`'s shape with nine keys added — `audit_report_path`,
+    `audit_draw_path`, `draw_index`, `abandoned_spend`, `window_drift`, `cost_to_date`,
+    `caching`, `termination` and `stop` — so a caller that reads one round reads all of them and
+    the fields that differ are named rather than inferred. Nothing in it is a summary that has to
+    be trusted: every value is also on disk.
+
+    `draw_index` and `abandoned_spend` are returned together because neither is readable without
+    the other. A `draw_index` of 3 says two earlier attempts at this round were abandoned, and
+    `abandoned_spend` is what they spent; a caller holding the second without the first cannot
+    tell how many attempts it aggregates. `abandoned_spend` is `None` at `draw_index` 1, which is
+    the absent-means-unrecorded convention of the block it carries and not a zero
+    (`_abandoned_spend`, `scorer.REQUIRED_ABANDONED`).
 
     `caching` is the round's transport record and it is present in both returns for
     `cost_to_date`'s reason — it is what tells a reader how to read `cost.prompt_tokens`, so a
@@ -731,6 +793,19 @@ def run_iteration(iteration: int, *, corpus: str, lang: str, model_id: str,
             "past the stop is a round whose own termination block the rule cannot evaluate."
         )
 
+    # Which attempt at this round this is, read off the draw directories rather than counted in
+    # memory (DESIGN §5.5.2). Taken *before* the audit calls are made, because the number goes
+    # into the report those calls produce and because the spend of the earlier attempts has to be
+    # totalled from the log as it stands now — after this attempt logs its own 250 lines the two
+    # are no longer separable. Named `draw_index` and not `draw`: `draw` is this module's
+    # imported sampler (`..sample.draw`, used forty lines below for §1.4), and a local of that
+    # name shadows it — the failure is a `TypeError` at the sampling call, which is late enough to
+    # be after the audit's 250 calls have been paid for.
+    draw_index = audit.next_draw(corpus=corpus, detector=detector, supervision=supervision,
+                                 porting=porting, iteration=iteration, root=orchestrate.ROOT)
+    abandoned = _abandoned_spend(corpus, detector, supervision, porting,
+                                 iteration=iteration, draws_before=draw_index - 1)
+
     predictions = read_spans(corpus=corpus, detector=detector, supervision=supervision,
                              porting=porting, iteration=previous, root=orchestrate.ROOT)
     documents = load_fold(corpus, split)
@@ -738,14 +813,26 @@ def run_iteration(iteration: int, *, corpus: str, lang: str, model_id: str,
         documents, predictions, corpus=corpus, iteration=iteration, model_id=model_id,
         max_tokens=max_tokens, client=client, control_client=control_client,
         detector=detector, supervision=supervision, porting=porting,
+        draw_index=draw_index,
     )
     report_file = audit.report_path(corpus=corpus, detector=detector,
-                                    supervision=supervision, porting=porting,
-                                    iteration=iteration, root=orchestrate.ROOT)
-    report_file.parent.mkdir(parents=True, exist_ok=True)
-    with open(report_file, "w", encoding="utf-8") as fh:
-        json.dump(report, fh, ensure_ascii=False, indent=2, sort_keys=False)
-        fh.write("\n")
+                                   supervision=supervision, porting=porting,
+                                   iteration=iteration, root=orchestrate.ROOT)
+    draw_file = audit.draw_path(corpus=corpus, detector=detector, supervision=supervision,
+                                porting=porting, iteration=iteration, draw=draw_index,
+                                root=orchestrate.ROOT)
+    # Two copies, and the difference between them is one key. The draw's own copy is written once
+    # and never touched again, and it omits `draws_total` because that number is not knowable when
+    # it is written (`audit.report`). The canonical copy is rewritten at every draw and carries
+    # `draws_total`, so it is correct at every instant and holds the true total once the round
+    # completes. Writing the draw copy first means a crash between the two leaves the preserved
+    # record and not only the pointer.
+    for path, payload in ((draw_file, report),
+                          (report_file, audit.with_draws_total(report, draw_index))):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(path, "w", encoding="utf-8") as fh:
+            json.dump(payload, fh, ensure_ascii=False, indent=2, sort_keys=False)
+            fh.write("\n")
 
     # §1.4: the previous round's errors, drawn here rather than in the assembler. `practice`
     # is not passed — `check_iteration` refuses a real arm the reserved band and this is a real
@@ -821,7 +908,7 @@ def run_iteration(iteration: int, *, corpus: str, lang: str, model_id: str,
             corpus=corpus, detector=detector, supervision=supervision, porting=porting,
             split=split, model=model, response=response.text, error=str(exc),
             rules_path=rules_file, cost=cost, prompt_reference=reference,
-            model_lifecycle=lifecycle, caching=caching,
+            model_lifecycle=lifecycle, caching=caching, abandoned_spend=abandoned,
         )
         return {
             "iteration": iteration,
@@ -839,6 +926,12 @@ def run_iteration(iteration: int, *, corpus: str, lang: str, model_id: str,
             "metrics_path": None,
             "spans_path": None,
             "audit_report_path": report_file,
+            "audit_draw_path": draw_file,
+            "draw_index": draw_index,
+            # The most expensive outcome there is: a round abandoned `draw - 1` times and then
+            # format-failing. `format_failure.json` carries the same block (FAILURE_SCHEMA 3),
+            # because no `metrics.json` was written and that file is the only record of it.
+            "abandoned_spend": abandoned,
             "window_drift": drift,
             # `None` and not a verdict: this round produced no leak rate, so the rule has
             # nothing to evaluate about it, and `stop` is `True` because the arm is over —
@@ -859,7 +952,8 @@ def run_iteration(iteration: int, *, corpus: str, lang: str, model_id: str,
     spans_file, metrics_file, scored = run_fold(
         corpus=corpus, detector=detector, supervision=supervision, porting=porting,
         split=split, rules={lang: rules_file}, model_record=model, cost=cost,
-        cost_to_date=cost_to_date, caching=caching, model_lifecycle=lifecycle,
+        cost_to_date=cost_to_date, caching=caching, abandoned_spend=abandoned,
+        model_lifecycle=lifecycle,
         termination=PendingTermination(corpus=corpus,
                                        previous_leak_rates=tuple(previous_rates)),
         iteration=iteration, root=orchestrate.ROOT,
@@ -882,6 +976,9 @@ def run_iteration(iteration: int, *, corpus: str, lang: str, model_id: str,
         "metrics_path": metrics_file,
         "spans_path": spans_file,
         "audit_report_path": report_file,
+        "audit_draw_path": draw_file,
+        "draw_index": draw_index,
+        "abandoned_spend": abandoned,
         "window_drift": drift,
         "scored": scored,
         "termination": termination,

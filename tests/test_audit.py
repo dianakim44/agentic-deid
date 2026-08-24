@@ -812,6 +812,263 @@ def test_the_report_path_is_denied_by_the_screener():
     )
 
 
+# ─── a round's draws (paths.auditdraw, DESIGN §5.5.2) ────────────────────────
+#
+# An incomplete round may be re-run, so one round can be audited M times and the log holds
+# 250 × M Auditor lines against one report. These tests are about the two properties that make
+# that accountable: no draw's report is overwritten, and nothing about M is inferred.
+
+
+def test_a_draws_report_goes_in_a_numbered_subdirectory():
+    assert audit.draw_path(**ROUND_AXES, iteration=5, draw=2, root=Path("/r")) == Path(
+        "/r/results/es-meddocan/RT/sup-free/port-loop/iter5/draw2/audit_report.json")
+
+
+def test_the_draw_keeps_the_canonical_filename():
+    """**The name is `audit_report.json` and the number is a directory, not a suffix.**
+
+    The screener's deny rule is `(^|/)audit_report\\.json$` — by name, deliberately, so that
+    `metrics.json` and `spans.jsonl` in the same round directory stay publishable. An
+    `audit_report.draw2.json` would slip past it, and the repair would be to widen a deny rule
+    to cover a name invented under time pressure. A subdirectory inherits the protection with
+    no screener edit at all, which is what the next test measures.
+    """
+    drawn = audit.draw_path(**ROUND_AXES, iteration=5, draw=3, root=Path("/r"))
+    assert drawn.name == "audit_report.json"
+    assert drawn.parent.name == "draw3"
+
+
+def test_the_draw_path_is_denied_by_the_screener():
+    """The claim above, asserted through `deny()` rather than by reading the pattern.
+
+    A preserved draw is the same map of residual identifiers the canonical copy is, and there
+    are now M of them per round. If the subdirectory ever stopped inheriting the deny rule,
+    this is the test that fails rather than a release that ships.
+    """
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(
+        "_screen_probe_draw", ROOT / "tools" / "release_screen.py")
+    screen = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(screen)
+
+    rel = str(audit.draw_path(**ROUND_AXES, iteration=5, draw=2,
+                              root=ROOT).relative_to(ROOT))
+    assert screen.deny(rel)
+    assert not any(__import__("re").search(p, rel) for p in screen.ALLOW_PATTERNS)
+
+
+def test_the_draw_sits_under_the_round_the_canonical_copy_is_in():
+    """One cell, two templates, and this is what keeps them from disagreeing about which.
+
+    `draw_path` calls `report_path` for its refusals rather than reimplementing the axis and
+    round checks, and the structural consequence is this identity: a draw is always exactly one
+    directory below the canonical report it supersedes.
+    """
+    for iteration in (2, 5, 8):
+        drawn = audit.draw_path(**ROUND_AXES, iteration=iteration, draw=4, root=Path("/r"))
+        canonical = report_path(**ROUND_AXES, iteration=iteration, root=Path("/r"))
+        assert drawn.parent.parent == canonical.parent
+
+
+@pytest.mark.parametrize("key,bad", [
+    ("corpus", "es-nope"), ("detector", "R+T"), ("supervision", "supfree"),
+    ("porting", "port-agentic"),
+])
+def test_the_draw_path_refuses_an_axis_value_naming_no_cell(key, bad):
+    """Inherited from `report_path`, and asserted here because inheritance by delegation is a
+    property of this function's body that a later edit could remove.
+    """
+    with pytest.raises(AuditError, match="naming.yaml"):
+        audit.draw_path(**{**ROUND_AXES, key: bad}, iteration=5, draw=2)
+
+
+@pytest.mark.parametrize("bad", [0, -1, 1.5, True, "2", None])
+def test_the_draw_path_refuses_a_draw_that_is_not_a_draw(bad):
+    """`draw0/` is an audit nothing counts, and `True` is an `int` that would name draw 1 —
+    silently reusing the first attempt's directory, which is the overwrite this path prevents.
+    """
+    with pytest.raises(AuditError, match="draw"):
+        audit.draw_path(**ROUND_AXES, iteration=5, draw=bad)
+
+
+@pytest.mark.parametrize("bad", [0, -1, 1.5, True, "2", None])
+def test_the_draw_path_refuses_a_round_that_is_not_a_round(bad):
+    with pytest.raises(AuditError, match="iteration"):
+        audit.draw_path(**ROUND_AXES, iteration=bad, draw=1)
+
+
+def test_the_first_audit_of_a_round_is_draw_one(tmp_path):
+    """No directory, so no attempt — and the answer is 1 rather than an error, because every
+    round in the record before 2026-08-24 was audited exactly once.
+    """
+    assert audit.next_draw(**ROUND_AXES, iteration=5, root=tmp_path) == 1
+
+
+def test_the_next_draw_is_one_past_the_highest_that_exists(tmp_path):
+    round_dir = audit.draw_path(**ROUND_AXES, iteration=5, draw=1,
+                                root=tmp_path).parent.parent
+    for name in ("draw1", "draw2"):
+        (round_dir / name).mkdir(parents=True)
+    assert audit.next_draw(**ROUND_AXES, iteration=5, root=tmp_path) == 3
+
+
+def test_a_gap_in_the_draws_is_left_as_a_gap(tmp_path):
+    """**One past the highest, not how many exist.**
+
+    The two agree until a draw directory is missing, and there the count would hand back 2 while
+    `draw2/` already holds a preserved report — reusing a number and overwriting the one file
+    this whole path exists to keep. A gap stays visible in the listing and in the mismatch
+    against `draws_total`, which is the honest outcome rather than the tidy one.
+    """
+    round_dir = audit.draw_path(**ROUND_AXES, iteration=5, draw=1,
+                                root=tmp_path).parent.parent
+    (round_dir / "draw2").mkdir(parents=True)
+    assert audit.next_draw(**ROUND_AXES, iteration=5, root=tmp_path) == 3
+
+
+def test_the_next_draw_ignores_directories_that_are_not_draws(tmp_path):
+    """The round directory also holds this round's other files, and a sibling named `drawing/`
+    or a stray `draws/` must not become a draw number.
+    """
+    round_dir = audit.draw_path(**ROUND_AXES, iteration=5, draw=1,
+                                root=tmp_path).parent.parent
+    round_dir.mkdir(parents=True)
+    for name in ("draw1", "drawings", "draw", "drawX"):
+        (round_dir / name).mkdir()
+    (round_dir / "draw9").write_text("not a directory", encoding="utf-8")
+    assert audit.next_draw(**ROUND_AXES, iteration=5, root=tmp_path) == 2
+
+
+def test_the_next_draw_is_the_number_that_does_not_overwrite(tmp_path):
+    """The property, stated as the property rather than as an arithmetic identity: whatever
+    `next_draw` returns, no report is already there.
+    """
+    for _ in range(4):
+        n = audit.next_draw(**ROUND_AXES, iteration=5, root=tmp_path)
+        drawn = audit.draw_path(**ROUND_AXES, iteration=5, draw=n, root=tmp_path)
+        assert not drawn.exists()
+        drawn.parent.mkdir(parents=True)
+        drawn.write_text("{}", encoding="utf-8")
+
+
+# ─── draw_index and draws_total on the report ────────────────────────────────
+
+
+def test_a_report_says_which_attempt_wrote_it():
+    out = report([audits()], corpus="es-meddocan", iteration=5, masked_from_iteration=4,
+                 draw_index=3, draws_total=3)
+    assert out["draw_index"] == 3 and out["draws_total"] == 3
+
+
+def test_a_round_audited_once_says_so_without_being_told():
+    """The default is 1, and 1 is the true state of every round audited once — which is every
+    round in the record before this field existed. A default here is a fact, not a placeholder,
+    which is why the field is unconditionally written rather than omitted at draw 1.
+    """
+    out = report([audits()], corpus="es-meddocan", iteration=3, masked_from_iteration=2)
+    assert out["draw_index"] == 1
+
+
+def test_a_preserved_draw_carries_no_total():
+    """**Absence is a record.** At the moment draw 2's report is written nobody knows whether
+    there will be a draw 3, so the preserved copy omits the total — and its presence therefore
+    means "this report is the latest draw", which is a readable fact rather than a convention.
+    """
+    out = report([audits()], corpus="es-meddocan", iteration=5, masked_from_iteration=4,
+                 draw_index=2)
+    assert "draws_total" not in out
+
+
+def test_the_two_fields_are_adjacent_in_the_file():
+    """Neither is readable without the other, so they are written next to each other.
+
+    Asserted over key order because that is what a human opening a 250-document report sees:
+    `draws_total` appended at the end would sit several hundred flags away from the only field
+    it means anything beside.
+    """
+    out = report([audits()], corpus="es-meddocan", iteration=5, masked_from_iteration=4,
+                 draw_index=2, draws_total=4)
+    keys = list(out)
+    assert keys[keys.index("draw_index") + 1] == "draws_total"
+
+
+@pytest.mark.parametrize("bad", [0, -1, 1.5, True, "2", None])
+def test_the_report_refuses_a_draw_index_that_is_not_a_draw(bad):
+    with pytest.raises(AuditError, match="draw_index"):
+        report([audits()], corpus="es-meddocan", iteration=5, masked_from_iteration=4,
+               draw_index=bad)
+
+
+@pytest.mark.parametrize("bad", [1.5, True, "3"])
+def test_the_report_refuses_a_total_that_is_not_a_count(bad):
+    with pytest.raises(AuditError, match="draws_total"):
+        report([audits()], corpus="es-meddocan", iteration=5, masked_from_iteration=4,
+               draw_index=1, draws_total=bad)
+
+
+def test_a_report_cannot_be_draw_three_of_two():
+    """The one inconsistency visible from inside a single file, so it is refused rather than
+    left for a reader to catch — the reader who would catch it is reading to reconcile the
+    report against the call log, and this is the field pair they are reconciling with.
+    """
+    with pytest.raises(AuditError, match="draw_index"):
+        report([audits()], corpus="es-meddocan", iteration=5, masked_from_iteration=4,
+               draw_index=3, draws_total=2)
+
+
+def test_the_canonical_copy_differs_from_the_preserved_one_by_exactly_one_key():
+    """What the loop driver writes twice, compared as bytes-worth-of-difference.
+
+    The preserved draw and the canonical report are the same payload; a second `report()` call
+    for the canonical copy could drift from the first while both looked right, which is why the
+    driver derives one from the other.
+    """
+    preserved = report([audits(n_flags=2)], corpus="es-meddocan", iteration=5,
+                       masked_from_iteration=4, draw_index=2)
+    canonical = audit.with_draws_total(preserved, 2)
+    assert set(canonical) - set(preserved) == {"draws_total"}
+    assert {k: v for k, v in canonical.items() if k != "draws_total"} == preserved
+
+
+def test_stamping_the_total_does_not_mutate_the_preserved_payload():
+    """The preserved copy is written first and never touched again. If this returned the same
+    object the driver would be writing the canonical payload to both paths, and the draw would
+    claim a total it cannot know.
+    """
+    preserved = report([audits()], corpus="es-meddocan", iteration=5,
+                       masked_from_iteration=4, draw_index=2)
+    audit.with_draws_total(preserved, 2)
+    assert "draws_total" not in preserved
+
+
+def test_stamping_refuses_what_the_report_would_refuse():
+    """Same rule, checked in both places, so this function cannot be the way to construct a
+    payload `report()` rejects.
+    """
+    preserved = report([audits()], corpus="es-meddocan", iteration=5,
+                       masked_from_iteration=4, draw_index=3)
+    for bad in (2, 0, -1, 1.5, True, None, "3"):
+        with pytest.raises(AuditError, match="draw"):
+            audit.with_draws_total(preserved, bad)
+
+
+def test_stamping_a_payload_with_no_draw_index_is_refused():
+    """A `dict` that never went through `report()` — the total would land nowhere, and a
+    silently unstamped payload written as the canonical copy is a lost count.
+    """
+    with pytest.raises(AuditError, match="draw_index"):
+        audit.with_draws_total({"iteration": 5}, 2)
+
+
+def test_the_draw_fields_hold_no_text():
+    """The report's standing guarantee, re-asserted on the payload the new fields are on."""
+    body = json.dumps(audit.with_draws_total(
+        report([audits(n_flags=2, n_refused=1)], corpus="es-meddocan", iteration=5,
+               masked_from_iteration=4, draw_index=2), 2))
+    for key in ("surface", "text", "context", "snippet", "phrase", "line"):
+        assert f'"{key}"' not in body, key
+
+
 # ─── structure: no surface form leaves this module ───────────────────────────
 
 

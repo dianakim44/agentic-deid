@@ -70,7 +70,7 @@ from src.corpora.base import (                                        # noqa: E4
 from src.eval import sealed_log                                       # noqa: E402
 from src.eval.run_fold import DEFAULT_SPLIT                           # noqa: E402
 from src.llm.bedrock import BedrockError                              # noqa: E402
-from src.porting import loop                                          # noqa: E402
+from src.porting import audit, loop                                   # noqa: E402
 from src.rules import RuleError, arm_rules_path                       # noqa: E402
 from src.sample import WINDOW_HASH_FIELDS, window_hashes              # noqa: E402
 from src.termination import TerminationError, should_stop             # noqa: E402
@@ -226,6 +226,19 @@ def _plan(args, history, n_docs: int) -> list[str]:
         lines.append("drift        " + (", ".join(drift) + "  — the frozen window moved; "
                                         "reported, not refused (DESIGN §6.3)"
                                         if drift else "none"))
+        # Which attempt at this round the run would be (DESIGN §5.5.2). Shown because the
+        # operator's decision differs above 1: re-running an *incomplete* round is allowed and is
+        # why the draw mechanism exists, and re-running a *scored* one is §6's prohibition that
+        # nothing in the driver refuses. So the plan says the number and says which check the
+        # reader owes — this is the last moment before 250 calls are paid for.
+        draw = audit.next_draw(corpus=args.corpus, detector=args.detector,
+                               supervision=args.supervision, porting=args.porting,
+                               iteration=args.iteration, root=ROOT)
+        lines.append(f"draw         {draw}" + (
+            "   (this round has not been audited before)" if draw == 1 else
+            f"   — attempts 1-{draw - 1} left reports under draw*/ and their spend will be "
+            "recorded as abandoned. Confirm this round wrote no metrics.json before "
+            "proceeding (DESIGN §5.5.2, §6)"))
 
     keys = (*ARM_KEYS, *ROUND_KEYS) if history is None else \
         (*ARM_KEYS, *ROUND_KEYS, AUDIT_KEY)
@@ -234,6 +247,9 @@ def _plan(args, history, n_docs: int) -> list[str]:
                  f"{arm_rules_path(**components, root=ROOT).relative_to(ROOT)}")
     for key in keys:
         lines.append(f"{key:14}->  {path_template(key).format(**components)}")
+    if history is not None:
+        lines.append(f"{'auditdraw':14}->  " + path_template("auditdraw").format(
+            **components, draw=draw))
     return lines
 
 

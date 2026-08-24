@@ -105,7 +105,22 @@ SCORER_VERSION = 1
 #: "we did not cache" and "we cached and it never hit" are the two facts §11.3 needs told apart.
 #: `cost.prompt_tokens` does not change meaning at this version — it was already the raw total
 #: — which is why this is a shape change and nothing more.
-SCHEMA_VERSION = 8
+#: 9 adds an **optional** top-level `abandoned_spend` block (2026-08-24, DESIGN §3's
+#: two-HTTP-attempts and incomplete-round clauses). Optional for schema 8's reason exactly: its
+#: absence is a real state and has to stay legible. There are in fact *two* states behind an
+#: absent block — a round with no abandoned attempt, and a round run by a writer that could not
+#: record one (every round of this project before this date, including `port-loop` rounds 1–5) —
+#: and it is the schema version that tells them apart, which is the whole argument for bumping on
+#: an optional addition. A block of zeros is refused for the same reason zeros are refused in
+#: `caching`: "nothing was abandoned" and "something was abandoned and cost nothing" are
+#: different claims, and the second is not possible.
+#:
+#: It is **not** part of `cost` and cannot be summed into it. Every key is suffixed `_abandoned`
+#: or is a count of what could not be measured, so `sum_costs`'s closed-key check rejects the
+#: block outright if anyone passes it there. That is deliberate: this is spend that bought no
+#: result, and adding it to the figure DESIGN §11.3's 1.9× standard is read off would price a
+#: rung for work that produced nothing while making the rung look more productive per token.
+SCHEMA_VERSION = 9
 
 FULLY_COVERED = "fully_covered"
 RELAXED = "relaxed"
@@ -206,6 +221,33 @@ REQUIRED_COST = ("llm_calls", "prompt_tokens", "completion_tokens", "wall_second
 #: (`src/llm/prompt.py` validates at construction, through `src/corpora/base.py`). What this
 #: module checks is that the block is complete and that a round's calls agree.
 REQUIRED_CACHING = ("enabled", "boundary", "ttl", "read_tokens", "write_tokens")
+
+#: Required in the optional `abandoned_spend` block (schema 9). Closed on both sides for
+#: `REQUIRED_COST`'s reason, and **deliberately not four keys with `REQUIRED_COST`'s names**.
+#:
+#: The names carry the separation rather than relying on the block's position to carry it. A block
+#: whose keys read `llm_calls`/`prompt_tokens`/`completion_tokens`/`wall_seconds` is a block that
+#: `sum_costs` would accept, and the one mistake that must be impossible here is adding this into
+#: the arm total: this is what the arm paid for attempts that produced no round, and §11.3's
+#: comparison is about what it paid for the rounds it published. With these names `sum_costs`
+#: refuses the block on its closed-key check, so the mistake fails loudly at the call site
+#: instead of inflating a published figure. It also means a reader cannot mistake one block for
+#: the other while skimming.
+#:
+#: `attempts_abandoned` is the number of attempts that produced nothing, not the number of calls;
+#: the two differ by the fan-out of a round (1 + N), and a reader needs the attempt count to check
+#: it against `agent_calls.jsonl` and the preserved audit draws.
+#:
+#: `calls_unmeasured` is the honest field and the reason this block is not just four negated cost
+#: numbers. A call that died in transport returns no usage report, so its prompt tokens were spent
+#: and can never be recovered — `bedrock` has nothing to report and this module will not invent it.
+#: Those calls are *counted* here and their tokens are absent from the four totals, which means
+#: the token figures in this block are themselves lower bounds, in the same direction and for the
+#: same reason as DESIGN §3's HTTP-attempt limitation. A block with `calls_unmeasured` above zero
+#: is a block whose totals must be read as "at least".
+REQUIRED_ABANDONED = ("attempts_abandoned", "calls_abandoned", "prompt_tokens_abandoned",
+                      "completion_tokens_abandoned", "wall_seconds_abandoned",
+                      "calls_unmeasured")
 
 #: Required in the `termination` block — `src.termination.Termination.record()`'s keys.
 #: Checked for presence and not for content: this module validates the *shape* of a record
@@ -1501,6 +1543,7 @@ def write_metrics(
     cost_to_date: Mapping | None = None,
     model_lifecycle: Mapping | None = None,
     caching: Mapping | None = None,
+    abandoned_spend: Mapping | None = None,
     root: Path | None = None,
     iteration: int | None = None,
 ) -> Path:
@@ -1610,6 +1653,33 @@ def write_metrics(
 
     Not summed here, for `cost_to_date`'s reason: `sum_caching` is the accumulator and the driver
     calls it. This validates the block's shape and writes what it is given.
+
+    **`abandoned_spend` is what the arm paid for attempts that produced no round** (schema 9,
+    2026-08-24). `port-loop` round 5 was attempted three times: the first two made all 250 Auditor
+    calls and then died on the RuleAuthor call, and that spend is real, billed, and absent from
+    every figure this project publishes. `cost` is the round's spend and it is measured around the
+    attempt that *succeeded*, so an arm that burned two full audit passes reads exactly like an arm
+    that burned none.
+
+    **Beside `caching` and shaped like it, never inside `cost`.** This is the same placement
+    decision as `caching` for a sharper version of the same reason. Nesting it inside `cost` would
+    put spend-that-bought-nothing inside the figure §11.3's 1.9× standard is read off; adding it
+    into that figure would make the rung look more expensive, which sounds conservative and is
+    wrong in a subtler way — it would price the rung for work whose output was discarded, so a
+    future run that happened not to time out would look cheaper than the same rung with the same
+    algorithm. The two numbers answer different questions and are published side by side.
+
+    Its keys are named so the mistake cannot be made silently: `REQUIRED_ABANDONED` shares no key
+    with `REQUIRED_COST`, so `sum_costs` refuses this block rather than absorbing it. See that
+    constant.
+
+    **Absent means not recorded, and specifically not zero.** Rounds run before schema 9 carry no
+    block, and neither does a round that abandoned nothing — the two are told apart by
+    `schema_version`, which is why the version moved for an optional addition (see
+    `SCHEMA_VERSION`). A round that *did* abandon an attempt and passes `None` here is recording
+    something false, and this function cannot detect that; what it can and does refuse is a block
+    claiming zero abandoned attempts, because that is the one shape whose only correct
+    representation is absence.
     """
     missing = [k for k in REQUIRED_COST if cost.get(k) is None]
     if missing:
@@ -1663,6 +1733,33 @@ def write_metrics(
                 "omitting the block entirely, not by a False inside one (schema 8). A false "
                 "`enabled` beside real read and write counts would be two claims in one block."
             )
+    if abandoned_spend is not None:
+        missing = [k for k in REQUIRED_ABANDONED if abandoned_spend.get(k) is None]
+        if missing:
+            raise ScorerError(
+                f"abandoned_spend block is missing {missing}. Pass None for 'this round "
+                "abandoned nothing' — that writes no block, which is how absence is recorded "
+                "(schema 9) — and a complete block otherwise. A partial one publishes a spend "
+                "figure with a missing part, and this block's whole purpose is that the figure "
+                "beside it is incomplete without it."
+            )
+        extra = sorted(set(abandoned_spend) - set(REQUIRED_ABANDONED))
+        if extra:
+            raise ScorerError(
+                f"abandoned_spend block has unexpected key(s) {extra}. Closed to "
+                f"{list(REQUIRED_ABANDONED)} for the cost block's reason, and the closure is "
+                "load-bearing here: a key named like a cost key would let this block be summed "
+                "into a published total (see REQUIRED_ABANDONED)."
+            )
+        if abandoned_spend["attempts_abandoned"] < 1:
+            raise ScorerError(
+                f"abandoned_spend says attempts_abandoned="
+                f"{abandoned_spend['attempts_abandoned']!r}. A block that exists records "
+                "attempts that happened and produced nothing; 'nothing was abandoned' is "
+                "written by passing None and omitting the block, not by a zero inside one "
+                "(schema 9). A zero here beside nonzero token counts would be two claims in "
+                "one block, which is `caching`'s `enabled` check one field over."
+            )
     check_termination(termination)
     path = metrics_path(run, root=root, iteration=iteration)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -1680,6 +1777,12 @@ def write_metrics(
         # basis is `cost.prompt_tokens - caching.read_tokens`, and DESIGN §11.3 requires both
         # numbers published.
         **({"caching": dict(caching)} if caching is not None else {}),
+        # What the arm paid for attempts that produced no round (schema 9). Beside the cost blocks
+        # and after `caching` because it is read *against* them and is not part of either: the
+        # round's cost is what the successful attempt spent, and this is what the abandoned ones
+        # did. Omitted entirely when nothing was abandoned — see the docstring, and note that its
+        # keys are named so that `sum_costs` refuses it rather than absorbing it.
+        **({"abandoned_spend": dict(abandoned_spend)} if abandoned_spend is not None else {}),
         # DESIGN §3. Top level beside `cost` and never inside `run` — see the docstring:
         # a threshold is a property of how the arm was run, not a coordinate of which arm
         # it is, and `run` is what gets formatted into the results path.

@@ -46,7 +46,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, Mapping, Sequence
 
-from ..corpora.base import CorpusError, axis, check_audit_refusal, round_path
+from ..corpora.base import (
+    ROOT, CorpusError, axis, check_audit_refusal, path_template, round_path,
+)
 
 #: The five refusal reasons, spelled once so this module's branches cannot drift from the
 #: vocabulary, and each checked against `config/naming.yaml` at use rather than at import —
@@ -445,12 +447,130 @@ def report_path(
     )
 
 
+def draw_path(
+    *, corpus: str, detector: str, supervision: str, porting: str, iteration: int, draw: int,
+    root: Path | None = None,
+) -> Path:
+    """`paths.auditdraw` — one *draw*'s audit report, at `iter{N}/draw{M}/audit_report.json`.
+
+    **What a draw is.** An incomplete round may be re-run (DESIGN §5.5.2): round 5 of
+    `port-loop` died twice on the RuleAuthor call after all 250 Auditor calls had completed, and
+    refusing the re-run would have let a transport timeout end the arm. Each attempt audits the
+    fold again, so a round that was attempted three times made 750 Auditor calls and wrote three
+    reports to one path — two of which no longer exist. `agent_calls.jsonl` and
+    `audit_report.json` then disagree about how many times the round was audited, and the log is
+    the one that is right.
+
+    This path is where each draw's report goes so that none of them is overwritten. `report_path`
+    keeps its meaning unchanged — the latest draw, which is what the next round reads — and the
+    accounting is here.
+
+    **The filename is `audit_report.json` and the round number gets a subdirectory, not a
+    suffix.** `tools/release_screen.py` deny-lists this file *by name*, deliberately, so that
+    `metrics.json` and `spans.jsonl` in the same directory stay publishable. A draw at
+    `audit_report.draw2.json` would not match that pattern, and the fix would be to widen a deny
+    rule so that it covers a newly-invented name — an edit in the wrong direction, made under
+    time pressure, on the rule protecting a map of the identifiers a round failed to catch. A
+    subdirectory inherits the protection with no screener change at all, and
+    `tests/test_audit.py` asserts that the screener refuses this path.
+
+    **Built from `paths.auditdraw` and validated by delegating to `report_path` first.** The
+    axis and round checks are `round_path`'s and are not reimplemented here; calling
+    `report_path` for its refusals is what guarantees the two templates cannot disagree about
+    which cell they name. `{draw}` is the one component `round_path` could not check, because it
+    is a sequence number and not a closed vocabulary — the same reason `iteration` is exempt
+    there — so it is checked here, in the same shape and with `bool` excluded for the same
+    reason: `True` is an `int` and would silently name draw 1.
+    """
+    report_path(corpus=corpus, detector=detector, supervision=supervision,
+                porting=porting, iteration=iteration, root=root)
+    if not isinstance(draw, int) or isinstance(draw, bool) or draw < 1:
+        raise AuditError(
+            f"draw must be an integer >= 1, got {draw!r}. It is a path component "
+            "(paths.auditdraw) and the sequence of a round's draws is what reconciles the "
+            "audit report against the call log — a draw written to draw0/ is an audit nothing "
+            "counts (DESIGN §5.5.2)."
+        )
+    return (root or ROOT) / path_template("auditdraw").format(
+        corpus=corpus, detector=detector, supervision=supervision, porting=porting,
+        iteration=iteration, draw=draw,
+    )
+
+
+def next_draw(
+    *, corpus: str, detector: str, supervision: str, porting: str, iteration: int,
+    root: Path | None = None,
+) -> int:
+    """Which draw the next audit of this round is — 1 if the round has never been audited.
+
+    Counted from the draw directories that exist rather than from a stored counter, for the
+    reason `loop.run_iteration` reads its history off disk instead of taking it as an argument:
+    an attempt that died left no chance to update a counter, and a counter that is only correct
+    when the process exits cleanly is a counter that is wrong exactly when it matters.
+
+    **Counted as "one past the highest existing draw", not as "how many exist".** The two differ
+    if a draw directory is ever missing, and in that case the count would silently reuse a number
+    and overwrite a preserved report — the one failure this whole path exists to prevent. A gap is
+    left as a gap; it is visible in the directory listing and in the mismatch against
+    `draws_total`, which is the honest outcome.
+    """
+    first = draw_path(corpus=corpus, detector=detector, supervision=supervision,
+                      porting=porting, iteration=iteration, draw=1, root=root)
+    round_dir = first.parent.parent
+    if not round_dir.is_dir():
+        return 1
+    highest = 0
+    for child in round_dir.iterdir():
+        if child.is_dir() and child.name.startswith("draw"):
+            suffix = child.name[len("draw"):]
+            if suffix.isdigit():
+                highest = max(highest, int(suffix))
+    return highest + 1
+
+
+def with_draws_total(report: Mapping, total: int) -> dict:
+    """`report` plus `draws_total`, placed immediately after `draw_index`.
+
+    The canonical `audit_report.json` carries the total and each preserved `draw{M}/` copy does
+    not (`report`'s docstring), so exactly one key separates the two payloads and this is where
+    it is added. A `{**report, "draws_total": total}` at the call site would work and would put
+    the key last in the file, several hundred flags away from the `draw_index` it is only
+    readable beside — these two fields answer one question and a reader should not have to
+    scroll between them.
+
+    Validated by rebuilding through `report`'s own rule rather than by repeating it: `total`
+    below `draw_index` is the one inconsistency visible inside a single file, and it is refused
+    here too so that this function cannot be used to construct what `report` refuses.
+    """
+    index = report.get("draw_index")
+    if not isinstance(total, int) or isinstance(total, bool) or total < 1:
+        raise AuditError(
+            f"draws_total must be an integer >= 1, got {total!r}. It is how many times this "
+            "round was audited, and the count is what reconciles the report against the call "
+            "log (DESIGN §5.5.2)."
+        )
+    if not isinstance(index, int) or total < index:
+        raise AuditError(
+            f"this report says draw_index={index!r} and was given draws_total={total}: a "
+            "report cannot be draw " f"{index!r} of {total}. Pass a report from `report()` and "
+            "the total known at the moment the canonical copy is written."
+        )
+    out: dict = {}
+    for key, value in report.items():
+        out[key] = value
+        if key == "draw_index":
+            out["draws_total"] = total
+    return out
+
+
 def report(
     audits: Iterable[DocumentAudit],
     *,
     corpus: str,
     iteration: int,
     masked_from_iteration: int,
+    draw_index: int = 1,
+    draws_total: int | None = None,
 ) -> dict:
     """The `audit_report.json` content — `auditor.md` §2.2's shape.
 
@@ -462,6 +582,36 @@ def report(
     listing does not say that. Validated as `iteration - 1` — the only value it can take
     (`auditor.md` banner), so a caller that passed the current round would be recording
     that the arm audited its own unwritten output.
+
+    **`draw_index` and `draws_total` reconcile this file against `agent_calls.jsonl`**
+    (DESIGN §5.5.2, 2026-08-24). A re-run round audits the fold again, so the log holds
+    250 × M Auditor lines while one report exists; these two fields plus `paths.auditdraw`
+    are what account for all M.
+
+    `draw_index` is which attempt produced this report and is always written, because it is
+    always knowable: the driver is the thing that re-ran. It defaults to 1 rather than being
+    required, and the default is the true state of every round audited once — which is every
+    round in the record before this date — so a default here is a fact and not a placeholder.
+
+    **`draws_total` is optional and its absence is a record, not an omission.** At the moment
+    draw 2's report is written, nobody knows whether there will be a draw 3, and the three ways
+    to make the field always-present are all worse than leaving it out. Writing
+    `draws_total: 2` into a round that turns out to have three draws publishes a false count.
+    Going back to re-stamp preserved reports makes something a second writer of an already
+    published file, which is what DESIGN §5.5's one-writer rule refuses and the reason the two
+    copies of a round's score can be trusted. And deriving it at read time from the directory
+    listing puts the count somewhere no reader is obliged to look.
+
+    So the convention is `caching`'s, one file over: the field is present where it is
+    knowable and absent where it is not, and **its presence means this report is the latest
+    draw**. `loop.run_iteration` writes the preserved copy at `paths.auditdraw` without it and
+    the canonical copy at `paths.auditreport` with it, rewriting the canonical copy on every
+    draw — so the canonical `draws_total` is correct at every instant and is the true total once
+    the round completes. A reader then has two independent counts to check against each other:
+    this field, and the number of `draw{M}/` directories.
+
+    `draws_total` is refused when it is below `draw_index`, which is the one inconsistency
+    checkable from inside a single file — a report claiming to be draw 3 of 2.
     """
     if not isinstance(iteration, int) or isinstance(iteration, bool) or iteration < 2:
         raise AuditError(
@@ -481,6 +631,26 @@ def report(
             f"{corpus!r} is not a corpus in config/naming.yaml (have: "
             f"{sorted(axis('corpus'))})."
         )
+    if not isinstance(draw_index, int) or isinstance(draw_index, bool) or draw_index < 1:
+        raise AuditError(
+            f"draw_index must be an integer >= 1, got {draw_index!r}. It is which attempt at "
+            "this round produced the report, and it is what reconciles the report against the "
+            "250 × M Auditor lines in agent_calls.jsonl (DESIGN §5.5.2)."
+        )
+    if draws_total is not None:
+        if not isinstance(draws_total, int) or isinstance(draws_total, bool):
+            raise AuditError(
+                f"draws_total must be an integer or None, got {draws_total!r}. None is how a "
+                "superseded draw records that the total was not knowable when it was written, "
+                "and it is the value every preserved draw carries."
+            )
+        if draws_total < draw_index:
+            raise AuditError(
+                f"draws_total is {draws_total} and draw_index is {draw_index}: a report cannot "
+                "be draw " f"{draw_index} of {draws_total}. This is the one inconsistency "
+                "visible from inside a single file, so it is refused here rather than left for "
+                "a reader to notice."
+            )
 
     audits = list(audits)
     seen: set[str] = set()
@@ -505,6 +675,11 @@ def report(
     return {
         "iteration": iteration,
         "masked_from_iteration": masked_from_iteration,
+        # Which attempt at this round wrote the report, and how many there were in total —
+        # omitted when the total was not knowable, which is every preserved draw. See the
+        # docstring; the two fields are adjacent because neither is readable without the other.
+        "draw_index": draw_index,
+        **({"draws_total": draws_total} if draws_total is not None else {}),
         "corpus": corpus,
         "documents_audited": len(audits),
         # Counted, not inferred from an empty `flags` list downstream: a document with no

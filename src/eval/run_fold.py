@@ -693,6 +693,7 @@ def run_fold(
     cost: Mapping[str, float] | None = None,
     cost_to_date: Mapping[str, float] | None = None,
     caching: Mapping[str, object] | None = None,
+    abandoned_spend: Mapping[str, object] | None = None,
     termination: Termination | PendingTermination | None = None,
     iteration: int | None = None,
 ) -> tuple[Path, Path, dict]:
@@ -774,6 +775,13 @@ def run_fold(
     accumulator and the driver calls it, as with `cost`. The detection pass's seconds are added
     to the two cost blocks and *nothing* is added here — there is no such thing as a cache read
     performed by a rule pass.
+
+    **`abandoned_spend` is what earlier, abandoned attempts at this round cost** (schema 9,
+    2026-08-24, DESIGN §3). Passed through for `caching`'s reason, and refused a default more
+    firmly than `caching` is: a zero here would be this function asserting that no attempt was
+    abandoned, and it has no way to know — the attempts that were abandoned happened in an earlier
+    process, and what this one holds is a fold and a rule file. `None` writes no block, which is
+    how "not recorded" is said (schema 9); the driver is what re-ran and the driver is what knows.
 
     **`termination` is how an iterating arm reports where it stopped**, and it is an argument
     for `cost`'s and `model_record`'s reason: this function scores one fold, and whether that
@@ -1010,6 +1018,12 @@ def run_fold(
         # be a block the writer then refuses as incomplete, and a block of zeros would be the
         # lie DESIGN §11.3 names.
         caching=caching,
+        # Passed through for `caching`'s reason and refused a default for a sharper version of it
+        # (schema 9). This function measures the fold it was handed; what a *previous, abandoned*
+        # attempt at this round spent is not visible from here at all, and a zero written on its
+        # behalf would be this module asserting that nothing was abandoned. The driver knows,
+        # because the driver is what re-ran.
+        abandoned_spend=abandoned_spend,
         root=root,
     )
 

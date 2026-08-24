@@ -1322,3 +1322,114 @@ def test_the_freeze_record_and_the_prompt_agree_on_the_sections(arm):
     reference = calls()[0]["prompt_reference"]
     assert reference["sections_filled"] == record["sections_shown"]
     assert reference["sections_empty"] == record["sections_empty"]
+
+
+# ─── reading the call log back (`read_calls`, DESIGN §5.5.2) ─────────────────
+#
+# This file was write-only by design and `called_where()` reads it without parsing a line. The
+# reader exists for one question — what did the abandoned attempts at a round cost — because that
+# number exists nowhere else: the round's `cost` block is measured around the attempt that
+# succeeded, so an arm that burned two complete audit passes publishes the figure of one that
+# burned none.
+
+def test_no_log_is_no_lines(tree):
+    """`[]` and not an error: an arm's first round reads this before it has written anything,
+    and "no log" and "a log with no lines" are the same answer to what was abandoned."""
+    assert orchestrate.read_calls(*ARM) == []
+
+
+def test_the_lines_come_back_in_the_order_written(tree):
+    """Append-only, and the order is the arm's chronology — which is what makes "the lines
+    already present when this attempt began" a well-defined set."""
+    path = log_path(*ARM)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "a", encoding="utf-8") as fh:
+        for n in range(3):
+            fh.write(json.dumps({"call_id": f"c{n}", "iteration": 5}) + "\n")
+    assert [line["call_id"] for line in orchestrate.read_calls(*ARM)] == ["c0", "c1", "c2"]
+
+
+def test_a_blank_line_is_skipped_and_a_malformed_one_raises(tree):
+    """The asymmetry is deliberate and is the opposite call from `called_where()`.
+
+    That guard treats a malformed line as a call, because *something wrote during a call* is the
+    safe reading for a window that must not be re-frozen. This reader is totalling spend, and the
+    safe reading there is the other one: a line it cannot parse is a line whose cost it cannot
+    add, and skipping it would answer "what was abandoned" with a number quietly short of the
+    truth. A blank line carries no cost either way.
+    """
+    path = log_path(*ARM)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({"call_id": "c1"}) + "\n\n", encoding="utf-8")
+    assert len(orchestrate.read_calls(*ARM)) == 1
+    path.write_text('{"call_id": "c1"}\n{not json\n', encoding="utf-8")
+    with pytest.raises(OrchestrateError, match="line 2"):
+        orchestrate.read_calls(*ARM)
+
+
+def test_the_malformed_line_message_quotes_no_line_content(tree):
+    """CLAUDE.md: a log line holds a prompt reference describing dev corpus text, and this
+    message travels to a terminal, a CI log and a stack trace — none of which
+    `tools/release_screen.py` reaches. The line number and the column are the whole of it.
+    """
+    path = log_path(*ARM)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    secret = "{not json, Hospital de Sant Pau"
+    path.write_text(secret + "\n", encoding="utf-8")
+    with pytest.raises(OrchestrateError) as caught:
+        orchestrate.read_calls(*ARM)
+    message = str(caught.value)
+    assert "Sant Pau" not in message and secret not in message
+    assert "line 1" in message
+
+
+def test_the_reader_reads_this_arms_log_and_not_anothers(tree):
+    """Per-arm, like every other record here. A reader that crossed arms would attribute one
+    arm's abandoned spend to another's published total."""
+    a_call_was_made("es-meddocan", "R", "sup-free", "port-loop")
+    assert orchestrate.read_calls(*ARM) == []
+    assert len(orchestrate.read_calls("es-meddocan", "R", "sup-free", "port-loop")) == 1
+
+
+def test_the_reader_does_not_aggregate(tree):
+    """It returns lines. `sum_costs` is the scorer's and a per-role total here would be a second
+    place a round's spend is added up (DESIGN §5.5, §11.3)."""
+    import ast
+    source = (ROOT / "src" / "orchestrate.py").read_text(encoding="utf-8")
+    fn = next(n for n in ast.walk(ast.parse(source))
+              if isinstance(n, ast.FunctionDef) and n.name == "read_calls")
+    called = {c.func.attr if isinstance(c.func, ast.Attribute) else getattr(c.func, "id", "")
+              for c in ast.walk(fn) if isinstance(c, ast.Call)}
+    assert not called & {"sum_costs", "sum", "sum_caching"}
+
+
+# ─── abandoned spend in the failure record (FAILURE_SCHEMA 3) ────────────────
+
+def test_the_failure_record_can_carry_the_abandoned_block(arm):
+    """A round abandoned twice and *then* format-failing is the most expensive outcome the arm
+    has, and no `metrics.json` is written for it — so this file is the only record of the spend.
+    """
+    orchestrate._write_failure(
+        corpus="es-meddocan", detector="R", supervision="sup-free", porting="port-loop",
+        split="dev", model={"model_id": MODEL, "model_id_reported": None,
+                            "model_id_resolution": "alias-unresolved"},
+        response=UNPARSEABLE, error="did not load", rules_path=arm / "x.yaml",
+        cost={"llm_calls": 1, "prompt_tokens": 1, "completion_tokens": 1, "wall_seconds": 1.0},
+        prompt_reference={"sections_filled": ["1.1", "1.2"]},
+        abandoned_spend={"attempts_abandoned": 2, "calls_abandoned": 500,
+                         "prompt_tokens_abandoned": 1, "completion_tokens_abandoned": 1,
+                         "wall_seconds_abandoned": 1.0, "calls_unmeasured": 2},
+    )
+    record = failure_record("es-meddocan", "R", "sup-free", "port-loop")
+    assert record["abandoned_spend"]["attempts_abandoned"] == 2
+    assert record["schema_version"] == 3
+    assert "abandoned_spend" not in record["cost"]
+
+
+def test_a_failure_with_nothing_abandoned_writes_no_block(arm):
+    """`caching`'s convention, and the counter is what makes the absence readable — which is the
+    point of the note at `FAILURE_SCHEMA` 3 about the bump that did not happen at `caching`."""
+    run_arm(**ARM_KW, model_id=MODEL, client=an_answer(UNPARSEABLE))
+    record = failure_record()
+    assert "abandoned_spend" not in record
+    assert record["schema_version"] == 3

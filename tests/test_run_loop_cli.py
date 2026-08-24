@@ -365,6 +365,68 @@ def test_a_later_rounds_plan_promises_the_audit_report_and_the_fold_of_calls(mon
     assert "sealed/" not in plan
 
 
+def _later_plan(monkeypatch, iteration=2, root=None):
+    """`_plan()` for a later round, with a fabricated history. The helper the two draw tests
+    share; extracted rather than copied because the fabrication is four lines of setup that say
+    nothing about what is being asserted."""
+    import argparse
+    import importlib.util
+
+    from src.termination import should_stop
+
+    spec = importlib.util.spec_from_file_location("_run_loop_under_test", TOOL)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    if root is not None:
+        monkeypatch.setattr(module, "ROOT", root)
+
+    detector, supervision, porting = uncalled_cell()
+    args = argparse.Namespace(corpus=CORPUS, lang=LANG, iteration=iteration, model_id=ALIAS,
+                              detector=detector, supervision=supervision, porting=porting,
+                              split="dev", max_tokens=None, dry_run=True)
+    rates = [0.42] * (iteration - 1)
+    monkeypatch.setattr(orchestrate, "window_drift", lambda *a, **k: [])
+    return module, args, "\n".join(module._plan(args, (rates, should_stop(CORPUS, rates)), 250))
+
+
+def test_a_first_attempt_says_the_round_has_not_been_audited(monkeypatch):
+    """The plan states the draw number in both cases, because 1 is a fact and not a default:
+    a plan that printed the line only when it was interesting would leave a reader unable to
+    tell "attempt 1" from "this version of the tool does not say"."""
+    _, _, plan = _later_plan(monkeypatch)
+    assert "draw         1" in plan
+    assert "has not been audited before" in plan
+    assert "draw1/audit_report.json" in plan
+
+
+def test_a_re_run_is_announced_before_the_calls_are_paid_for(monkeypatch, tmp_path):
+    """**The one place the operator can still act.** Re-running an *incomplete* round is allowed
+    and is why the draw mechanism exists; re-running a *scored* one is §6's prohibition, and
+    nothing in the driver refuses it (DESIGN §5.5.2). So the plan names the attempt number and
+    names the check the reader owes — 250 Auditor calls after this line, neither is recoverable.
+    """
+    detector, supervision, porting = uncalled_cell()
+    from src.porting.audit import draw_path
+    for draw in (1, 2):
+        draw_path(corpus=CORPUS, detector=detector, supervision=supervision, porting=porting,
+                  iteration=2, draw=draw, root=tmp_path).parent.mkdir(parents=True)
+    _, _, plan = _later_plan(monkeypatch, root=tmp_path)
+    assert "draw         3" in plan
+    assert "attempts 1-2 left reports under draw*/" in plan
+    assert "recorded as abandoned" in plan
+    assert "Confirm this round wrote no metrics.json" in plan
+    assert "draw3/audit_report.json" in plan
+
+
+def test_round_one_promises_no_draw_because_it_makes_no_audit_call(monkeypatch):
+    """Round 1 audits nothing, so a draw number there would be a count of attempts at a call
+    that is not made — the same reason its plan omits `auditreport`."""
+    done = dry()
+    assert "armrules" in done.stdout, "the plan was not reached, so nothing was tested"
+    assert "auditdraw" not in done.stdout
+    assert "draw " not in done.stdout
+
+
 def test_the_plan_states_the_round_and_the_ceiling():
     """"Round 3 of at most 8" is the fact that decides whether to run it. A plan that named
     the round without the cap would leave the person counting."""

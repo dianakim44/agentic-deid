@@ -209,7 +209,16 @@ NULLABLE_MODEL = ("model_id_reported",)
 #: 2 adds `model_lifecycle` (2026-08-11). It moves in step with `scorer.SCHEMA_VERSION` 5
 #: and not because of it: exactly one of the two files is written per arm, so a record the
 #: metrics file carries and this one does not would be a record the failing arms lose.
-FAILURE_SCHEMA = 2
+#: 3 adds `abandoned_spend` (2026-08-24, `scorer.SCHEMA_VERSION` 9) **and belatedly accounts for
+#: `caching`, which was added to this record on 2026-08-18 without moving this counter.** That
+#: omission is recorded rather than quietly corrected, because it is the failure this counter
+#: exists to prevent and the record of it is the only thing that makes the counter trustworthy:
+#: for every `format_failure.json` written between 2026-08-18 and this date, an absent `caching`
+#: block cannot be told from a writer that had no such field, which is precisely the distinction
+#: the bump at 2 was justified by. No such file exists in `results/` today, so nothing is
+#: unreadable in practice — the defect is in the discipline, not in the data, and the reason to
+#: write it down is that the discipline is what the next optional block depends on.
+FAILURE_SCHEMA = 3
 
 
 class OrchestrateError(CorpusError):
@@ -737,6 +746,52 @@ def append_call(record: dict, corpus: str, detector: str, supervision: str,
     return path
 
 
+def read_calls(corpus: str, detector: str, supervision: str,
+               porting: str = PORTING) -> list[dict]:
+    """Every line of this arm's `agent_calls.jsonl`, in the order written. `[]` if there is none.
+
+    **Why a reader exists at all, when this file was write-only by design.** `called_where()`
+    reads it already, and reads one thing from it — whether any call has been made — through a
+    guard that deliberately never parses a line. This returns the lines, and it is added for one
+    caller with one question: what did the *abandoned* attempts at this round cost
+    (`scorer.REQUIRED_ABANDONED`, DESIGN §3's two-HTTP-attempts clause and §5.5.2)? That number
+    exists nowhere else. The round's own `cost` block is measured around the attempt that
+    succeeded, so an arm that burned two complete audit passes publishes the same figure as one
+    that burned none, and the only record of the difference is these lines.
+
+    **It does not become the general reader of this file.** No aggregation, no filtering, no
+    per-role totals: `sum_costs` is the scorer's and the summing of a round's spend stays there
+    (DESIGN §5.5, §11.3). A malformed line raises rather than being skipped — a reader that
+    silently dropped one would answer "what was abandoned" with a number quietly short of the
+    truth, which is the failure the field was added to end.
+
+    **It does not make this file publishable.** `log_path` is deny-listed because the prompt
+    references in these lines describe dev corpus text, and reading a denied file in-process is
+    not the same act as committing one. Nothing here is written to a published artefact except
+    the four totals and two counts of `abandoned_spend`, which are numbers.
+    """
+    path = log_path(corpus, detector, supervision, porting)
+    if not path.exists():
+        return []
+    lines = []
+    with open(path, encoding="utf-8") as fh:
+        for number, raw in enumerate(fh, start=1):
+            if not raw.strip():
+                continue
+            try:
+                lines.append(json.loads(raw))
+            except json.JSONDecodeError as exc:
+                # Line number and offset only. The line holds a prompt reference and this
+                # message travels to a terminal (CLAUDE.md).
+                raise OrchestrateError(
+                    f"{LOG_KEY} line {number} is not JSON (column {exc.colno}). The call log "
+                    "is append-only and every writer of it is in this module, so a malformed "
+                    "line is a truncated write rather than a format this reader should "
+                    "tolerate — and tolerating it would understate what the arm spent."
+                ) from None
+    return lines
+
+
 # ─── the arm ────────────────────────────────────────────────────────────────
 
 
@@ -843,7 +898,8 @@ def _write_failure(*, corpus: str, detector: str, supervision: str, porting: str
                    split: str, model: dict, response: str, error: str,
                    rules_path: Path, cost: dict, prompt_reference: dict,
                    model_lifecycle: dict | None = None,
-                   caching: dict | None = None) -> Path:
+                   caching: dict | None = None,
+                   abandoned_spend: dict | None = None) -> Path:
     """Record a format failure. Written instead of `metrics.json`, never beside it.
 
     DESIGN §10 A2's three contents: the model ids, the raw response, and **the validator's
@@ -875,6 +931,13 @@ def _write_failure(*, corpus: str, detector: str, supervision: str, porting: str
     that makes the billed basis recoverable from that cost block has to be here with it, or the
     one arm whose cost is least interpretable is the one arm missing the number that interprets
     it. Absence means the round was not cached, which is the same convention `metrics.json` uses.
+
+    `abandoned_spend` is here for the same reason a third time (schema 3, `scorer.SCHEMA_VERSION`
+    9), and the case for it is stronger than for either of the others: a round that was abandoned
+    twice on transport and *then* returned a malformed rule file is the single most expensive
+    outcome this arm can produce, and it is the one outcome whose entire record is this file. If
+    the block lived only in `metrics.json`, the arm that spent the most and published the least
+    would be the arm with no record of what it spent. Absent means not recorded, per schema 9.
     """
     path = failure_path(corpus, detector, supervision, porting)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -908,6 +971,11 @@ def _write_failure(*, corpus: str, detector: str, supervision: str, porting: str
         # (`enabled` is always True), so the two forms agree, and the explicit one says which
         # state is being tested.
         **({"caching": dict(caching)} if caching is not None else {}),
+        # Beside the cost block for `caching`'s reason (schema 3). Not validated here: the shape
+        # check is `scorer.write_metrics`'s and this module does not own the block. That asymmetry
+        # is deliberate and is `caching`'s too — a second validator would be a second definition
+        # of the block, and the failing path is not where a shape gets decided.
+        **({"abandoned_spend": dict(abandoned_spend)} if abandoned_spend is not None else {}),
         **window_hashes(),
     }
     with open(path, "w", encoding="utf-8") as fh:

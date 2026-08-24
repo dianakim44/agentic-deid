@@ -1712,8 +1712,15 @@ def test_the_schema_version_moved_with_the_new_required_fields():
     construction (DESIGN §4), so unlike `cost_to_date` this block's value cannot be computed
     from a schema-7 file at all — which is the reason the counter has to move, since the same
     key will be absent from a schema-7 `port-loop` file for a different reason.
+
+    Schema 9 is a new *optional* block (`abandoned_spend`) and takes schema 8's call for schema
+    8's reason, with the argument one step stronger: there are **two** states behind an absent
+    block — a round that abandoned no attempt, and a round written before the field existed,
+    which is every round in the record up to and including `port-loop` round 5 — and nothing but
+    this counter tells them apart. A reader totalling an arm's abandoned spend across rounds gets
+    the wrong answer in a way no value in the file betrays, because the wrong answer is zero.
     """
-    assert scorer.SCHEMA_VERSION == 8
+    assert scorer.SCHEMA_VERSION == 9
     assert scorer.SCORER_VERSION == 1
 
 
@@ -2094,6 +2101,120 @@ def test_the_caching_block_does_not_reach_the_path(scored, tmp_path):
     axes. An arm that cached and the same arm that did not would be one comparison, not two."""
     a = write_metrics(scored, run=RUN, cost=CALLS[0], termination=TERMINATION, root=tmp_path)
     b = write_metrics(scored, run=RUN, cost=CALLS[0], caching=sum_caching(CACHED),
+                      termination=TERMINATION, root=tmp_path)
+    assert a == b
+
+
+# ─── abandoned spend: the money that bought nothing (schema 9) ──────────────
+#
+# An incomplete round may be re-run (DESIGN §5.5.2), and `port-loop` round 5 was re-run twice
+# after 250 Auditor calls had each time completed. That spend is real, it is nowhere in `cost`,
+# and it must not be summable into it: `cost` is what the round that *produced* this file spent,
+# and DESIGN §11.3's 1.9× standard is read off `cost_to_date`.
+
+#: Two abandoned attempts at one round, in the shape `loop._abandoned_spend` builds. The
+#: `calls_unmeasured` figure is the one that makes the token totals lower bounds: a call that died
+#: in transport returns no usage report, so its tokens are unknown rather than zero.
+ABANDONED = {
+    "attempts_abandoned": 2,
+    "calls_abandoned": 500,
+    "prompt_tokens_abandoned": 1_262_000,
+    "completion_tokens_abandoned": 41_500,
+    "wall_seconds_abandoned": 4102.5,
+    "calls_unmeasured": 2,
+}
+
+
+def test_the_block_is_written_beside_the_cost_ones_and_not_inside_them(scored, tmp_path):
+    """Top-level, after `caching`, and outside `cost` — the same placement decision as `caching`
+    for a sharper version of the reason. Nested in `cost` it would be spend that bought no result
+    added to the figure a rung's productivity per token is computed from.
+    """
+    path = write_metrics(scored, run=RUN, cost=CALLS[0], cost_to_date=sum_costs(CALLS),
+                         caching=sum_caching(CACHED), abandoned_spend=ABANDONED,
+                         termination=TERMINATION, root=tmp_path)
+    written = json.loads(path.read_text(encoding="utf-8"))
+    assert written["abandoned_spend"] == ABANDONED
+    assert "abandoned_spend" not in written["cost"]
+    assert set(written["cost"]) == set(scorer.REQUIRED_COST)
+    assert list(written).index("abandoned_spend") == list(written).index("caching") + 1
+
+
+def test_no_key_of_the_block_can_be_summed_into_a_cost(scored, tmp_path):
+    """**The defence is the naming, and this is what makes it structural.**
+
+    `sum_costs` is closed to exactly `REQUIRED_COST`, so passing this block there is rejected
+    outright rather than silently adding 1.26 M prompt tokens to the arm's published total. Every
+    key is suffixed `_abandoned` or names something unmeasured, which is why the closed check
+    fires on all six rather than on the two that happen not to collide.
+    """
+    assert not set(ABANDONED) & set(scorer.REQUIRED_COST)
+    with pytest.raises(ScorerError):
+        sum_costs([CALLS[0], ABANDONED])
+
+
+def test_a_round_that_abandoned_nothing_writes_no_block(scored, tmp_path):
+    """Absence is the record, and there are **two** states behind it — no abandoned attempt, and
+    a writer from before schema 9. `SCHEMA_VERSION` is what tells them apart, which is the whole
+    argument for bumping the counter on an optional addition.
+    """
+    path = write_metrics(scored, run=RUN, cost=CALLS[0], termination=TERMINATION, root=tmp_path)
+    assert "abandoned_spend" not in json.loads(path.read_text(encoding="utf-8"))
+
+
+def test_a_block_claiming_nothing_was_abandoned_is_refused(scored, tmp_path):
+    """`caching`'s `enabled` check, one block over: zero attempts and no block are the same claim
+    written two ways, and accepting both makes the absence unreadable. Zero is also the one shape
+    whose correct spelling is *no block at all*, because an abandoned attempt that spent nothing
+    cannot happen — it abandoned something.
+    """
+    with pytest.raises(ScorerError, match="attempts_abandoned"):
+        write_metrics(scored, run=RUN, cost=CALLS[0],
+                      abandoned_spend={**ABANDONED, "attempts_abandoned": 0},
+                      termination=TERMINATION, root=tmp_path)
+
+
+@pytest.mark.parametrize("key", list(scorer.REQUIRED_ABANDONED))
+def test_the_writer_refuses_a_partial_abandoned_block(scored, tmp_path, key):
+    """Validated at the writer for `caching`'s reason: `loop._abandoned_spend` is not the only
+    door — `orchestrate._write_failure` puts the same block in `format_failure.json`, and both
+    are read as one record.
+    """
+    with pytest.raises(ScorerError, match=key):
+        write_metrics(scored, run=RUN, cost=CALLS[0],
+                      abandoned_spend={k: v for k, v in ABANDONED.items() if k != key},
+                      termination=TERMINATION, root=tmp_path)
+
+
+def test_an_undeclared_key_in_the_abandoned_block_is_refused(scored, tmp_path):
+    """Closed on both sides. An extra key here is the direction the block must not drift in:
+    a `total_abandoned` that a later reader adds to `cost` is the one outcome the suffixes exist
+    to prevent, and a closed check is what keeps it from being invented.
+    """
+    with pytest.raises(ScorerError, match="unexpected"):
+        write_metrics(scored, run=RUN, cost=CALLS[0],
+                      abandoned_spend={**ABANDONED, "llm_calls": 500},
+                      termination=TERMINATION, root=tmp_path)
+
+
+def test_zero_unmeasured_calls_is_accepted(scored, tmp_path):
+    """`calls_unmeasured` is the one key of the six that legitimately reads zero: it counts the
+    attempts that died before writing any usage report, and an attempt that got far enough to log
+    its cost is measured. Zero here means the token totals are exact rather than lower bounds,
+    which is a fact worth being able to state.
+    """
+    path = write_metrics(scored, run=RUN, cost=CALLS[0],
+                         abandoned_spend={**ABANDONED, "calls_unmeasured": 0},
+                         termination=TERMINATION, root=tmp_path)
+    assert json.loads(path.read_text(encoding="utf-8"))["abandoned_spend"][
+        "calls_unmeasured"] == 0
+
+
+def test_the_abandoned_block_does_not_reach_the_path(scored, tmp_path):
+    """`cost`'s and `caching`'s rule: the path names the cell of the experiment. A round that was
+    re-run twice and the same round run once are one comparison, not two."""
+    a = write_metrics(scored, run=RUN, cost=CALLS[0], termination=TERMINATION, root=tmp_path)
+    b = write_metrics(scored, run=RUN, cost=CALLS[0], abandoned_spend=ABANDONED,
                       termination=TERMINATION, root=tmp_path)
     assert a == b
 

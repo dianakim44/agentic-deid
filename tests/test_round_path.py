@@ -253,7 +253,7 @@ def test_the_check_is_where_this_test_says_it_is():
 
 
 @pytest.mark.parametrize("key", ["iterspans", "itererrors", "itermetrics", "armrules",
-                                 "auditreport"])
+                                 "auditreport", "auditdraw"])
 def test_each_round_template_has_exactly_one_reader(key):
     """What was *never* duplicated and must stay that way: the template lookup.
 
