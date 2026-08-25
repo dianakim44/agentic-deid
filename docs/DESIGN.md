@@ -1228,6 +1228,90 @@ the round's lines in the call log are empty. There is no `format_failure.json`. 
 added for these paths on 2026-08-25 are what make this paragraph checkable rather than a claim about
 code nobody exercised.
 
+#### The next arm's termination rule, in candidate form — recorded 2026-08-25, and not applied to this arm
+
+**The form, and only the form.**
+
+```
+converged  ⟺  all(abs(g) < δ for g in gains[-k:])
+δ          =  c × σ        σ = measured SD of the leak rate at a fixed configuration
+                           c = pre-registered constant, dimensionless
+ceiling    kept as is
+```
+
+`k` and the ceiling carry over unchanged; what changes is the comparison (`abs(g)` for `g`) and
+where δ comes from (a measurement times a constant, for a constant with a floor). **This is written
+for the arm after this one and is not applied here** — this arm ends under the rule pre-registered
+on 2026-08-12, and the last subsection of this section is where that ending is recorded.
+
+**The absolute value closes the sign hole, which is the defect this section already records.** The
+shipped rule is `all(g < d ...)` on signed first differences, so a round that made the leak rate
+*worse* satisfies the convergence test — round 5's −0.038447 counted as evidence the loop had
+stopped moving, and the note above records that as a live defect rather than a curiosity. `abs(g)`
+states what convergence was always meant to mean: **this round changed nothing the instrument can
+see, in either direction.** A −0.038 round has moved a great deal; it has simply moved the wrong
+way, and no reading of "converged" should cover it. The cost is real and is the reason the ceiling
+stays: an arm that oscillates with amplitude above δ never converges under this rule, and bounding
+that is the ceiling's job rather than an accident of it.
+
+**Tying δ to the instrument's resolution closes the other half — judging on a difference nobody can
+see.** δ = 0.005 was a number chosen a priori with a span rule (26/n_dev) that never bound on this
+corpus, and the consequence is on the record one subsection up: **this arm's ending turns on eleven
+spans against a resolution of about 190.** Under the candidate that cannot happen by construction.
+δ is denominated in units of σ, so "converged" reads "the last k rounds are inside what a re-run of
+the same configuration would move anyway", which is the claim a stopping rule should be making. It
+also fixes a comparability problem the floor created: an absolute 0.005 means something different on
+n_dev 5,254 than on n_dev 800, whereas c × σ is the same statement about resolution on both, and
+cross-corpus comparison of *where* an arm stopped becomes meaningful instead of coincidental.
+
+**What the form demands that this arm could not supply.** σ needs an estimate, and this arm has one
+pair — Δ 0.0361 at a fixed configuration, n = 2 — from which σ̂ = 0.0361/√2 = **0.025527** with a
+single degree of freedom. That is enough to compute with and not enough to pre-register against. So
+the next arm owes, before its round 1: **m ≥ 3 re-runs at a fixed configuration**, σ estimated from
+them, δ computed once and then **frozen for the arm**. δ is not re-estimated per round — a threshold
+that moves with the data is a threshold that can be steered, and the point of pre-registration is
+that the rule is not a function of the results it judges.
+
+**The order is part of the pre-registration, and it is this.** The form above is fixed now. **`c` is
+not chosen now.** `c` is fixed after σ is measured and before the arm's first round, in a commit that
+names the value, the measurement it was computed against, and the resulting δ. The reason for this
+particular order is that the two are independent and each is unsafe in the other's absence: choosing
+`c` after seeing an arm's gains is precisely the failure the discipline exists to prevent, while
+choosing `c` before knowing σ's magnitude is choosing δ blind. Splitting them is what lets both be
+honest, and the split is only sound because `c` is dimensionless — a claim about how many
+resolutions of headroom count as "stopped", which is answerable without knowing the resolution.
+
+**Applied backwards to this arm — reference figures, not a verdict.** The rule did not govern these
+rounds and no result of this arm is restated under it. What the numbers are for is the next arm's
+choice of `c`.
+
+| round | g | \|g\| | `c` at which \|g\| < δ |
+|---|---|---|---|
+| 2 | +0.288923 | 0.288923 | > 11.319 |
+| 3 | +0.078607 | 0.078607 | > 3.079 |
+| 4 | +0.033498 | 0.033498 | > 1.312 |
+| 5 | −0.038447 | 0.038447 | > 1.506 |
+| 6 | +0.057290 | 0.057290 | > 2.244 |
+| 7 | +0.007042 | 0.007042 | > 0.276 |
+
+With k = 2 and σ̂ = 0.025527, the arm's ending under the candidate is a step function of `c`:
+
+- **c ≤ 1.506** — no two consecutive rounds in 2–7 are below δ (round 7 is, round 6 is not), so the
+  ending would depend on g₈: rounds 7 and 8 both below δ needs `c` > 0.276 *and* |g₈| < δ.
+- **1.507 ≤ c ≤ 11.31** — rounds 4 and 5 are both below δ, and **the arm would have stopped at
+  round 5**, three rounds earlier than it does, on a pair one of whose members is a regression that
+  the absolute value correctly counts as small rather than as convergent.
+- **c ≥ 11.32** — δ exceeds every gain the arm produced and it stops at round 3, which is a
+  reductio on large `c` rather than a candidate.
+
+**The sensitivity is the finding, and it argues for measuring σ rather than for picking `c` well.**
+Between c = 1.506 and c = 1.507 the arm's length changes by three rounds and roughly 7M prompt
+tokens. A rule that brittle around its constant is not fixed by choosing the constant carefully; it
+is fixed by having σ estimated well enough that δ is a real quantity, and by the ceiling continuing
+to bound the case where nothing converges. Both of those are in the form above. What is *not*
+claimed here is that round 5 was the right place to stop — that is exactly the kind of retrospective
+verdict this subsection refuses to make.
+
 ### Span provenance
 
 Every detected span carries **layer · detector · rule ID · score**.
