@@ -2011,6 +2011,74 @@ bodies. Section 4 makes the identical argument for the profiler check, and this 
 applied one level down: **a check whose only evidence is a green suite is the defect it exists to
 prevent.**
 
+### Six on the draw and the abandoned spend, where the artefact is the only reader — 2026-08-24
+
+The path added after round 6's first attempt died on auditor call 123 of 250 (DESIGN §5.5.2,
+schema 9): a preserved `draw{N}/audit_report.json` per attempt, a `draw_index`/`draws_total` pair
+that reconciles the report against `agent_calls.jsonl`, and an `abandoned_spend` block recording
+what the attempts that produced no round cost.
+
+**Why this path needs mutations more than most.** Nothing downstream reads these numbers. No
+score depends on them, no gate consults them, no later round is assembled from them — they exist
+to be read by a person, in the paper and in the record. So the failure mode is never a crash and
+never a red suite: it is a well-formed file, in the right place, that understates spend or has
+quietly lost an earlier attempt's report. The only thing between an understated figure and
+publication is the assertion that names it, which is exactly the situation mutation testing is
+for. Measured individually against tree `82f101b925fcfbcc`, baseline 1804 passed:
+
+| mutation | kills |
+| --- | --- |
+| `the_abandoned_gate_is_the_draw_count_alone` | 2 |
+| `the_abandoned_attempt_count_comes_from_the_log_alone` | 1 |
+| `the_audit_report_records_no_draw_number` | 36 |
+| `the_next_draw_counts_the_draws_that_exist` | 2 |
+| `the_preserved_draw_is_written_to_the_canonical_path` | 4 |
+| `the_abandoned_block_uses_the_cost_block_names` | 15 |
+
+**The first one is not invented.** It is the defect that shipped, restored verbatim: gating
+`_abandoned_spend` on `draws_before < 1` returns `None` for a round that wrote no draw directory,
+and under the absent-means-unrecorded convention that publishes a round nothing was abandoned on.
+Round 6's 122 paid calls and 1,133,206 prompt tokens would have disappeared with no trace in
+`metrics.json`. It survived review, a docstring that described the union gate, and the tests
+already on the path; it was found only because a transport failure landed in the one window where
+the two records disagree. Two kills — that is the whole margin, and both of those tests were
+written the day the defect was found.
+
+**The two-kill and one-kill entries are the point of the table, not its weak rows.** The three
+lower rows are all in the same place: the arithmetic that combines the two records, where the
+mutation is wrong only in the regime where the records disagree. `..._comes_from_the_log_alone`
+replaces `max(draws_before, 1 if lines else 0)` with the log-first reading and is *correct* on
+round 6's own case; it is wrong when two draws exist and one line does. One test covers that, on
+purpose, and its sibling pins the undercount in the other direction deliberately — the formula
+has a test per direction rather than one test of the formula. The three upper rows are broad
+because the key names and the written fields are load-bearing surfaces that many tests touch; a
+kill count of 36 measures reach, not the strength of the guarantee.
+
+**The survivor, and what it found.** `the_next_draw_counts_the_draws_that_exist` — one past the
+highest replaced by how many exist — was measured at **1 kill against a `min_kills` of 2** and
+reported SURVIVED. The count was right and the expectation was the thing worth keeping:
+`test_the_next_draw_is_the_number_that_does_not_overwrite` states the property this whole path
+exists for ("whatever `next_draw` returns, no report is already there") and walked it over four
+*contiguous* draws — precisely the regime where the two readings agree. The property test could
+not see the failure the property is about, and the arithmetic test beside it was carrying the
+guarantee alone. The walk now removes a draw halfway through; the mutation is caught by both, and
+`min_kills=2` stands. This is the second SURVIVED verdict in this file that was a finding about a
+test rather than about a mutation — `absent_token_counts_default_to_zero` is the other, and there
+too the fix was in the assertion and not in the code. The shapes differ in a way worth keeping
+apart: that one was an assertion passing for a reason other than the one it names, this one is an
+assertion exercised only where the defect cannot appear.
+
+`the_abandoned_block_uses_the_cost_block_names` is the section's one `also` mutation. Renaming the
+four cost-shaped keys in `loop._abandoned_spend` alone is refused by the block's closed-key
+validation and killed as a missing key — a kill that says the validator works and says nothing
+about summing. Renamed in `scorer.REQUIRED_ABANDONED` too, the block validates, reaches
+`metrics.json`, and `sum_costs([cost, abandoned_spend])` goes through: DESIGN §11.3's 1.9× rung
+priced for work that produced nothing. That is the mutation the name claims, and it takes two
+files to write it.
+
+These six take `MUTATIONS` from 170 to 176, which is a change of denominator and not a stale
+count — see "When a full run is required" below.
+
 ## What the seal cost, and what carries the difference
 
 Sealing 250 documents removed checks that cannot be replaced, and pretending

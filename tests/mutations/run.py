@@ -4675,6 +4675,245 @@ MUTATIONS = [
         ),
         min_kills=1,
     ),
+    # ─── the draw / abandoned-spend path (DESIGN §5.5.2, schema 9) ────────────────────────
+    # Added after round 6's first attempt died on auditor call 123 of 250. Two facts about
+    # that failure decide the shape of this section. The first is that the round's 122 paid
+    # calls were nearly published as "nothing abandoned", and the defect that would have done
+    # it survived review, tests and a written docstring — so the first mutation here is that
+    # defect restored verbatim. The second is that every artefact on this path is a *record of
+    # what a failed attempt cost*, which means the failure mode is not a crash but a
+    # well-formed file that understates spend or loses an earlier attempt's report. Nothing
+    # downstream reads these numbers, so no other test fails when they are wrong: the only
+    # thing standing between an understated figure and the paper is the assertion that names
+    # it. That is what these six measure.
+    Mutation(
+        name="the_abandoned_gate_is_the_draw_count_alone",
+        path=LOOP,
+        # The gate, restored to what it was before round 6 — `lines` stays computed above, so
+        # the mutation is exactly the one clause and not a removal of the measurement. The
+        # anchor is the whole condition rather than `draws_before < 1`, which also appears in
+        # prose and would be an indentation-blind match risk.
+        anchor="    if draws_before < 1 and not lines:",
+        replacement="    if draws_before < 1:",
+        breaks=(
+            "**The round-6 defect, put back.** `draws_before` counts *preserved audit reports*, and "
+            "an attempt dies wherever it dies: round 6's first attempt took a Bedrock 500 on "
+            "auditor call 123 of 250, so it wrote no `draw1/` and left 122 logged calls. Under this "
+            "gate `_abandoned_spend` returns `None` for that round, and because absence is defined "
+            "to mean *unrecorded* (schema 9), `metrics.json` then carries no `abandoned_spend` "
+            "block at all — a file that reads as a round nothing was abandoned on. 122 calls and "
+            "1,133,206 prompt tokens disappear with no trace in the published artefact.\n"
+            "\n"
+            "That is why this mutation is first in the section: it is not hypothetical. It shipped, "
+            "it survived the docstring that described the union gate, and it was found only because "
+            "a transport failure happened to land in the one window where the two records "
+            "disagree. Nothing downstream reads the block, so no other test goes red.\n"
+            "\n"
+            "Caught by `test_an_attempt_that_died_before_writing_a_draw_is_still_counted`, which "
+            "asserts `block is not None` with a message naming the 122 calls, and by "
+            "`test_the_attempt_count_is_a_lower_bound_and_the_call_count_is_not`, which reads "
+            "`block[\"calls_abandoned\"]` off the same shape and gets a `TypeError` instead. "
+            "`test_the_first_attempt_of_a_round_reads_no_block_at_all` is the other side and still "
+            "passes: the mutation loosens what counts as nothing, it does not invent a block."
+        ),
+        min_kills=2,
+    ),
+    Mutation(
+        name="the_abandoned_attempt_count_comes_from_the_log_alone",
+        path=LOOP,
+        # `max` over the two records is what makes the count a lower bound rather than a guess.
+        # Replaced with the log-first reading, which is the shape that *looks* exact: one
+        # attempt per round that logged anything.
+        anchor="    attempts = max(draws_before, 1 if lines else 0)",
+        replacement="    attempts = 1 if lines else draws_before",
+        breaks=(
+            "**Treats `attempts_abandoned` as a measurement instead of a floor.** The real "
+            "expression takes whichever record establishes more; this one lets the log's mere "
+            "*presence* settle the count, so a round with two preserved draws and a single logged "
+            "line reads one abandoned attempt. It passes the round-6 case above — one dead attempt "
+            "with lines and no draw is still 1 — which is what makes it plausible: the mutation is "
+            "wrong only where the two records disagree in the other direction.\n"
+            "\n"
+            "The consequence is not a smaller number in one field. `calls_unmeasured` is "
+            "`attempts - authored`, so the count of calls whose tokens were spent and never "
+            "reported falls with it, and the four token totals stop being flagged as lower bounds "
+            "in exactly the rounds where they are furthest below the truth.\n"
+            "\n"
+            "Caught by `test_a_preserved_draw_outranks_the_logged_lines_in_the_attempt_count`, "
+            "which is `draws_before=2` against one logged line and asserts 2 attempts and 2 "
+            "unmeasured calls. Note what does *not* catch it: "
+            "`test_the_attempt_count_is_a_lower_bound_and_the_call_count_is_not` pins the "
+            "undercount deliberately and reads 1 under both, which is the point of having a test "
+            "for each direction rather than one test for the formula."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="the_audit_report_records_no_draw_number",
+        path=AUDIT,
+        # Both keys at once, and adjacent in the source because neither is readable without
+        # the other. Deleting them rather than perturbing a value: the failure this path
+        # guards against is a report that cannot be reconciled against the call log at all,
+        # and that is what an absent draw number produces.
+        anchor=(
+            '        "draw_index": draw_index,\n'
+            '        **({"draws_total": draws_total} if draws_total is not None else {}),\n'
+        ),
+        replacement="",
+        breaks=(
+            "**The report stops saying which attempt wrote it.** `draw_index` is the field that "
+            "reconciles `audit_report.json` against `agent_calls.jsonl`: without it a round whose "
+            "log holds 372 calls and whose report describes 250 documents is a file with no "
+            "explanation, and the reader's only remaining evidence is a `draw*/` listing that says "
+            "how many reports exist and not which one is which. `draws_total` going with it removes "
+            "the marker that says *this copy is the latest*, so the canonical file and its "
+            "preserved draws become indistinguishable by content.\n"
+            "\n"
+            "Deleted together because they are validated together and written together — a mutation "
+            "that dropped only one would be caught by the same tests and would say less about the "
+            "guarantee. The validation above the `return` is untouched, which is what makes this "
+            "mutation about the *record* rather than about the refusals: a caller still cannot pass "
+            "`draws_total=1` with `draw_index=2`, the answer just never reaches the file.\n"
+            "\n"
+            "Caught in both modules. In `tests/test_audit.py`, `test_a_preserved_draw_carries_no_"
+            "total` and the report-shape tests read `report(...)[\"draw_index\"]` and get a "
+            "`KeyError`; in `tests/test_loop.py`, `test_a_round_audited_once_is_draw_one_and_"
+            "abandons_nothing` and `test_the_canonical_copy_carries_the_total_and_a_preserved_draw_"
+            "does_not` read it back out of the written files. The loop's own return value still "
+            "carries `draw_index`, so a suite that only checked what `run_iteration` returns would "
+            "be green — the tests that kill this are the ones that go to the file."
+        ),
+        min_kills=3,
+    ),
+    Mutation(
+        name="the_next_draw_counts_the_draws_that_exist",
+        path=AUDIT,
+        # One-past-the-highest replaced by how-many-exist: the exact confusion `next_draw`'s
+        # docstring rejects. Anchored on the accumulator and not on the `return`, so the
+        # mutation is the counting rule itself rather than an off-by-one at the exit.
+        anchor="                highest = max(highest, int(suffix))",
+        replacement="                highest += 1",
+        breaks=(
+            "**Reuses a number and overwrites a preserved report — the one failure this path "
+            "exists to prevent.** The two readings agree on every contiguous listing, which is "
+            "why the docstring has to argue for one: they differ only when a draw directory is "
+            "missing, and then the count points back at a draw that already exists. A round "
+            "holding `draw1/` and `draw3/` gets 3, and attempt 4 writes over attempt 3's report. "
+            "The loss is silent and total — the file is well-formed, it is in the right place, and "
+            "the only surviving evidence that two attempts wrote it is a `draws_total` that no "
+            "longer matches the listing.\n"
+            "\n"
+            "A gap is not a hypothetical either: a draw directory can be absent because the "
+            "attempt died before writing it, which is round 6's case, and it can be absent because "
+            "a `draw*/` was pruned by hand between attempts. Counting is the reading that fails on "
+            "both.\n"
+            "\n"
+            "Caught by `test_a_gap_in_the_draws_is_left_as_a_gap`, which exists for this and is "
+            "the reason the docstring's paragraph is a paragraph, and by "
+            "`test_the_next_draw_is_the_number_that_does_not_overwrite` — **but only after this "
+            "mutation was measured.** That test walks the property forward and asserted it over "
+            "four contiguous draws, which is exactly the regime where the two readings agree, so "
+            "the mutation survived the property test and was caught by the arithmetic one alone. "
+            "The walk now removes a draw halfway through. The three other `next_draw` tests still "
+            "pass under the mutation, which is a fair description of how narrow the window is: "
+            "`test_the_first_audit_of_a_round_is_draw_one` has nothing to count, "
+            "`test_the_next_draw_is_one_past_the_highest_that_exists` is contiguous, and "
+            "`test_the_next_draw_ignores_directories_that_are_not_draws` filters the junk before "
+            "either reading sees it."
+        ),
+        min_kills=2,
+    ),
+    Mutation(
+        name="the_preserved_draw_is_written_to_the_canonical_path",
+        path=LOOP,
+        # The two-copy write, collapsed to two writes of the same path. The first element is
+        # the one that matters: the draw's own copy is the record that cannot be rewritten,
+        # and sending it to `report_file` is the pre-§5.5.2 behaviour restored.
+        anchor="    for path, payload in ((draw_file, report),",
+        replacement="    for path, payload in ((report_file, report),",
+        breaks=(
+            "**Attempt 2 writes over attempt 1's report, which is the state of every round in the "
+            "record before this path existed.** Both entries now target the canonical file, so the "
+            "round ends with one report and no preserved copy — and because `next_draw` counts "
+            "directories, no `draw*/` is ever created and every attempt is numbered 1. The whole "
+            "reconciliation collapses in one edit: `draw_index: 1` on a round that was audited "
+            "three times, a `draws_total` of 1 beside 753 logged calls, and nothing on disk that "
+            "disagrees.\n"
+            "\n"
+            "`run_iteration` still returns an `audit_draw_path`, and it still points at "
+            "`draw1/audit_report.json` — a path that does not exist. That is the shape a caller "
+            "checking the return value would not notice.\n"
+            "\n"
+            "Caught by `test_a_re_run_round_does_not_overwrite_the_earlier_draws_report`, which is "
+            "this failure written down and compares both preserved copies for content rather than "
+            "existence, and by `test_a_round_audited_once_is_draw_one_and_abandons_nothing` and "
+            "`test_the_canonical_copy_carries_the_total_and_a_preserved_draw_does_not`, which read "
+            "`draw_report(tree, 2, 1)` and find no file. The order of the tuple is load-bearing "
+            "for a second reason the mutation does not disturb: the draw copy is written first so "
+            "a crash between the two leaves the record and not only the pointer."
+        ),
+        min_kills=3,
+    ),
+    Mutation(
+        name="the_abandoned_block_uses_the_cost_block_names",
+        path=LOOP,
+        # Renamed in the writer *and* in the schema constant that validates it, because a
+        # rename in one place alone is caught as a missing key and would say nothing about
+        # summing. With both moved the block is well-formed, validated, published — and
+        # `sum_costs` accepts it.
+        anchor=(
+            '        "calls_abandoned": sum(int(cost.get("llm_calls", 0)) for cost in costs),\n'
+            '        "prompt_tokens_abandoned": sum(int(cost.get("prompt_tokens", 0))'
+            ' for cost in costs),\n'
+            '        "completion_tokens_abandoned": sum(int(cost.get("completion_tokens", 0))\n'
+            '                                           for cost in costs),\n'
+            '        "wall_seconds_abandoned": round(\n'
+        ),
+        replacement=(
+            '        "llm_calls": sum(int(cost.get("llm_calls", 0)) for cost in costs),\n'
+            '        "prompt_tokens": sum(int(cost.get("prompt_tokens", 0)) for cost in costs),\n'
+            '        "completion_tokens": sum(int(cost.get("completion_tokens", 0))\n'
+            '                                           for cost in costs),\n'
+            '        "wall_seconds": round(\n'
+        ),
+        breaks=(
+            "**Makes the one mistake the suffixes exist to make impossible.** This is spend that "
+            "bought no result. Adding it to the arm total would price DESIGN §11.3's 1.9× rung for "
+            "work that produced nothing, and make the arm look more productive per token in "
+            "exactly the rounds where it was least so. The defence is not a comment: "
+            "`REQUIRED_ABANDONED` shares no key with `REQUIRED_COST`, so `sum_costs` refuses the "
+            "block on its closed-key check and the mistake fails at the call site. Under this "
+            "mutation the four cost-shaped keys read `llm_calls`/`prompt_tokens`/"
+            "`completion_tokens`/`wall_seconds` and `sum_costs([cost, abandoned])` goes through.\n"
+            "\n"
+            "Renamed in `src/eval/scorer.py` as well, which is what makes the mutation mean its "
+            "name. A rename in the writer alone is refused by the block's closed-key validation "
+            "and would be caught as a missing key — a kill that says the validator works and "
+            "nothing about summing. Moved together, the block validates, reaches `metrics.json`, "
+            "and is summable there.\n"
+            "\n"
+            "Caught by `test_the_abandoned_spend_is_not_summed_into_what_the_arm_published`, which "
+            "asserts the key sets are disjoint and that `sum_costs` rejects the pair — the only "
+            "test that states the guarantee rather than exercising the shape. It goes red on the "
+            "disjointness line, before the `pytest.raises`. Every other kill here is a test that "
+            "builds a block from literal key names (`tests/test_scorer.py`'s `ABANDONED`, "
+            "`tests/test_orchestrate.py`'s failure record, `tests/test_loop.py`'s readers), and "
+            "those are collateral: they measure that the names are load-bearing, not that summing "
+            "is refused."
+        ),
+        min_kills=3,
+        also=(
+            (SCORER,
+             'REQUIRED_ABANDONED = ("attempts_abandoned", "calls_abandoned",'
+             ' "prompt_tokens_abandoned",\n'
+             '                      "completion_tokens_abandoned", "wall_seconds_abandoned",\n'
+             '                      "calls_unmeasured")',
+             'REQUIRED_ABANDONED = ("attempts_abandoned", "llm_calls",'
+             ' "prompt_tokens",\n'
+             '                      "completion_tokens", "wall_seconds",\n'
+             '                      "calls_unmeasured")'),
+        ),
+    ),
 ]
 
 COUNT_RE = re.compile(r"(\d+) (passed|failed|error|errors)")

@@ -942,13 +942,29 @@ def test_the_next_draw_ignores_directories_that_are_not_draws(tmp_path):
 def test_the_next_draw_is_the_number_that_does_not_overwrite(tmp_path):
     """The property, stated as the property rather than as an arithmetic identity: whatever
     `next_draw` returns, no report is already there.
+
+    **The walk includes a gap, which the first version of this test did not.** Four contiguous
+    draws exercise the property only in the regime where "one past the highest" and "how many
+    exist" agree, so the property passed under a counting implementation and the mutation
+    `the_next_draw_counts_the_draws_that_exist` survived it — the arithmetic test above was the
+    only thing that noticed, which is the wrong division of labour between the two. A missing
+    draw is how the gap arises in the record: an attempt that died before writing one, or a
+    `draw*/` pruned by hand between attempts. That is the regime the property is for.
     """
-    for _ in range(4):
+    def take_one() -> None:
         n = audit.next_draw(**ROUND_AXES, iteration=5, root=tmp_path)
         drawn = audit.draw_path(**ROUND_AXES, iteration=5, draw=n, root=tmp_path)
-        assert not drawn.exists()
+        assert not drawn.exists(), f"draw {n} was handed out over a report already there"
         drawn.parent.mkdir(parents=True)
         drawn.write_text("{}", encoding="utf-8")
+
+    for _ in range(4):
+        take_one()
+    gone = audit.draw_path(**ROUND_AXES, iteration=5, draw=2, root=tmp_path)
+    gone.unlink()
+    gone.parent.rmdir()
+    for _ in range(2):
+        take_one()
 
 
 # ─── draw_index and draws_total on the report ────────────────────────────────
