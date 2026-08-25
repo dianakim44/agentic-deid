@@ -160,7 +160,7 @@ wrong, so that way gets a mutation.
 | `sealed_exempt_from_exit_code` | `if blocked or suspect` becomes `if suspect` | the exit status stops depending on BLOCKED. Its own mutation because the SEALED change moved exactly this line's meaning — SEALED must not affect the exit code and BLOCKED must, and one edit could get the first half right and the second half wrong | **1** |
 | `allowlist_may_name_corpus_paths` | `load_allowlist` stops refusing entries under `data/` and `sealed/` | the allowlist's one hard limit. `deny(p)` below still covers most corpus paths, so the edit looks harmless until `data/README.md` — the single file published out of a denied prefix, and therefore not denied. With this, a four-line JSON entry silences the content sniffer on a file inside the corpus tree | **1** |
 | `filled_prompt_paths_allowed` | the `prompts/(filled|rendered)/` deny pattern stops matching | a filled RuleAuthor prompt at `prompts/filled/iter03.md` — carrying the ±120-character context of every sampled dev error — reads as an ordinary file under `prompts/`, an ALLOW_HINTS prefix. Not merely unblocked: reported clean | **4** |
-| `rule_id_vocabulary_not_checked` | the mechanism-vocabulary check in `rule_id_findings` is removed, leaving the shape rules | the screener returns to its first version, which passes every legitimate name and also passes `es:perez_ruiz` — a surname published through `metrics.json`'s `by_rule` block, which is on the *allow* list | **24** (2026-08-23, was 20) |
+| `rule_id_vocabulary_not_checked` | the mechanism-vocabulary check in `rule_id_findings` is removed, leaving the shape rules | the screener returns to its first version, which passes every legitimate name and also passes `es:perez_ruiz` — a surname published through `metrics.json`'s `by_rule` block, which is on the *allow* list | **25** |
 
 `allowlist_may_name_corpus_paths` is the same shape as the two rows above it: a mechanism added to *reduce*
 noise, mutated at the point where reducing noise turns into suppressing the signal.
@@ -363,15 +363,38 @@ Counts are the number of tests that fail or error across the whole of `run.py`'s
 Errors count as kills: a mutation that breaks the module-scoped fixture takes whole tests
 out, and those are caught, not uncounted.
 
-**Every count in this file is from the full run of 2026-08-20** — all 170 mutations, one
-1696-test suite run each, recorded in `docs/notes/mutation-full-runs.md` with the commit and
-the `TEST_FILES` list they are counts of. One date for all of them, stated here once, is a
-property worth having and a recent one: see §"Running all of it" for what it costs and when
-it is owed again. **One cell carries its own date**, and that is what the exception looks
-like: `rule_id_vocabulary_not_checked` was re-measured on 2026-08-23 under a 1706-test suite
-and rose, so the cell says so rather than sitting unmarked among counts it is not comparable
-to. The 2026-08-19 markers were retired because the minority became everyone (§"The first
-full run"); a minority of one is what they were for.
+**The cells in this file are the full run of 2026-08-20's numbers — 170 mutations, one 1696-test
+suite run each — and `docs/notes/mutation-full-runs.counts.json` is the authority, not this file.**
+The sidecar is written from measurements by `parallel.py`; these cells are prose, and prose is
+transcribed. The two agreed exactly while there had been one full run. There have now been two, and
+the second moved 21 of the numbers below, so the honest statement is where each kind of number
+comes from rather than a single date over all of them.
+
+The 21 that rose on 2026-08-25, under a suite that grew from 1696 to 1804 tests inside the same 27
+files: `allowlist_may_name_corpus_paths` 1 → 2, `an_unreadable_tree_state_reads_as_clean`
+107 → 117, `arm_rules_path_drops_the_axes` 74 → 81, `no_bom_shift` 142 → 151,
+`only_the_score_is_scoped_to_the_round` 26 → 32, `rule_id_vocabulary_not_checked` 20 → 25,
+`run_fold_omits_the_layer` 32 → 38, `run_fold_writes_a_null_model_id` 45 → 48,
+`spans_file_carries_the_surface` 34 → 40, `the_audit_report_is_allowed_instead_of_denied` 2 → 4,
+`the_audit_report_is_read_as_the_previous_rounds_file` 69 → 75,
+`the_client_hardcodes_botocores_default_attempts` 1 → 2,
+`the_folds_seconds_go_to_the_round_and_not_the_arm` 76 → 83,
+`the_iteration_allow_pattern_covers_the_whole_directory` 3 → 4,
+`the_language_layer_is_keyed_on_the_id_the_model_wrote` 2 → 3,
+`the_mask_tags_are_emitted_in_the_order_they_were_applied` 85 → 91,
+`the_per_iteration_key_replaces_the_arm_level_one` 110 → 122,
+`the_reply_text_is_taken_from_the_first_block` 85 → 92, `type_in_both_lists` 150 → 159,
+`unsealed_load_filters_instead_of_not_reaching` 145 → 154, `utf8_sig` 142 → 151.
+
+**A cell below that reads lower than the sidecar means the suite grew, and never that a guarantee
+weakened.** That direction is checked and not assumed: both full runs recorded zero decreases, and
+a decrease is the finding that would matter — it would mean a test stopped being able to see a
+defect it used to see. The six draw / abandoned-spend mutations were first measured in the
+2026-08-25 run and their cells carry those numbers; `rule_id_vocabulary_not_checked` no longer
+carries the 2026-08-23 date it used to, because a full run has since restated it. The 2026-08-19
+markers were retired when the minority became everyone (§"The first full run"), and this paragraph
+is the same problem in the opposite direction: 21 exceptions are too many to mark and few enough to
+list, so they are listed.
 
 **Counts recorded at different times are not comparable, because the denominator moved.**
 This paragraph used to name eleven files and 531 tests, which is what `TEST_FILES` held when
@@ -2076,8 +2099,12 @@ about summing. Renamed in `scorer.REQUIRED_ABANDONED` too, the block validates, 
 priced for work that produced nothing. That is the mutation the name claims, and it takes two
 files to write it.
 
-These six take `MUTATIONS` from 170 to 176, which is a change of denominator and not a stale
-count — see "When a full run is required" below.
+These six took `MUTATIONS` from 170 to 176, which is a change of denominator and not a stale
+count — see "When a full run is required" below. **The full run of 2026-08-25 settled it and
+reproduced all six of the counts above exactly**, measured under a different tree fingerprint
+(`276308a0483f5f1d`) at the same 1804-test baseline. Six agreements between a selective run and a
+full one say the selective numbers were not artefacts of the tree they were taken on; they say
+nothing about the other 170, which is why the run had to happen.
 
 ## What the seal cost, and what carries the difference
 
@@ -2927,6 +2954,7 @@ not a rule; the reasoning is here, with the measurements it rests on.
 | a *mutation* run that kills 142 | ~45 s | `utf8_sig`, 2026-08-20 validation |
 | 170 mutations serial | ~12.9 h | 171 × 271.5 s, baseline included |
 | 170 mutations, 8 shards | **1.87 h** | measured, 2026-08-20 |
+| 176 mutations, 8 shards | **2.02 h** | measured, 2026-08-25 |
 
 The speedup is **6.9× on 8 shards**, and the shortfall from 8× is almost exactly the
 contention: a perfect split would be 12.9 h / 8 = 1.61 h, the run took 1.87 h, and 1.87 / 1.61
@@ -2934,6 +2962,14 @@ contention: a perfect split would be 12.9 h / 8 = 1.61 h, the run took 1.87 h, a
 baselines cost 316 s of wall clock rather than eight times that, because they run concurrently
 — which is the answer to "wouldn't one shared baseline be cheaper": it would save five minutes
 of a two-hour run and give up the only check a shard has on its own copy.
+
+**The 2026-08-25 run is the second data point and it behaves as the model says.** 2.02 h over 176
+mutations is 41.3 s of wall clock each at 8-way, against 39.6 s over 170 five days earlier — a
+factor of 1.043 while the suite each run pays for grew 1696 → 1804 tests, a factor of 1.064. So
+the cost per mutation tracks the size of `TEST_FILES` and not the number of mutations, which is
+the reason the trigger in `CLAUDE.md` is written about the *denominator*. Split out per shard: one
+suite run went 302 s → 315 s, the six new mutations are 0.75 extra per shard and cost about four
+minutes of the 8.75-minute rise, and the 108 tests added inside the existing files cost the rest.
 
 Two of those numbers correct things this file said earlier. **The serial figure is thirteen
 hours, not fifteen.** Fifteen came from the whole-repo suite — 1875 tests, 368 s — and the
