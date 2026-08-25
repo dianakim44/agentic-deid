@@ -1141,6 +1141,93 @@ is the arm's one genuine chance to converge, and it turns on g₈ alone. Either 
 number, not round 8's, is what settles which of the two endings is still available. That reading is
 owed with round 7's report.
 
+#### Round 7 paid that reading: g₇ = +0.007042, so the ceiling ending is now certain — recorded 2026-08-25, after the round
+
+Dev leak `fully_covered` went 0.176247 → **0.169204** (926 → 889 leaked of 5,254 in-scope gold
+spans), a first difference of **+0.007042**; relaxed went 0.133422 → **0.131329** (701 → 690).
+`improvements` reads `[0.288923, 0.078607, 0.033498, -0.038447, 0.057290, 0.007042]` and
+`termination.reason` is `null` — which the subsection above established was the only possible value,
+so the round confirms the arithmetic rather than testing it. Round 7 is also the arm's best round as
+well as its latest, so the best-versus-published gap §5.5 exposes is still zero. Rules version 7,
+66 rules against round 6's 56 (13 added, 3 removed), `results/.../rules/iter7/es.yaml`.
+
+**The owed reading, and it lands on the certain side.** g₇ = 0.007042 ≥ δ = 0.005, so round 8's
+window `[g₇, g₈]` already contains a member above δ before round 8 runs: `converged` is unreachable
+at round 8, `iterations >= ceiling` is 8 ≥ 8, and **the arm's ending is `ceiling` — determined now,
+a full round before it fires.** Round 8 still runs (the ceiling is where the arm stops, not where it
+stops mattering), but no result it can produce changes the recorded reason.
+
+**That certainty rests on eleven spans, and the honest thing is to say so.** A gain below δ needs a
+reduction of at most 26 spans (27/5254 = 0.005139 ≥ δ, 26/5254 = 0.004948 < δ); round 7 closed 37.
+So the difference between "ceiling is certain" and "round 8 is the arm's one genuine chance" is
+eleven leaked spans — an order of magnitude *inside* the ±190-span call-to-call variance measured in
+§3. The rule's verdict is certain by arithmetic and the quantity it turns on is not resolvable by
+the instrument. Both halves are true and neither cancels the other: the pre-registration is being
+honoured exactly as written, and what it happens to be reading is noise-sized. That is an argument
+about which termination rule the *next* arm should pre-register, not a reason to touch this one.
+
+**The variance reading, which is owed separately.** The gain is **0.195×** the measured call-to-call
+variance of 0.0361 (n = 2) — deep inside what the instrument cannot resolve, where round 6's 1.587×
+was outside it. Round 7 is a movement in the right direction that a re-run of the same rules could
+plausibly erase.
+
+**The 2026-08-24 prediction is now falsified on both of the falsifiers it named for itself, and
+this is where that is stated rather than absorbed.** Its falsifiable form was "`converged` at round
+6, 7 or 8 — not `ceiling`", with a second falsifier for any round 4–8 whose improvement exceeds
+0.0361. The second fired at round 6 (0.057290, 1.587×) and was reported there only as a variance
+reading; the first is now certain by the paragraph above. Both are recorded here together because
+the obligation was to report them as a result, and one of them was a round late. **The direction of
+the error is the interesting part: the prediction was too pessimistic, not too optimistic.** Round
+7's predicted gain was 0.000431 (2.3 spans) against an actual 0.007042 (37 spans) — **16.3×** — and
+the predicted leak of 0.1994 against an actual 0.169204. The geometric form is what failed, not the
+decay: consecutive gain ratios read 0.272, 0.426, −1.148, −1.490, 0.123, so the gains oscillate
+rather than decay, and a model committed to r < 1 cannot express a negative round followed by a
+recovery. The cost side of the prediction fared better and still under-read: it budgeted roughly
+4 × 2.22M ≈ 8.9M prompt tokens for the rounds after 3, and rounds 4–7 have cost **9.40M** with a
+round 8 the prediction said would not be needed, which puts the arm at about **11.75M — 1.32× the
+budgeted figure**, the extra round being most of the gap.
+
+**The classification is `unclassifiable`, and it is the abstention clause that fires — the first
+time in the arm.** `L = 37`. The top type is `AGE`, 84 → 65 leaked, a reduction of 19 and a share of
+**0.5135**, which falls inside the 45–55% band, so the criterion's own clause returns
+*unclassifiable* and that is the recorded outcome. All three values are shown per the clause's
+instruction: **S1** 0.5135, in the band; **S2 fails** — within `AGE` the only layer covering anything
+is `regex_checksum`, 437 → 456, nowhere near `prev ≤ 0.1 × now` (437 against 45.6); **S3 passes** for
+that same layer, 456 ≥ 19. The three layers that satisfy S2 do so vacuously at 0 → 0 and fail S3 by
+covering nothing. So had the band not fired the verdict would have been **decay**, by exactly round
+6's shape and on the same layer.
+
+**Which is a finding about the criterion, recorded and not acted on.** §3 already said the 45–55%
+band "is a guard on the weakest condition rather than on the decisive one"; round 7 is that sentence
+happening. The band withheld a verdict that S2 would have decided without ambiguity, on a round
+whose `L` of 37 makes every share a small-integer ratio — 19 of 37 is one span from 0.4865 and two
+from 0.5405. The clause forbids revising the thresholds in light of the numbers, so nothing moves
+here; the replacement criterion, if one is written, is written before an arm and not inside one.
+
+**The round moved backwards on one type.** `ID` went 62 → 69, a regression of 7 spans inside a net
+reduction of 37; `AGE` (+19) and `LOCATION_AREA` (301 → 292, +9) together account for 28 of the 37,
+and `CONTACT` and `OTHER` did not move. 243 of 250 dev documents still leak at least one span.
+
+**Cost.** 251 calls (1 RuleAuthor + 250 Auditor), 2,348,676 prompt + 29,597 completion tokens,
+1,077.1 s wall, of which 1,997,229 prompt tokens were cache reads and 8,021 cache writes. Arm to
+date: 1,507 calls, 14,123,779 prompt + 246,044 completion, 6,612.2 s. Auditor format compliance
+continues its slow drift the wrong way — 132 flags against 270 refusals of 402 proposals, malformed
+137 = **34.1%** (round 5 31.3%, round 6 33.7%) — and `auditor.md` stays frozen, per §6.3 and the
+decision recorded there against editing it for exactly this reason.
+
+**The draw and abandoned-spend paths recorded nothing, which is the correct output for this round.**
+Round 7 was audited once: `draw_index: 1`, no prior attempt, no calls spent before the one that
+completed. The canonical `iter7/audit_report.json` carries `draw_index: 1` and `draws_total: 1`; the
+preserved copy at `iter7/draw1/audit_report.json` carries `draw_index` and, by design, no
+`draws_total` — the per-draw copy is written before the total is knowable, and that one key is the
+only difference between the two files. `metrics.json` carries no `abandoned_spend` block, and the
+absent-means-unrecorded convention above means that absence *by itself* says nothing — what licenses
+"nothing was abandoned" here is `schema_version: 9` (a writer that had the field), `draw_index: 1`
+with no `draw2/` beside it, and the union gate that returns `None` only when both the draw record and
+the round's lines in the call log are empty. There is no `format_failure.json`. The six mutations
+added for these paths on 2026-08-25 are what make this paragraph checkable rather than a claim about
+code nobody exercised.
+
 ### Span provenance
 
 Every detected span carries **layer · detector · rule ID · score**.
