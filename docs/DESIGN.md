@@ -1102,6 +1102,45 @@ call-to-call variance of 0.0361 (n = 2), so unlike round 4's 0.928× it sits out
 instrument resolves. Both readings are given because neither answers the other: round 6 is a gain
 the instrument can see, produced by a mechanism that was already running.
 
+#### The arm ends at round 8, and round 7 cannot end it — recorded 2026-08-25, before round 7
+
+This is arithmetic on the rule as pre-registered, not a forecast, and it is written down before the
+round because a ceiling ending recorded only after it fires is indistinguishable from a stopping
+condition noticed on the arm's own data. δ is `max(0.005, 26/5254 = 0.004948) = 0.005` — the floor
+binds and the span rule does not, which is worth stating once because it means δ is a constant here
+and not a function of `n_dev`.
+
+**Round 7 cannot fire `converged`.** At k = 2 the window is `gains[-2:]`, which for round 7 is
+`[+0.057290, g₇]` — round 6's improvement is *in* the window, and 0.057290 > δ, so
+`all(g < d for g in gains[-k:])` is false whatever g₇ turns out to be. And `iterations >= ceiling`
+is 7 ≥ 8, false. So `termination.reason` is `null` at round 7 by construction: **no round-7 result
+stops the arm, including a leak rate that does not move at all.** The one-below-δ-round window the
+note above describes is the reason — round 6 improved, and an improvement in the window is what
+makes the next round unable to converge on its own.
+
+**Round 8 ends it, one way or the other.** The window is `[g₇, g₈]`, and `converged` needs *both*
+below δ. Anything else reaches `iterations >= ceiling` with 8 ≥ 8 and is `ceiling`. Since the
+convergence test is evaluated first and never overridden by the cap (`src/termination.py`), a round
+8 that satisfies it is recorded as `converged` even though the cap also became true — that ordering
+is §3's and is not affected by any of this. **The arm's length is therefore already determined at
+eight rounds; only the reason is open.**
+
+**A ceiling ending is the expected ending, and this is where that is recorded.** Five gains in,
+one is below δ and it is the negative one; the other four are 0.289, 0.079, 0.033 and 0.057, none
+of them within an order of magnitude of 0.005. Convergence at round 8 requires two consecutive
+gains below 0.005 from a trajectory that has not produced one non-negative gain that small, so the
+honest expectation is `ceiling`. §3 already forbids calling that convergence and
+`Termination.converged` is derived from `reason` rather than settable, so the prohibition is
+mechanical; what is added here is that the outcome was **anticipated in writing beforehand**, so
+the paper's account of it cannot be read as a rationalisation composed after the fact.
+
+**One thing becomes decidable a round early, and it is worth reading off round 7 when it scores.**
+If g₇ ≥ δ then round 8's window contains a member above δ before round 8 runs, and a ceiling ending
+is *certain* rather than expected — knowable a full round before it fires. If g₇ < δ then round 8
+is the arm's one genuine chance to converge, and it turns on g₈ alone. Either way round 7's own
+number, not round 8's, is what settles which of the two endings is still available. That reading is
+owed with round 7's report.
+
 ### Span provenance
 
 Every detected span carries **layer · detector · rule ID · score**.
