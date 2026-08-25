@@ -1228,6 +1228,72 @@ the round's lines in the call log are empty. There is no `format_failure.json`. 
 added for these paths on 2026-08-25 are what make this paragraph checkable rather than a claim about
 code nobody exercised.
 
+#### Round 8 ended the arm on `ceiling`, and it was still improving when it did — recorded 2026-08-25, after the round
+
+`termination.reason` is **`ceiling`**, `converged` is **`false`**, `iterations` 8. That is what the
+two subsections above said it would be, and the arm is over. Dev leak `fully_covered` 0.169204 →
+**0.137229** (889 → 721 leaked of 5,254); relaxed 0.131329 → **0.119338** (690 → 627). g₈ =
+**+0.031976**. Rules version 8, and for the first time in the arm the file **shrank** — 66 → 60
+rules, 9 added and 15 removed.
+
+**What `ceiling` means here, stated because the word invites the other reading.** It does **not**
+mean the loop stopped improving. It means **the arm used up the number of rounds pre-registered for
+it on 2026-08-12.** Round 8's gain is 6.4× δ and the second largest of the last four rounds; the
+trajectory at the moment of the stop was going down, not flat. The honest sentence is: *this arm was
+truncated by its own budget, and what it would have done at round 9 is unmeasured.* §3 already
+forbids reading `ceiling` as evidence of exhausted improvement — the botocore note says an arm
+"could equally have stopped at 5 with a traceback" — and this round is the positive case of the same
+warning: a `ceiling` stop is a statement about the policy, never about the curve.
+
+**The arm's published result is round 8, and here the final round is also the best round.** §5.5's
+rule is that the arm publishes its final round and never its best; the two coincide (0.137229 is
+the lowest leak rate the arm produced), so the gap §5.5 exists to expose is zero for the second
+round running. That is luck rather than design, and the rule is what makes it checkable: had round
+8 regressed, 0.169204 would still not have been the published number. **The whole trajectory is
+published with it** — every round's leak rate, gain, verdict and cost are in this section and in
+`iterN/metrics.json`, because a single final figure from a loop that oscillated (+0.289, +0.079,
++0.033, **−0.038**, +0.057, +0.007, +0.032) would misrepresent how it got there.
+
+**Step or decay: a decay, and the same shape as round 6.** `L = 168`; the top type is
+`LOCATION_AREA`, 292 → 188, a reduction of 104 and a share of **0.6190** — S1 passes, well outside
+the 45–55% band. **S2 fails for every layer that contributes**: within `LOCATION_AREA`,
+`context_cue` went 371 → 475, `gazetteer` 352 → 371 and `regex_checksum` 594 → 594, none of them
+close to `prev ≤ 0.1 × now`; `tagger` satisfies S2 vacuously at 0 → 0 and fails S3 at zero coverage.
+**S3 passes** for all three real layers (each covers ≥ 104). So the largest gain of the arm's second
+half came entirely from machinery that was already running — the arm's fourth decay against one
+step (round 4) and two unclassifiable rounds.
+
+**The variance reading: 0.886× of 0.0361, inside the band.** The arm's last gain is not resolvable
+by the instrument, so of the seven gains only four (rounds 2, 3, 5 and 6) are larger than what a
+re-run of the same configuration would move on its own. Round 8 closed 168 spans and the honest
+statement remains that the round did not move the leak rate detectably.
+
+**Two things moved in opposite directions and the leak rate still fell, which is worth recording.**
+Precision went 0.8546 → **0.9070** while recall fell 0.8668 → **0.8517**, and predictions dropped
+5,994 → 5,500. The round pruned fifteen rules and added nine, so it traded coverage for correctness
+— and leak `fully_covered` improved by 168 spans anyway, because leak is computed on the prediction
+union and asks only whether a gold span was covered at all. `AGE` (−15) and `NAME` (−17) regressed
+inside that net. This is the clearest case in the arm of why CLAUDE.md makes leak the headline and
+not F1: F1 rose 0.8606 → 0.8785 and would have told a much duller story than "recall fell and the
+leak rate improved sharply".
+
+**Cost, and the abandoned attempt this round actually had.** Round 8's first attempt died on Auditor
+call 157 of 250 with a Bedrock `500` — `reached max retries: 0` in the traceback, which is the
+`total_max_attempts` pin visible in the failure itself. It wrote no report and no metrics file, so
+the recovery §5.5.2 sanctions applied and the round was re-run. **This is the first live use of the
+union gate** (`c55a8eb`): with no preserved draw, `next_draw` returned 1, and the gate found the
+round's 156 logged lines anyway. The plan block said so before the re-run — "no preserved report,
+but this round already has 156 logged calls" — and `iter8/metrics.json` carries
+`abandoned_spend` = 156 calls, 1,448,683 prompt + 17,058 completion tokens, 650.4 s,
+`attempts_abandoned: 1`, `calls_unmeasured: 1`. Under the old draw-count gate this round would have
+published as untouched. The published round cost 251 calls, 2,355,561 prompt + 32,023 completion
+tokens, 1,117.6 s; the arm's `cost_to_date` is 1,758 calls, 16,479,340 prompt + 278,067 completion,
+7,730.2 s. One incidental observation from the caching block: round 8 records 2,005,250 cache-read
+tokens and **zero** cache writes, where every other round wrote 8,021 — the entry the successful
+attempt read was the one the abandoned attempt paid to write, inside the 5-minute TTL. It is the
+only respect in which an abandoned attempt was not a total loss, and it is inferred from those two
+numbers rather than from a bill.
+
 #### The next arm's termination rule, in candidate form — recorded 2026-08-25, and not applied to this arm
 
 **The form, and only the form.**
