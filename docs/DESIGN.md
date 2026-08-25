@@ -1742,6 +1742,101 @@ two draws of the identical configuration differ by 63 vs 506 leaked on `AGE` and
 And the whole arm ran with 55–60% of Auditor responses refused as `malformed`, which §6.3 records as
 this arm's result rather than something to repair mid-arm.
 
+#### `port-oneshot` × N, a union control — **pre-registered as a candidate 2026-08-25, and not run**
+
+Conclusion 2 above says the entire gain was bought by rounds 2–8. That sentence bundles two
+things the record cannot separate: **feedback against dev**, and **1,757 more calls**. The
+ladder isolates the first only if the second is held constant, and it is not — the baseline
+made one call. This clause writes down the arm that holds it constant, as a candidate whose
+parameters are fixed later, on a schedule stated at the end.
+
+**What it asks.** Spend the loop's budget on *independent* single calls instead of on a loop:
+N runs of `port-oneshot-nofence`, identical prompts, differing only in the sampling of the
+model, their N rule files combined by a stated rule, scored once. If that reaches
+`port-loop`'s leak rate, the lead comparison measured **sampling volume** and called it
+iteration. If it does not, rounds 2–8 did something a pile of independent draws cannot, and
+"feedback against dev" survives with a control behind it. The arm is worth pre-registering
+because this project has already measured the effect it would exploit: two byte-identical
+calls differ by 0.036 in leak rate (§3, 2026-08-21), so N draws have a spread to mine, and
+the union of N draws mines it by construction.
+
+**It is not a rung.** It enters no row of the table above and adjudicates none. Its status is
+`port-oneshot-nofence`'s and §10 A2's — a run that exists to make one of the three rows
+readable. The autonomy ladder still has four rungs.
+
+**N is a formula, not a number, and the basis is not obvious.** Four bases for "the same
+budget" give four values on `es-meddocan`, against published cost (`port-oneshot-nofence`: 1
+call, 14,071 prompt, 2,325 completion, 32.542 s; `port-loop`: 1,758 / 16,479,340 / 278,067 /
+7,730.2 s):
+
+| basis | N | what is wrong with it |
+|---|---|---|
+| LLM calls | 1,758 | over-funds the control by **1.72×** — the loop's average call is an Auditor call on one masked document, cheaper than a whole `rule_author.md`, so 1,758 baseline calls cost 28,824,168 tokens against the loop's 16,757,407 |
+| prompt tokens | 1,171 | ignores the completion side, where the two arms differ most in shape |
+| completion tokens | 120 | the loop is prompt-heavy by design (250 documents re-sent per round), so this basis funds the control at a tenth of the loop and answers a different question |
+| prompt + completion, raw | **1,022** | weights a completion token like a prompt token, which no price list does |
+
+**Pre-registered: prompt + completion, raw, so N = round(loop published total ÷ baseline
+published total) for the same corpus.** The last basis's flaw is a 1:1 weighting with no
+price behind it; the alternative is to introduce a price, and a price is a knob that moves
+N. It is also the number §4 already reports (1,022× in conclusion 3), so the control's cost
+column reads 1.00× by construction and no reader has to check the matching. **Raw, never
+cache-discounted** — §11.3: caching changes no byte of a prompt, and a control funded on
+effective tokens would be handed N inflated by the loop's 84.87% cache-read share, which is
+a transport fact.
+
+Fixing the *formula* rather than the number is what keeps N off the list of things that
+could be tuned: it is computed from two cost blocks, and **no leak rate enters it**. It is
+also per-corpus by necessity, since both inputs are corpus-specific.
+
+**How the N rule files combine is the decision that has to be made, and every option costs
+something.**
+
+| option | what it costs |
+|---|---|
+| **union** — every rule from every draw | precision falls, and the leak improvement is *by construction*: leak asks only whether a gold span was covered by the prediction union, so adding rules can never raise it. Direction is uninformative; only the *rate* of fall and the precision paid for it are findings. At N = 1,022 it may be degenerate — a rule file that flags everything has leak 0 and no precision |
+| **best on dev** — score N, publish the winner | a max-of-N statistic, biased upward by exactly the spread the arm exists to probe (0.036 across one pair), and it is dev selection: the baseline's own number was a single draw and not a max, so the comparison stops being like-for-like on both sides at once |
+| **vote at threshold m** — keep a rule appearing in ≥ m of N | m is a free knob. Worse, it needs a rule-identity relation across draws that the record does not supply: `rule_id` is a mechanism+content name from a vocabulary that widened six times in this arm alone (§6.1), two draws can express one regex under two ids and two regexes under one id. Voting on *spans* instead sidesteps identity but changes what the arm emits from a rule file to an ensemble detector, and every cell on the porting axis emits a rule file |
+| **reuse a merge policy** — fixed-priority or agent-arbiter over the draws (§4, CLAUDE.md) | fixed-priority needs a priority order over draws, which is arbitrary (draw index) or dev-selected (disguised selection); agent-arbiter adds an agent, which moves the arm to a different rung and destroys it as a control |
+
+**Pre-registered: union, over the draws in call order, reported as a curve at dyadic N (1,
+2, 4, … up to the budget-matched N) with the budget-matched point as the headline.** Union
+is the only option with no knob and no selection in it; its by-construction direction is a
+statable property rather than a hidden one, and CLAUDE.md already requires precision and the
+complementarity decomposition beside the leak rate, which is exactly where the cost of a
+union shows up. The curve is free — unions are nested, so it is re-scoring and not more
+calls — and it makes the degeneracy at large N *visible* instead of fatal: if precision
+collapses on the way to N = 1,022, the curve says where. **Call order, not any other order**,
+because a nested union over "the first N" depends on the ordering, and choosing an ordering
+after seeing the scores is the selection this whole clause is trying to keep out.
+
+**One mechanical thing must be settled with it: `rule_id` collisions across draws.** N draws
+will emit the same id with different bodies, and §9.3 computes per-rule attribution inside
+the scorer, so a collision does not merely look untidy — it makes attribution ill-defined and
+silently pools two rules. Suffixing the draw index into the id puts an ordinal inside an
+identifier and would have to pass the screener's mechanism/content vocabulary; loading the N
+files as N files leans on §5.2, which loads per language and has never been asked to load N
+per language. Whichever is chosen, the requirement is that per-rule attribution stays
+well-defined for every rule in the union, and the choice is recorded with the rest.
+
+**The order, and it is not negotiable: N's formula, the combination rule, the draw order,
+the collision resolution and the `{porting}` value are all fixed *before the next corpus is
+touched*, and nothing runs until they are.** The reason is that `es-meddocan`'s answer is
+already published: 0.137229. Any parameter still free today is freedom to hit or miss a
+number that is known, and after the fact a reader cannot distinguish a control that was
+designed from a control that was tuned until the loop kept winning. That is why this clause
+is a candidate and not an arm — running it now would be arm selection after the result, which
+is the failure §6.3 refused in the Auditor's case for the same reason. If the arm is ever run
+on `es-meddocan` as well, that run is reported as a check against a known target and its
+first evidential use is a corpus where the loop's number is not yet in hand.
+
+**The name enters `naming.yaml` at decision time, not now.** The candidate is
+`port-oneshot-fanout` — the `-nofence` convention names what changed, and here the harness
+changed rather than the prompt, so the suffix names the harness. N is not in the path: it
+varies per corpus by the formula above and belongs in the run record beside `model_id`. A
+value in `naming.yaml` is a cell the tooling will plan, so it is added when what it names is
+settled.
+
 #### Every rung runs on one **dated** id: `us.anthropic.claude-opus-4-5-20251101-v1:0` — decided 2026-08-11
 
 The paragraph above fixes the model *family* across the ladder. This fixes the *snapshot*,
