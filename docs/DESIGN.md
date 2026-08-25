@@ -822,7 +822,11 @@ is not in the `termination` block because it produces no metrics file at all.
 observation. It is a transport change and not a call change — no prompt byte moves, the file is
 not in the window (§6.3), and rounds either side of it are the same arm. Each failed attempt cost
 **250 Auditor calls, 2,318,577 prompt tokens, 26,085 completion tokens, 980.6s** and produced
-nothing, and `run_iteration` computes a round's cost from its own in-process calls, so those two
+nothing — those are the first attempt's figures, and splitting the round's log lines by attempt
+(2026-08-25, for the arm's wrap-up) shows the calls and the prompt tokens are identical across the
+two while the second attempt's completion tokens and wall are 25,472 and 1,135.4s, so "each" is
+exact for the first two figures and approximate for the last two; the round's abandoned totals are
+500 calls, 4,637,154 prompt tokens, 51,557 completion tokens and 2,116.1s — and `run_iteration` computes a round's cost from its own in-process calls, so those two
 attempts appear in `agent_calls.jsonl` and in no `metrics.json`. The arm's published
 `cost_to_date` therefore understates true spend by two such attempts. Recorded here because
 CLAUDE.md makes cost a headline alongside quality, and a spend that produced nothing is exactly
@@ -1699,6 +1703,44 @@ fills the second thing §4.1 records as lost. It does not adjudicate any rung.
 `model_id` is recorded in every arm's `metrics.json` beside the cost block (§5), because
 Bedrock model aliases are updated silently and an unrecorded run does not reproduce six
 months later. That is required whether or not the appendix runs.
+
+#### The lead comparison's result on es-meddocan — the rung is earned on quality, and the cost is three orders of magnitude (2026-08-25)
+
+`port-loop` completed on `es-meddocan / R / sup-free` at round 8. The full trajectory, every
+round's verdict, the defect list and the cost arithmetic are in
+**`docs/notes/arm-port-loop-es.md`**; this clause records only what §4 asks of the pair, so that the
+ladder's leading row is readable here without the note.
+
+The baseline is `port-oneshot-nofence`, because `port-oneshot` on this corpus produced only
+`format_failure.json` and a rung is compared against a run that produced a `metrics.json`. The
+one-capability condition held: consequence 2 above kept `port-loop`'s round 1 byte-identical in what
+it was shown, which is what makes round 1 usable as the **cost-matched point**.
+
+| | baseline, 1 call | `port-loop` round 1, 1 call | `port-loop` round 8, 8 rounds |
+|---|---|---|---|
+| leak `fully_covered` | 0.559954 | 0.596117 | **0.137229** |
+| leak `relaxed` | 0.484964 | 0.471641 | 0.119338 |
+| documents with leak | 250/250 | 250/250 | 223/250 |
+| prompt + completion | 16,396 | 16,862 | 16,757,407 published / 24,059,438 true |
+
+1. **Quality: earned.** −0.422725 absolute, **11.7× the measured 0.0361 call-to-call variance**;
+   2,221 more gold spans covered; 27 documents with no leak where the baseline had none. Per
+   canonical type (§5.1, `OTHER` n=6 and `PROFESSION` n=4 omitted as sparse and the omission
+   stated), **seven of eight improved** and `AGE` alone regressed, +0.0326.
+2. **At matched cost the two arms are indistinguishable.** One call against one call, the loop's
+   round 1 is 0.036 *worse*, which is the variance itself. The entire gain was bought by rounds
+   2–8 — which is how "feedback against dev" is isolated on this corpus.
+3. **Cost is reported, not thresholded** (§3): **1,022× the baseline's tokens published, 1,467×
+   true**, 1,758 / 2,536 calls, 238× / 338× wall. §11.3's 1.9× standard applies one rung up, where
+   the two arms have the same shape.
+
+**Three limits travel with the conclusion.** The arm was truncated by its ceiling while still
+improving, so this is eight rounds against one call and not a converged loop against one call. The
+variance is one pair (n = 2, 1 dof), and the aggregate figure *understates* per-type variance — the
+two draws of the identical configuration differ by 63 vs 506 leaked on `AGE` and 837 vs 587 on
+`NAME` inside an aggregate gap of 0.036, so per-type comparisons carry more noise than the headline.
+And the whole arm ran with 55–60% of Auditor responses refused as `malformed`, which §6.3 records as
+this arm's result rather than something to repair mid-arm.
 
 #### Every rung runs on one **dated** id: `us.anthropic.claude-opus-4-5-20251101-v1:0` — decided 2026-08-11
 

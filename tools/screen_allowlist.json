@@ -78,6 +78,11 @@
       "why": "Korean prose recording the port-oneshot-nofence run on es-meddocan: the frozen window, the scoring (leak rate in both modes, P/R/F1, the complementarity decomposition and per-type leak), the cost and model-id fields, and the lifecycle record. Rule content is rule_id, layer and phi_type only — no pattern, no cue word, no term list — so nothing here reproduces what the rules match, and no corpus text, span or offset appears. The per-type tables are counts against gold, which is what results/**/metrics.json already publishes by path."
     },
     {
+      "path": "docs/notes/arm-port-loop-es.md",
+      "sniff": "Korean prose",
+      "why": "Korean prose recording the completed port-loop arm on es-meddocan: the frozen window, the eight-round trajectory with each round's step-or-decay verdict, the final round's scoring in both modes with the complementarity decomposition and per-type leak, the cost split into published and abandoned spend, the defect list, and the §4 comparison against the baseline. It quotes no rule content at all — not even a rule_id, since the arm's rule_id findings are argued in the acknowledged entries below by mechanism rather than by token — and no corpus text, span or offset appears. Every table is counts and rates against gold, which results/**/metrics.json already publishes by path, plus token and wall figures from the cost blocks and the call log."
+    },
+    {
       "path": "docs/notes/baseline-model-family.md",
       "sniff": "Korean prose",
       "why": "Korean prose reviewing which Bedrock model families could run the port-oneshot baseline after port-human's retirement (DESIGN 4.1). Holds model ids, a probe result table, and the trade-offs of each option. No corpus text, no spans: the only strings sent to Bedrock to produce it were 'Reply with the single word: ok'."
