@@ -1574,7 +1574,7 @@ comparisons carry the paper — one per rung, each isolating a single added capa
 | comparison | question | what it isolates |
 |---|---|---|
 | `port-loop` vs `port-oneshot` | does iteration justify calling this agentic? | feedback against dev |
-| `port-multi` vs `port-loop` | does role specialisation justify *multi*-agent? | role differentiation |
+| `port-multi` vs `port-loop` | do agent-authored auxiliary inputs justify *multi*-agent? | who authors the loop's inputs |
 | `port-selfdesign` vs `port-multi` | is delegating role design worth it? | who designs the roles |
 
 Each pair differs in one capability and shares everything else — same pipeline, same dev
@@ -1837,6 +1837,161 @@ varies per corpus by the formula above and belongs in the run record beside `mod
 value in `naming.yaml` is a cell the tooling will plan, so it is added when what it names is
 settled.
 
+#### `port-multi` differs from `port-loop` in one capability, and it is not role differentiation — written 2026-08-26, before `port-multi` runs
+
+The table above gives the second comparison's isolated capability as "role differentiation".
+**That name is wrong, and it is wrong in the direction that makes the rung uncheckable:
+`port-loop` already has differentiated roles.** The completed arm ran a RuleAuthor and an
+Auditor, `port-loop`'s frozen window hashes both prompts (§5.5), and the Auditor's refusal
+rate is reported as one of that arm's results. So an added capability spelled "more than one
+role" is a capability the rung below already has, and the pair would differ in nothing.
+
+The correction is worth making here rather than in the results because the arm has not run:
+naming the capability after the fact is choosing what the comparison was about once its
+number is known.
+
+**The capability, stated so that it takes one of two values.** Whether **an agent authors the
+auxiliary artefacts the loop consumes but does not produce.** `port-loop` runs its loop on
+auxiliary artefacts supplied by hand; `port-multi` is the same loop with the *authorship* of
+those artefacts moved to agents. Nothing else moves — same pipeline, same dev fold, same rule
+schema, same feedback tool, same termination rule.
+
+**The role sets, enumerated, because the one-capability condition cannot be checked against a
+role set no section of this document states.** `config/naming.yaml` has carried the answer all
+along — its `porting` axis glosses `port-multi` as "`port-loop` plus Profiler, Mapper,
+LexiconBuilder" — and §8 refers to "the fixed role set of `port-multi`" as settled. DESIGN never
+wrote it out, which is how the table's capability name stayed wrong: the config said what the
+arm *has* and this section said what the comparison *isolates*, and nobody had to read both at
+once. The table below is the config's gloss with the artefacts named, and it is here so that
+the two can no longer disagree silently.
+
+| arm | roles | authorship of profile · mapping · lexicon |
+|---|---|---|
+| `port-oneshot` | RuleAuthor | by hand |
+| `port-loop` | RuleAuthor, Auditor | by hand |
+| `port-multi` | RuleAuthor, Auditor, **Profiler, Mapper, LexiconBuilder** | by agent |
+
+`port-selfdesign` is the same five as a *starting* set, since what that rung delegates is the
+composition of the set itself (§8).
+
+**"Consumed but not produced" is exact, and it is worth being exact about, because the three
+artefacts are supplied in three different ways today.** In each case the loop *reads* the
+artefact's content and no arm on the porting axis *writes* it:
+
+- **profile** — format, offset convention, type inventory, group key (§3). The loader embodies
+  these per corpus; the tracked raw profiles are the observations they were derived from.
+  `paths.profile` names a file that does not exist and no code reads that key.
+- **mapping** — corpus taxonomy → canonical type set. §9.0 states this outright: the mapping is
+  "a design input shared by every arm, not one arm's output", it lives in DESIGN as a
+  human-authored table *because* only `port-multi` and above have a Mapper, and no code reads
+  `paths.mapping` either.
+- **lexicon** — institutions, regions, departments. This is the one with a live consumer:
+  `src/rules.py` resolves a rule's `lexicon` form through `paths.lexicon`. **The completed
+  `port-loop` arm used it zero times** — no rule in any of its eight rule files takes the
+  lexicon form — so the loop's consumption of this artefact is currently a capability of the
+  loader rather than an observed dependency, and that is stated rather than smoothed over.
+
+The uneven supply is the point. All three are inputs the pipeline needs and that no rung below
+`port-multi` produces, which is why they are what an agent can be given to write and why
+handing them over is a single change of authorship.
+
+**Why the three are one capability, and it is not to keep the rung count down.** They are the
+same *kind* of thing: the loop's inputs rather than its outputs. A rung on this ladder names a
+harness shape, and "the auxiliary inputs are authored by agents" is one shape whether it is
+three files or thirty — the alternative would be to make each artefact its own rung, which
+would say that authoring a profile and authoring a lexicon are different *capabilities* rather
+than the same capability applied to different files. They are not: in each case an agent is
+given a corpus and asked to produce an input the loop will read and never revise, and the
+loop's relation to the artefact is identical in all three. Bundling by kind is also what keeps
+the bundle principled — a bundle chosen by count could be split or grown to suit whatever a
+result needed, while this one has a membership test: does the loop read it without writing it?
+Something the loop writes (a rule file, an audit report) cannot join, and something no agent
+authors cannot either.
+
+**What the ladder therefore does not answer, stated so that nothing later has to claim it
+did.** The per-artefact question — what an agent-written profile contributes, whether a
+generated lexicon earns its calls — **is not answered by any rung of this ladder, and no
+re-reading of the arms' records will answer it.** `port-multi` emits one rule file per language
+like every other cell on the porting axis (§5.3), and its `spans.jsonl` carries `layer`,
+detector and `rule_id` per span (§3, "Span provenance") — a span's provenance names the
+*detector* that emitted it, never the artefact upstream of the rule that detected it. So even
+per-rule attribution inside a completed `port-multi` cannot be lifted to per-artefact
+attribution: the rule file is the whole arm's artefact and its rules do not record which
+auxiliary input shaped them. §3's `agent_actions` list records agent intervention on a span,
+and the two agents it was built for (Arb, Aud) are runtime agents on the *detector* axis, which
+is a different axis answering a different question.
+
+This is the grain the whole ladder works at, not a concession made for this rung: rung 1 asked
+whether there is feedback against dev, not which of §1.3's audit block and §1.4's error spans
+supplied it, and it answered at that grain — the result clause above attributes the gain to
+rounds 2–8 as a block, and could not do otherwise.
+
+**Two costs travel with reading the rung this way, and both are real.**
+
+1. **A conclusion arrives without an address.** If `port-multi` wins, the paper can say that
+   agent-authored auxiliary inputs pay and cannot say *which* input to stop writing by hand —
+   which is the sentence a practitioner wants. If it loses, the loss is equally unaddressed: a
+   set with one inert member and one harmful one loses in the same direction as a set that is
+   uniformly useless, and the record does not separate them. §3 saw this coming — "building
+   five at once makes it impossible to tell which one works" — and this clause accepts it as a
+   cost rather than avoiding it, because the alternative is priced in item 2. It is a
+   limitation of the design and not of the analysis, so it belongs beside §4.1's two losses
+   rather than in a results caveat.
+2. **The ablation that would answer it is not a re-scoring. It is buying the calls again.**
+   This is the cost that decides the clause. Several of this project's comparisons are free
+   because the calls already ran and their artefacts are committed — §11.3's two stopping-rule
+   readings cost "one extra scorer run against dev and **no extra agent calls**", and the ×N
+   control's dyadic curve is free because unions are nested. A per-artefact ablation is not in
+   that family, and the reason is exactly the property that defines the capability: these
+   artefacts are the loop's *inputs*. Take the agent-written profile away and the loop runs on
+   a different input from its first call onward, so it must author its rule file again — and
+   authoring a rule file is what the calls are spent on. Nothing downstream can be re-scored,
+   because nothing downstream is the same. At the lead comparison's measured scale one arm was
+   1,758 calls and 16.76M published tokens, so a leave-one-out over the three artefacts is
+   three further arms at that order, plus their own windows to freeze (§6.3) and their own
+   cells on the axis. The arithmetic is what makes this a pre-registration decision rather
+   than an analysis to be planned later: nothing in the record can be re-read into it, and
+   each answer is bought at the price of an arm.
+
+   Two further things make it more expensive than the multiplication suggests. Call-to-call
+   variance is 0.0361 at aggregate and larger per type (§3, 2026-08-21), so a per-artefact
+   effect smaller than a whole rung's effect needs repeated draws per cell to be readable at
+   all — the ablation is three arms *times* draws. And a leave-one-out cell is not
+   `port-multi` minus one agent: the artefact still has to come from somewhere, so the cell
+   either falls back to the hand-written input (which makes it a *mixed* arm, differing from
+   `port-multi` in one artefact's authorship — the one thing the design can actually ask, and
+   worth noting as the only affordable version) or does without the input entirely (which
+   changes what the loop is shown and reintroduces the two-axis confound the one-capability
+   rule exists to prevent).
+
+**Why this is writable today, and would not be later.** `port-multi` has never run. No cell
+under that value holds a `metrics.json`, a `format_failure.json` or a `window_freeze.json`, and
+`called_where()` reports it unspent — so this clause fixes how the comparison is to be read
+*before* there is a number to read, which is the only condition under which fixing it is not
+selection. **After the arm's first call the identical edit becomes a post-hoc adjustment**: a
+narrowing of what the rung claims, written by someone who has seen what the rung produced, and
+indistinguishable in the record from a narrowing chosen because the broader claim did not
+survive. §6.3 refused exactly this move in the Auditor's case, and the ×N clause above refuses
+it for a parameter rather than for a reading. This is the same refusal applied to the *scope of
+a conclusion*, which is the thing a reader is least able to audit after the fact.
+
+**What this changes and what it does not.** No rung is added or removed and the
+one-capability condition is untouched — it is now *checkable*, which it was not while one of
+the two arms' role sets was unwritten. The table above is corrected in place: its second row
+read "role specialisation" and "role differentiation", and now names authorship of the loop's
+inputs. **The axis value keeps its name.** `port-multi` is a `naming.yaml` value written into
+paths, results and prose, and renaming it to describe the capability would rewrite the
+identifier of a cell to fit a correction to its description — the ordinal-and-status-word ban
+at the top of this section exists because names that track a current understanding stop
+matching the record. So `port-multi` names the rung, this clause names the capability, and the
+"multi" in it is read as historical: `port-loop` is already multi-agent, which is what made the
+original phrase wrong. §3's "start with three — Profiler, RuleAuthor, Auditor" is a
+build-order rule about what to implement first and is not a statement of any arm's role set;
+read as one it would contradict the table above. The ablation that sentence names is priced in
+item 2, and scheduling it belongs in §3 beside the sentence that raises it rather than here. Whether the per-artefact question is worth three arms is a scoping
+decision for later, and if it is ever taken, the arms it needs are new cells on the porting
+axis and not a re-analysis of this one.
+
 #### Every rung runs on one **dated** id: `us.anthropic.claude-opus-4-5-20251101-v1:0` — decided 2026-08-11
 
 The paragraph above fixes the model *family* across the ladder. This fixes the *snapshot*,
@@ -1855,8 +2010,8 @@ too when it is built.
 
 Pinning is possible only downward: there is no dated `opus-5` on this account, so the pin is
 one generation below the newest available alias. **That costs this section's argument
-nothing.** The three comparisons ask whether iteration, role specialisation and delegated
-role design pay for themselves — each is a question about *harness structure at a fixed
+nothing.** The three comparisons ask whether iteration, agent-authored auxiliary inputs and
+delegated role design pay for themselves — each is a question about *harness structure at a fixed
 capability*, and the capability level is the thing held constant rather than the thing
 measured. A rung that beats the rung below it on opus-4-5 has demonstrated that the added
 capability does work; nothing in that inference requires the model to be the best one
