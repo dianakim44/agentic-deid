@@ -29,6 +29,11 @@ remaining rows worthless.
    A run whose configuration was chosen by looking at test output is not a test
    evaluation; it is training, and reporting it as the former is the failure this
    log exists to make visible.
+5. The arm and the round are the ones **DESIGN §6.4** permits: one opening per
+   reported arm, after that arm has terminated by its own pre-registered rule, and
+   the round scored is the arm's **final** round. That section was written on
+   2026-08-26, while the run table below was still empty — which is the only
+   moment at which it could be written without the numbers in view.
 
 ## Runs
 

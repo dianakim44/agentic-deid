@@ -3906,6 +3906,92 @@ clean, an absent entry means not audited — held for zero documents this round:
 returned a well-formed empty list. Any report that cites `documents_with_no_flags` without the
 malformed count beside it is stating the opposite of what happened.
 
+### 6.4 Which arm and which round open the seal — pre-registered 2026-08-26, before any sealed value exists
+
+§6.1 makes a sealed read recordable and §6.2 makes the fold verifiable. Neither says *which* read
+is supposed to happen, and until this section that was the one decision about the seal nobody had
+written down. It has to be written before the first row, because after the first row every version
+of it can be read as the version that fits the number.
+
+**The rule, in three parts.**
+
+1. **One opening per reported arm.** An arm that appears in the paper opens the test fold exactly
+   once. An arm that does not appear in the paper does not open it at all. The ladder (§4) fixes
+   which arms those are before any of them runs, so the set is not chosen after the fact.
+2. **After the arm has terminated by its own pre-registered rule.** §3's stopping rule must already
+   have fired — `converged`, `ceiling`, or one of the other endings §3 enumerates — and its verdict
+   must already be committed. An arm still running has no final round to evaluate.
+3. **The round scored is the arm's final round.** Not its best round, and not a round chosen on any
+   other ground. For a non-iterating arm this is its only round and the rule is vacuous, which is
+   the point: every rung is scored under one rule rather than under the rule its shape allows.
+
+**Why the final round, in one sentence: dev-best makes the headline a maximum over eight chances
+while the cost column still bills eight rounds, and two numbers that describe different experiments
+cannot be reported as one result.** `cost_to_date` is the arm's total through its last round,
+because that is what the arm spent. A headline taken from round 5 of 8 is a quality figure produced
+by five rounds sitting beside a cost figure produced by eight. Neither number is wrong on its own
+and the pair is a fiction — no run exists that both cost that and scored that. Scoring the last
+round is what makes the two columns describe the same run.
+
+**This is §5.5's rule applied at the seal, not a second rule.** §5.5 already states that an arm's
+published result is its final round and never its best, on two grounds: the best round is
+identifiable only from the leak rates, i.e. only with the results in view; and `port-oneshot` has
+one round and cannot select, so a selecting `port-loop` would beat a non-selecting baseline partly
+by the selection. Both carry over unchanged, and the second gets sharper here — on test the
+comparison between rungs *is* the claim, so a selection only one rung can make would sit inside the
+headline result.
+
+**Written after `port-loop` ended, and that is recorded rather than smoothed over.** This section is
+dated 2026-08-26 and `port-loop` on es-meddocan terminated on 2026-08-25 at round 8, so the protocol
+was written by someone who had seen an arm's entire dev trajectory. Claiming otherwise would be
+false. The claim that matters is narrower and it is checkable: **no sealed value existed when this
+was written.** `results/sealed_eval_log.md` held no run rows, so `count_runs()` was 0 — and that is
+not a recollection, it is a committed file whose rows are only ever appended. Selection on dev is
+permitted by CLAUDE.md and always was; selection on test is what this section forecloses, and it was
+written at the only moment when the count was still zero.
+
+Two further facts about the timing, both cutting against the convenient reading:
+
+- The rule was adopted at a moment when it **does not bite**. Round 8 was also `port-loop`'s best
+  round (§3, 2026-08-25), so final-round and best-round name the same file today. A rule chosen to
+  flatter the arm would have been the other one — and the other one would have been
+  indistinguishable from this one on the only arm that has finished.
+- The rule is **older than this section**. §5.5 stated it for dev on 2026-08-24, before round 5 ran
+  and before the trajectory's shape was known. This section extends a rule; it does not pick one.
+
+**An arm that failed does not open the seal, and cannot be repaired into one that does.** The
+`port-oneshot` rungs can die on format failure (§4, `paths.formatfailure`), and an iterating arm can
+end in one of §3's non-convergent endings.
+
+- **No final round, no opening.** An arm whose failure left it without a complete final-round record
+  — the arm-level `metrics.json` and `spans.jsonl` of §5.5 — has nothing that could be scored, and
+  test cannot say anything about it dev has not already said. A format failure is legible on dev;
+  opening test would not make it more legible, and would spend an opening on a diagnosis.
+- **The failure is the result and is reported as one**, with its cost. An arm that spent N calls and
+  produced no scorable round is a finding about that rung, not a gap in the table (§4.1's form).
+- **A repair is a new arm, not a retry of this one.** §4's `port-oneshot-nofence` precedent: a
+  revised prompt gets a new `porting` value. The new arm gets its own single opening under this
+  section, and the failed arm's dev record is not retracted. No failure yields two attempts at one
+  cell of the ladder.
+- **A failed attempt inside a surviving arm changes nothing.** Round 5's two abandoned attempts (§3,
+  2026-08-24) are recorded in `abandoned_spend` and the arm still terminated by its own rule, so it
+  opens the seal normally. What disqualifies an arm is the absence of a final round, never the
+  presence of a failed attempt.
+
+**What the row has to carry, and the two accounting rules that follow.** The row records the arm and
+the round that was scored, not only the corpus: an opening whose row cannot be checked against this
+section is an opening this section does not govern. So `arm(s)` and `round` are separate columns
+(`src/eval/sealed_log.py`), the round is verified against the arm's own committed record *before*
+the read, and a round that is not the arm's final round is refused rather than logged.
+
+- **A row stands even if the run that wrote it crashed.** The append precedes the read (§6.1), so a
+  crash mid-evaluation leaves a row and no numbers. That row is neither deleted nor amended: the
+  fold was opened, and what the count bounds is how much the fold could have informed a decision —
+  not how many scores came out.
+- **A re-run is therefore a second opening and is logged as one**, including a re-run after a crash
+  and a re-run whose only difference is a bug fix. If the paper has to say the fold was opened twice
+  for one arm, that is the true sentence, and this section grants no exemption from it.
+
 ---
 
 ## 7. Data
