@@ -1534,6 +1534,43 @@ permitted is deriving either field from the other, or from the detector name.
 LexiconBuilder only if the ablation shows the first three leave something on
 the table. Building five at once makes it impossible to tell which one works.
 
+#### That ablation is new arms, and what to buy is open until `port-multi` calls — 2026-08-26
+
+The paragraph above is a **build order**, and it was written as though the ablation it names
+were available for free. It is not, and the correction has two halves: what the ablation is,
+and when it has to be decided.
+
+**It is new arms on the porting axis.** Not a re-analysis of a completed arm and not a way to
+ship `port-multi` with fewer roles. §4 prices it — these three artefacts are the loop's
+*inputs*, so taking one away changes what the loop is shown from its first call and the rule
+file has to be authored again, at the lead comparison's measured order of 1,758 calls per arm,
+times draws to clear the 0.0361 call-to-call variance. Nothing in a finished arm's record can
+be re-read into the answer, because the record's spans name the detector that emitted them and
+never the auxiliary input upstream of the rule.
+
+**So `port-multi`'s role set is not conditional on it.** `config/naming.yaml` declares the arm
+as `port-loop` plus all three authors and §4 enumerates it; the sentence above, read as an arm
+definition rather than as an implementation sequence, would contradict both. The staging it
+describes is the order in which the *code* is written, which is settled by the day the arm
+calls and is not an experimental result. The version of it that *is* an experimental question
+is the affordable one §4 names: a mixed arm differing from `port-multi` in one artefact's
+authorship.
+
+**What is left open, and the deadline.** Whether any of those arms is bought, and if so which
+artefact and how many draws, is **not decided here**. It is the same shape as the `port-oneshot`
+× N clause's open item (§4): a parameter deliberately unfixed, recorded with the reason and with
+the moment it stops being allowed to be open. **It closes before `port-multi`'s first call.**
+
+The deadline is what makes leaving it open honest, and the reason is specific to an ablation
+rather than general. Choosing *after* `port-multi` has a number means choosing which artefact
+to interrogate in the light of how the arm did — and a leave-one-out selected that way answers
+"which artefact can be made to look load-bearing" instead of "which artefact was". The
+direction of the bias is not even predictable, which is worse than a known one: an arm that
+beat expectations invites ablating the artefact most likely to have caused it, and one that
+disappointed invites ablating the artefact most likely to have hurt. Fixing the set of ablation
+arms beforehand costs nothing today, because `port-multi` has not called and there is no result
+to be tempted by.
+
 ### Prior evidence that shaped this
 
 An earlier project (surro) used three LLM roles — translation, ContextJudge,
