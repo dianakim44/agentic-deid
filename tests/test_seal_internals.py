@@ -46,6 +46,12 @@ from src.corpora import base  # noqa: E402
 from src.corpora.base import CorpusError, Document, SealError  # noqa: E402
 from src.eval import run_sealed_eval, sealed_log  # noqa: E402
 
+# `ARM`, `ROUND` and `a_plan` come from the sibling file rather than being redeclared.
+# One declaration of what a row's arm and round are, for `ERROR_FIELDS`' reason two
+# packages over: two copies drift, and the drift here would be two test files disagreeing
+# about the shape of the row whose count the paper reports.
+from test_seal import ARM, ROUND, a_plan  # noqa: E402
+
 CORPUS = "es-meddocan"
 
 
@@ -191,7 +197,7 @@ def test_unknown_is_not_clean_and_is_therefore_refused(tmp_path, monkeypatch):
     plain.mkdir()
     monkeypatch.setattr(sealed_log, "ROOT", plain)
     with pytest.raises(SealError, match="the working tree is unknown"):
-        run_sealed_eval.load_sealed(CORPUS, purpose="unreadable tree state")
+        run_sealed_eval.load_sealed(a_plan(), purpose="unreadable tree state")
 
 
 def test_the_three_states_are_exactly_the_documented_ones(repo):
@@ -339,7 +345,7 @@ def test_the_check_runs_before_the_sealed_read(frozen, monkeypatch, tmp_path):
 
     monkeypatch.setattr(run_sealed_eval, "_loader_for", lambda corpus_id: Refusing([]))
     with pytest.raises(CorpusError, match="stopped deliberately"):
-        run_sealed_eval.load_sealed(CORPUS, purpose="ordering check")
+        run_sealed_eval.load_sealed(a_plan(), purpose="ordering check")
     assert order == ["verify", "load"]
 
 
@@ -384,13 +390,13 @@ def test_the_row_records_the_repositorys_real_tree_state(temp_log, repo):
     """`test_seal.py` asserts the cell is one of three values. This asserts it is the
     *right* one, against a repository whose state the test controls."""
     (repo / "tracked.txt").write_text("edited\n", encoding="utf-8")
-    row = sealed_log.record_access(CORPUS, purpose="dirty on purpose")
+    row = sealed_log.record_access(CORPUS, arm=ARM, iteration=ROUND, purpose="dirty on purpose")
     cells = [c.strip() for c in row.split("|")[1:-1]]
     assert cells[3] == "dirty"
 
 
 def test_the_row_records_clean_when_the_tree_is_clean(temp_log, repo):
-    row = sealed_log.record_access(CORPUS, purpose="clean on purpose")
+    row = sealed_log.record_access(CORPUS, arm=ARM, iteration=ROUND, purpose="clean on purpose")
     assert [c.strip() for c in row.split("|")[1:-1]][3] == "clean"
 
 
@@ -400,7 +406,7 @@ def test_an_unknown_tree_state_is_recorded_as_unknown(temp_log, tmp_path, monkey
     plain = tmp_path / "plain"
     plain.mkdir()
     monkeypatch.setattr(sealed_log, "ROOT", plain)
-    row = sealed_log.record_access(CORPUS, purpose="no repository here")
+    row = sealed_log.record_access(CORPUS, arm=ARM, iteration=ROUND, purpose="no repository here")
     cells = [c.strip() for c in row.split("|")[1:-1]]
     assert cells[2] == "unknown"  # the commit column
     assert cells[3] == "unknown"  # the tree column
@@ -410,8 +416,8 @@ def test_count_runs_counts_rows_and_not_lines(temp_log):
     """The paper's N. Header rows, separators and the freeze-commit prose are all lines
     beginning with something other than a digit."""
     before = sealed_log.count_runs()
-    sealed_log.record_access(CORPUS, purpose="one")
-    sealed_log.record_access(CORPUS, purpose="two")
+    sealed_log.record_access(CORPUS, arm=ARM, iteration=ROUND, purpose="one")
+    sealed_log.record_access(CORPUS, arm=ARM, iteration=ROUND, purpose="two")
     assert sealed_log.count_runs() == before + 2
 
 
@@ -431,7 +437,7 @@ def test_the_placeholder_is_replaced_by_the_first_row(tmp_path, monkeypatch):
         f"| {sealed_log.PLACEHOLDER} | | | | | | | |\n",
         encoding="utf-8")
     monkeypatch.setattr(sealed_log, "LOG", target)
-    sealed_log.record_access(CORPUS, purpose="the first run")
+    sealed_log.record_access(CORPUS, arm=ARM, iteration=ROUND, purpose="the first run")
     text = target.read_text(encoding="utf-8")
     assert sealed_log.PLACEHOLDER not in text
     assert "the first run" in text
@@ -445,13 +451,13 @@ def test_a_log_with_no_run_rows_is_refused_rather_than_guessed(tmp_path, monkeyp
     target.write_text("# Sealed evaluation log\n\nno table at all\n", encoding="utf-8")
     monkeypatch.setattr(sealed_log, "LOG", target)
     with pytest.raises(SealError, match="found no run rows"):
-        sealed_log.record_access(CORPUS, purpose="nowhere to append")
+        sealed_log.record_access(CORPUS, arm=ARM, iteration=ROUND, purpose="nowhere to append")
 
 
 def test_the_row_is_verified_present_after_writing(temp_log, monkeypatch):
     """`record_access` re-reads the file and raises if the row is not there. A write that
     reported success without persisting would leave the fold reachable and unlogged."""
-    row = sealed_log.record_access(CORPUS, purpose="written and confirmed")
+    row = sealed_log.record_access(CORPUS, arm=ARM, iteration=ROUND, purpose="written and confirmed")
     assert row in temp_log.read_text(encoding="utf-8")
 
 
@@ -463,7 +469,7 @@ def test_a_write_failure_raises_and_does_not_return_a_row(temp_log, monkeypatch)
 
     monkeypatch.setattr(type(temp_log), "write_text", refuse)
     with pytest.raises(SealError, match="could not append"):
-        sealed_log.record_access(CORPUS, purpose="unwritable log")
+        sealed_log.record_access(CORPUS, arm=ARM, iteration=ROUND, purpose="unwritable log")
 
 
 def test_the_row_number_continues_the_existing_table(temp_log):
@@ -475,5 +481,5 @@ def test_the_row_number_continues_the_existing_table(temp_log):
         "|---|---|---|---|---|---|---|---|\n"
         "| 7 | 2026-01-01T00:00:00Z | abc | clean | es-meddocan | test | none | old |\n",
         encoding="utf-8")
-    row = sealed_log.record_access(CORPUS, purpose="the eighth")
+    row = sealed_log.record_access(CORPUS, arm=ARM, iteration=ROUND, purpose="the eighth")
     assert row.split("|")[1].strip() == "8"

@@ -47,8 +47,8 @@ CONFTEST = TESTS / "conftest.py"
 #: derived, so that adding a fixture there forces a decision here: an unclassified
 #: fixture fails `test_every_shared_fixture_is_classified` instead of quietly inheriting
 #: whichever set of permissions is laxer.
-AVAILABILITY = {"corpus_present", "sealed_corpus"}
-CONSTRUCTION = {"loader", "unsplit_loader"}
+AVAILABILITY = {"corpus_present", "sealed_corpus", "terminated_arm_path"}
+CONSTRUCTION = {"loader", "unsplit_loader", "terminated_arm_record"}
 
 #: Calls an availability fixture may make. Both answer from a configured path and can
 #: fail for one reason only — the corpus is not on this machine. `load`, `.load()` and a
@@ -56,6 +56,15 @@ CONSTRUCTION = {"loader", "unsplit_loader"}
 #: have nothing to do with availability, and a skip that can mean a dozen things means
 #: nothing.
 PATH_RESOLVERS = {"corpus_root", "sealed_root"}
+
+#: The same permission for a *result* rather than a corpus, added 2026-08-26 with
+#: `terminated_arm_path`: `results/` is not committed, so an arm's dev record is the second
+#: thing a fresh checkout can lack. Kept as its own set rather than folded into
+#: `PATH_RESOLVERS` for one reason — `AVAILABILITY_CALLS` below is what rule 2 forbids
+#: outside a test body, and `arm_metrics_path` is legitimately called from helpers in
+#: `tests/test_sealed_scoring.py` that plant doctored records. `exists` rides along because
+#: the existence check is the question; it reads no file.
+RESULT_RESOLVERS = {"arm_metrics_path", "exists"}
 
 #: Names that decide availability. Rule 2 is about where these may appear.
 AVAILABILITY_CALLS = PATH_RESOLVERS
@@ -236,7 +245,7 @@ def test_availability_fixtures_resolve_a_path_and_do_not_load():
     for name in sorted(AVAILABILITY):
         called = body_calls(conf[name])
         # Its own upstream availability fixture is fine; `skip` is the point of it.
-        allowed = PATH_RESOLVERS | {"skip"} | AVAILABILITY
+        allowed = PATH_RESOLVERS | RESULT_RESOLVERS | {"skip"} | AVAILABILITY
         stray = called - allowed
         assert not stray, (
             f"conftest::{name} calls {sorted(stray)}. An availability fixture may call "

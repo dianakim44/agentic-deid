@@ -601,6 +601,51 @@ def test_the_un_iterated_result_paths_are_still_allowed():
         assert any(re.search(p, rel) for p in rs.ALLOW_PATTERNS), rel
 
 
+def test_the_allowed_sealed_score_path_is_the_one_naming_yaml_declares():
+    """`paths.sealedmetrics` and the ALLOW pattern must describe the same file.
+
+    Same requirement as the freeze, rule and format-failure entries above, with the sharpest
+    version of the consequence: DESIGN §6.4 permits one opening per arm, so the file this
+    names is written once and there is no second run to catch a path that screened as
+    uncategorised the first time. It is declared here in the commit that built the scoring
+    path, before any sealed run — a path declared in one commit and screened in a later one
+    passes without the check ever running in between.
+
+    Under every arm, for `window_freeze.json`'s reason: the score belongs to whichever
+    `{porting}` value was opened.
+    """
+    from src.corpora.base import path_template
+    for arm in ("port-oneshot", "port-loop", "port-multi", "port-selfdesign"):
+        rel = path_template("sealedmetrics").format(
+            corpus="es-meddocan", detector="R", supervision="sup-free", porting=arm)
+        assert "iter" not in rel, (
+            f"paths.sealedmetrics must carry no round (DESIGN §6.4): {rel}")
+        assert any(re.search(p, rel) for p in rs.ALLOW_PATTERNS), rel
+
+
+def test_no_spans_file_is_published_under_the_sealed_fold():
+    """The absence is the design, so it is asserted rather than left to the file list.
+
+    `naming.yaml` declares no spans key under `test/` — nothing in this repository reads
+    predictions over a fold that has no next round — and `run_sealed_eval.py` writes none.
+    An ALLOW pattern for `test/spans.jsonl` would therefore publish a file the code does not
+    create, which is precisely the shape of a later "for symmetry with the dev tree" edit:
+    it would look like completing a pair and would take effect only if something started
+    writing sealed predictions.
+    """
+    sealed_spans = "results/es-meddocan/R/sup-free/port-loop/test/spans.jsonl"
+    assert not any(re.search(p, sealed_spans) for p in rs.ALLOW_PATTERNS), (
+        "an ALLOW pattern matches a sealed spans file. Nothing writes one; a pattern for "
+        "it publishes a path by anticipation, and the fold it covers is opened once."
+    )
+    from src.corpora.base import naming
+    for key, template in naming()["paths"].items():
+        assert not template.endswith("test/spans.jsonl"), (
+            f"paths.{key} declares sealed predictions. DESIGN §6.4: the sealed run writes "
+            "one file."
+        )
+
+
 def test_the_allowed_format_failure_path_is_the_one_naming_yaml_declares():
     """`paths.formatfailure` and the ALLOW pattern must describe the same file.
 

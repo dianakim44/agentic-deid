@@ -69,14 +69,16 @@ than a comment — every one of them leaves all 22,795 spans loading correctly.
 ## The seal mutations
 
 The test fold is behind `sealed/` and reachable only through
-`src/eval/run_sealed_eval.py` (DESIGN §6). These ten are what make that a
-guarantee, and they fall into two groups for a reason worth stating first: the
+`src/eval/run_sealed_eval.py` (DESIGN §6). These twelve are what make that a
+guarantee, and they fall into three groups for a reason worth stating first: the
 five below are at the **call sites** in `src/corpora/base.py`, and for a long
 time they were the only five this section had. Every one of them asks whether the
 guard is *reached*. None of them asks what the guard *does* once it is —
 `tree_state`, `record_access` and `_verify_frozen_split` were all patched out in
 the tests that mentioned them. The second table is the answer to that, and
-`### Unreadable state, twice` below is what it found.
+`### Unreadable state, twice` below is what it found. The third group asks a
+question neither of the first two does: with the guard reached and working, **is
+what the row says the thing that happened?** — see `### What the row says`.
 
 ### The call sites
 
@@ -146,6 +148,44 @@ owed, not as a safeguard in place. `tests/test_seal.py:152` already said so — 
 substitution is deliberately placed at the *data* and never at the frame" — and
 the same file broke it three times. A principle written in a comment is not a
 check either.
+
+### What the row says — 2026-08-26
+
+Added with the arm and round columns of `sealed_eval_log.md` and the scoring path
+that fills them (DESIGN §6.4: one opening per reported arm, after termination,
+scoring the arm's **final** round). The two tables above are about a guard being
+reached and a guard working. Both of these leave every guard reached and working,
+and change what the run **was**:
+
+| mutation | changes | breaks | tests that catch it |
+|---|---|---|---|
+| `the_arm_cell_is_a_constant_again` | the row's arm cell goes back to the literal `none (access check)` | nothing fails. `Arm` is still built, so the axes are still checked against `naming.yaml`; the round is still in the row; `count_runs()` returns the same number, because it keys on the corpus column. What is lost is *what was opened* — every row reads identically, so a pre-registered evaluation and a smoke test become the same row and the paper's N counts unidentified openings | **2** |
+| `a_round_other_than_the_last_can_be_scored` | `if iteration != final:` becomes `if False:` | any round of a terminated arm may be opened. Axes, termination, rule files, split verification and the append-before-read all survive; only the round is free. It buys dev-best on test — the headline from whichever round looks best, beside a `cost_to_date` copied verbatim from the arm's record, so the published pair is five rounds of quality against eight rounds of spend and no run exists that both cost that and scored that | **4** |
+
+**Why they are the plausible edits and not invented ones.** Each restores a state
+this repository was actually in until 2026-08-26. The arm cell *was* the literal —
+true while `sealed_log.py` was an access-path smoke test, and the value the row
+carrying the experiment's only test score would have inherited unchanged. And the
+round check did not exist, because until the scoring path landed there was nothing
+that chose a round. The first is tidying-shaped: the literal is shorter than the
+interpolation and its value never varies in any committed row, because there are
+no committed rows. The second is one line that reads like relaxing an over-strict
+check.
+
+**What separates them is when the pressure to make the edit arrives.** Nobody
+wants a constant arm cell; that one gets made by a reader who cannot see what the
+column is for. The round check is different — the argument for loosening it
+arrives *after* the numbers do, from someone who now knows which round scored
+best on dev, and it will be made in good faith about a check that looks arbitrary.
+That is the whole reason §6.4 was pre-registered while `count_runs()` was still
+0, and it is why the refusal's message carries the cost argument rather than
+citing DESIGN: `test_the_refusal_names_the_cost_argument` fails if the grounds
+stop travelling with the refusal.
+
+Neither is caught by anything that existed before `tests/test_sealed_scoring.py`.
+`test_seal.py` and `test_seal_internals.py` between them have 54 passing tests and
+neither asserted what the row's cells *equal* — an omission of exactly the shape
+the audit above found in `_verify_frozen_split`, one layer further out.
 
 ## The release screener mutations
 

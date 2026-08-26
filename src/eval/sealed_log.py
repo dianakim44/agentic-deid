@@ -17,10 +17,11 @@ from __future__ import annotations
 
 import os
 import subprocess
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
-from ..corpora.base import ROOT, SealError
+from ..corpora.base import ROOT, SealError, axis
 
 LOG = ROOT / "results" / "sealed_eval_log.md"
 
@@ -32,6 +33,50 @@ PLACEHOLDER = "_no sealed evaluation has been run_"
 #: because "unspecified" is not an acceptable value in a log whose whole purpose
 #: is to say why the test fold was looked at.
 PURPOSE_ENV = "SEALED_EVAL_PURPOSE"
+
+
+@dataclass(frozen=True)
+class Arm:
+    """Which arm an opening is for, as three `naming.yaml` axis values.
+
+    The corpus is already its own column, so these three finish the four-axis
+    coordinate — the same tuple `scorer.PATH_AXES` formats into a results path, minus
+    the one that is written beside it.
+
+    **It is a validated object rather than a string, and that is the point.** Until
+    2026-08-26 the log's arm cell was whatever the caller passed, and what the caller
+    passed was the literal `"none (access check)"` — true at the time, and a string
+    that cannot be distinguished from a real evaluation's cell by anything except
+    reading it. A cell built here is either three axis values from `config/naming.yaml`
+    or an exception, so an opening cannot be recorded against an arm that does not
+    exist, and a hardcoded stand-in fails at the append rather than being published.
+
+    There is no `corpus` field: `record_access` takes it separately because
+    `count_runs` keys on that column, and a corpus reachable from two places is a
+    corpus that can disagree with itself.
+    """
+
+    detector: str
+    supervision: str
+    porting: str
+
+    def __post_init__(self) -> None:
+        for name in ("detector", "supervision", "porting"):
+            value = getattr(self, name)
+            if value not in axis(name):
+                raise SealError(
+                    f"{value!r} is not a value of the {name!r} axis in "
+                    f"config/naming.yaml (have: {sorted(axis(name))}). The log's arm "
+                    "cell names a cell of the results tree, and a name nothing "
+                    "defines names no cell — CLAUDE.md's naming rule applies here for "
+                    "the reason it applies to paths, and more sharply: this row is "
+                    "appended once and never corrected."
+                )
+
+    @property
+    def cell(self) -> str:
+        """The arm as it appears in the table."""
+        return f"{self.detector}/{self.supervision}/{self.porting}"
 
 
 def _shown(path: Path) -> str:
@@ -73,15 +118,48 @@ def tree_state() -> tuple[str | None, str]:
 def record_access(
     corpus_id: str,
     *,
+    arm: Arm,
+    iteration: int,
     fold: str = "test",
-    arms: str = "—",
     purpose: str | None = None,
 ) -> str:
     """Append one row and return it. Raises SealError if it cannot.
 
     Called from the loader's seal gate before the fold is opened, so raising here
     means the fold is never read.
+
+    `arm` and `iteration` are **required**, and there is no default for either
+    (2026-08-26, DESIGN §6.4). A default is the state this row spent its whole
+    existence in — the arm cell read `none (access check)` because it was a constant in
+    `run_sealed_eval`, and the row that recorded the seal machinery working was
+    indistinguishable in shape from the row that would record the experiment's only
+    test score. §6.4 makes the arm and the round the two facts that decide whether an
+    opening was legitimate, so a row that omits them records the count without
+    recording what the count is a count of, and the count is the number the paper
+    reports.
+
+    `iteration` is the round scored. §6.4 requires it to be the arm's *final* round,
+    which cannot be checked here — finality is a property of that arm's committed
+    termination record, and this module reads the log and nothing else. It is verified
+    in `run_sealed_eval.plan_arm`, before this is called. What is checked here is that
+    it is a real round: a positive integer, because rounds are 1-indexed and a 0 would
+    be a round nobody ran.
     """
+    if not isinstance(arm, Arm):
+        raise SealError(
+            f"record_access got arm={arm!r} ({type(arm).__name__}). It takes an `Arm`, "
+            "whose three fields are checked against config/naming.yaml. A string would "
+            "be published verbatim — which is how the arm cell came to read "
+            "'none (access check)' for every row this log could have held."
+        )
+    if not isinstance(iteration, int) or isinstance(iteration, bool) or iteration < 1:
+        raise SealError(
+            f"record_access got iteration={iteration!r}. The round scored is a "
+            "positive integer — rounds are 1-indexed, so 0 is a round nobody ran, and "
+            "an arm that does not iterate still has a round 1. DESIGN §6.4 requires it "
+            "to be the arm's final round; that is checked in run_sealed_eval.plan_arm "
+            "against the arm's committed termination record, before this is reached."
+        )
     if purpose is None:
         purpose = os.environ.get(PURPOSE_ENV, "").strip()
     if not purpose:
@@ -111,7 +189,7 @@ def record_access(
     number = _next_row_number(text)
     row = (
         f"| {number} | {timestamp} | {commit or 'unknown'} | {tree} | "
-        f"{corpus_id} | {fold} | {arms} | {purpose} |"
+        f"{corpus_id} | {fold} | {arm.cell} | {iteration} | {purpose} |"
     )
 
     if PLACEHOLDER in text:
@@ -184,6 +262,9 @@ def count_runs(corpus_id: str | None = None) -> int:
         cells = [c.strip() for c in stripped.split("|")[1:-1]]
         if not cells or not cells[0].isdigit():
             continue
+        # Cell 4 is the corpus. The `round` column was added at cell 7 (2026-08-26)
+        # rather than anywhere left of here, so that this index — and every count
+        # already reported off it — did not move.
         if corpus_id is None or (len(cells) > 4 and cells[4] == corpus_id):
             total += 1
     return total

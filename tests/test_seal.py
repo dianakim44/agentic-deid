@@ -28,6 +28,33 @@ from src.eval import sealed_log  # noqa: E402
 
 CORPUS = "es-meddocan"
 
+#: The arm and round every logged row in this file carries. Real `naming.yaml` values,
+#: because `sealed_log.Arm` validates them — a placeholder string is exactly what the
+#: type was introduced to refuse (2026-08-26).
+ARM = sealed_log.Arm(detector="R", supervision="sup-free", porting="port-loop")
+ROUND = 8
+
+
+def a_plan(corpus=CORPUS, *, iteration=ROUND):
+    """An `ArmPlan` built by hand, bypassing `plan_arm`.
+
+    Deliberate, and the reason is that these tests are about the *gate* and not the
+    planner. `plan_arm` reads a committed dev `metrics.json` and refuses eight ways;
+    exercising it here would make every gate test depend on a real arm's results
+    directory, and a change to that arm would then break tests about the seal. The
+    planner's refusals are tested against the real records in
+    `tests/test_sealed_scoring.py`.
+
+    `rules` and `dev` are empty because `load_sealed` reads neither — it needs the
+    corpus, the arm and the round, which is precisely what the log row carries.
+    """
+    from src.eval.run_sealed_eval import ArmPlan
+
+    return ArmPlan(
+        corpus=corpus, detector=ARM.detector, supervision=ARM.supervision,
+        porting=ARM.porting, iteration=iteration, rules={}, dev={},
+    )
+
 
 # ─── fixtures ───────────────────────────────────────────────────────────────
 
@@ -202,7 +229,7 @@ def test_the_authorised_caller_passes_the_gate_and_is_logged(synthetic, temp_log
     """Through `run_sealed_eval.load_sealed`, the gate opens — and logs first."""
     from src.eval import run_sealed_eval
 
-    docs = run_sealed_eval.load_sealed(CORPUS, purpose="unit test of the gate")
+    docs = run_sealed_eval.load_sealed(a_plan(), purpose="unit test of the gate")
 
     assert synthetic.read_folds == ["dev", "test", "train"], (
         "an authorised read must reach the sealed fold — that is what it is for"
@@ -225,7 +252,7 @@ def test_the_flag_is_cleared_after_the_read(synthetic):
     """
     from src.eval import run_sealed_eval
 
-    run_sealed_eval.load_sealed(CORPUS, purpose="checking the flag is cleared")
+    run_sealed_eval.load_sealed(a_plan(), purpose="checking the flag is cleared")
     assert not synthetic._sealed_ok
     assert "test" not in synthetic.fold_roots()
 
@@ -244,7 +271,7 @@ def test_a_failed_append_leaves_the_fold_unreachable(synthetic, monkeypatch):
 
     monkeypatch.setattr(sealed_log, "record_access", boom)
     with pytest.raises(SealError):
-        run_sealed_eval.load_sealed(CORPUS, purpose="append will fail")
+        run_sealed_eval.load_sealed(a_plan(), purpose="append will fail")
     assert not synthetic._sealed_ok
     assert synthetic.read_folds is None, (
         "nothing may be read when the append failed — not even the unsealed folds, "
@@ -259,7 +286,7 @@ def test_a_read_only_log_refuses_the_run(synthetic, temp_log):
     temp_log.chmod(0o444)
     try:
         with pytest.raises(SealError):
-            run_sealed_eval.load_sealed(CORPUS, purpose="log is read-only")
+            run_sealed_eval.load_sealed(a_plan(), purpose="log is read-only")
     finally:
         temp_log.chmod(0o644)
     assert synthetic.read_folds is None
@@ -279,7 +306,7 @@ def test_a_sealed_read_of_an_unsealed_corpus_is_refused(
     monkeypatch.setattr(base, "sealed_root", lambda corpus_id: None)
     before = temp_log.read_text(encoding="utf-8")
     with pytest.raises(SealError, match="no `sealed:` entry"):
-        run_sealed_eval.load_sealed(CORPUS, purpose="no sealed entry")
+        run_sealed_eval.load_sealed(a_plan(), purpose="no sealed entry")
     assert temp_log.read_text(encoding="utf-8") == before
     assert synthetic.read_folds is None
 
@@ -298,18 +325,18 @@ def test_a_run_with_no_stated_purpose_is_refused(temp_log, monkeypatch):
     """"unspecified" would satisfy the format and defeat the point."""
     monkeypatch.delenv(sealed_log.PURPOSE_ENV, raising=False)
     with pytest.raises(SealError, match="needs a stated purpose"):
-        sealed_log.record_access(CORPUS)
+        sealed_log.record_access(CORPUS, arm=ARM, iteration=ROUND)
 
 
 def test_a_purpose_with_a_pipe_is_refused(temp_log):
     """It goes into a Markdown cell and would shift the columns silently."""
     with pytest.raises(SealError, match="single line"):
-        sealed_log.record_access(CORPUS, purpose="a | b")
+        sealed_log.record_access(CORPUS, arm=ARM, iteration=ROUND, purpose="a | b")
 
 
 def test_rows_are_numbered_consecutively(temp_log):
-    first = sealed_log.record_access(CORPUS, purpose="first run")
-    second = sealed_log.record_access(CORPUS, purpose="second run")
+    first = sealed_log.record_access(CORPUS, arm=ARM, iteration=ROUND, purpose="first run")
+    second = sealed_log.record_access(CORPUS, arm=ARM, iteration=ROUND, purpose="second run")
     assert first.split("|")[1].strip() == "1"
     assert second.split("|")[1].strip() == "2"
     assert sealed_log.count_runs(CORPUS) == 2
@@ -317,8 +344,8 @@ def test_rows_are_numbered_consecutively(temp_log):
 
 
 def test_an_existing_row_is_never_overwritten(temp_log):
-    sealed_log.record_access(CORPUS, purpose="the run that must survive")
-    sealed_log.record_access(CORPUS, purpose="a later run")
+    sealed_log.record_access(CORPUS, arm=ARM, iteration=ROUND, purpose="the run that must survive")
+    sealed_log.record_access(CORPUS, arm=ARM, iteration=ROUND, purpose="a later run")
     text = temp_log.read_text(encoding="utf-8")
     assert "the run that must survive" in text
     assert "a later run" in text
@@ -328,11 +355,11 @@ def test_a_missing_log_refuses_the_run(tmp_path, monkeypatch):
     """The log is committed. Its absence is not a reason to skip logging."""
     monkeypatch.setattr(sealed_log, "LOG", tmp_path / "nonexistent.md")
     with pytest.raises(SealError, match="does not exist"):
-        sealed_log.record_access(CORPUS, purpose="log is missing")
+        sealed_log.record_access(CORPUS, arm=ARM, iteration=ROUND, purpose="log is missing")
 
 
 def test_the_row_records_whether_the_tree_was_dirty(temp_log):
-    row = sealed_log.record_access(CORPUS, purpose="tree state check")
+    row = sealed_log.record_access(CORPUS, arm=ARM, iteration=ROUND, purpose="tree state check")
     cells = [c.strip() for c in row.split("|")[1:-1]]
     assert cells[3] in {"clean", "dirty", "unknown"}
     assert len(cells[2]) == 40 or cells[2] == "unknown"  # commit hash
@@ -340,16 +367,20 @@ def test_the_row_records_whether_the_tree_was_dirty(temp_log):
 
 def test_the_log_row_contains_no_corpus_text(temp_log):
     """CLAUDE.md: no corpus text in logs. The row is ids, counts and a purpose."""
-    row = sealed_log.record_access(CORPUS, purpose="offsets and types only")
+    row = sealed_log.record_access(CORPUS, arm=ARM, iteration=ROUND, purpose="offsets and types only")
     assert CORPUS in row
     # The purpose is caller-supplied prose; everything else is structural. Checked
     # by shape rather than by searching for surfaces, which a test would have to
     # contain in order to look for.
     cells = [c.strip() for c in row.split("|")[1:-1]]
-    assert len(cells) == 8
+    assert len(cells) == 9
     assert cells[0].isdigit()
     assert cells[4] == CORPUS
     assert cells[5] == "test"
+    # The arm cell is three axis values and the round is a number. Both are structural
+    # too — `Arm` built them from `naming.yaml` — so this stays a shape check.
+    assert cells[6] == ARM.cell
+    assert cells[7] == str(ROUND)
 
 
 # ─── run_sealed_eval's own guards ───────────────────────────────────────────
@@ -365,7 +396,7 @@ def test_a_dirty_tree_is_refused_by_default(monkeypatch):
 
     monkeypatch.setattr(sealed_log, "tree_state", lambda: ("abc123", "dirty"))
     with pytest.raises(SealError, match="working tree is dirty"):
-        run_sealed_eval.load_sealed(CORPUS, purpose="on a dirty tree")
+        run_sealed_eval.load_sealed(a_plan(), purpose="on a dirty tree")
 
 
 def test_allow_dirty_gets_past_the_tree_check(monkeypatch, temp_log):
@@ -390,7 +421,7 @@ def test_allow_dirty_gets_past_the_tree_check(monkeypatch, temp_log):
     )
     with pytest.raises(CorpusError, match="stopped deliberately"):
         run_sealed_eval.load_sealed(
-            CORPUS, purpose="dirty but explicit", allow_dirty=True
+            a_plan(), purpose="dirty but explicit", allow_dirty=True
         )
 
 

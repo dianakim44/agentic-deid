@@ -502,6 +502,31 @@ paths:
   # 수 없다. 한 회차가 내는 세 파일(예측·점수·오류)은 한 기록이고, 함께
   # 회차별이 되거나 기록에 구멍이 남는다.
   iterspans: "results/{corpus}/{detector}/{supervision}/{porting}/iter{iteration}/spans.jsonl"
+  # 봉인 평가의 점수. DESIGN §6.4 (2026-08-26 사전등록), 채점 경로와 같은 커밋.
+  #
+  # **metrics 를 재사용하지 않는 것이 이 키의 존재 이유 전부다.** run 블록의 split 은
+  # 필수 필드지만 경로 성분이 아니다 (위 metrics 주석, §4 의 다섯 번째 성분 거부).
+  # 그래서 test fold 점수를 metrics 에 쓰면 그 arm 의 dev headline 을 test 숫자로
+  # 덮는다. 되돌릴 수 없는 실행이 마지막에 하는 일이 그것이면 안 된다.
+  # write_metrics 는 split=test 와 이 키를 서로 요구한다 — 한쪽만으로는 쓰지 못한다.
+  #
+  # **{iteration} 이 없다.** §6.4 는 arm 마다 마지막 회차 하나만 채점하도록
+  # 사전등록했다. 회차 성분은 한 arm 의 두 회차 test 점수가 공존할 수 있다고
+  # 말하는 것이고, 그것이 규약이 금지하는 상태다. armprofile 세 키에서 회차를 뺀
+  # 것과 같은 논거이고 (2026-08-26), 여기서는 규약이 그 상태를 금지한다는 점에서
+  # 더 강하다.
+  #
+  # 재실행은 이 파일을 덮는다. 두 번의 개방을 남기는 것은 sealed_eval_log.md 의
+  # 두 행이고 (§6.4: 재실행은 두 번째 개방이다) 파일 두 개가 아니다.
+  #
+  # **옆에 spans·errors 를 두지 않는다.** errors.jsonl 은 그 fold 에서 놓친 모든
+  # 식별자의 위치이고 다음 회차 창의 입력이다. test fold 에 대해 그것을 만드는
+  # 것은 CLAUDE.md 가 금지한 "test 오류를 보고 고치는 것" 의 입력을 준비하는
+  # 일이다. 그래서 deny 로 막는 것이 아니라 애초에 쓰지 않는다 — 막아야 할 파일을
+  # 만들지 않는 것이 막는 것보다 강하다. spans 는 표면형이 없어 공개 가능하지만
+  # 이 저장소에서 그것을 읽는 것은 마스커와 루프 기계뿐이고, 봉인 fold 에는 다음
+  # 회차가 없다. 봉인 실행이 쓰는 파일은 하나다.
+  sealedmetrics: "results/{corpus}/{detector}/{supervision}/{porting}/test/metrics.json"
   agentlog: "results/{corpus}/{detector}/{supervision}/{porting}/agent_calls.jsonl"
   # Auditor 의 보고서. DESIGN §5.5 — 의심되는 잔존 PHI 의 위치 목록이다.
   #

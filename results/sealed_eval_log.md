@@ -18,6 +18,11 @@ remaining rows worthless.
 
 ## What must be true before a row is added
 
+The five conditions below are what this file asserts about every row it holds. The
+operational version — what to run immediately before an opening, in what order, and
+what the answer has to be — is `docs/notes/sealed-eval-preflight.md`, which also
+records what happens to a run that fails *after* the row exists.
+
 1. The evaluation ran through `src/eval/run_sealed_eval.py`. It is the only caller
    the loader's sealed gate accepts, and no interactive session is one.
 2. The append to this file **succeeded**. If it fails the evaluation does not run:
@@ -37,12 +42,20 @@ remaining rows worthless.
 
 ## Runs
 
-| # | timestamp (UTC) | commit | tree | corpus | fold | arm(s) | purpose |
-|---|---|---|---|---|---|---|---|
-| — | — | — | — | — | — | — | _no sealed evaluation has been run_ |
+| # | timestamp (UTC) | commit | tree | corpus | fold | arm | round | purpose |
+|---|---|---|---|---|---|---|---|---|
+| — | — | — | — | — | — | — | — | _no sealed evaluation has been run_ |
 
 `tree` is `clean` or `dirty`. A dirty tree means the commit hash does not describe
 the code that ran, so the row is honest only if it says so.
+
+`arm` is `detector/supervision/porting` — the corpus column completes the four-axis
+coordinate — and `round` is the round scored. Neither has a default: until 2026-08-26
+the arm cell was a constant in the driver reading `none (access check)`, which was
+true of every row this table could then have held and would have stayed true-looking
+in the row that carried the experiment's only test score. They are validated against
+`config/naming.yaml` and against the arm's committed termination record before the
+append, because the append is what makes the read reachable.
 
 ## Why the count is the headline
 

@@ -41,13 +41,14 @@ from __future__ import annotations
 
 import json
 import re
+import string
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Iterable, Mapping, Sequence
 
 from ..corpora.base import (
     ROOT, axis, check_termination_reason, family_of, layer_families, model_id_absent,
-    naming, round_path,
+    path_template, round_path,
 )
 #: `ErrorSpan` and the two error kinds, from the module that defines them. Imported
 #: rather than re-spelled, and the direction is deliberate: this module *produces* errors
@@ -1498,8 +1499,85 @@ def metrics_path(
     if iteration is not None:
         return iter_metrics_path(
             **{k: run[k] for k in PATH_AXES}, iteration=iteration, root=root)
-    template = naming()["paths"]["metrics"]
-    return (root or ROOT) / template.format(**{k: run[k] for k in PATH_AXES})
+    return arm_metrics_path(**{k: run[k] for k in PATH_AXES}, root=root)
+
+
+def _arm_scoped(key: str, *, artefact: str, root: Path | None = None, **axes: str) -> Path:
+    """An arm-scoped results path — the four axes, no round — with every axis checked.
+
+    **Deliberately not `base.round_path`.** That function's contract is a *round*: it
+    requires the template to name `{iteration}`, validates that the round is a round, and
+    every refusal it raises names a round's artefact. Making the round optional there would
+    put "there may be no round" inside the one validator whose job is that the round is
+    present and well-formed. So the axis loop is here instead, in the module that holds the
+    readers of the two arm-scoped keys (`metrics`, `sealedmetrics`), and its messages name an
+    arm. Two validators, split on whether a round exists, rather than one that is unsure.
+
+    The axes are checked for `round_path`'s reason: a results path names the cell of the
+    experiment an artefact belongs to, so an unknown component mints a cell instead of
+    failing.
+    """
+    template = path_template(key)
+    fields = {name for _, name, _, _ in string.Formatter().parse(template) if name}
+    if fields != set(axes):
+        raise ScorerError(
+            f"paths.{key} names {sorted(fields)} and was given {sorted(axes)}. A component "
+            "the template does not name is dropped silently, and one it names that nobody "
+            f"passed raises a KeyError inside `.format()` — either way the arm's {artefact} "
+            "lands somewhere its writer did not choose."
+        )
+    for name, value in sorted(axes.items()):
+        if value not in axis(name):
+            raise ScorerError(
+                f"{value!r} is not a value of the {name!r} axis in config/naming.yaml "
+                f"(have: {sorted(axis(name))}). This path names the cell of the experiment "
+                f"the arm's {artefact} belongs to, so an unknown component would create a "
+                "cell rather than fail (DESIGN §5.3, §5.5)."
+            )
+    return (root or ROOT) / template.format(**axes)
+
+
+def arm_metrics_path(
+    *, corpus: str, detector: str, supervision: str, porting: str,
+    root: Path | None = None,
+) -> Path:
+    """`paths.metrics` — the arm's final score, from keyword axes rather than a run block.
+
+    **The single reader of that template**, which `metrics_path` now delegates to. The split
+    is `iter_metrics_path`' s, and it arrived for the same reason: a second interested party
+    that holds four axes and no run block. There it was the loop driver; here it is
+    `src/eval/run_sealed_eval.py`, which has to *read* this file before it opens the sealed
+    fold — DESIGN §6.4 says the round it may score is the arm's final round, and the arm's own
+    `termination.iterations` is where that number is. A run block cannot be assembled for that
+    read, because assembling one would mean inventing the `commit`, `tree` and `generated` of
+    a run that has not happened.
+    """
+    return _arm_scoped(
+        "metrics", artefact="score", root=root, corpus=corpus, detector=detector,
+        supervision=supervision, porting=porting)
+
+
+def sealed_metrics_path(
+    *, corpus: str, detector: str, supervision: str, porting: str,
+    root: Path | None = None,
+) -> Path:
+    """`paths.sealedmetrics` — the arm's score on the sealed test fold (DESIGN §6.4).
+
+    A separate key rather than `paths.metrics` with `split` in the path, because `split` is a
+    required run field that is deliberately not a path component (`metrics_path`): writing a
+    test score through `metrics_path` would overwrite the arm's dev headline with a test
+    number, at the end of the one run that cannot be repeated without spending a second
+    opening. `write_metrics` therefore requires `split == "test"` and this key together —
+    neither alone can write.
+
+    No round component: §6.4 permits exactly one round per arm on test, so a round in the
+    path would make two rounds' test scores coexist, which is the state the protocol forbids.
+    A re-run overwrites this file and is recorded by a second row in
+    `results/sealed_eval_log.md`, which is where openings are counted.
+    """
+    return _arm_scoped(
+        "sealedmetrics", artefact="sealed score", root=root, corpus=corpus,
+        detector=detector, supervision=supervision, porting=porting)
 
 
 def iter_metrics_path(
@@ -1546,6 +1624,7 @@ def write_metrics(
     abandoned_spend: Mapping | None = None,
     root: Path | None = None,
     iteration: int | None = None,
+    sealed: bool = False,
 ) -> Path:
     """Assemble and write metrics.json. `run`, `cost` and `termination` are required.
 
@@ -1680,6 +1759,19 @@ def write_metrics(
     something false, and this function cannot detect that; what it can and does refuse is a block
     claiming zero abandoned attempts, because that is the one shape whose only correct
     representation is absence.
+
+    **`sealed` chooses `paths.sealedmetrics`, and it and `run["split"] == "test"` require each
+    other** (DESIGN §6.4). Both directions are refused, and neither is redundant. A test score
+    written without the flag would land on `paths.metrics` — the arm's *dev* headline — and
+    overwrite it; the last act of the one irreversible run in this project must not be to
+    destroy the record it is compared against. The flag without `split=test` would put a dev
+    score under `test/`, which is a file whose path contradicts its own run block, and every
+    later reader of that tree trusts the path.
+
+    `sealed` with `iteration` is refused rather than resolved. §6.4 permits one opening per arm
+    and scores its final round, so there is no second round on test for a round component to
+    distinguish — the same argument `paths.sealedmetrics` gives for having no `{iteration}`,
+    made at the call site so that the refusal happens before anything is read.
     """
     missing = [k for k in REQUIRED_COST if cost.get(k) is None]
     if missing:
@@ -1761,7 +1853,28 @@ def write_metrics(
                 "one block, which is `caching`'s `enabled` check one field over."
             )
     check_termination(termination)
-    path = metrics_path(run, root=root, iteration=iteration)
+    if sealed and iteration is not None:
+        raise ScorerError(
+            "write_metrics got sealed=True together with an iteration. DESIGN §6.4 permits "
+            "one opening per arm and scores that arm's final round, so there is no second "
+            "round on test for a round component to tell apart — config/naming.yaml's "
+            "sealedmetrics key carries no {iteration} for that reason. Write the arm's "
+            "rounds to the dev tree and the sealed score once, without a round."
+        )
+    if sealed != (run.get("split") == "test"):
+        raise ScorerError(
+            f"write_metrics got sealed={sealed!r} with split={run.get('split')!r}. The two "
+            "require each other. Without the flag a test score would be written to "
+            "paths.metrics, which is the arm's dev headline, and overwriting that is the one "
+            "thing the irreversible run must not do. With the flag and a non-test split it "
+            "would file a dev score under test/, where every later reader would read the "
+            "path as the fold."
+        )
+    if sealed:
+        check_run(run)
+        path = sealed_metrics_path(**{k: run[k] for k in PATH_AXES}, root=root)
+    else:
+        path = metrics_path(run, root=root, iteration=iteration)
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = {
         "schema_version": SCHEMA_VERSION,

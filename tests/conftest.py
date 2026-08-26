@@ -47,6 +47,12 @@ if str(ROOT) not in sys.path:
 #: availability check, which is the thing this file exists to stop.
 CORPUS = "es-meddocan"
 
+#: The arm whose dev record `terminated_arm_record` answers for: the only one in the tree
+#: that has terminated with a reason and a round count, which is what DESIGN §6.4 requires
+#: before a sealed opening. Kept beside the fixture rather than in the test file, because a
+#: second copy of the coordinate is a second chance to point at a different arm.
+TERMINATED_ARM = dict(detector="R", supervision="sup-free", porting="port-loop")
+
 
 @pytest.fixture(scope="session")
 def corpus_present() -> str:
@@ -82,6 +88,42 @@ def sealed_corpus(corpus_present: str) -> str:
     if base.sealed_root(corpus_present) is None:
         pytest.skip(f"{corpus_present} is not sealed on this machine")
     return corpus_present
+
+
+@pytest.fixture(scope="session")
+def terminated_arm_path(corpus_present: str):
+    """Where the terminated arm's dev `metrics.json` is, or skip (DESIGN §6.4).
+
+    A third availability question, and it belongs here for the reason the two above do
+    rather than for a corpus-specific one: `results/` is not committed, so a fresh checkout
+    has the code and none of the arm records, while the sealed-scoring tests are about
+    which arm and round may be opened. Same shape as `corpus_present` — `arm_metrics_path`
+    composes a path and reads nothing, so `.exists()` is the whole question and the skip
+    means one thing.
+    """
+    from src.eval.scorer import arm_metrics_path
+
+    path = arm_metrics_path(corpus=corpus_present, **TERMINATED_ARM)
+    if not path.exists():
+        pytest.skip(f"no dev record for the terminated arm under results/{corpus_present}")
+    return path
+
+
+@pytest.fixture(scope="session")
+def terminated_arm_record(terminated_arm_path) -> dict:
+    """That record, parsed. Construction, so the split above applies unchanged.
+
+    **No `try` around the `json.loads`.** A record that exists and does not parse is a
+    defect in whatever wrote it and has to reach the test as an error; wrapping it would
+    report a corrupt headline as an absent one, which is the four-times defect in a new
+    costume.
+
+    `tests/test_sealed_scoring.py` asserts that the arm named by `TERMINATED_ARM` is the arm
+    it plans against, so the coordinate is not silently two coordinates.
+    """
+    import json
+
+    return json.loads(terminated_arm_path.read_text(encoding="utf-8"))
 
 
 @pytest.fixture(scope="session")

@@ -163,6 +163,23 @@ ALLOW_PATTERNS = [
     # on the directory (see DENY_PATTERNS).
     r"^results/[^/]+/[^/]+/[^/]+/[^/]+/iter[0-9]+/metrics\.json$",
     r"^results/[^/]+/[^/]+/[^/]+/[^/]+/iter[0-9]+/spans\.jsonl$",
+    # The sealed evaluation's one output (paths.sealedmetrics, DESIGN §6.4). Same content
+    # as the four-deep metrics.json above — counts, rates and rule ids, no source text —
+    # and the same treatment, on its own line for the reason the iter pair is two lines
+    # rather than an optional group.
+    #
+    # There is deliberately no `test/spans.jsonl` counterpart, and that is a property of
+    # the path list and not an omission: naming.yaml declares no spans key under the
+    # sealed run because nothing in this repository would read predictions over a fold
+    # with no next round, and `run_sealed_eval.py` writes no spans file. A pattern here
+    # would publish a file the code does not create, which is how a later "for symmetry"
+    # edit gets written.
+    #
+    # Declared with the scoring path rather than after the first sealed run: a path
+    # declared in one commit and screened in a later one goes unscreened in between, and
+    # unscreened means the file passes without the check running. That matters more here
+    # than anywhere else on this list — the file it names can only ever be written once.
+    r"^results/[^/]+/[^/]+/[^/]+/[^/]+/test/metrics\.json$",
     r"^results/sealed_eval_log\.md$",
     # port-human only, and the {porting} component is the literal rather than [^/]+:
     # DESIGN §11.2 gives this file exactly one value of that axis. `human_minutes` and

@@ -1130,7 +1130,8 @@ class CorpusLoader:
         sealed: bool = False,
         *,
         purpose: str | None = None,
-        arms: str = "—",
+        arm: object | None = None,
+        iteration: int | None = None,
     ) -> list[Document]:
         """Read the corpus, apply the frozen split, then assert every offset.
 
@@ -1142,10 +1143,16 @@ class CorpusLoader:
         `sealed=True` additionally reads the sealed fold, and only
         `src/eval/run_sealed_eval.py` may pass it. It logs the access before
         reading anything and refuses to proceed if the log cannot be written.
-        `purpose` and `arms` go into that log row and are ignored otherwise.
+        `purpose`, `arm` and `iteration` go into that log row and are ignored
+        otherwise.
+
+        `arm` is typed `object` rather than `sealed_log.Arm` because that import is
+        deliberately local to `_authorise_sealed` (a corpus loader that imported the
+        evaluation package at module scope would invert the dependency). It is
+        validated there, by `record_access`, which is the only thing that consumes it.
         """
         if sealed:
-            self._authorise_sealed(purpose=purpose, arms=arms)
+            self._authorise_sealed(purpose=purpose, arm=arm, iteration=iteration)
         try:
             docs = list(self._read())
         finally:
@@ -1167,7 +1174,10 @@ class CorpusLoader:
         return docs
 
     def _authorise_sealed(
-        self, purpose: str | None = None, arms: str = "—"
+        self,
+        purpose: str | None = None,
+        arm: object | None = None,
+        iteration: int | None = None,
     ) -> None:
         """Permit a sealed read, or raise. Called before anything is opened.
 
@@ -1216,7 +1226,7 @@ class CorpusLoader:
         # unreachable rather than merely unread. record_access raises SealError.
         # This is the only call site: a second one would put two rows in the log for
         # one read, and the row count is the number the paper reports.
-        record_access(self.corpus_id, purpose=purpose, arms=arms)
+        record_access(self.corpus_id, purpose=purpose, arm=arm, iteration=iteration)
         self._sealed_ok = True
 
     def _assert_no_sealed_fold(self, docs: list[Document]) -> None:

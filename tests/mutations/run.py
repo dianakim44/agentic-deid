@@ -54,6 +54,7 @@ TEST_FILES = [
     "tests/test_arm_rules_path.py",
     "tests/test_prompt.py",
     "tests/test_seal_internals.py",
+    "tests/test_sealed_scoring.py",
     "tests/test_bedrock.py",
     "tests/test_check_bedrock_logging.py",
     "tests/test_structure.py",
@@ -533,10 +534,14 @@ MUTATIONS = [
     Mutation(
         name="log_append_disabled",
         path=BASE,
-        anchor="        record_access(self.corpus_id, purpose=purpose, arms=arms)",
+        anchor=(
+            "        record_access(self.corpus_id, purpose=purpose, arm=arm, "
+            "iteration=iteration)"
+        ),
         replacement=(
             "        try:\n"
-            "            record_access(self.corpus_id, purpose=purpose, arms=arms)\n"
+            "            record_access(self.corpus_id, purpose=purpose, arm=arm, "
+            "iteration=iteration)\n"
             "        except Exception:\n"
             "            pass"
         ),
@@ -2320,6 +2325,85 @@ MUTATIONS = [
         ),
         min_kills=2,
     ),
+
+    # ─── the arm and the round in the log row (DESIGN §6.4) ─────────────────
+    # Two mutations for the two ways the row's new columns stop meaning anything. Both
+    # restore a state the repository was actually in until 2026-08-26, which is what
+    # makes them the plausible edits rather than invented ones.
+    Mutation(
+        name="the_arm_cell_is_a_constant_again",
+        path=SEALED_LOG,
+        anchor=(
+            "        f\"{corpus_id} | {fold} | {arm.cell} | {iteration} | {purpose} |\"\n"
+            "    )"
+        ),
+        replacement=(
+            "        f\"{corpus_id} | {fold} | none (access check) | {iteration} | "
+            "{purpose} |\"\n"
+            "    )"
+        ),
+        breaks=(
+            "**The state the log was in for its entire existence, restored.** The arm cell "
+            "goes back to the literal `none (access check)` — which was true while this "
+            "module was an access-path smoke test, and which the row carrying the "
+            "experiment's only test score would have inherited unchanged.\n"
+            "\n"
+            "Nothing fails. `Arm` is still constructed, so the axes are still validated "
+            "against `naming.yaml`; the plan is still checked against the arm's termination "
+            "record; the round is still in the row. `count_runs()` returns the same number, "
+            "because it keys on the corpus column. What is lost is the answer to *what was "
+            "opened* — every row reads identically, so a genuine pre-registered evaluation "
+            "and a smoke test are the same row, and the count the paper reports becomes a "
+            "count of unidentified openings. That is worse than a missing column: a missing "
+            "one is legible as missing, and this one looks filled in.\n"
+            "\n"
+            "It is also the tidying-shaped edit. The literal is shorter than the "
+            "interpolation, it appears in the file's own docstring as the thing that was "
+            "replaced, and a reader who has not read DESIGN §6.4 sees a cell whose value "
+            "never varies in any committed row — because there are no committed rows.\n"
+            "\n"
+            "Caught by `test_the_row_carries_the_arm_and_the_round` and "
+            "`test_the_log_row_contains_no_corpus_text`, both of which assert the cell "
+            "*equals the arm* rather than merely being present."
+        ),
+        min_kills=2,
+    ),
+    Mutation(
+        name="a_round_other_than_the_last_can_be_scored",
+        path=RUN_SEALED,
+        anchor="    if iteration != final:",
+        replacement="    if False:",
+        breaks=(
+            "**DESIGN §6.4's substance, removed while every other guard stays.** Any round "
+            "of a terminated arm can now be opened: the axes are still validated, the arm "
+            "must still have stopped with a reason, the rule files must still exist, the "
+            "split is still verified, the row is still appended before the read. Only the "
+            "round is free.\n"
+            "\n"
+            "What that buys is dev-best on test. Round 5 of `port-loop` had a better dev "
+            "leak rate than some of its neighbours, and with this mutation the sealed "
+            "headline can be taken from whichever round looks best — while the cost column "
+            "still reports the arm's total through round 8, because `cost_to_date` is copied "
+            "verbatim from the arm's record (`COPIED_BLOCKS`). The published pair is then "
+            "five rounds of quality beside eight rounds of spend, and **no run exists that "
+            "both cost that and scored that**. Nothing in the file is inconsistent: the "
+            "termination block says eight, the run block says test, the leak rate is real.\n"
+            "\n"
+            "The reason this is the mutation worth writing rather than an obvious one is "
+            "that the pressure to make this edit arrives *after* the numbers do, and the "
+            "edit itself is one line that reads like relaxing an over-strict check. §6.4 was "
+            "pre-registered on 2026-08-26 with `count_runs() == 0` precisely so that this "
+            "line could not be argued about later.\n"
+            "\n"
+            "Caught by `test_a_round_that_is_not_the_final_round_is_refused` over three "
+            "offsets — earlier and later, because a later round would otherwise be planned "
+            "against rule files that happen to exist — and by "
+            "`test_the_refusal_names_the_cost_argument`, which requires the grounds to "
+            "travel with the refusal and not only live in DESIGN."
+        ),
+        min_kills=2,
+    ),
+
     Mutation(
         name="the_frozen_split_check_ignores_a_moved_document",
         path=RUN_SEALED,
@@ -2347,14 +2431,15 @@ MUTATIONS = [
         name="the_frozen_split_is_verified_after_the_read",
         path=RUN_SEALED,
         anchor=(
-            "    loader = _loader_for(corpus_id)\n"
+            "    loader = _loader_for(plan.corpus)\n"
             "    # Verified before the sealed read, not after: if the frozen split and the"
         ),
         replacement=(
-            "    loader = _loader_for(corpus_id)\n"
+            "    loader = _loader_for(plan.corpus)\n"
             "    if True:\n"
-            "        docs = loader.load(sealed=True, purpose=purpose, arms=\"none\")\n"
-            "        _verify_frozen_split(loader, corpus_id)\n"
+            "        docs = loader.load(sealed=True, purpose=purpose, arm=plan.arm,\n"
+            "                           iteration=plan.iteration)\n"
+            "        _verify_frozen_split(loader, plan.corpus)\n"
             "        return docs\n"
             "    # Verified before the sealed read, not after: if the frozen split and the"
         ),
