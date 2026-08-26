@@ -253,8 +253,8 @@ def test_every_anchor_is_present_in_its_target():
     `apply()` already refuses a vanished anchor, so nothing here is a new guarantee —
     what is new is *when the answer arrives*. `apply()` runs inside the harness, one
     mutation per full suite run, so a refactor that moves an anchor is reported only when
-    somebody spends the whole run; at 170 mutations and a measured 271 s each that is
-    nearly thirteen hours serial, and until then the anchor is stale and nothing says so.
+    somebody spends the whole run; at 179 mutations and a measured 271 s each that is
+    over thirteen hours serial, and until then the anchor is stale and nothing says so.
 
     Two were, and that is why this exists rather than the comment above it, which
     considered a stale *path* and not a stale anchor. `run_fold_skips_axis_validation`
@@ -543,7 +543,8 @@ def test_the_full_run_covered_the_current_test_files():
         f"(commit {recorded['commit'][:12]}): added {added}, removed {removed}. Every kill "
         "count is a fraction of this list, so the recorded ones are now about a different "
         "suite. A full run is required — impact scope cannot cover this, because the change "
-        "is to the denominator of all 170 counts and not to any one of them"
+        f"is to the denominator of all {len(harness.MUTATIONS)} counts and not to any one "
+        "of them"
     )
 
 

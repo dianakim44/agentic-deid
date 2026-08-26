@@ -3069,6 +3069,7 @@ not a rule; the reasoning is here, with the measurements it rests on.
 | 170 mutations serial | ~12.9 h | 171 × 271.5 s, baseline included |
 | 170 mutations, 8 shards | **1.87 h** | measured, 2026-08-20 |
 | 176 mutations, 8 shards | **2.02 h** | measured, 2026-08-25 |
+| 179 mutations, 8 shards | **2.07 h** | measured, 2026-08-26 |
 
 The speedup is **6.9× on 8 shards**, and the shortfall from 8× is almost exactly the
 contention: a perfect split would be 12.9 h / 8 = 1.61 h, the run took 1.87 h, and 1.87 / 1.61
@@ -3085,9 +3086,17 @@ the reason the trigger in `CLAUDE.md` is written about the *denominator*. Split 
 suite run went 302 s → 315 s, the six new mutations are 0.75 extra per shard and cost about four
 minutes of the 8.75-minute rise, and the 108 tests added inside the existing files cost the rest.
 
+**The 2026-08-26 run is the third data point and it says the same thing a third time.** 2.07 h
+over 179 mutations is 41.6 s each at 8-way, against 41.3 s the day before — a factor of 1.008
+while the suite grew 1804 → 1867 tests, a factor of 1.035. Three mutations were added and one
+file entered `TEST_FILES`, and it is the file that costs: `tests/test_sealed_scoring.py`'s 44
+tests are paid once per mutation, 179 times, while the three new mutations are 0.375 extra per
+shard. The model in the paragraph above is now measured across a 170 → 176 → 179 sequence, and
+what it predicts is unchanged — the trigger belongs on the denominator.
+
 Two of those numbers correct things this file said earlier. **The serial figure is thirteen
 hours, not fifteen.** Fifteen came from the whole-repo suite — 1875 tests, 368 s — and the
-harness does not run the whole repo, it runs the 27 files in `TEST_FILES`. The heading above
+harness does not run the whole repo, it runs the 28 files in `TEST_FILES`. The heading above
 that says "the fifteen hours it declined to spend" is left as written, dated, with this
 correction beside it, on the same principle the rest of the file follows: an amended record
 shows the amendment.
@@ -3115,7 +3124,7 @@ tree, which is a within-shard property and unchanged by there being eight of the
 positioned to give it, and the tree contamination that prompted this review came from a
 hand-built tree in a shell, not from the loop.
 
-**Is there a shared filesystem resource?** All 27 files in `TEST_FILES` derive their `ROOT`
+**Is there a shared filesystem resource?** All 28 files in `TEST_FILES` derive their `ROOT`
 from `__file__`, so a test running inside a copy addresses that copy — this is the mechanical
 property the whole scheme rests on, and it is worth naming as such rather than treating as
 incidental. `results/` writes go to the copy's `results/`, `tmp_path` is per-test as always,
