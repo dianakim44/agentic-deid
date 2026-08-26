@@ -26,6 +26,15 @@ So three things are asserted, and each answers one half of that:
 
 `{iteration}` being a directory rather than a filename suffix is checked too: `es-carmen`
 emits `es` and `cat` in one round, and one round's rule state is both files together.
+
+**The last section is the same decision for the three auxiliary inputs** — profile, mapping
+and lexicon — which `paths.armprofile`, `paths.armmapping` and `paths.armlexicon` scope to an
+arm as of 2026-08-26. It is the third recurrence of the collision above and the file stays
+the place it is asserted, because what makes it worth asserting separately is where the three
+*differ* from `armrules`: they carry no `{iteration}`, their hand-written counterparts keep
+living at axis-free paths that must not be disturbed, and only one of the three is denied by
+the screener. The tests are kept here rather than in a new file so the mutation gate's
+denominator does not move (CLAUDE.md).
 """
 from __future__ import annotations
 
@@ -39,7 +48,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from src.corpora.base import path_template                            # noqa: E402
+from src.corpora.base import ROUND_AXES, path_template                # noqa: E402
 from src.rules import RuleError, arm_rules_path, load_rules           # noqa: E402
 
 ARM = dict(corpus="es-meddocan", detector="R", supervision="sup-free",
@@ -295,3 +304,139 @@ def test_the_bootstrap_default_is_the_committed_example_and_not_an_arm_path():
     assert path_template("rules") == "rules/{lang}.yaml"
     assert "results/" not in path_template("rules")
     assert path_template("armrules").startswith("results/")
+
+
+# ─── the three auxiliary inputs, scoped the same way (DESIGN §4) ──────────────
+
+#: The agent-authored auxiliary inputs. `port-multi` adds one capability to `port-loop` and
+#: it is the authorship of these three; before this scoping they were named only by axis-free
+#: keys, so two arms' Profilers would write one file.
+AUX_KEYS = ("armprofile", "armmapping", "armlexicon")
+
+#: What each one replaces. The pairing is asserted rather than assumed because the whole
+#: argument for adding keys instead of widening these is that the hand-written versions keep
+#: their positions — `paths.lexicon` has a live consumer in `src/rules.py` and `profiles/`
+#: holds tracked files.
+HAND_KEYS = {"armprofile": "profile", "armmapping": "mapping", "armlexicon": "lexicon"}
+
+#: The three of `ROUND_AXES` that distinguish one arm from another. `corpus` is the fourth and
+#: is deliberately not here: the hand-written profile and mapping are per-corpus and say so in
+#: their templates, so asserting they carry no axis at all would be asserting the wrong thing.
+#: What must not appear in them is the axes that make a path an arm's.
+ARM_AXES = {"detector", "supervision", "porting"}
+
+
+def _fields(key):
+    import string
+    return {n for _, n, _, _ in string.Formatter().parse(path_template(key)) if n}
+
+
+def test_the_auxiliary_input_paths_carry_the_four_axes():
+    arm = "results/es-meddocan/R/sup-free/port-oneshot"
+    assert path_template("armprofile").format(**ARM) == f"{arm}/profile.json"
+    assert path_template("armmapping").format(**ARM) == f"{arm}/mapping.yaml"
+    assert path_template("armlexicon").format(**ARM, lang="es") == f"{arm}/lexicons/es/"
+
+
+@pytest.mark.parametrize("key", AUX_KEYS)
+def test_two_arms_cannot_write_the_same_auxiliary_input(key):
+    """The collision, stated as the property — the third recurrence of it.
+
+    `armfreeze`/`humanfreeze` was two arms sharing a *record*, `armrules`/`rules` was two arms
+    sharing a *rule input*, and this is two arms sharing the inputs the loop reads before it
+    writes anything. It is the worst of the three in one specific way: a rule file is
+    overwritten after the earlier arm has finished, but a later arm's Profiler can overwrite
+    these while the earlier arm is still iterating. Then both arms run on inputs that are
+    partly each other's, and neither arm's result corresponds to its own input.
+    """
+    extra = {"lang": "es"} if "lang" in _fields(key) else {}
+    one = path_template(key).format(**{**ARM, "porting": "port-oneshot"}, **extra)
+    multi = path_template(key).format(**{**ARM, "porting": "port-multi"}, **extra)
+    assert one != multi
+
+
+@pytest.mark.parametrize("key", AUX_KEYS)
+def test_an_auxiliary_input_path_carries_no_iteration(key):
+    """Where these part from `armrules`, and it is not an oversight.
+
+    DESIGN §4 defines the capability these three constitute as authorship of *inputs the loop
+    reads and never revises*. An `{iteration}` component would have the path assert they are
+    re-authored each round, which is what that definition denies — so the shape to copy is
+    `armfreeze`'s four axes, written once per arm, not `armrules`'s five.
+
+    Asserted over the template's fields rather than by searching for the substring `iter`, so
+    that a key spelling the round some other way is caught as well.
+    """
+    assert "iteration" not in _fields(key), (
+        f"paths.{key} carries an iteration. §4's capability is authorship of an input the "
+        "loop reads and never revises; a round component makes the path claim otherwise."
+    )
+    assert set(ROUND_AXES) <= _fields(key)
+
+
+@pytest.mark.parametrize("key", AUX_KEYS)
+def test_the_hand_written_counterpart_keeps_its_axis_free_path(key):
+    """Why three keys were added instead of three templates being widened.
+
+    `paths.lexicon` is read by `src/rules.py` when a rule declares its terms by list name — a
+    live consumer that formats the template with `lang` and nothing else, so an axis appearing
+    in it is a field that caller cannot fill. `paths.profile` names the position whose
+    hand-written instances are tracked in `profiles/` today. Widening either would leave a
+    committed input at a path no key names, which is the `armfreeze` migration §4 refused.
+    """
+    hand = HAND_KEYS[key]
+    assert not ARM_AXES & _fields(hand), (
+        f"paths.{hand} has gained an arm axis. It is the hand-written position, and for "
+        "`lexicon` it is also what src/rules.py formats with `lang` alone."
+    )
+    assert path_template(hand) != path_template(key)
+    assert not path_template(hand).startswith("results/")
+    assert path_template(key).startswith("results/")
+
+
+def test_only_the_agent_lexicon_is_denied_of_the_three(tmp_path):
+    """The classification splits, and the split is the thing to assert.
+
+    Each artefact inherits the classification of the hand-written version it replaces, because
+    changing the author does not change the file's content risk: the profile's human version is
+    tracked and the mapping's is published in DESIGN §9.0, so both are left to the content
+    sniffer. The lexicon has no hand-written instance to inherit from and its content is a
+    list of institution, region and department names and nothing else — a rule file carries
+    term lists too, but beside patterns and cue words, which is the surface the rule_id
+    vocabulary check and Prohibition 2 act on. This file has no such surface.
+
+    Asserted through `deny()` on real relative paths, for the reason
+    `test_the_screener_applies_the_rule_id_check_to_an_arm_path` gives: a pattern that
+    silently matches nothing reports a file as clean rather than rejecting it.
+    """
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(
+        "_screen_probe3", ROOT / "tools" / "release_screen.py")
+    screen = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(screen)
+
+    lex = path_template("armlexicon").format(**ARM, lang="es") + "terms.txt"
+    assert screen.deny(lex), (
+        "an arm's agent-authored lexicon is not denied. It is a bare list of identifying "
+        "surface forms, and the screener cannot tell from the path whether it came from a "
+        "public gazetteer or from dev text."
+    )
+    for key in ("armprofile", "armmapping"):
+        assert not screen.deny(path_template(key).format(**ARM)), (
+            f"paths.{key} is denied. Its hand-written counterpart is published, so the "
+            "agent-authored one inherits that classification and is left to the sniffer; "
+            "denying it would also hide a format record nobody can then read."
+        )
+
+
+def test_the_split_path_is_axis_free_on_purpose_and_stays_that_way():
+    """The reason the recurrence verdict stops at three keys and does not reach this one.
+
+    An arm axis here would let each arm choose its own folds, and then two arms' scores are
+    numbers about different test sets — §4's ladder compares nothing. It also empties the
+    seal: what is sealed is the fold this file names, so an arm that picks its own fold has
+    sealed something of its own. `paths.rules` is excluded from the verdict for a different
+    reason, which is that `armrules` exists.
+    """
+    assert path_template("split") == "splits/{corpus}.json"
+    assert not ARM_AXES & _fields("split")

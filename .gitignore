@@ -44,6 +44,11 @@ sealed/
 # 디렉토리가 아니라 파일 이름으로 거는 것이 deny 규칙과 같은 이유로 맞다.
 **/audit_report.json
 **/errors.jsonl
+# 에이전트가 저술한 사전 (naming.yaml `paths.armlexicon`). 결과 트리 아래로
+# 앵커한다 — `**/lexicons/` 로 쓰면 사람이 쓰는 최상위 lexicons/ 까지 무시되고,
+# 그 경로는 src/rules.py 의 사전 형식이 읽는 살아 있는 입력이다. 같은 이유로
+# deny 규칙도 `^results/` 로 앵커되어 있다. 축 넷이므로 별이 넷이다.
+results/*/*/*/*/lexicons/
 *value_map*.jsonl
 *value_map*.json
 *value_map*.csv

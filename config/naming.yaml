@@ -618,9 +618,74 @@ paths:
   # `rules/` 를 빼면 arm 이 쓴 파일이 검사를 통과하지 않고 *지나간다*.
   # 스크리너 쪽 정규식을 이 경로에 맞추는 변경이 함께 들어간다.
   armrules: "results/{corpus}/{detector}/{supervision}/{porting}/rules/iter{iteration}/{lang}.yaml"
+  # ─── 에이전트가 저술하는 보조 입력 셋 (DESIGN §4, 2026-08-26) ───────────
+  #
+  # port-multi 가 port-loop 에 더하는 한 능력은 "루프가 소비하지만 생산하지 않는
+  # 보조 산출물을 에이전트가 쓰는가" 이고, 그 산출물이 profile · mapping · lexicon
+  # 이다. Profiler · Mapper · LexiconBuilder 가 각각 하나를 쓴다 (§3 의 한 에이전트
+  # 한 파일 규칙).
+  #
+  # **아래 축 없는 세 키(lexicon · profile · mapping)를 넓히지 않고 키를 따로 둔다.**
+  # armrules 가 rules 를 남긴 채 추가된 것과 같은 형태이고 (§5.3), 이번에는 넓히지
+  # 못하는 이유가 하나 더 있다: 축 없는 세 경로에는 사람이 쓴 판본이 산다.
+  # paths.lexicon 은 규칙의 사전 형식이 실제로 읽는 살아 있는 소비자를 갖고
+  # (src/rules.py), profiles/ 에는 추적되는 파일들이 이미 있다. 템플릿에 축을 더하면
+  # 그 소비자는 채울 수 없는 필드를 만나고, 추적 중인 파일들은 어떤 키도 이름 짓지
+  # 않는 경로에 남는다.
+  #
+  # 이것이 같은 결함의 **세 번째 재발**이다. 첫 번째는 armfreeze/humanfreeze —
+  # 두 arm 이 같은 *기록* 을 공유했다. 두 번째는 armrules/rules — 같은 *규칙 입력* 을
+  # 공유했다. 세 번째가 이 셋이다. 앞의 둘과 다른 점은 덮이는 것이 arm 의 산출물이
+  # 아니라 **루프의 입력**이고, 덮이는 시점이 arm 이 도는 중이라는 것이다. 규칙 파일은
+  # 앞선 arm 이 끝난 뒤에 덮이지만, 이 셋은 나중 arm 의 Profiler 가 먼저 arm 이 아직
+  # 회차를 돌고 있는 동안 덮을 수 있다. 그러면 두 arm 이 서로의 입력 위에서 돌고,
+  # 어느 쪽 결과도 자기 입력에 대응하지 않는다 — 실행 자체가 오염된다.
+  #
+  # **{iteration} 이 없다. 축 넷이다.** armrules 와 갈리는 유일한 지점이고 의도다.
+  # §4 의 능력 정의가 이 셋을 "루프가 읽고 고치지 않는 입력" 이라고 말한다. 회차
+  # 성분을 넣으면 경로가 "회차마다 다시 저술된다" 고 주장하는 셈이고, 그건 능력
+  # 정의가 부정하는 것이다. armfreeze 와 같은 모양인 것이 맞다: arm 당 한 번 쓰인다.
+  # 미완료 arm 재실행이 이 파일들을 덮는 문제는 남는다 — auditdraw 가 draw 성분으로
+  # 푼 것과 같은 문제이므로, 필요해지면 같은 처방을 따로 논한다. 능력 정의와
+  # 어긋나는 성분을 예방적으로 넣지 않는다.
+  #
+  # **스크리너 분류가 셋에서 갈린다.** 저자가 사람에서 에이전트로 바뀌는 것이 파일의
+  # 내용 위험을 바꾸지 않으므로, 각 산출물은 자기가 대체하는 손으로 쓴 판본의 분류를
+  # 물려받는다. armprofile 은 형식 · 오프셋 규약 · 유형 목록 · 그룹 키이고, 사람이 쓴
+  # 판본이 profiles/ 에 추적되고 있다. armmapping 은 코퍼스 분류 → 정규 유형이고,
+  # 양쪽 다 유형 이름이며 사람이 쓴 판본이 §9.0 의 표로 이미 공개되어 있다. 그래서
+  # 둘은 deny 하지 않고 기본 내용 sniff 에 맡긴다 — ALLOW 에도 올리지 않는다.
+  # ALLOW 는 sniff 면제이고, 이 둘을 면제할 이유는 없다.
+  armprofile: "results/{corpus}/{detector}/{supervision}/{porting}/profile.json"
+  armmapping: "results/{corpus}/{detector}/{supervision}/{porting}/mapping.yaml"
+  # **셋 중 이것만 deny 대상이다** (release_screen.py, .gitignore). 왜 이것만 다른가:
+  # 사전은 기관 · 지역 · 부서 이름의 목록이고, 목록 *외에* 아무것도 아니다. 규칙 파일도
+  # 용어 목록을 담지만 패턴 · 단서어와 함께 담아서 rule_id 어휘 검사와 rule_author.md
+  # Prohibition 2 가 걸릴 표면이 있다. 이 파일에는 그 표면이 없다. 그리고 물려받을
+  # 사람 판본의 인스턴스가 아예 없다 — 위 규칙이 armprofile · armmapping 을 통과시킨
+  # 근거가 이 키에는 없다. 마지막으로 스크리너는 경로에서 *출처* 를 알 수 없다:
+  # 공개 gazetteer 로 만든 사전과 dev 원문에서 뽑은 사전이 같은 경로로 온다.
+  # 구별할 수 없으면 §6.1 의 allowlist 논거가 가는 방향이 deny 다.
+  #
+  # deny 는 `^results/` 로 앵커한다. `(^|/)lexicons/` 로 걸면 아래 축 없는 lexicon —
+  # 사람이 쓰는 자리이고 src/rules.py 가 읽는 살아 있는 입력 — 까지 잡는다.
+  # audit_report 를 디렉토리가 아니라 이름으로 거는 판단의 반대 방향이고 이유는 같다:
+  # 규칙의 단위가 잡아야 할 것과 정확히 겹쳐야 한다.
+  armlexicon: "results/{corpus}/{detector}/{supervision}/{porting}/lexicons/{lang}/"
+  # ─── 사람이 쓴 판본 셋. 축이 없고, 그대로 남는다 ────────────────────────
+  # 위 arm 범위 키 셋이 덮는 것은 이 경로들이 아니라 이 경로들의 *에이전트 판본* 이다.
+  # port-multi 아래의 모든 rung 은 여기 있는 것을 읽는다 (§9.0 — 매핑은 "모든 arm 이
+  # 공유하는 설계 입력, 한 arm 의 산출물이 아니다").
   lexicon:  "lexicons/{lang}/"
   profile:  "profiles/{corpus}.json"
   mapping:  "mappings/{corpus}.yaml"
+  # **축이 없고, 그것이 결함이 아니다.** 위 재발 판정이 이 키에 걸리지 않는 이유를
+  # 적어둔다 — 축 없는 키가 전부 결함이면 이 키에도 arm 축을 붙이게 된다.
+  # 분할은 arm 에 불변이어야 한다. arm 축이 들어가면 arm 마다 다른 분할이 가능해지고,
+  # 그러면 두 arm 의 점수가 서로 다른 fold 에 대한 값이 되어 §4 의 사다리가 비교하는
+  # 것이 없어진다. 봉인도 무의미해진다: 봉인된 것은 이 파일이 지목한 fold 이므로,
+  # arm 이 자기 fold 를 고를 수 있으면 arm 마다 다른 것을 봉인한 것이 된다.
+  # rules 가 판정에서 빠지는 이유는 이것과 다르다 (arm 판본이 armrules 로 따로 있다).
   split:    "splits/{corpus}.json"
 
 # ─── 예시 ────────────────────────────────────────────────────
@@ -629,3 +694,6 @@ paths:
 # results/es-meddocan/R/sup-free/port-oneshot/rules/iter1/es.yaml
 # results/es-carmen/R/sup-free/port-loop/rules/iter3/cat.yaml
 # results/es-meddocan/R/sup-free/port-oneshot/format_failure.json
+# results/es-meddocan/R/sup-free/port-multi/profile.json
+# results/es-meddocan/R/sup-free/port-multi/mapping.yaml
+# results/es-meddocan/R/sup-free/port-multi/lexicons/es/

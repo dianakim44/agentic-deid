@@ -1505,6 +1505,40 @@ comparison on templates would pass this mutant, and so would one that had merely
 which is the reason the finding is recorded in DESIGN §5.5 rather than fixed by declaring the
 key and moving on.
 
+### One more on the path block — the third recurrence, and it looks like tidying — 2026-08-26
+
+`the_arm_axis_comes_back_off_an_auxiliary_input` takes `paths.armprofile` back to
+`profiles/{corpus}.json`, which is the shape `paths.profile` still has one line below it. The
+two keys then name one file and every arm's Profiler writes it.
+
+**Why this is the tidying-shaped edit rather than an invented one.** The three arm-scoped
+auxiliary-input keys were added the same day as the mutation (DESIGN §4: `port-multi` differs
+from `port-loop` in the authorship of profile, mapping and lexicon), and they sit directly above
+the three hand-written keys they were added *beside* rather than instead of. Same filenames, no
+axes on one set and four on the other, and no reader for either pair yet — the arms that will
+use them have not run. Somebody arriving at this block sees six keys for three artefacts and one
+obvious simplification. It is the third time: `armfreeze` was collapsed back into `humanfreeze`
+twice, and `armrules` into `rules` once.
+
+**What it costs is worse than either earlier recurrence, and the reason is which direction the
+file points.** An overwritten rule file is an overwritten *output* — the earlier arm has already
+finished, and what is lost is the record of what it ran on. These three are *inputs*, so a later
+arm's Profiler can overwrite them while the earlier arm is still iterating: both arms then
+proceed on inputs that are partly each other's, and neither arm's numbers correspond to its own
+input. Nothing reports anything. `metrics.json` is complete, `rules_version` is an integer, and
+`rules_source` names a path that exists and holds a file.
+
+Five tests catch it, and the useful thing is which. `test_two_arms_cannot_write_the_same_auxiliary_input[armprofile]`
+states the collision as a property rather than as a template spelling, so a mutant that kept
+some axes would still fail it.
+`test_the_hand_written_counterpart_keeps_its_axis_free_path[armprofile]` is the one that notices
+the two keys have become one file — the assertion the earlier two recurrences did not have, and
+the one that makes the sixth key legible as deliberate rather than duplicated.
+`test_an_auxiliary_input_path_carries_no_iteration[armprofile]` catches it from the other side,
+over the template's own fields: the four axes must still be there, and asserting the round's
+absence and the axes' presence in one place is what stops the fix for one from breaking the
+other. `min_kills` is 4 against a measured 5.
+
 ### Two on the call log's new field, where one is a value and the other is only an order
 
 Added 2026-08-13, with `role` on `call_line()`. RuleAuthor and Auditor share one
@@ -2935,6 +2969,46 @@ The general form to check the rest of this file against: **an absence-of-key tes
 which guard refused, not that some guard did.** A `pytest.raises(SomeError)` with a substring
 that appears in a neighbouring message is a test of the exception type, and every guard in
 `bedrock.py` raises `BedrockError`.
+
+### The impact-scope run of 2026-08-26, and the one count that moved for a reason predating it
+
+**What ran.** 19 of 177: the mutation added that day
+(`the_arm_axis_comes_back_off_an_auxiliary_input`) plus every existing mutation whose count the
+two changed test files could move. Baseline 1821 in 284.5 s, serial. **All 19 caught.**
+
+**Scope was derived.** The commit adds three arm-scoped keys to `config/naming.yaml`, one deny
+pattern to `tools/release_screen.py`, one `.gitignore` line, and assertions to two test files
+already in `TEST_FILES` — `test_arm_rules_path.py` (12 cases) and `test_release_screen.py`
+(one parametrized test plus one deny sample). Those tests' runtime reach is the config's `paths`
+block and the screener's deny/allow decision, so the scope is the mutations anchored in those
+two files: 7 in `config/naming.yaml`, 12 in `tools/release_screen.py` counting the new one.
+Nothing else can be reached — a new assertion about a path template does not execute a loader
+offset or a scorer mode, and reach is the test rather than filename overlap.
+
+**Everything outside that scope is deferred to the next full run, not exempt.** 158 mutations
+were not re-measured. Their recorded counts stand as the 2026-08-25 measurement and no
+expectation is recorded for them here, because there is nothing to compare a new expectation
+against.
+
+**18 of the 19 came back byte-identical to the sidecar. One rose, and it is worth the paragraph
+because the cause is not this commit.** `the_language_layer_is_a_substring_test` went 1 → 3. The
+two added kills are `test_every_current_false_positive_is_covered` and
+`test_every_acknowledged_entry_is_a_hit_that_actually_happens` — allowlist-coverage tests, which
+read the working tree rather than a fixture. Probed rather than assumed, and then narrowed by
+diffing `sniff()` across the mutation on every rule file in the tree: the two files whose
+finding changes are the arm's round-7 and round-8 rule files, and **both were committed after
+the full run was measured**. Their acknowledged entries record a finding count, that count
+shifts by one under the mutation, and the entry stops matching. So the increase is two rounds of
+`port-loop` arriving in the repository, not two assertions arriving in the suite — and the
+commit's own new tests are not among the three that catch it.
+
+That is the shape the impact-scope rule is supposed to produce: a count that moves gets
+attributed before it is written down. The alternative reading — "the new tests made a screener
+guard better covered" — was available, cheap to believe, and wrong.
+
+**The full-run tables above and `docs/notes/mutation-full-runs.counts.json` are untouched.** A
+19-mutation run is not a full run and recording it as one would put a partial measurement where
+the next comparison's baseline lives. The numbers from this run live in this section only.
 
 ## Running all of it: eight shards, five invariants, and when the gate is owed a full run
 

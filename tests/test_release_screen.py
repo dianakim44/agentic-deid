@@ -1100,6 +1100,13 @@ DENY_SAMPLES = {
     r"(^|/)errors\.jsonl$": [
         "results/a/b/c/d/iter3/errors.jsonl", "errors.jsonl",
     ],
+    # `paths.armlexicon`. Anchored at the results tree rather than written `**/lexicons/`,
+    # so the sample is four components deep and the .gitignore line has to be too — a
+    # hand-written `**/lexicons/` would pass this sample and also swallow the top-level
+    # human path, which `test_the_hand_written_lexicon_path_is_not_denied` refuses.
+    r"^results/[^/]+/[^/]+/[^/]+/[^/]+/lexicons/": [
+        "results/a/b/c/d/lexicons/e/terms.txt",
+    ],
 }
 
 #: The deny patterns that must NOT be gitignored, and the test that says why is
@@ -1187,6 +1194,38 @@ def test_every_deny_listed_path_is_also_gitignored(path, gitignore_probe):
         f"{path} is denied by tools/release_screen.py and is not gitignored. Add a "
         "pattern to .gitignore's deny-list section — matching the deny rule's shape, "
         "not this one filename."
+    )
+
+
+@pytest.mark.parametrize("path", [
+    "lexicons/es/terms.txt",
+    "lexicons/ko/terms.txt",
+    "profiles/es-meddocan.raw.json",
+    "mappings/es-meddocan.yaml",
+])
+def test_the_hand_written_auxiliary_inputs_are_not_denied(path, gitignore_probe):
+    """The agent-scoped rule must not reach the hand-written paths it was added beside.
+
+    `paths.armlexicon` is denied and `paths.lexicon` is not, and the two differ only in
+    a prefix — so the rule's anchor is the whole of the distinction. Written `**/lexicons/`
+    it would also catch the top-level directory, which is the position a person writes and
+    which `src/rules.py` reads when a rule declares a term list by name: the loader would
+    go on working while the input it reads became unpublishable and, once gitignored, also
+    unstageable. `profiles/` is the same failure already realised — files are tracked
+    there today, so an ignore pattern reaching them would make a committed input invisible
+    to a fresh clone (`test_no_tracked_file_is_gitignored` is the other half of that).
+
+    Asserted over both halves because they fail independently: a deny pattern with no
+    gitignore line and a gitignore line with no deny pattern are each one edit away.
+    """
+    assert not rs.deny(path), (
+        f"{path} is a hand-written auxiliary input and the screener denies it. The "
+        "agent-scoped rule is meant to be anchored at `^results/`; a `(^|/)lexicons/` "
+        "shape reaches the position a person writes and that src/rules.py reads."
+    )
+    assert not gitignore_probe(path), (
+        f"{path} is gitignored. The agent-scoped ignore line must stay anchored under "
+        "results/ — the hand-written inputs are committed, or will be."
     )
 
 

@@ -3178,6 +3178,41 @@ MUTATIONS = [
         min_kills=2,
     ),
 
+    Mutation(
+        name="the_arm_axis_comes_back_off_an_auxiliary_input",
+        path=NAMING,
+        anchor='  armprofile: "results/{corpus}/{detector}/{supervision}/{porting}/profile.json"',
+        replacement='  armprofile: "profiles/{corpus}.json"',
+        breaks=(
+            "**The third recurrence, restored.** `paths.armprofile` goes back to the shape it "
+            "was added to replace, which is also the shape `paths.profile` still has — so the "
+            "two keys name one file and every arm's Profiler writes it.\n"
+            "\n"
+            "This is the edit that looks like tidying. The hand-written key is right there, one "
+            "line below, with the same filename and no axes, and a reader who has not read "
+            "DESIGN §4 sees two keys for one artefact. Collapsing them is what `armfreeze` and "
+            "`armrules` were each collapsed back into twice before.\n"
+            "\n"
+            "What it costs is worse here than in either of those, and the reason is the "
+            "capability §4 defines: these are the loop's *inputs*. An overwritten rule file is "
+            "an overwritten output — the earlier arm has finished, and what is lost is the "
+            "record of what it ran on. An overwritten profile can be overwritten by a later "
+            "arm's Profiler *while the earlier arm is still iterating*, so both arms proceed on "
+            "inputs that are partly each other's and neither result corresponds to its own "
+            "input. Nothing reports anything: `metrics.json` is complete, `rules_version` is an "
+            "integer, `rules_source` names a path that exists and holds a file.\n"
+            "\n"
+            "Caught by `test_two_arms_cannot_write_the_same_auxiliary_input[armprofile]`, which "
+            "asserts the collision as a property rather than the template's spelling, by "
+            "`test_the_hand_written_counterpart_keeps_its_axis_free_path[armprofile]`, which is "
+            "what notices the two keys have become one file, by "
+            "`test_an_auxiliary_input_path_carries_no_iteration[armprofile]` on the four axes "
+            "the template must still contain, and by "
+            "`test_the_auxiliary_input_paths_carry_the_four_axes`."
+        ),
+        min_kills=4,
+    ),
+
     # ─── the per-span error export (DESIGN §5.5, §9.3) ─────────────────────
     Mutation(
         name="the_export_index_is_the_in_scope_position",
