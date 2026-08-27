@@ -3992,6 +3992,73 @@ the read, and a round that is not the arm's final round is refused rather than l
   and a re-run whose only difference is a bug fix. If the paper has to say the fold was opened twice
   for one arm, that is the true sentence, and this section grants no exemption from it.
 
+### 6.5 Two corpora that share a source release — **open, decided before acquisition**
+
+Everything above defines the seal **per corpus**: `splits/{corpus}.json`, one `sealed/`
+tree per corpus, a log keyed on the corpus cell. Nothing in §6.1–6.4 or in CLAUDE.md
+says what happens when two corpora in the same paper contain the same underlying
+documents. That case is now live: `ko-surro` is a Korean surrogate corpus derived from
+the PhysioNet de-identified nursing-note release, and MIMIC-III is where those notes
+came from. A document sealed in one corpus can sit in the other's dev fold, and the
+per-corpus seal will report itself intact while it does.
+
+**This section enumerates the options and does not choose one.** The decision belongs
+before the MIMIC-III application, because it can change what is applied for and because
+one of the options is free only until a split file exists. The application's own
+preparation — requirements, the δ arithmetic for the nursing subset, and the DATE
+question — is in `docs/notes/mimic-iii-acquisition.md`, which is blocked on this section. It is recorded as open rather
+than as an answer so that the choice is dated and visible, and so that no arm runs under
+an unwritten version of it.
+
+**The correspondence question is two links, not one, and they fail independently.**
+
+| Link | What it asserts | Status |
+|---|---|---|
+| 1. `ko-surro` → source release | which of the 2,434 notes each `ko-surro` document came from | no record anywhere in this repo; `ko-surro` is not acquired |
+| 2. source release → MIMIC-III | which MIMIC-III note each of the 2,434 is | the release's own patient and record numbering may not be MIMIC's; the source page is internally inconsistent about MIMIC-II vs MIMIC-III parentage |
+
+Exclusion or alignment by document needs **both**. Link 1 is the one still open to
+influence: because `ko-surro` is not acquired, its acquisition step can be required to
+carry source document identifiers, and that requirement costs nothing if it is stated
+before the corpus is built and is unrecoverable after. Link 2 is a fact about two
+released datasets and can only be established, not arranged — and probably only with
+both in hand.
+
+**What is actually at risk is narrower than "the same text in two folds," and how narrow
+is itself one of the disputed grounds.** `ko-surro` is a surrogate corpus: PHI surface
+forms are replaced and the text is in another language, so byte offsets do not
+correspond and the sealed annotation is not recoverable from the source document. One
+reading is that a seal protects the annotation, and this seal therefore does not leak.
+The other is that what the porting loop consumes is not annotations but *where PHI
+occurs and in what context*, and that survives both substitution and translation intact
+— which is exactly the signal a rule-development loop is fitted on. These two readings
+disagree about whether there is a problem at all, and the options below are not
+comparable until that is settled.
+
+**The options, with the ground each stands on.**
+
+| Option | Ground for | Ground against |
+|---|---|---|
+| **A. Exclude by document** — corresponding documents are dropped from the second corpus | exact, and the only option that leaves both folds clean under either reading above | needs links 1 and 2; shrinks whichever corpus yields, and `ko-surro` is the one that cannot afford it (§7.1 route (b): δ already fails there by 2×–9×) |
+| **B. Align rather than exclude** — corresponding documents are forced into the *same* fold role in both corpora | preserves the seal without discarding data, and keeps the paired English/Korean contrast that §7.1 calls the sharpest test of §7 | needs links 1 and 2, and needs whichever split is defined second to be *derived* from the first — so it expires the moment either split file is committed |
+| **C. Structural exclusion** — the MIMIC-III arm uses only non-nursing note categories | needs neither link; checkable from a category field alone | removes the note type the pair is *for*. §7.1's nursing-note prediction is unrunnable under this option, which makes it the most expensive option scientifically and the cheapest procedurally |
+| **D. Exclude the superset** — drop all 2,434 source notes from the MIMIC-III arm | needs only link 2; costs almost nothing against MIMIC-III's size | still needs link 2, which may be the harder of the two; and 2,434 nursing notes may be a non-trivial fraction of the nursing subset specifically, which is not yet measured |
+| **E. Report as a limitation** — run both, state the overlap and its bound | honest and available with no links at all; rests on the "seal protects the annotation" reading | a limitation whose *size* is unknown is not a bounded limitation. Without link 2 the overlap cannot even be bounded above except by 2,434 |
+| **F. Drop one corpus from the paper** | forecloses the question entirely | gives up either the high-baseline cell or the only axis-1 zero, and §7.1 says both are load-bearing |
+
+**Two things that are not options.** Content matching against `sealed/` to discover the
+overlap is not available: it would require reading the sealed text, which CLAUDE.md
+forbids outright, and cross-lingual matching between a Korean surrogate and an English
+source would not work in any case. And deciding this after the fact is not available
+either — B is the option that a committed split file destroys, so a decision deferred
+past the first split is a decision against B without saying so.
+
+**What would settle it.** Link 2 is answerable from the two datasets' identifier fields
+once both are held, and it is the pivot: A, B and D all become available if it holds and
+all fail if it does not, leaving C, E and F. Whether the surrogate transformation breaks
+the leak is not an empirical question about the corpora but a question about what the
+seal is for, and §6.1 is where that answer would have to be consistent.
+
 ---
 
 ## 7. Data
@@ -4235,6 +4302,46 @@ arrives) at high baseline, with the interior left unobserved. A second Spanish r
 at fixed language — clinical notes against case studies, or an unedited Spanish
 register — is what closes this, and acquiring one is worth more to the argument than a
 further arm on the corpora already held.
+
+#### The operative count is 1, not 2 — recorded 2026-08-27
+
+"At most two cells" is an upper bound and stands as written. **Its operative value
+today is 1.** The two are not the same number, and reading the bound as a count of
+populated cells is a misreading of this section, not an error in it: the paragraphs
+above already mark the English rows a projection and already write "(if n2c2 arrives)"
+into the conclusion itself. Only the low-baseline cell is populated, by GraSCCo. The
+high-baseline cell is contingent on a corpus we do not hold, and the medium cell is
+impossible. So the sentence needed no repair; what it needed was the operative value
+stated next to the bound, which is what this paragraph is for. The reason to write it
+down rather than leave it inferable is that "checkable in at most two cells" reads as
+reassurance and "checkable in one" reads as a limitation, and the second is the true
+description of the corpus set as held.
+
+**The prescription that follows is a second Spanish register, not an English corpus.**
+This is already the conclusion's last sentence, and the operative-value correction does
+not move it — it sharpens it. An English corpus takes the operative count from 1 to 2 by
+populating an end; a second Spanish register at fixed language is the only acquisition
+that touches the interior, which is the cell the product hypothesis is actually untested
+in. The two acquisitions are not substitutes and the English one is not the cheaper
+version of the Spanish one.
+
+**If MIMIC-III is acquired, three things change and one does not.** (i) The operative
+count goes 1 → 2: the high-baseline cell becomes populated by measurement rather than
+projection. (ii) English gains *within-corpus* axis-2 variation — MIMIC-III's NOTEEVENTS
+carries nursing, physician, discharge-summary, radiology and ECG notes under one
+de-identification pass — which is the property that made GraSCCo the only instrument for
+"a language is an interval." Whether n2c2 2014 would have supplied that was never
+verified and is now moot for this question. (iii) The §7 prediction that English nursing
+notes behave like Korean — high baseline, near-zero realisation — becomes directly
+testable against `ko-surro` at fixed note type, which is the sharpest single prediction
+this section makes. That third item is gated on §6.5: the two corpora share a source
+release, and until the cross-corpus seal relation is decided the pair cannot be run.
+`ko-surro` is also not yet acquired (`data/README.md`: held, DUA).
+
+What does not change is the prescription. The medium cell stays impossible with or
+without MIMIC-III, because MIMIC-III is English and adds nothing at Spanish's baseline
+value. A second Spanish register remains the acquisition that closes §7.1; MIMIC-III
+changes how urgent it is, not whether it is needed.
 
 ---
 
