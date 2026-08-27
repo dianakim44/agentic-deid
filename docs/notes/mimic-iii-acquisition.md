@@ -31,9 +31,15 @@ comparison-only claim and is recorded as one (DESIGN §7.1's correction).
 
 **Two reasons that looked like they survived, and one that turned out not to be needed.**
 
+> **2026-08-28.** The first row below was written believing the human reference sat in the
+> DUA-restricted release. It does not — it is in the open-access de-identification package,
+> and it is now held. That strengthens the row rather than weakening it: the English pair
+> needs no application at all, where MIMIC-III's remaining justification still does. It also
+> removes the last measurement §0's deferral was waiting on.
+
 | Candidate reason | Why it does not require MIMIC-III |
 |---|---|
-| The English high-baseline nursing pair against `ko-surro` at fixed note type — §7's sharpest single prediction | the source release **is** 2,434 English nursing notes. It failed only on δ, and δ is vacuous for a one-shot arm. At ≈1,779 reference spans, ≈0.91 in scope, 25% dev, its δ would be ≈6.4 pp — unusable for iteration, irrelevant without it. And unlike MIMIC-III it has a human reference in the release, so this pair can be run against *real gold* on the corpus already held |
+| The English high-baseline nursing pair against `ko-surro` at fixed note type — §7's sharpest single prediction | the source release **is** 2,434 English nursing notes. It failed only on δ, and δ is vacuous for a one-shot arm. At 1,779 reference spans, ≈0.91 in scope, 25% dev, its δ would be ≈6.4 pp — unusable for iteration, irrelevant without it. And unlike MIMIC-III it has a human reference: 1,779 gold spans with types, **now held** (`ko-surro-gold-provenance.md`), so this pair can be run against real gold rather than against a tool's output |
 | Replacing `en-n2c2` as "an English corpus" | populating an end of axis 1 is not what §7.1 is short of. The interior — a second Spanish register — is, and MIMIC-III is English |
 
 ### When it becomes necessary

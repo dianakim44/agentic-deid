@@ -2,26 +2,31 @@
 """Where ko-surro's reference comes from, and how far it is from the human gold.
 
 `ko-surro` was built by treating the placeholder positions in the source release's
-de-identification-tool output as the PHI coordinates. That file is a system output: it
-carries 2,164 placeholders where the release's own reference is about 1,779 instances, and
-the producing project's manual review relabelled 142 placeholders as not-PHI. So the
-corpus scores predictions against a silver standard produced by the same kind of object
-being scored.
+de-identification-tool output as the PHI coordinates. That file is a system output, and the
+human reference is a separate artefact: `id.deid` lists 1,779 gold PHI locations where the
+tool output carries 2,164 placeholders.
 
-The release ships three files that carry the human reference — gold offsets, gold types,
-and a six-field index over the gold instances. This tool answers the three questions that
-acquiring them makes answerable:
+Where the reference lives, because this was got wrong once. It is **not** in the credentialed
+text release, which ships exactly `id.text` and `id.res`. It is in the *de-identification
+software package*, which is **open access** — `id.deid` (gold offsets, numbers only) and
+`id-phi.phrase` (offsets, types and the PHI phrase). The package README also names an
+`id.types`; that file is in the manifest and in no distribution, and its content is available
+as `id-phi.phrase` field 5 instead. See docs/notes/ko-surro-gold-provenance.md.
+
+Three questions this answers:
 
   (a) where the difference between the placeholder count and the human gold count comes
       from, decomposed into placeholders the gold does not support, gold spans no
-      placeholder covers, and matched pairs;
+      placeholder covers, gold spans sharing a placeholder with a neighbour, and matches;
   (b) what type the untyped placeholders — the ones whose payload is a value rather than a
       type name — carry in the human gold;
-  (c) the disagreement rate between the silver reference and the human gold, including
-      whether the 142 not-PHI relabels fall inside the unsupported set.
+  (c) the disagreement rate between the silver reference and the human gold.
 
-Two modes, because the reference files' exact layout is not documented on the project page
-and is not going to be guessed from here:
+The decomposition is externally checkable and checks out: `runStat.pl` in the same package
+reports 59 false negatives and recall 0.967 against this reference, and (a) reproduces both
+exactly. A parse that got the column roles wrong could not do that.
+
+Two modes:
 
     describe   structure only — sizes, line counts, delimiters, field-count histograms.
                Runs on whatever subset of the release is present.
@@ -29,11 +34,13 @@ and is not going to be guessed from here:
                validate, rather than reporting a disagreement rate that is really a
                misparse (see `_validate_offsets`).
 
-Data handling. **Nothing this tool prints contains note text.** Counts, offsets, lengths
-and type labels only, and type labels pass `_safe_label` first — a misinferred column
-would otherwise print PHI phrases as if they were types, which is the one way a
-structure-only tool can leak. That rule covers exception messages too: the corpus is real
-nursing text under a DUA, and an exception message reaches terminals and CI logs where
+Data handling. **Nothing this tool prints contains note text.** Counts, offsets, lengths and
+type labels only. `id.deid` holds no text at all. `id-phi.phrase` does — field 6 is the PHI
+phrase — and every read of that file splits with maxsplit=5 and discards the remainder, so
+the phrase is never bound to a name. That is structural rather than a print-time guard,
+because a print-time guard is what the earlier version had and it did not hold: a one-word
+phrase is label-shaped. The rule covers exception messages too — the corpus is real nursing
+text under a DUA, and an exception message reaches terminals and CI logs where
 `tools/release_screen.py` cannot follow it.
 """
 
@@ -62,7 +69,24 @@ _VALUELIKE_RE = re.compile(r"^[\d\s\-/.'’]*$")
 _LABEL_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_]{1,39}$")
 
 HELD = ("id.text", "id.res")
-REFERENCE = ("id.deid", "id.types", "id-phi.phrase")
+# Two files, not three. The de-identification package's README lists a fifth corpus file,
+# `id.types` ("Category of PHIs in id.deid"), and that file is not distributed — it appears
+# in the manifest and in no file listing. The types are in `id-phi.phrase` field 5 instead,
+# so nothing is lost; see docs/notes/ko-surro-gold-provenance.md for how the manifest was
+# mistaken for an inventory.
+REFERENCE = ("id.deid", "id-phi.phrase")
+
+# `id.deid`: `Patient <pid>  Note <n>` framing, then one line per instance.
+_DEID_HEADER_RE = re.compile(r"^Patient\s+(\S+)\s+Note\s+(\S+)\s*$")
+# `start  start  end` — the start is written twice. Not (start, end, length): the third
+# field is the end, and field 3 minus field 1 is the span length.
+_DEID_SPAN_RE = re.compile(r"^\s*(\d+)\s+(\d+)\s+(\d+)\s*$")
+
+# `id-phi.phrase`: `<pid> <note> <start> <end> <type> <text>`, whitespace-separated. The
+# sixth field is the PHI phrase itself and may contain spaces, so every read of this file
+# splits with maxsplit=5 and discards the remainder. That is why the leak path is closed
+# structurally here rather than guarded downstream: the text is never bound to a name.
+_PHRASE_FIELDS = 5
 
 
 @dataclass(frozen=True)
@@ -176,7 +200,7 @@ def align(masked: Record, surrogate: Record) -> list[Aligned]:
     return out
 
 
-# ─── parsing the three reference files ─────────────────────────────────────────
+# ─── parsing the two reference files ───────────────────────────────────────────
 
 
 def sniff(path: Path) -> dict:
@@ -206,90 +230,85 @@ def sniff(path: Path) -> dict:
     }
 
 
-def parse_reference(deid: Path, types: Path | None) -> GoldTable:
-    """Parse gold offsets, and types where a separate file carries them.
+def parse_reference(deid: Path, phrase: Path | None) -> GoldTable:
+    """Parse the gold offsets from `id.deid`, and the gold types from `id-phi.phrase`.
 
-    Two layouts are accepted, because the project page documents neither:
-      - record-framed: START_OF_RECORD blocks whose lines begin with two integers;
-      - flat: one line per instance, `||||`- or tab-delimited, with the record key in the
-        leading fields and two integers for the span.
-    Column roles are inferred from which columns are integral, and the inference is
-    reported. It is then *checked* against the alignment by `_validate_offsets`; a wrong
-    inference shows up as near-total mismatch and is refused rather than reported.
+    Both formats are documented in the de-identification package's README and were confirmed
+    against the files, so nothing here is inferred. That matters beyond tidiness: the earlier
+    version of this function inferred column roles by scanning every field for something
+    label-shaped, which on `id-phi.phrase` reaches field 6 — the PHI phrase. A one-word
+    phrase is label-shaped, so a surname could be stored and later printed as a type. The
+    fix is structural rather than a guard: field 6 is never split off, so it is never bound.
+
+    `id.deid` is offsets only and carries no text at all, which is why it is the file the
+    span table is built from. `id-phi.phrase` supplies types positionally, in file order
+    within each record — the same order `id.deid` lists them in, which `check` verifies by
+    requiring the two files to agree on every span before any type is attached.
     """
     table = GoldTable()
     lines = deid.read_text(encoding="utf-8", errors="strict").splitlines()
     table.n_lines = len(lines)
     cur: str | None = None
-    flat_delim = "||||" if any("||||" in ln and not _START_RE.match(ln) for ln in lines[:400]) else None
-    if flat_delim is None:
-        flat_delim = "\t" if any("\t" in ln for ln in lines[:400]) else None
 
     for ln in lines:
         if not ln.strip():
             continue
-        m = _START_RE.match(ln)
+        m = _DEID_HEADER_RE.match(ln)
         if m:
             cur = f"{m.group(1)}_{m.group(2)}"
             table.spans.setdefault(cur, [])
             continue
-        if ln.rstrip().endswith(_END_MARK):
-            cur = None
-            continue
-        parts = ln.split(flat_delim) if flat_delim else ln.split()
-        ints = [(j, int(p.strip())) for j, p in enumerate(parts) if p.strip().isdigit()]
-        if len(ints) < 2:
+        m = _DEID_SPAN_RE.match(ln)
+        if m is None or cur is None:
             table.n_unparsed += 1
             continue
-        if cur is not None:
-            key = cur
-            s, e = ints[0][1], ints[1][1]
-        elif len(parts) >= 4:
-            key = f"{parts[0].strip()}_{parts[1].strip()}"
-            # The record key occupies the leading fields, so the span is the last two
-            # integers on the line rather than the first two.
-            s, e = ints[-2][1], ints[-1][1]
-        else:
+        f1, f2, f3 = (int(g) for g in m.groups())
+        if f1 != f2:
+            # The duplicated-start convention is what identifies this format. If it does not
+            # hold, the file is not what this parser was written for and guessing which two
+            # of the three fields are the span is exactly the inference this rewrite removed.
             table.n_unparsed += 1
             continue
-        idx = len(table.spans.setdefault(key, []))
-        table.spans[key].append(Span(s, e))
-        for p in parts:
-            lab = p.strip()
-            if _LABEL_RE.match(lab) and not lab.isdigit():
-                table.types[(key, idx)] = lab
-                break
+        table.spans[cur].append(Span(f1, f3))
 
-    if types is not None and types.exists():
-        _merge_types(table, types, flat_delim)
+    if phrase is not None and phrase.exists():
+        _merge_types(table, phrase)
     return table
 
 
-def _merge_types(table: GoldTable, types: Path, flat_delim: str | None) -> None:
-    """Attach types from a separate file, positionally within each record."""
-    cur: str | None = None
+def _merge_types(table: GoldTable, phrase: Path) -> None:
+    """Attach types from `id-phi.phrase`, positionally within each record.
+
+    The span coordinates in this file are read too, and used only to check that it lists the
+    same spans in the same order as `id.deid`. A type attached to the wrong span would be
+    indistinguishable from a real finding about the corpus, so a mismatch drops the type
+    rather than recording it.
+    """
     seen: Counter[str] = Counter()
-    for ln in types.read_text(encoding="utf-8", errors="strict").splitlines():
+    for ln in phrase.read_text(encoding="utf-8", errors="strict").splitlines():
         if not ln.strip():
             continue
-        m = _START_RE.match(ln)
-        if m:
-            cur = f"{m.group(1)}_{m.group(2)}"
+        # maxsplit=5: fields 1-5 are structural, and the remainder is the PHI phrase, which
+        # is deliberately left unsplit and unread.
+        parts = ln.split(None, _PHRASE_FIELDS)
+        if len(parts) < _PHRASE_FIELDS:
+            table.n_unparsed += 1
             continue
-        if ln.rstrip().endswith(_END_MARK):
-            cur = None
+        pid, note, start, end, lab = parts[0], parts[1], parts[2], parts[3], parts[4]
+        if not (start.isdigit() and end.isdigit()):
+            table.n_unparsed += 1
             continue
-        parts = ln.split(flat_delim) if flat_delim else ln.split()
-        key = cur if cur is not None else (
-            f"{parts[0].strip()}_{parts[1].strip()}" if len(parts) >= 2 else None
-        )
-        if key is None:
-            continue
-        lab = next((p.strip() for p in reversed(parts) if _LABEL_RE.match(p.strip())), None)
-        if lab is None:
-            continue
-        table.types[(key, seen[key])] = lab
+        key = f"{pid}_{note}"
+        idx = seen[key]
         seen[key] += 1
+        spans = table.spans.get(key)
+        if spans is None or idx >= len(spans):
+            table.n_unparsed += 1
+            continue
+        if spans[idx] != Span(int(start), int(end)):
+            table.n_unparsed += 1
+            continue
+        table.types[(key, idx)] = lab
 
 
 def _validate_offsets(table: GoldTable, aligned: dict[str, list[Aligned]], bodies: dict[str, str]) -> tuple[str, float]:
@@ -312,10 +331,17 @@ def _validate_offsets(table: GoldTable, aligned: dict[str, list[Aligned]], bodie
 
 
 def _safe_label(lab: str | None, vocab: Counter[str]) -> str:
-    """Print a type label only when it is plausibly a label and not a phrase."""
+    """Print a type label only when it is a bare identifier the type column actually holds.
+
+    `vocab` is the reference's own type column. The membership test used to be
+    `vocab[lab] >= 5 or lab in vocab`, whose second clause admits anything already in the
+    table — so it guarded nothing once a phrase had been stored. Now that field 6 is never
+    read a phrase cannot be stored, and this stays as the second line of defence with the
+    ineffective clause removed: a label prints only if the column shows it repeatedly.
+    """
     if lab is None:
         return "<none>"
-    if _LABEL_RE.match(lab) and (vocab[lab] >= 5 or lab in vocab):
+    if _LABEL_RE.match(lab) and vocab[lab] >= 5:
         return lab
     return "<label-withheld>"
 
@@ -324,7 +350,8 @@ def _safe_label(lab: str | None, vocab: Counter[str]) -> str:
 
 
 def cmd_describe(release: Path) -> int:
-    print(f"release directory: <set>  ({sum(1 for f in HELD + REFERENCE if (release / f).exists())} of 5 files present)")
+    n_present = sum(1 for f in HELD + REFERENCE if (release / f).exists())
+    print(f"release directory: <set>  ({n_present} of {len(HELD + REFERENCE)} files present)")
     for name in HELD + REFERENCE:
         p = release / name
         if not p.exists():
@@ -387,7 +414,7 @@ def cmd_check(release: Path, min_land: float) -> int:
         print("\nid.deid absent — (a), (b) and (c) are not answerable. Run describe first.")
         return 1
 
-    table = parse_reference(deid, release / "id.types")
+    table = parse_reference(deid, release / "id-phi.phrase")
     basis, land = _validate_offsets(table, aligned, bodies)
     n_gold = sum(len(v) for v in table.spans.values())
     print("\n── human reference, as parsed ──")
@@ -409,6 +436,7 @@ def cmd_check(release: Path, min_land: float) -> int:
     # (a) where the difference comes from
     matched = 0
     tag_unsupported = 0
+    shared = 0
     for uid, tags in aligned.items():
         gold = table.spans.get(uid, [])
         used = set()
@@ -428,21 +456,41 @@ def cmd_check(release: Path, min_land: float) -> int:
             else:
                 used.add(hit)
                 matched += 1
-        # gold spans in this record that nothing covered
-        table.spans[uid] = gold  # keep, for the count below
-    gold_uncovered = n_gold - matched
+        # A gold span may overlap a placeholder that one-to-one matching already spent on a
+        # neighbour. Counted separately: it is neither a match nor evidence of a miss.
+        for j, g in enumerate(gold):
+            if j in used:
+                continue
+            if any(
+                t.span is not None and not (g.end <= t.span.start or t.span.end <= g.start)
+                for t in tags
+            ):
+                shared += 1
+    gold_uncovered = n_gold - matched - shared
 
-    print("\n── (a) 2,164 vs the human count, decomposed ──")
+    print("\n── (a) the placeholder count vs the human count, decomposed ──")
     print(f"  matched (overlapping)      {matched}")
     print(f"  placeholder, no gold span  {tag_unsupported}   → tool false positives")
-    print(f"  gold span, no placeholder  {gold_uncovered}   → tool false negatives")
+    print(f"  gold span, no placeholder  {gold_uncovered}   → unmatched gold")
+    print(f"  gold spans sharing a matched placeholder  {shared}")
     if n_tags:
         print(f"  implied precision          {matched / n_tags:.3f}")
     if n_gold:
-        print(f"  implied recall             {matched / n_gold:.3f}")
+        print(f"  implied recall, 1:1        {matched / n_gold:.3f}")
+        print(f"  implied recall, any overlap {(matched + shared) / n_gold:.3f}")
+    print(
+        "  Matching is one-to-one, so a placeholder spanning two adjacent gold instances\n"
+        "  matches one and leaves the other unmatched. The `sharing` row counts those; the\n"
+        "  two recall figures bracket the truth and the difference is a merging artefact,\n"
+        "  not a miss."
+    )
 
     # (b) what the value-payload placeholders are, in the human gold
+    # The vocabulary to check a gold label against is the gold type column — passing the
+    # silver payload vocabulary here withheld every label, since the two share no strings.
+    gold_vocab: Counter[str] = Counter(table.types.values())
     print("\n── (b) the value-payload placeholders, typed by the human gold ──")
+    print(f"  gold type vocabulary       {len(gold_vocab)} labels over {sum(gold_vocab.values())} spans")
     by_type: Counter[str] = Counter()
     unmatched_value = 0
     for uid, tags in aligned.items():
@@ -461,7 +509,7 @@ def cmd_check(release: Path, min_land: float) -> int:
             if hit is None:
                 unmatched_value += 1
             else:
-                by_type[_safe_label(table.types.get((uid, hit)), vocab)] += 1
+                by_type[_safe_label(table.types.get((uid, hit)), gold_vocab)] += 1
     for lab, n in by_type.most_common():
         print(f"  {lab:28} {n}")
     print(f"  {'no gold span':28} {unmatched_value}")

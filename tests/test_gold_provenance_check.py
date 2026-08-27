@@ -110,6 +110,9 @@ def test_mismatched_record_framing_raises_without_quoting_the_body(tmp_path: Pat
 def test_safe_label_withholds_anything_that_is_not_a_bare_identifier() -> None:
     vocab: Counter[str] = Counter({"Hospital": 9})
     assert gpc._safe_label("Hospital", vocab) == "Hospital"
+    # Present but rare: withheld. The old guard admitted anything already in the table,
+    # which made it a no-op for exactly the case it existed to catch.
+    assert gpc._safe_label("Rare", Counter({"Rare": 1})) == "<label-withheld>"
     # A phrase reaching the type column — the misparse this guard exists for.
     assert gpc._safe_label("Jane Q Patient", vocab) == "<label-withheld>"
     assert gpc._safe_label("2019-04-18", vocab) == "<label-withheld>"
@@ -117,13 +120,12 @@ def test_safe_label_withholds_anything_that_is_not_a_bare_identifier() -> None:
 
 
 def test_sniff_reports_structure_and_no_field_values(tmp_path: Path) -> None:
-    p = tmp_path / "id.deid"
-    p.write_text("1||||1||||14||||25||||Doctor||||Jane Q Patient\n", encoding="utf-8")
+    p = tmp_path / "id-phi.phrase"
+    p.write_text("1 1 14 25 Doctor Jane Q Patient\n", encoding="utf-8")
     info = gpc.sniff(p)
     flat = repr(info)
     assert "Jane" not in flat and "Patient" not in flat and "Doctor" not in flat
-    assert info["delimiter"] == "||||"
-    assert info["field_counts"] == {6: 1}
+    assert info["field_counts"] == {8: 1}
 
 
 def test_describe_output_names_absent_reference_files(tmp_path: Path, capsys) -> None:
@@ -148,7 +150,7 @@ def test_check_stops_cleanly_when_the_reference_is_absent(tmp_path: Path, capsys
 def test_check_refuses_a_disagreement_rate_when_the_parse_does_not_land(tmp_path: Path, capsys) -> None:
     d = _release(tmp_path, MASKED, SURROGATE)
     # Offsets far outside the record body: what a wrong column-role inference looks like.
-    (d / "id.deid").write_text("1||||1||||90000||||90010\n", encoding="utf-8")
+    (d / "id.deid").write_text("Patient 1  Note 1\n90000  90000  90010\n", encoding="utf-8")
     rc = gpc.cmd_check(d, min_land=0.95)
     out = capsys.readouterr().out
     assert rc == 1
@@ -160,8 +162,80 @@ def test_check_reports_no_note_text_when_the_reference_lands(tmp_path: Path, cap
     d = _release(tmp_path, MASKED, SURROGATE)
     body = gpc.parse_records(d / "id.text")[0].body
     s = body.index("Qqqqq")
-    (d / "id.deid").write_text(f"1||||1||||{s}||||{s + 11}||||Doctor\n", encoding="utf-8")
+    (d / "id.deid").write_text(f"Patient 1  Note 1\n{s}  {s}  {s + 11}\n", encoding="utf-8")
+    (d / "id-phi.phrase").write_text(f"1 1 {s} {s + 11} HCPName Qqqqq Wwwww\n", encoding="utf-8")
     assert gpc.cmd_check(d, min_land=0.5) == 0
     out = capsys.readouterr().out
     assert "Qqqqq" not in out and "Wwwww" not in out and "11-02" not in out
     assert "matched (overlapping)      1" in out
+
+
+# ─── the reference files' real formats ─────────────────────────────────────────
+# These pin what was previously inferred. The inference is what put a PHI phrase on a path
+# to being printed as a type, so the formats are now asserted rather than guessed.
+
+
+def _ref(tmp_path: Path, deid: str, phrase: str | None = None) -> Path:
+    d = _release(tmp_path, MASKED, SURROGATE)
+    (d / "id.deid").write_text(deid, encoding="utf-8")
+    if phrase is not None:
+        (d / "id-phi.phrase").write_text(phrase, encoding="utf-8")
+    return d
+
+
+def test_id_deid_is_parsed_as_start_start_end() -> None:
+    """The start is written twice; the span is fields 1 and 3, not 1 and 2."""
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as td:
+        p = Path(td) / "id.deid"
+        p.write_text("Patient 7  Note 2\n48  48  55\n", encoding="utf-8")
+        table = gpc.parse_reference(p, None)
+        assert table.spans == {"7_2": [gpc.Span(48, 55)]}
+        assert table.n_unparsed == 0
+
+
+def test_a_span_line_whose_start_is_not_duplicated_is_refused_not_reinterpreted(tmp_path: Path) -> None:
+    # Guessing which two of three fields are the span is the inference this parser dropped.
+    table = gpc.parse_reference(_ref(tmp_path, "Patient 1  Note 1\n10  20  30\n") / "id.deid", None)
+    assert table.spans == {"1_1": []}
+    assert table.n_unparsed == 1
+
+
+def test_the_phi_phrase_field_is_never_read_into_the_types_table(tmp_path: Path) -> None:
+    """Field 6 holds the PHI phrase and may contain spaces. It must not be bound at all."""
+    d = _ref(
+        tmp_path,
+        "Patient 1  Note 1\n48  48  55\n",
+        "1 1 48 55 Location Some Hospital Name\n",
+    )
+    table = gpc.parse_reference(d / "id.deid", d / "id-phi.phrase")
+    assert table.types == {("1_1", 0): "Location"}
+    flat = repr(table)
+    for word in ("Some", "Hospital", "Name"):
+        assert word not in flat
+
+
+def test_a_type_whose_span_disagrees_with_id_deid_is_dropped(tmp_path: Path) -> None:
+    # A type attached to the wrong span would read as a finding about the corpus.
+    d = _ref(
+        tmp_path,
+        "Patient 1  Note 1\n48  48  55\n",
+        "1 1 60 70 Location x\n",
+    )
+    table = gpc.parse_reference(d / "id.deid", d / "id-phi.phrase")
+    assert table.types == {}
+    assert table.n_unparsed == 1
+
+
+def test_a_gold_span_sharing_a_placeholder_is_not_counted_as_a_miss(tmp_path: Path, capsys) -> None:
+    """One-to-one matching leaves the neighbour unmatched; that is a merge, not a miss."""
+    s = SURROGATE[SURROGATE.index("START_OF_RECORD") :].split("\n", 1)[1].index("Qqqqq")
+    d = _ref(
+        tmp_path,
+        f"Patient 1  Note 1\n{s}  {s}  {s + 5}\n{s + 6}  {s + 6}  {s + 11}\n",
+    )
+    assert gpc.cmd_check(d, min_land=0.5) == 0
+    out = capsys.readouterr().out
+    assert "gold spans sharing a matched placeholder  1" in out
+    assert "gold span, no placeholder  0" in out

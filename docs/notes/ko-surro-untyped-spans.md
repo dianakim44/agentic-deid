@@ -1,12 +1,46 @@
 # `ko-surro`: the 659 placeholders that mark a position and name no type
 
-Opened 2026-08-27. **No decision is recorded here yet.** DESIGN §6.6 §2 fixes only that
-the position question and the type question are separate and that the second is open; this
-note holds the measurement, the option set, and what each option costs. It is referenced
-from §6.6 §2 so that the open question has one location rather than being rediscovered.
+Opened 2026-08-27. **Resolved 2026-08-28 by measurement, not by choosing an option.** The
+human reference was obtained (`ko-surro-gold-provenance.md`) and it types these spans
+directly, so five of the six options below exist only to work around a file that turned out
+to be open access. They are kept because the measurement changed which question is open, and
+the record of what was considered is worth more than a tidy note.
 
-Every figure below was produced by `tools/gold_provenance_check.py check`, which reads the
-source release's two held files and prints counts only.
+**What the gold says about the 659:**
+
+| In the human gold | Count | Share |
+|---|---|---|
+| `Date` | 439 | 66.6% |
+| `DateYear` | 29 | 4.4% |
+| **no gold span at all — not PHI** | **191** | **29.0%** |
+
+So the type question is answered for 468 of them, and for the remaining 191 it dissolves:
+there is nothing to type, because the human reference does not mark PHI there. Every one of
+the 468 is in the DATE family, which is what the shape rule (option 1) would have guessed —
+but option 1 would also have assigned DATE to all 191 non-PHI spans, and that is the error
+the option's "against" row anticipated without being able to size it.
+
+**By payload shape, the over-marking is concentrated exactly where the note predicted:**
+
+| Payload shape | Total | Gold-supported | No gold span | Over-marked |
+|---|---|---|---|---|
+| month–day | 550 | 374 | 176 | **32.0%** |
+| year–month–day | 67 | 64 | 3 | 4.5% |
+| two digits | 28 | 20 | 8 | 28.6% |
+| four digits, year-like | 11 | 10 | 1 | 9.1% |
+| other digits, or empty | 3 | 0 | 3 | 100% |
+
+The month–day shape is 83.5% of the set and a third of it is not PHI. The note said this
+shape "is precisely the shape that collides with clinical values" and cited the producing
+project's 142 not-PHI relabels as circumstantial support. The census puts it at 176.
+
+**What is still open.** Not the type of these spans, but whether this reference may be used
+at all for a Korean arm: the offsets index the English `id.text`, and the Korean corpus was
+built from `id.res`, so 59 gold spans have no Korean counterpart. That is DESIGN §7's
+question, not this note's. See `ko-surro-gold-provenance.md` §7.
+
+Everything below is the 2026-08-27 note, unchanged, except that the closing section now
+records what actually happened.
 
 ---
 
@@ -81,13 +115,24 @@ description nearly fits, and reusing it would avoid adding a value. Whether it *
 whether "unresolved" and "residual" are the same thing for scoring — is part of whichever
 option is chosen and is not settled here.
 
-## What could dissolve the question entirely
+## What dissolved the question — 2026-08-28
 
-The source release ships `id.types`, a human reference for the gold PHI types, and it is
-**not on disk** — only the surrogate text and the tool output are
-(`data/acquire/fetch_kosurro_gold.sh`). If the reference files are acquired, the 659 have
-human types and options 1, 4 and 5 all become unnecessary: the type comes from the same
-place the typed 69.5% does. That is the cheapest resolution available and it is a download
-from a project whose DUA is already signed, not a new acquisition. **No option here should
-be chosen before that is attempted**, because five of the six exist only to work around a
-file that may simply be fetchable.
+The 2026-08-27 version of this section said the release ships `id.types` and that acquiring
+it would give the 659 human types, so no option should be chosen before that was attempted.
+The instinct was right and two of the particulars were wrong. `id.types` does not exist in
+any distribution — it is named in a README manifest and nowhere else. And the files that do
+carry the reference are not in the DUA-restricted release at all; they are in the
+de-identification software package, which is **open access**. There was no acquisition to
+attempt. There was a download, and it had been available from the start.
+
+`id-phi.phrase` field 5 supplies the types, and the numbers are at the top of this note.
+Options 1, 4 and 5 are unnecessary, for the reason this section already gave. Option 3
+(exclude all 659) is now clearly wrong rather than merely costly: 468 of them are gold PHI,
+so excluding them would drop real spans from the reference to avoid 191 spurious ones, when
+the reference distinguishes the two exactly. Options 2 and 6 are moot for these spans, and
+the `OTHER` vocabulary question they raised does not need answering on their account.
+
+**The residue is not a type question.** It is the 191 placeholders the gold does not support.
+They are in the corpus as PHI and the human reference says they are not PHI, so whichever way
+they are treated, the choice is now visible and sized rather than inherited. That belongs
+with the other 550 unsupported placeholders in `ko-surro-gold-provenance.md` §6, not here.

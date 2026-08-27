@@ -4225,6 +4225,28 @@ its own option set, and folding it into a MIMIC-III pre-registration would decid
 adjacency. What is fixed here is only that the two questions are separated and that the
 type question is open. It is tracked in `docs/notes/ko-surro-untyped-spans.md`.
 
+> **Closed by measurement, 2026-08-28 — and the third case's real lesson is not the one
+> written above.** The type question is answered: the release's human reference was obtained
+> and types these spans directly (`docs/notes/ko-surro-gold-provenance.md`). Of the 659,
+> **439 are `Date`, 29 are `DateYear`, and 191 are not PHI at all** — the human gold marks no
+> span there. So the third case was never purely a type question. It was two populations
+> sharing a shape, and the criterion above cannot separate them because **the marker's
+> presence is itself unreliable**, not merely its payload.
+>
+> That is a sharper limit on the marker criterion than this subsection claimed, and it
+> generalises past `ko-surro`: a marker left by a *system* answers "where is the span?" only
+> as well as that system's precision. Here that is 0.746 — 550 of 2,164 placeholders have no
+> gold span. The criterion's first row above ("**answered.** The bracket delimits it") is
+> therefore right about the bracket and wrong about the span, whenever the marker-leaving
+> process is a detector rather than an annotator. For a corpus whose markers come from human
+> annotation the row stands as written; for one whose markers come from a tool it does not,
+> and this section had no case for that distinction.
+>
+> Nothing about the *reported* decision changes: DATE stays in scope, for the reason given
+> above. What changes is that this corpus's reference is now known to be silver by
+> measurement rather than by argument, with the gap sized — and that §7's use of it is a live
+> question rather than a settled one.
+
 #### 3. Dev subsample — a rule, not a number
 
 **Scope: this subsection is MIMIC-III sizing and applies to no other corpus.** It was
