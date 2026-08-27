@@ -1,7 +1,65 @@
-# MIMIC-III acquisition — prepared 2026-08-27, **not applied for**
+# MIMIC-III acquisition — prepared 2026-08-27, **deferred the same day**
 
-The route is chosen: MIMIC-III NOTEEVENTS, for the nursing-note subset. This note is the
-preparation, and it is now complete. **No application has been submitted.** The order is
+## 0. Deferred, not abandoned — 2026-08-27
+
+**The application is deferred. The preparation below stays valid and is not to be
+re-derived when it resumes.** Deferral is the whole content of this decision: nothing in
+§1–§4 is withdrawn, no ground is retracted, and DESIGN §6.5/§6.6 remain pre-registered and
+dormant rather than void. What changed is that the reason for acquiring *now* dissolved.
+
+**The δ ground is gone.** MIMIC-III was chosen because it was the only English candidate
+large enough to put δ on its floor — the source release fails δ by 2×–9×, which is what
+eliminated it. δ is a threshold on *per-round* gain, so it exists only for an iterating
+arm. If the English cell is filled by a one-shot arm, δ is vacuous there (§6.4 says the
+termination rule is vacuous for a non-iterating arm) and the size advantage buys nothing.
+§2 below already shows the size cannot be spent anyway: ≈9.8 h and ≈74 M prompt tokens per
+round at ≈7,900 dev documents, ≈78 h for an eight-round arm. The corpus was large enough
+to make δ a free parameter and too expensive to use at that size.
+
+**A second ground appeared against it, and it is the stronger one.** MIMIC-III ships no
+unmasked version and no human reference. The only available reference is the masking tool's
+own placeholder positions, so a score computed on it is a score against a silver standard
+produced by the same kind of object being evaluated. This is not a defect that access
+repairs — it is a property of the release, and no amount of it can be bought.
+
+**One reason survives.** MIMIC-III's NOTEEVENTS is the only corpus that varies note type
+*within* one language under one de-identification pass at high baseline — nursing,
+physician, discharge summary, radiology, ECG. That is a design property and is independent
+of δ. Because both cells of such a contrast share one reference, they share one bias, so
+the *comparison* is readable even where the absolute leak rate is not. It is a
+comparison-only claim and is recorded as one (DESIGN §7.1's correction).
+
+**Two reasons that looked like they survived, and one that turned out not to be needed.**
+
+| Candidate reason | Why it does not require MIMIC-III |
+|---|---|
+| The English high-baseline nursing pair against `ko-surro` at fixed note type — §7's sharpest single prediction | the source release **is** 2,434 English nursing notes. It failed only on δ, and δ is vacuous for a one-shot arm. At ≈1,779 reference spans, ≈0.91 in scope, 25% dev, its δ would be ≈6.4 pp — unusable for iteration, irrelevant without it. And unlike MIMIC-III it has a human reference in the release, so this pair can be run against *real gold* on the corpus already held |
+| Replacing `en-n2c2` as "an English corpus" | populating an end of axis 1 is not what §7.1 is short of. The interior — a second Spanish register — is, and MIMIC-III is English |
+
+### When it becomes necessary
+
+Two triggers, and either is sufficient. Both are decisions this project makes, not
+measurements it waits for, so the application is filed when the decision is taken and not
+when its result is wanted — §1 records that approval has no published SLA.
+
+| Trigger | Why only MIMIC-III answers it |
+|---|---|
+| **T1. The paper asserts the axis-1 × axis-2 interaction at the high-baseline end** — i.e. §7.1's operative count has to be 2 rather than 1 | within-corpus note-type variation at high baseline exists in no other held or reachable corpus. GraSCCo supplies it at low baseline; the source release is nursing-only; MEDDOCAN and CARMEN-I are single-register or unit-mismatched |
+| **T2. An English arm has to iterate** — any `port-loop`-shaped arm in English | δ binds the moment rounds are compared. ≈6.4 pp on the source release is roughly 13× `es-meddocan`'s floor, so no plausible per-round gain clears it. Only corpus size fixes this |
+
+**If neither trigger fires, the deferral holds through submission** and §7.1's operative
+count is reported as 1 with the bound stated. That is a limitation, not a gap: §7.1 already
+writes the English rows as a projection and already names a second Spanish register — not
+an English corpus — as the acquisition that closes the section.
+
+**What to do first when a trigger does fire:** re-run the two checks §1 flags as
+inferences (CITI currency, and whether MIMIC-III's page asks for anything CARMEN-I's did
+not), then §4's order of operations from step 2. Nothing before step 2 needs redoing.
+
+---
+
+The route, when it resumes: MIMIC-III NOTEEVENTS, for the nursing-note subset. This note is
+the preparation and it is complete. **No application has been submitted.** The order is
 that DESIGN §6.5 and §6.6 are committed first and the application follows, because the
 application's own description has to state what those sections decided.
 
@@ -178,8 +236,12 @@ this decision cannot be a footnote. It is not why it went this way.
 
 ## 4. Order of operations
 
+**Steps 2–8 are suspended by §0's deferral.** They are the plan for when a trigger fires,
+not a queue of work in progress.
+
 1. **Commit DESIGN §6.5 and §6.6.** Done before the application, because the application's
-   stated use has to say what they decided.
+   stated use has to say what they decided. **Done 2026-08-27**, including the same-day
+   corrections §6.5 and §7.1 needed.
 2. **Apply.** Check CITI currency and MIMIC-III's own page requirements while logged in,
    then sign the DUA, with the three declarations of §1 in the stated use.
 3. Add the corpus ID, `corpus_rule_langs` entry and type mapping to `config/naming.yaml`

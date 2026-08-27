@@ -3992,7 +3992,20 @@ the read, and a round that is not the arm's final round is refused rather than l
   and a re-run whose only difference is a bug fix. If the paper has to say the fold was opened twice
   for one arm, that is the true sentence, and this section grants no exemption from it.
 
-### 6.5 Two corpora that share a source release — **decided 2026-08-27: D + A**
+### 6.5 Two corpora that share a source release — **decided 2026-08-27: D + A; dormant from 2026-08-27**
+
+> **Correction, 2026-08-27, same day as the decision.** This section was written on the
+> premise that `ko-surro` is *not yet acquired*, and that premise is false: the corpus
+> exists, it was built by the separate surrogate project, and its records already carry
+> the source record identifier. **Link 1 is established, not open** — so option A is
+> already paid rather than "free only now", and the sentences that said otherwise were
+> wrong on a matter of fact and have been fixed below rather than annotated. A
+> pre-registration may keep refuted alternatives; it may not keep false statements. The
+> decision itself is unaffected: D still needs only link 2, and A being already satisfied
+> strengthens D's audit trail rather than changing it. Separately, the MIMIC-III
+> application is **deferred** (`docs/notes/mimic-iii-acquisition.md` §0), so this
+> section's policy is decided and **dormant** — it binds the moment a MIMIC-III arm
+> exists and needs no re-deciding then.
 
 Everything above defines the seal **per corpus**: `splits/{corpus}.json`, one `sealed/`
 tree per corpus, a log keyed on the corpus cell. Nothing in §6.1–6.4 or in CLAUDE.md
@@ -4013,15 +4026,16 @@ the three things that must freeze together before any sampling are in §6.6.
 
 | Link | What it asserts | Status |
 |---|---|---|
-| 1. `ko-surro` → source release | which of the 2,434 notes each `ko-surro` document came from | no record anywhere in this repo; `ko-surro` is not acquired. **Decided 2026-08-27: its acquisition must record source document identifiers** — this is option A, adopted as a standing requirement |
+| 1. `ko-surro` → source release | which of the 2,434 notes each `ko-surro` document came from | **established.** Every `ko-surro` document carries `{patient identifier}_{note index within patient}`, read from the source release's own record header by the producing project's record parser. Option A is therefore already satisfied, not a requirement to impose |
 | 2. source release → MIMIC-III | which MIMIC-III note each of the 2,434 is | the release's own patient and record numbering may not be MIMIC's; the source page is internally inconsistent about MIMIC-II vs MIMIC-III parentage |
 
-Exclusion or alignment by document needs **both**. Link 1 is the one still open to
-influence: because `ko-surro` is not acquired, its acquisition step can be required to
-carry source document identifiers, and that requirement costs nothing if it is stated
-before the corpus is built and is unrecoverable after. Link 2 is a fact about two
-released datasets and can only be established, not arranged — and probably only with
-both in hand.
+Exclusion or alignment by document needs **both**. Link 1 was written here as the one
+still open to influence, on the premise that a requirement could be imposed on an
+acquisition that had not happened yet; the correction above records that it had. **Link 1
+is closed and closed favourably.** Link 2 is a fact about two released datasets and can
+only be established, not arranged — and probably only with both in hand. So the whole
+question now rests on link 2 alone, and every option that needed only link 1 has no
+remaining obstacle.
 
 **What is actually at risk is narrower than "the same text in two folds," and how narrow
 is itself one of the disputed grounds.** `ko-surro` is a surrogate corpus: PHI surface
@@ -4091,15 +4105,17 @@ documents along with all the others, so no sealed-membership fact is consulted, 
 exclusion is verifiable without opening anything. That B is also the option that a
 committed split destroys is the lesser objection and not the reason it is refused.
 
-**A is adopted as D's premise, not as an alternative to it, and it is free only now.**
-`ko-surro` is not acquired, so its acquisition step can be required to record which source
-note each document came from; once the corpus exists without that record, link 1 is
-unrecoverable. Under D the record is not needed for the exclusion — D is deliberately
-blind to it — so A buys two things that D alone does not: it makes the exclusion
-*auditable at document level* rather than only at set level, and it keeps the tighter
-document-level exclusion available if the superset ever turns out to be too coarse. Paying
-for an option that costs nothing today and cannot be bought tomorrow is the whole
-argument; A is not doing work that D is failing to do.
+**A is adopted as D's premise, not as an alternative to it — and it turns out to be
+already satisfied.** This paragraph first argued that A was "free only now": that
+`ko-surro`'s acquisition could be required to record which source note each document came
+from, and that the record would be unrecoverable once the corpus existed without it. The
+premise was wrong in the reader's favour. The corpus already exists and every document
+already carries its source record identifier, so nothing has to be imposed and nothing
+was at risk of expiring. What A buys is unchanged: under D the record is not needed for
+the exclusion — D is deliberately blind to it — so A makes the exclusion *auditable at
+document level* rather than only at set level, and keeps the tighter document-level
+exclusion available if the superset ever turns out to be too coarse. A is not doing work
+that D is failing to do. It is simply not owed.
 
 **If link 2 fails, retreat to C, and record that it was a retreat.** D needs link 2 —
 without it the 2,434 cannot be located in MIMIC-III at all. C needs no link and is
@@ -4112,6 +4128,14 @@ measurement, before the fold is sampled, so that the fallback is chosen before a
 depends on it.
 
 ### 6.6 The MIMIC-III arm's pre-registration — three things that freeze together, 2026-08-27
+
+> **Status, corrected 2026-08-27: pre-registered and dormant.** The MIMIC-III application
+> is deferred, so nothing here runs yet. That does not weaken the block — a
+> pre-registration written before acquisition is exactly what this is for, and deferring
+> the acquisition is the one event that cannot contaminate it. Two scope corrections were
+> needed and are made in place: §2's marker criterion did not cover the case where a
+> marker exists but carries no type, and §3's numbers are MIMIC-III sizing and were not
+> marked as such. Both are fixed below.
 
 Cross-corpus exclusion, DATE scope and dev subsample size are pre-registered as one block
 rather than as three decisions, because they are not independent. **DATE scope changes
@@ -4179,7 +4203,41 @@ removing DATE moves the aggregate leak rate 13.72% → 15.28%, i.e. 1.56 pp, abo
 This is why the decision cannot be a footnote. It is not why the decision went this way —
 the marker is.
 
+**The criterion has three cases, not two, and this section originally wrote only two.**
+The rule above splits markers into *present and typed* (gold) and *absent* (out of
+reference). There is a third case and `ko-surro`'s source release is full of it: **the
+marker is present and carries a value instead of a type.** 659 of that release's 2,164
+masks — 30.5% — bracket a position but name no type, and 658 of the 659 hold nothing but
+digits and separators, 83.5% of them in a month-day shape. Splitting the criterion by what
+it actually answers:
+
+| Question | What a marker of this third kind answers |
+|---|---|
+| *Where is the span?* | **answered.** The bracket delimits it; the position is recoverable exactly as for a typed marker |
+| *What type is it?* | **not answered.** The payload is a value, and inferring the type from that value is a pattern rule — the same kind of object as the predictions, which is what this section bars for gold |
+
+So the marker criterion resolves position and is **silent on type**, and silence is not a
+decision. The consequence for reporting is immediate: leak rate, which needs only
+positions, is unaffected by this case, while the per-type decomposition that §7's layer
+prediction reads is not defined over these spans until the type question is settled
+separately. That settlement is not made here — it is a `ko-surro` scope question, it has
+its own option set, and folding it into a MIMIC-III pre-registration would decide it by
+adjacency. What is fixed here is only that the two questions are separated and that the
+type question is open. It is tracked in `docs/notes/ko-surro-untyped-spans.md`.
+
 #### 3. Dev subsample — a rule, not a number
+
+**Scope: this subsection is MIMIC-III sizing and applies to no other corpus.** It was
+written without that marking, which invited it to be read as a general rule; it is not one,
+and the reason is that its whole shape comes from one assumption — that the corpus is far
+larger than the fold needs, so `n_dev` is a free parameter to be tied down. Where that
+assumption fails the procedure below produces nothing useful. `ko-surro` is the case in
+point and it fails in the opposite direction: 2,158 gold spans in total, so a 25% dev
+fraction gives n_dev ≈ 540 and δ ≈ 4.8 pp — roughly ten times `es-meddocan`'s floor, a
+threshold so coarse that a per-round gain would have to be enormous to clear it. That is a
+real problem for any iterating arm on `ko-surro` and it is **not** solved by this
+subsection; it needs its own treatment, and pre-registering the MIMIC-III rule does not
+pre-register an answer for it.
 
 The subset is expected to be large enough that `n_dev` becomes a free parameter, and δ is
 derived from `n_dev`, so a free `n_dev` is a free stopping rule (`docs/notes/mimic-iii-acquisition.md` §2).
@@ -4202,14 +4260,19 @@ is reported, not chosen.
 
 #### What freezes when, and what stops being decidable after it
 
+Rows marked **conditional** are frozen as written but cannot be executed while the
+MIMIC-III application is deferred. Deferral does not unfreeze them; it only postpones the
+step that would produce their numbers, which is the harmless direction.
+
 | Item | Frozen at | Not decidable after that point |
 |---|---|---|
 | §6.5's exclusion policy | now, 2026-08-27, before the application | whether the 2,434 are excluded, and whether B was available — a committed split file removes B |
-| `ko-surro` source-ID record | at `ko-surro`'s acquisition, whenever that happens | link 1, permanently: a corpus built without the record cannot acquire one |
+| `ko-surro` source-ID record | **already frozen — the record exists** (corrected 2026-08-27) | nothing. Link 1 is closed; this row previously read "at `ko-surro`'s acquisition, whenever that happens", which was false |
 | DATE scope rule | now, before the proportion is known | which of the two reporting forms applies — the proportion cannot select it |
-| Dev sampling procedure | now, before the corpus is in hand | `n_dev`, and therefore δ, and therefore the termination threshold |
-| Link 2 check | early post-access, before the fold is sampled | whether the fallback to C was a fallback or a plan |
-| `n_dev`, δ, document counts | at sampling | nothing — these are outputs, reported as measured |
+| DATE, third case (marker present, type absent) | **not frozen here — deliberately open** | nothing yet. Only the separation of the position and type questions is fixed; the type answer is a `ko-surro` decision and is not pre-registered by this block |
+| Dev sampling procedure (MIMIC-III only) | now, before the corpus is in hand | `n_dev`, and therefore δ, and therefore the termination threshold — for MIMIC-III. `ko-surro`'s δ problem is untouched by this row |
+| Link 2 check — **conditional** | early post-access, before the fold is sampled | whether the fallback to C was a fallback or a plan |
+| `n_dev`, δ, document counts — **conditional** | at sampling | nothing — these are outputs, reported as measured |
 
 The order matters in one direction only: everything in the first column above the sampling
 row must be committed before the sampling row runs. After sampling, the remaining numbers
@@ -4492,7 +4555,23 @@ notes behave like Korean — high baseline, near-zero realisation — becomes di
 testable against `ko-surro` at fixed note type, which is the sharpest single prediction
 this section makes. That third item is gated on §6.5: the two corpora share a source
 release, and until the cross-corpus seal relation is decided the pair cannot be run.
-`ko-surro` is also not yet acquired (`data/README.md`: held, DUA).
+
+> **Two corrections, 2026-08-27.** The last sentence of that paragraph used to add
+> "`ko-surro` is also not yet acquired (`data/README.md`: held, DUA)". That misread its own
+> citation — "held" means held — and the corpus does exist; §6.5's correction records the
+> same error and its consequence. And items (i) and (ii) say "measurement rather than
+> projection", which needs a qualifier that was missing: **MIMIC-III ships no unmasked
+> version and no human reference, so anything measured on it is measured against the
+> masking tool's own output.** Placeholder positions taken as gold are a silver standard,
+> not a gold one. What survives is narrower and still worth something — a *within-corpus*
+> contrast across note types shares one reference and therefore one bias, so the comparison
+> can be read even where the absolute leak rate cannot. Items (i) and (ii) should be read
+> as "populated by a silver measurement", and the §7.1 bound as a comparison-only claim at
+> the high-baseline end. Item (iii) inherits the same qualifier and gains a symmetry:
+> `ko-surro`'s own reference descends from the same tool, so the pair contrast is between
+> two like-biased references, which is the most favourable form this comparison can take.
+> `docs/notes/mimic-iii-acquisition.md` §0 holds the deferral and the one reason that
+> survives it.
 
 What does not change is the prescription. The medium cell stays impossible with or
 without MIMIC-III, because MIMIC-III is English and adds nothing at Spanish's baseline
