@@ -9,7 +9,7 @@ expected-prompt check reads the arm's own record instead of a constant.
 
 The probe is not a gate and not a production path (see its module docstring), so there are no
 mutations for it and nothing here asserts that an arm refuses. It is deliberately **outside**
-`tests/mutations/run.py`'s `TEST_FILES`: that list is the denominator of all 170 kill counts and
+`tests/mutations/run.py`'s `TEST_FILES`: that list is the denominator of every kill count and
 adding a file to it makes every recorded count a count of something else (CLAUDE.md, mutation
 gate). A probe with no mutations has nothing to contribute to it either way.
 
@@ -444,7 +444,7 @@ def test_the_probe_does_not_touch_delta():
 
 
 def test_the_probe_is_outside_the_mutation_test_files():
-    """Adding it would make all 170 kill counts counts of a different denominator.
+    """Adding it would make every kill count a count of a different denominator.
 
     `tests/mutations/run.py`'s list is that denominator (CLAUDE.md, mutation gate). This file
     tests a probe with no mutations, so its absence costs no coverage — and the assertion is

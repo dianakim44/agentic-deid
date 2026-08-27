@@ -399,42 +399,35 @@ That is the mutation, and its count of **1** is honest: there is one test that c
 see it, because every other check in `check_run` passes on the contradictory block.
 
 Counts are the number of tests that fail or error across the whole of `run.py`'s
-`TEST_FILES` — **27 files, 1696 tests**, measured by the harness's own baseline run.
+`TEST_FILES` — **28 files, 1867 tests**, measured by the harness's own baseline run.
 Errors count as kills: a mutation that breaks the module-scoped fixture takes whole tests
 out, and those are caught, not uncounted.
 
 **The cells in this file are the full run of 2026-08-20's numbers — 170 mutations, one 1696-test
 suite run each — and `docs/notes/mutation-full-runs.counts.json` is the authority, not this file.**
 The sidecar is written from measurements by `parallel.py`; these cells are prose, and prose is
-transcribed. The two agreed exactly while there had been one full run. There have now been two, and
-the second moved 21 of the numbers below, so the honest statement is where each kind of number
+transcribed. The two agreed exactly while there had been one full run. There have now been three —
+2026-08-20 at 170 mutations, 2026-08-25 at 176, 2026-08-26 at 179 — and the later two each moved 21
+of the numbers below, upward in every case. So the honest statement is where each kind of number
 comes from rather than a single date over all of them.
 
-The 21 that rose on 2026-08-25, under a suite that grew from 1696 to 1804 tests inside the same 27
-files: `allowlist_may_name_corpus_paths` 1 → 2, `an_unreadable_tree_state_reads_as_clean`
-107 → 117, `arm_rules_path_drops_the_axes` 74 → 81, `no_bom_shift` 142 → 151,
-`only_the_score_is_scoped_to_the_round` 26 → 32, `rule_id_vocabulary_not_checked` 20 → 25,
-`run_fold_omits_the_layer` 32 → 38, `run_fold_writes_a_null_model_id` 45 → 48,
-`spans_file_carries_the_surface` 34 → 40, `the_audit_report_is_allowed_instead_of_denied` 2 → 4,
-`the_audit_report_is_read_as_the_previous_rounds_file` 69 → 75,
-`the_client_hardcodes_botocores_default_attempts` 1 → 2,
-`the_folds_seconds_go_to_the_round_and_not_the_arm` 76 → 83,
-`the_iteration_allow_pattern_covers_the_whole_directory` 3 → 4,
-`the_language_layer_is_keyed_on_the_id_the_model_wrote` 2 → 3,
-`the_mask_tags_are_emitted_in_the_order_they_were_applied` 85 → 91,
-`the_per_iteration_key_replaces_the_arm_level_one` 110 → 122,
-`the_reply_text_is_taken_from_the_first_block` 85 → 92, `type_in_both_lists` 150 → 159,
-`unsealed_load_filters_instead_of_not_reaching` 145 → 154, `utf8_sig` 142 → 151.
+**Which run moved which count is in `docs/notes/mutation-full-runs.md`, one dated section per run
+with its own list, and it is not repeated here.** It used to be: this paragraph carried the
+2026-08-25 list, on the argument that 21 exceptions are too many to mark and few enough to list.
+At two such lists the argument inverts. A list kept in two places has one copy that goes stale
+first, and it is the copy without the measurement beside it — `parallel.py` writes the ledger and
+nobody transcribes it, which is the same reason CLAUDE.md puts the last-full-run date in one file
+only.
 
 **A cell below that reads lower than the sidecar means the suite grew, and never that a guarantee
-weakened.** That direction is checked and not assumed: both full runs recorded zero decreases, and
-a decrease is the finding that would matter — it would mean a test stopped being able to see a
+weakened.** That direction is checked and not assumed: all three full runs recorded zero decreases,
+and a decrease is the finding that would matter — it would mean a test stopped being able to see a
 defect it used to see. The six draw / abandoned-spend mutations were first measured in the
-2026-08-25 run and their cells carry those numbers; `rule_id_vocabulary_not_checked` no longer
-carries the 2026-08-23 date it used to, because a full run has since restated it. The 2026-08-19
-markers were retired when the minority became everyone (§"The first full run"), and this paragraph
-is the same problem in the opposite direction: 21 exceptions are too many to mark and few enough to
-list, so they are listed.
+2026-08-25 run and their cells carry those numbers, and the three added on 2026-08-26 — the two
+sealed-scoring ones and `the_arm_axis_comes_back_off_an_auxiliary_input` — carry theirs;
+`rule_id_vocabulary_not_checked` no longer carries the 2026-08-23 date it used to, because a full
+run has since restated it. The 2026-08-19 markers were retired when the minority became everyone
+(§"The first full run").
 
 **Counts recorded at different times are not comparable, because the denominator moved.**
 This paragraph used to name eleven files and 531 tests, which is what `TEST_FILES` held when
@@ -2237,7 +2230,7 @@ applies to the code. Two safeguards follow from that:
   Three checks, described in the next section. Skipping them lets the harness count
   its own breakage as a kill.
 
-The maintenance cost is real but bounded: **187 anchors across 170 mutations**, each a
+The maintenance cost is real but bounded: **197 anchors across 179 mutations**, each a
 line or two, and a refactor that breaks one gets a `STALE` message naming the file.
 That is cheaper than the failure mode it prevents.
 
@@ -3066,10 +3059,17 @@ not a rule; the reasoning is here, with the measurements it rests on.
 | the same, 2 concurrent | 276.7 s | two copies at once |
 | the same, 8 concurrent | 305.5 s | eight copies at once, 10-core machine |
 | a *mutation* run that kills 142 | ~45 s | `utf8_sig`, 2026-08-20 validation |
-| 170 mutations serial | ~12.9 h | 171 × 271.5 s, baseline included |
+| 170 mutations serial | ~12.9 h | derived: 171 × 271.5 s, baseline included |
+| 179 mutations serial | ~14.3 h | derived: 8 × 2.07 h ÷ 1.16 contention. Never measured |
 | 170 mutations, 8 shards | **1.87 h** | measured, 2026-08-20 |
 | 176 mutations, 8 shards | **2.02 h** | measured, 2026-08-25 |
 | 179 mutations, 8 shards | **2.07 h** | measured, 2026-08-26 |
+
+The two serial rows are derivations and are marked as such; nobody has spent a serial run to
+check either. They disagree by more than the mutation count explains — 170 → 179 is a factor of
+1.05 and the figures differ by 1.11 — because the suite each mutation pays for grew 1696 → 1867
+tests in the same span. The number to quote for "what a serial run would cost today" is the
+second one, and the number to quote as measured is 2.07 h.
 
 The speedup is **6.9× on 8 shards**, and the shortfall from 8× is almost exactly the
 contention: a perfect split would be 12.9 h / 8 = 1.61 h, the run took 1.87 h, and 1.87 / 1.61
@@ -3158,7 +3158,7 @@ direction.* So `parallel.py` writes the word "full run" only if five invariants 
 
 | invariant | what it catches | what it does *not* claim |
 |---|---|---|
-| exact partition — each of the 170 names appears exactly once across shards | a name in two shards (two runs, one guarantee) and a name in none (silence that reads as a pass) | that the counts are right, only that each was taken once |
+| exact partition — each registered name appears exactly once across shards | a name in two shards (two runs, one guarantee) and a name in none (silence that reads as a pass) | that the counts are right, only that each was taken once |
 | one tree — identical fingerprint *and* identical baseline total | shards launched across an edit, a copy that failed halfway | nothing about the run's own duration |
 | every shard finished — `complete: true`, written last on purpose, and an exit status of 0 or 1 | a shard killed mid-run whose 21 good measurements would otherwise read as 22 | that the shard's verdicts are correct |
 | verdicts account for everyone — caught + survived + stale + broken + dirty equals the number registered | a result dropped between shard and aggregate, which leaves the totals internally consistent | anything the partition check does not already cover |
@@ -3212,10 +3212,10 @@ The trigger is in `CLAUDE.md`; what follows is why it is drawn where it is.
 
 **One condition is categorical, and it is not "a lot changed".** Every kill count is a
 fraction of `TEST_FILES`. Change which files are in that list and the recorded counts are not
-*stale*, they are **about a different denominator** — this file went 11 files/531 tests → 27
-files/1696 tests, and a hundred-odd table cells silently became incomparable. So a change to
+*stale*, they are **about a different denominator** — this file went 11 files/531 tests → 28
+files/1867 tests, and a hundred-odd table cells silently became incomparable. So a change to
 `TEST_FILES` membership is the one thing impact scope cannot cover, because the change is to
-the denominator of all 170 counts rather than to any one of them. That is decidable rather
+the denominator of all 179 counts rather than to any one of them. That is decidable rather
 than a judgement call, which is why it is a test:
 `test_the_full_run_covered_the_current_test_files` compares the current list against the one
 recorded in the sidecar and fails when they differ. Deliberately a failure and not a skip —

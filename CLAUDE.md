@@ -82,7 +82,7 @@ and note types, with annotation-free supervision.
 
 킬 카운트는 `tests/mutations/run.py` 의 `TEST_FILES` 목록 **전체**에 대한 값이다.
 전량 179건은 8샤드로 약 2시간(`tests/mutations/parallel.py`, 2026-08-26 실측 2.07시간),
-직렬로는 약 13시간이다.
+직렬로는 약 14시간(도출값이고 실측이 아니다)이다.
 매 커밋에 낼 수 있는 비용이 아니므로, 매번 판단하지 않도록 기준을 여기 고정한다.
 근거와 비용 실측은 `tests/mutations/README.md` §"Running all of it".
 

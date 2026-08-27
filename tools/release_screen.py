@@ -1423,7 +1423,7 @@ if __name__ == "__main__":
     # only stops the exit code from being able to say anything about the *next* change,
     # and it took the mutation gate down with it — `tests/mutations/run.py` aborts on a
     # non-green baseline, so a permanently-red suite does not make the project stricter,
-    # it makes 170 mutations unmeasurable. The gate that holds this category is the
+    # it makes every mutation unmeasurable. The gate that holds this category is the
     # review gate, not the exit code: a committed diff to a JSON file, literal path,
     # pinned sniff kind, and two prose fields that a reader can disagree with. Cheap to
     # add and expensive to defend is the right shape here. Cheap to add and impossible

@@ -1385,7 +1385,7 @@ def test_every_current_false_positive_is_covered():
     this test without being harmless. That is deliberate: a permanently-failing test is
     not a stricter project, it is an unmeasurable one — `tests/mutations/run.py` aborts
     on a non-green baseline, so the two round-4/round-5 rule_id violations were taking
-    170 mutations down with them. The claim this test makes is "every current hit has
+    the whole mutation gate down with them. The claim this test makes is "every current hit has
     been looked at and written down", not "every current hit is fine".
     """
     _, _, _, suspect, _ = rs.screen_tree(ROOT)
