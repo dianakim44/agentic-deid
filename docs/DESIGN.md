@@ -3992,7 +3992,7 @@ the read, and a round that is not the arm's final round is refused rather than l
   and a re-run whose only difference is a bug fix. If the paper has to say the fold was opened twice
   for one arm, that is the true sentence, and this section grants no exemption from it.
 
-### 6.5 Two corpora that share a source release — **open, decided before acquisition**
+### 6.5 Two corpora that share a source release — **decided 2026-08-27: D + A**
 
 Everything above defines the seal **per corpus**: `splits/{corpus}.json`, one `sealed/`
 tree per corpus, a log keyed on the corpus cell. Nothing in §6.1–6.4 or in CLAUDE.md
@@ -4002,19 +4002,18 @@ the PhysioNet de-identified nursing-note release, and MIMIC-III is where those n
 came from. A document sealed in one corpus can sit in the other's dev fold, and the
 per-corpus seal will report itself intact while it does.
 
-**This section enumerates the options and does not choose one.** The decision belongs
-before the MIMIC-III application, because it can change what is applied for and because
-one of the options is free only until a split file exists. The application's own
-preparation — requirements, the δ arithmetic for the nursing subset, and the DATE
-question — is in `docs/notes/mimic-iii-acquisition.md`, which is blocked on this section. It is recorded as open rather
-than as an answer so that the choice is dated and visible, and so that no arm runs under
-an unwritten version of it.
+**The decision is D + A, taken 2026-08-27, before the MIMIC-III application and before
+any split file for it exists.** The six options and the grounds each stands on are kept
+below, unedited, because a decision whose alternatives have been deleted cannot be
+audited. The application's own preparation — requirements, the δ arithmetic for the
+nursing subset, and the DATE question — is in `docs/notes/mimic-iii-acquisition.md`, and
+the three things that must freeze together before any sampling are in §6.6.
 
 **The correspondence question is two links, not one, and they fail independently.**
 
 | Link | What it asserts | Status |
 |---|---|---|
-| 1. `ko-surro` → source release | which of the 2,434 notes each `ko-surro` document came from | no record anywhere in this repo; `ko-surro` is not acquired |
+| 1. `ko-surro` → source release | which of the 2,434 notes each `ko-surro` document came from | no record anywhere in this repo; `ko-surro` is not acquired. **Decided 2026-08-27: its acquisition must record source document identifiers** — this is option A, adopted as a standing requirement |
 | 2. source release → MIMIC-III | which MIMIC-III note each of the 2,434 is | the release's own patient and record numbering may not be MIMIC's; the source page is internally inconsistent about MIMIC-II vs MIMIC-III parentage |
 
 Exclusion or alignment by document needs **both**. Link 1 is the one still open to
@@ -4053,11 +4052,168 @@ source would not work in any case. And deciding this after the fact is not avail
 either — B is the option that a committed split file destroys, so a decision deferred
 past the first split is a decision against B without saying so.
 
-**What would settle it.** Link 2 is answerable from the two datasets' identifier fields
-once both are held, and it is the pivot: A, B and D all become available if it holds and
-all fail if it does not, leaving C, E and F. Whether the surrogate transformation breaks
-the leak is not an empirical question about the corpora but a question about what the
-seal is for, and §6.1 is where that answer would have to be consistent.
+**What settles it.** Link 2 is answerable from the two datasets' identifier fields once
+both are held, and it is the pivot: A, B and D all become available if it holds and all
+fail if it does not, leaving C, E and F. Whether the surrogate transformation breaks the
+leak is not an empirical question about the corpora but a question about what the seal is
+for, and §6.1 is where that answer has to be consistent.
+
+#### The decision: D as the policy, A as its premise, C as the fallback
+
+**D is the operative policy: all 2,434 source-release notes are excluded from the
+MIMIC-III arm, as a set, without asking which of them are sealed in `ko-surro`.** Three
+grounds, in the order they decided it.
+
+1. **D does not expire.** B is the only option that a committed split file destroys, and
+   an option that can be lost by inaction is an option that quietly converts a delay into
+   a decision. D is available at any point before the MIMIC-III fold is sampled and stays
+   available after `ko-surro`'s split is frozen, in either order. Nothing about D has to be
+   done first to remain possible.
+2. **D keeps both corpora.** F gives up a cell §7.1 says is load-bearing, and A applied to
+   `ko-surro` would shrink the corpus that cannot afford to shrink (δ already fails there
+   by 2×–9×). D takes its 2,434 out of the corpus with 2,083,180 notes, which is the only
+   direction in which the cost is negligible.
+3. **D leaves no post-hoc degrees of freedom.** The excluded set is defined by membership
+   in a released dataset, fixed before anything is measured, and checkable by anyone
+   holding both. There is no threshold to pick, no sample to draw, and no number that could
+   later be adjusted in the light of a result. E is the opposite: its size is a free
+   parameter that stays free, because a limitation whose magnitude is unknown can be
+   restated at will.
+
+**B is refused on a stronger ground than expiry: computing the intersection reads the
+seal.** To align corresponding documents into the same fold role, one must know, for each
+document, which fold its counterpart occupies — and for the sealed half that is a query
+against sealed membership whose answer then determines the other corpus's fold assignment.
+The sealed fold would be shaping a design decision in the other corpus, which is what
+§6.1 exists to prevent, and it would do so while every per-corpus check reported the seal
+intact. D never asks the question: it excludes a **superset** that contains the sealed
+documents along with all the others, so no sealed-membership fact is consulted, and the
+exclusion is verifiable without opening anything. That B is also the option that a
+committed split destroys is the lesser objection and not the reason it is refused.
+
+**A is adopted as D's premise, not as an alternative to it, and it is free only now.**
+`ko-surro` is not acquired, so its acquisition step can be required to record which source
+note each document came from; once the corpus exists without that record, link 1 is
+unrecoverable. Under D the record is not needed for the exclusion — D is deliberately
+blind to it — so A buys two things that D alone does not: it makes the exclusion
+*auditable at document level* rather than only at set level, and it keeps the tighter
+document-level exclusion available if the superset ever turns out to be too coarse. Paying
+for an option that costs nothing today and cannot be bought tomorrow is the whole
+argument; A is not doing work that D is failing to do.
+
+**If link 2 fails, retreat to C, and record that it was a retreat.** D needs link 2 —
+without it the 2,434 cannot be located in MIMIC-III at all. C needs no link and is
+therefore always reachable, at the price §7.1 names: the nursing-note prediction becomes
+unrunnable, which is the sharpest single test §7 offers. So C is the fallback and not the
+default, and if it is taken the paper says that a structural exclusion replaced a
+document-level one because the identifier correspondence could not be established — not
+that non-nursing categories were the plan. Link 2 is checked as an early post-access
+measurement, before the fold is sampled, so that the fallback is chosen before anything
+depends on it.
+
+### 6.6 The MIMIC-III arm's pre-registration — three things that freeze together, 2026-08-27
+
+Cross-corpus exclusion, DATE scope and dev subsample size are pre-registered as one block
+rather than as three decisions, because they are not independent. **DATE scope changes
+`n_spans_in_scope`, `n_spans_in_scope` is `n_dev`, and δ is derived from `n_dev`** (§3).
+On `es-meddocan` DATE is 13.8% of the in-scope denominator, so a corpus sampled to
+n_dev = 5,300 with DATE in scope holds about 4,570 without it — which moves δ off its
+floor, from 0.50 pp to 0.57 pp. The exclusion policy sets which documents may be sampled
+at all. Freeze any one of the three after the other two and the termination threshold has
+been chosen with a result in view, which is the thing §6.4 forecloses at the seal and §3
+forecloses at the stopping rule. This section forecloses it at the sampling.
+
+#### 1. Cross-corpus exclusion — §6.5's D + A
+
+All 2,434 source-release notes are excluded from the MIMIC-III arm as a set. `ko-surro`'s
+acquisition records source document identifiers. C is the fallback if link 2 fails, and a
+retreat to C is reported as a retreat. Grounds are in §6.5.
+
+#### 2. DATE — the criterion is what the method can see, not how hard the case is
+
+**Annotation-free supervision recovers labels from markers. A shifted date carries no
+marker, so it is not recoverable in principle — it is not a hard instance, it is an
+instance this method cannot see.** That is the whole ground for the rule below. Difficulty
+would be a reason to try harder; invisibility to the supervision signal is a reason to
+say what the reference set contains.
+
+**The rule.** Bracketed, typed DATE masks are gold and are scored like any other type.
+Shifted dates are outside the reference set, and their share of all dates in the corpus is
+reported as a limitation. Two consequences follow and both are stated now:
+
+- **This is not a span exclusion and does not use §9.1's mechanism.** §9.1 flags excluded
+  spans and keeps them, so `n_spans_excluded` can report the amount. A shifted date has no
+  gold span to flag — there is nothing in the corpus marking its position — so the honest
+  accounting is that the DATE reference is *incomplete by an unknown share*, not that some
+  spans were excluded. Nothing is added to `naming.yaml`'s `excluded_types`, DATE stays a
+  `phi_type` value for every corpus, and cross-corpus scoring stays over the same ten
+  types. An earlier draft of `docs/notes/mimic-iii-acquisition.md` had this the other way
+  round and was wrong.
+- **DATE precision is a lower bound for this corpus, and recall is not comparable across
+  corpora.** A detector that correctly finds a shifted date scores as a false positive,
+  because no gold span exists there. That cannot be repaired by any definition of gold —
+  repairing it would require identifying the shifted dates, which is the circular route
+  refused below. So this corpus's DATE precision is reported as a lower bound, and its
+  DATE recall is reported over a reference known to be incomplete.
+
+**The fingerprint may measure the limitation and may not produce gold.** MIMIC's date
+shift is documented to land years in 2100–2200, and the v1.4 release notes state that the
+shift for dates in the noteevents text field was corrected to match the structured data —
+so shifted dates in note text are shifted dates, and where they carry a year that year is
+out of range. This makes the unbracketed share measurable. It does **not** make it
+scorable: a reference produced by a pattern rule is the same kind of object as the
+predictions being scored, so rules would be evaluated against rule-generated gold. The
+split is pre-registered — the fingerprint is permitted for the limitation figure, barred
+from the reference set — and it holds regardless of how well the fingerprint turns out to
+work.
+
+**The proportion is not in the documentation and is knowable only after access.** The
+PhysioNet project page, `mimic.mit.edu`'s time-types page and its release notes were read
+on 2026-08-27: all three describe the shift, none gives any count or proportion of dates
+shifted versus bracketed. That is recorded here because the rule above must not be
+selected by the number. The rule is fixed now; the number is measured later and reported
+whatever it is.
+
+**One measured figure, cited as evidence and not as ground.** On `es-meddocan` dev,
+removing DATE moves the aggregate leak rate 13.72% → 15.28%, i.e. 1.56 pp, about 3× δ.
+This is why the decision cannot be a footnote. It is not why the decision went this way —
+the marker is.
+
+#### 3. Dev subsample — a rule, not a number
+
+The subset is expected to be large enough that `n_dev` becomes a free parameter, and δ is
+derived from `n_dev`, so a free `n_dev` is a free stopping rule (`docs/notes/mimic-iii-acquisition.md` §2).
+What is pre-registered is therefore the sampling procedure, which yields a number without
+anyone choosing one:
+
+| Parameter | Value |
+|---|---|
+| Grouping unit | patient-disjoint, on the corpus's own patient key (§9.5 applies only where no key exists) |
+| Fractions | 50 / 25 / 25 train / dev / test by patient group, as `es-meddocan` |
+| Dev size | whole patient groups added in seeded random order until `n_spans_in_scope` first reaches **≥ 5,300**, then stop |
+| Test size | the same target and the same procedure, sampled and sealed before any read |
+| δ | computed as `max(0.005, 26 / n_dev)` from the resulting `n_dev` and recorded in `splits/{corpus}.json` |
+| Seed | fixed in config and recorded in the results file |
+
+The 5,300 target puts δ on its floor at 0.50 pp, matching `es-meddocan`, so the two
+corpora terminate against the same threshold and a difference in stopping behaviour cannot
+come from a difference in fold size. The document count is whatever the rule produces and
+is reported, not chosen.
+
+#### What freezes when, and what stops being decidable after it
+
+| Item | Frozen at | Not decidable after that point |
+|---|---|---|
+| §6.5's exclusion policy | now, 2026-08-27, before the application | whether the 2,434 are excluded, and whether B was available — a committed split file removes B |
+| `ko-surro` source-ID record | at `ko-surro`'s acquisition, whenever that happens | link 1, permanently: a corpus built without the record cannot acquire one |
+| DATE scope rule | now, before the proportion is known | which of the two reporting forms applies — the proportion cannot select it |
+| Dev sampling procedure | now, before the corpus is in hand | `n_dev`, and therefore δ, and therefore the termination threshold |
+| Link 2 check | early post-access, before the fold is sampled | whether the fallback to C was a fallback or a plan |
+| `n_dev`, δ, document counts | at sampling | nothing — these are outputs, reported as measured |
+
+The order matters in one direction only: everything in the first column above the sampling
+row must be committed before the sampling row runs. After sampling, the remaining numbers
+are measurements and no decision is left to make.
 
 ---
 
