@@ -14,12 +14,18 @@
 #
 # Why they matter enough to have their own script. `ko-surro`'s gold was built by taking
 # the placeholder positions in the tool-output file as the PHI coordinates. That file is a
-# system output, not a human annotation: it holds 2,164 placeholders where the release's
-# own reference is about 1,779 instances, and the producing project's manual review
-# relabelled 142 of them as not-PHI. So the corpus currently scores predictions against a
-# silver standard produced by the same kind of object being scored. The three files above
-# replace it with the human reference, and they are part of the release already held — the
-# same project, the same DUA, no new approval.
+# system output, not a human annotation: 659 of its 2,164 placeholders carry a shifted date
+# *value* where the rest carry a type name, which is the de-identification tool's documented
+# output convention and not a shape a human type annotation would produce; and the producing
+# project's own blind review relabelled 142 of them as not-PHI. So the corpus currently
+# scores predictions against a silver standard produced by the same kind of object being
+# scored. The three files above replace it with the human reference, and they are part of
+# the release already held — the same project, the same DUA, no new approval.
+#
+# The gold instance count is deliberately not stated here. A figure near 1,779 appears in
+# the tool's own documentation, but its scope (whole release or an illustrative run) was not
+# confirmed, and step 5 counts it directly. An unverified denominator in a committed file is
+# how a wrong number gets cited later.
 #
 #   access  : PhysioNet credentialed + per-project DUA (checked 2026-08-27: the project
 #             page states "Only credentialed users who sign the DUA can access the files"
