@@ -221,6 +221,11 @@ guard is new, each has exactly one test written against it, and there is no olde
 test that would have noticed. A count of 1 says the guarantee has one witness — which
 is a fact about the suite worth seeing, not a target to inflate.
 
+**Both numbers held under the full run of 2026-08-28**, made the same day at the same
+commit because two `src/` modules changed. The cells above are therefore full-run
+figures, not scope-run ones: 181 of 181 mutations caught, nothing survived, and the
+1 that a narrow denominator produced is the 1 the whole suite produces.
+
 ## The release screener mutations
 
 The screener is the seal's other half: the gate stops the fold being *read*, and
@@ -3098,12 +3103,16 @@ not a rule; the reasoning is here, with the measurements it rests on.
 | 170 mutations, 8 shards | **1.87 h** | measured, 2026-08-20 |
 | 176 mutations, 8 shards | **2.02 h** | measured, 2026-08-25 |
 | 179 mutations, 8 shards | **2.07 h** | measured, 2026-08-26 |
+| 181 mutations, 8 shards | **2.05 h** | measured, 2026-08-28 |
 
 The two serial rows are derivations and are marked as such; nobody has spent a serial run to
 check either. They disagree by more than the mutation count explains — 170 → 179 is a factor of
 1.05 and the figures differ by 1.11 — because the suite each mutation pays for grew 1696 → 1867
 tests in the same span. The number to quote for "what a serial run would cost today" is the
-second one, and the number to quote as measured is 2.07 h.
+second one, and the number to quote as measured is **2.05 h**, from 2026-08-28 at 181 mutations.
+The two serial rows are left at the counts they were derived for rather than re-derived from the
+newest wall clock, because a derivation restated from a figure that moved by less than the noise
+would look like a new measurement.
 
 The speedup is **6.9× on 8 shards**, and the shortfall from 8× is almost exactly the
 contention: a perfect split would be 12.9 h / 8 = 1.61 h, the run took 1.87 h, and 1.87 / 1.61
@@ -3127,6 +3136,18 @@ file entered `TEST_FILES`, and it is the file that costs: `tests/test_sealed_sco
 tests are paid once per mutation, 179 times, while the three new mutations are 0.375 extra per
 shard. The model in the paragraph above is now measured across a 170 → 176 → 179 sequence, and
 what it predicts is unchanged — the trigger belongs on the denominator.
+
+**The 2026-08-28 run is the fourth data point and it is the first that did not rise: 2.05 h over
+181, or 40.8 s each, against 41.6 s two days before.** The inputs both grew — 179 → 181 mutations
+and 1867 → 1880 tests, factors of 1.011 and 1.007 — so the model predicts a rise of under one
+percent, and what came back is a fall of two percent. The honest reading is that both are inside
+run-to-run variation and this pair of runs measures the noise floor rather than a trend: a 1%
+predicted change cannot be resolved by a wall clock that depends on what else the machine was
+doing for two hours. It is worth writing down for exactly that reason. The three earlier deltas
+(6%, 4%, 1%) were read as confirming the denominator model, and the last of those is the same size
+as the disagreement here — so the model is supported by the 170 → 176 step and is untested at the
+resolution of the 179 → 181 one. Nothing here contradicts it; the claim it can carry is just
+smaller than a four-point sequence looks.
 
 Two of those numbers correct things this file said earlier. **The serial figure is thirteen
 hours, not fifteen.** Fifteen came from the whole-repo suite — 1875 tests, 368 s — and the
