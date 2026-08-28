@@ -521,9 +521,11 @@ def cmd_check(release: Path, min_land: float) -> int:
     print(f"  disagreeing spans          {disagree}")
     print(f"  rate over human gold       {disagree / denom:.1%}")
     print(
-        "  the 142 not-PHI relabels: compare against the placeholder-no-gold set above.\n"
-        "  If they are a subset, the producing project's manual review independently\n"
-        "  recovered part of the human gold, and the remainder is what it missed."
+        "  The producing project's 142 not-PHI relabels were joined against this reference\n"
+        "  on 2026-08-28: 139 of them fall in the unsupported set and 3 do not, and 37\n"
+        "  unsupported placeholders were kept. That join needs that project's results, which\n"
+        "  are outside this repository, so it is recorded rather than recomputed here —\n"
+        "  docs/notes/ko-surro-gold-provenance.md §8."
     )
     return 0
 

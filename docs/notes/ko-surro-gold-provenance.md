@@ -137,3 +137,59 @@ order of magnitude, and the direction matters for how the corpus can be used —
   Korean corpus was built from `id.res`, so a gold span the tool never tagged has no
   counterpart position in the Korean text at all. Using this reference to score a Korean
   arm needs a mapping that does not exist yet, and 59 spans have no image under it.
+
+## 8. The producing project's own corrections, scored against this reference
+
+Measured 2026-08-28. The producing project relabels 142 of the tool's month–day placeholders
+as not-PHI. All 550 month–day placeholders join to this reference by record × placeholder
+value multiplicity, **with 0 ambiguous and 550 of 550 joined**, so this is a census and not a
+sample.
+
+| 550 month–day placeholders | gold: not PHI | gold: PHI | total |
+|---|---|---|---|
+| relabelled not-PHI | **139** | **3** | 142 |
+| kept as PHI | 37 | 371 | 408 |
+| total | **176** | 374 | 550 |
+
+| Quantity | Value |
+|---|---|
+| relabel precision | 139/142 = **0.979** |
+| relabel recall | 139/176 = **0.790** |
+| the human-adjudicated subset alone (101) | 101/101 = **1.000** |
+| therefore the model-assisted subset (41) | 38/41 = **0.927** |
+| over-tag prevalence, census | 176/550 = **32.0%** |
+
+The last row is the one worth keeping: that project reports 32.7% with a 95% CI of
+[25.5, 43.3] from a 50-item sample over the same 550, and the census lands 0.7 pp away.
+
+**Two different 550s, and they must not be conflated.** §6's 550 is placeholders the gold does
+not support, over all 2,164. This section's 550 is the month–day subset. §6's set contains
+this section's 176; its other 374 are 359 type-name payloads and 15 value payloads of another
+shape. The coincidence is arithmetically unrelated.
+
+**What the 3 wrong relabels are, stated at their actual size.** They restore a placeholder's
+inner value into the published corpus where the human reference says the span is a date. That
+is a label-fidelity defect and not a disclosure: of the 550 month–day placeholders, **0** carry
+an inner value that occurs anywhere in their own record's surrogate body, so the tool wrote
+shifted values, and it did so over a corpus whose dates were already surrogates. Three spans
+out of 2,016 carry the wrong label; no real date is published by it.
+
+## 9. Open — whether this corpus can occupy DESIGN §7's English cell
+
+**Not decided here.** The measurements above change the question's terms, so the options are
+recorded with their grounds and no verdict. Two facts bound every option:
+
+- A human reference now exists and is held, so "silver only" is no longer forced.
+- Its offsets index the English `id.text`. `ko-surro` is Korean text derived from `id.res`.
+  59 gold spans have no Korean counterpart at all, so the reference does not transfer to the
+  Korean side without a mapping that does not exist (§7).
+
+| Option | Ground for | Ground against |
+|---|---|---|
+| **A. The English pair scored against the human gold** — run the arm on `id.text` itself, score on `id.deid` | it is a human reference of the strength §7 assumes; 1,779 spans, expert-adjudicated, and our parse is externally validated. Comparable with `es-meddocan` and GraSCCo on the same footing | the 2,434-note release cannot iterate: δ ≈ 6.4 pp, so only a one-shot arm fits. `id.text` is DUA-restricted where the reference is open, so the two halves of the cell have different access terms |
+| **B. `ko-surro` scored against its silver reference, as before** | it is the note-type-matched Korean side of the axis-1 contrast, which is what §7 wants the cell for | its reference has precision 0.746 and recall 0.907–0.967 against human gold. A leak rate on it is not on the same scale as one measured against `es-meddocan`'s gold, and the headline metric of this project is leak rate |
+| **C. Both, as a pair, with the gap reported as the calibration** | the gap is now measured rather than argued, so the silver-scored number can be published with a known bias direction: the reference over-marks by 550 and misses 59 | two cells for one axis position costs a run each, and the calibration is measured on English while the claim it would license is about Korean |
+| **D. Neither — the English cell stays a projection** | §7.1 already writes the English rows as a projection and names a second Spanish register, not an English corpus, as the acquisition that closes the section | it leaves the axis-1 contrast with one operative end, which is the weakness §7.1 already concedes |
+
+The decision belongs in DESIGN §7 and is pre-registered there before any arm runs, not
+chosen after a number is visible.
