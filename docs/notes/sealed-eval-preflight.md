@@ -49,12 +49,39 @@ the number exists.
    against the arm's committed `metrics.json`:
 
        python3 -m src.eval.run_sealed_eval --corpus es-meddocan \
-           --detector R --supervision sup-free --porting port-loop --iteration 8 \
-           --verify-dev
+           --arm R/sup-free/port-loop --iteration 8 --verify-dev
 
    It writes nothing, opens nothing and adds no row. A disagreement here is not a
    formality — it means the scoring path and `run_fold` compute different things, and the
    sealed number would be the first and only observation of the difference.
+
+   **Run for the first time on 2026-08-28, and it agrees.** Output, in full:
+
+       plan    es-meddocan R/sup-free/port-loop round 8: 1 rule file(s), 60 rules,
+               dev leak rate 13.72%
+       verify  dev scoring reproduces the arm's committed metrics.json
+               (counts, false_positive_opportunity, headline, modes)
+       nothing was opened and nothing was written
+
+   0.86 s. The four names in the parentheses are the keys actually compared — everything
+   `score()` returns except `scorer_version`, which the record folds into the run block
+   (`run_sealed_eval.UNCOMPARED_KEYS`). `complementarity` and `per_type` are inside `modes`
+   and are compared with it.
+
+   **What it establishes:** the sealed module's `score_fold` reproduces, key for key, the
+   number `run_fold` committed for this arm — so the two paths differ in which documents
+   they are handed and in nothing else. That is the property a once-only run needs and the
+   only way to have it before the run.
+
+   **What it does not:** it never calls `load_sealed`, so the dirty-tree refusal, the
+   append, the frozen-split verification and the loader's gate itself are all unexercised by
+   it. Those have tests (`tests/test_seal.py`, `tests/test_sealed_scoring.py`) and no
+   rehearsal — the first genuine execution of that path is the run. It is also silent about
+   *whether the fold is worth opening*, which is items 1–3 and 9–12 here.
+
+   Re-run it on the day of the opening regardless of this record: it is the check that
+   catches a rule file edited since the arm closed, which is a state that can arise between
+   any two commits.
 
 5. **The suite is green and the gate is current.** `python3 -m pytest -q` with no
    failures, and `docs/notes/mutation-full-runs.md`'s last full run covering the current

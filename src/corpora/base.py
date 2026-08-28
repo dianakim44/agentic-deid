@@ -1143,8 +1143,14 @@ class CorpusLoader:
         `sealed=True` additionally reads the sealed fold, and only
         `src/eval/run_sealed_eval.py` may pass it. It logs the access before
         reading anything and refuses to proceed if the log cannot be written.
-        `purpose`, `arm` and `iteration` go into that log row and are ignored
-        otherwise.
+        `purpose`, `arm` and `iteration` go into that log row.
+
+        **All three are refused unless `sealed=True`, rather than ignored** (2026-08-28).
+        They are keyword arguments with defaults because every ordinary load omits them,
+        and that made a caller that passed an arm to a non-sealed load look like it had
+        recorded one when no row exists at all. The three are the log row's content and
+        the log row is a consequence of the seal, so outside a sealed read they have no
+        meaning to ignore.
 
         `arm` is typed `object` rather than `sealed_log.Arm` because that import is
         deliberately local to `_authorise_sealed` (a corpus loader that imported the
@@ -1153,6 +1159,21 @@ class CorpusLoader:
         """
         if sealed:
             self._authorise_sealed(purpose=purpose, arm=arm, iteration=iteration)
+        elif purpose is not None or arm is not None or iteration is not None:
+            passed = sorted(
+                name
+                for name, value in (
+                    ("purpose", purpose), ("arm", arm), ("iteration", iteration)
+                )
+                if value is not None
+            )
+            raise SealError(
+                f"{self.corpus_id}: load() got {passed} without sealed=True. Those "
+                "three are the sealed log row's own fields, so on an ordinary load "
+                "there is no row for them to go into — passing them and having them "
+                "ignored looks from the call site like an access that was recorded. "
+                "An unsealed load needs none of them."
+            )
         try:
             docs = list(self._read())
         finally:
@@ -1175,11 +1196,20 @@ class CorpusLoader:
 
     def _authorise_sealed(
         self,
-        purpose: str | None = None,
-        arm: object | None = None,
-        iteration: int | None = None,
+        *,
+        purpose: str | None,
+        arm: object,
+        iteration: int,
     ) -> None:
         """Permit a sealed read, or raise. Called before anything is opened.
+
+        **No defaults, and keyword-only** (2026-08-28). `arm` and `iteration` used to
+        default to `None`, which made an opening with no arm expressible here even after
+        `record_access` began rejecting it: the refusal was real but it lived one call
+        further down, so this signature said the fields were optional and the log's
+        validation said they were not. `purpose` keeps `None` as a value rather than an
+        omission — `record_access` reads `SEALED_EVAL_PURPOSE` from the environment when
+        it is `None`, so `None` here means "look there", not "unset".
 
         Two conditions, both required:
 
@@ -1346,8 +1376,21 @@ def _loaders() -> dict[str, type[CorpusLoader]]:
     return {meddocan.MeddocanLoader.corpus_id: meddocan.MeddocanLoader}
 
 
-def load(corpus_id: str, root: Path | None = None) -> list[Document]:
-    """Load one corpus by its naming.yaml id."""
+def loader_for(corpus_id: str, root: Path | None = None) -> CorpusLoader:
+    """The one answer to "which loader reads this corpus", instantiated but not read.
+
+    `load` below and `src/eval/run_sealed_eval.py` both resolve through here. That module
+    had its own `if corpus_id == "es-meddocan"` branch until 2026-08-28, which agreed with
+    this registry only because both held one entry, and the divergence it allowed is the
+    one that matters: `--verify-dev` scores the dev fold through `run_fold`, which goes
+    through the registry, so a sealed run resolving its loader separately could be
+    validated against a loader it does not itself use. Two answers to "which loader" is
+    the same defect shape as two answers to "which layer" (DESIGN §3).
+
+    The two messages are kept distinct because they call for different actions: a corpus
+    `naming.yaml` does not declare is a typo or a vocabulary omission, and a declared
+    corpus with no loader is unwritten code.
+    """
     loaders = _loaders()
     if corpus_id not in loaders:
         known = sorted(loaders)
@@ -1360,7 +1403,12 @@ def load(corpus_id: str, root: Path | None = None) -> list[Document]:
             f"{corpus_id!r} is not a corpus in config/naming.yaml "
             f"(have: {corpus_ids()})"
         )
-    return loaders[corpus_id](root=root).load()
+    return loaders[corpus_id](root=root)
+
+
+def load(corpus_id: str, root: Path | None = None) -> list[Document]:
+    """Load one corpus by its naming.yaml id."""
+    return loader_for(corpus_id, root).load()
 
 
 # ─── counting helpers ───────────────────────────────────────────────────────

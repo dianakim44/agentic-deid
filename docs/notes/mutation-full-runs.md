@@ -28,6 +28,33 @@ CLAUDE.md's rule that re-anchored mutations are re-measured **regardless of whet
 scope** is what this section serves: an anchor edit is a change to the mutation itself, so its old
 count describes a different experiment, and that fact is invisible from the count alone.
 
+### Owed to the next full run — opened 2026-08-28
+
+**A full run is required by CLAUDE.md's second trigger and has not been made: this commit
+changes two `src/` modules.** `src/corpora/base.py` (the loader's refusal of the log row's
+fields off the sealed path, and `loader_for` becoming the one registry lookup) and
+`src/eval/run_sealed_eval.py` (`--arm`, and `_loader_for` delegating to that lookup). Two
+modules is the line, and `base.load` is additionally a path several mutations target, so
+the recorded counts below are **deferred, not exempt**.
+
+What was measured instead, and it is a scope run: the two mutations added with those guards,
+each against the whole current `TEST_FILES` suite — **both caught, 1 test each**
+(`the_arm_and_the_round_are_ignored_off_the_sealed_path`,
+`the_two_arm_spellings_are_merged_instead_of_refused`). Their numbers are first measurements,
+so nothing was compared and nothing could have fallen. A count of 1 is the honest number
+here rather than a thin one: each guard is a day old and has exactly one test written against
+it, and no older test would have noticed either edit.
+
+**The baseline moved 1867 → 1880 tests**, all thirteen inside existing `TEST_FILES` members
+(twelve in `tests/test_sealed_scoring.py`, one in `tests/test_seal.py`). That is the
+impact-scope case by CLAUDE.md's own list and not a second full-run trigger: added assertions
+can only raise a count, never lower one. It is recorded because it is the number the next full
+run's shards will agree on, and a disagreement there is one of `parallel.py`'s five refusals.
+
+No count in the record below is restated by this commit. The mutation set went 179 → 181 and
+`TEST_FILES` did not move, so every recorded count keeps its denominator and stays
+comparable; what is owed is confirmation, not repair.
+
 ### Nothing outstanding — settled by the full run of 2026-08-26
 
 Two re-anchored mutations were owed to this run, both from the commit that built the sealed

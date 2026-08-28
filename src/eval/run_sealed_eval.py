@@ -1,8 +1,11 @@
 """The only way to evaluate on a sealed test fold.
 
     python3 -m src.eval.run_sealed_eval --corpus es-meddocan \
-        --detector R --supervision sup-free --porting port-loop --iteration 8 \
+        --arm R/sup-free/port-loop --iteration 8 \
         --purpose "pre-registered final evaluation of the port-loop arm"
+
+`--arm` is one cell in the spelling the log's arm column uses; `--detector/--supervision/
+--porting` is the same thing in `run_fold`'s spelling. Exactly one of the two forms.
 
 The loader's seal gate accepts this module by import identity (`base.SEALED_CALLER`),
 so an interactive session cannot reach the sealed fold no matter what it passes. What
@@ -380,13 +383,13 @@ def load_sealed(
 
 
 def _loader_for(corpus_id: str) -> base.CorpusLoader:
-    if corpus_id == "es-meddocan":
-        from ..corpora.meddocan import MeddocanLoader
+    """The loader `run_fold` and `--verify-dev` use, resolved from the one registry.
 
-        return MeddocanLoader()
-    raise CorpusError(
-        f"{corpus_id!r} has no loader yet (implemented: ['es-meddocan'])"
-    )
+    A one-line delegation and it earns the line: this function used to name
+    `MeddocanLoader` itself, so the sealed path and every other path had separate answers
+    to "which loader reads this corpus" that happened to agree. See `base.loader_for`.
+    """
+    return base.loader_for(corpus_id)
 
 
 def _verify_frozen_split(loader: base.CorpusLoader, corpus_id: str) -> None:
@@ -546,16 +549,87 @@ def verify_dev(plan: ArmPlan) -> tuple[bool, list[str], list[str]]:
 # ─── cli ────────────────────────────────────────────────────────────────────
 
 
+#: The three axes `--arm` is the compact spelling of, in the order `Arm.cell` prints them.
+#: `corpus` is not among them: it is a separate flag because it is a separate decision —
+#: the same arm is run on every corpus, and `Arm` does not carry it either.
+ARM_AXES = ("detector", "supervision", "porting")
+
+
+def axes_from_arm(cell: str) -> dict[str, str]:
+    """`"R/sup-free/port-loop"` → the three axis values, or raise.
+
+    The inverse of `sealed_log.Arm.cell`, split on the same character, so the arm column
+    of a log row is a valid `--arm` argument without transcription.
+
+    The values themselves are not checked here. `sealed_log.Arm` checks all three against
+    `naming.yaml` and `plan_arm` constructs one before anything else happens, so a check
+    here would be a second place where the vocabulary is known.
+    """
+    parts = [part.strip() for part in cell.split("/")]
+    if len(parts) != len(ARM_AXES) or not all(parts):
+        raise SealedEvalError(
+            f"--arm {cell!r} is not an arm cell. The form is "
+            f"{'/'.join(ARM_AXES)} — three non-empty values separated by '/', exactly as "
+            "the arm column of results/sealed_eval_log.md prints them, so a cell read off "
+            "a row can be passed straight back."
+        )
+    return dict(zip(ARM_AXES, parts))
+
+
+def resolve_axes(
+    *,
+    arm: str | None,
+    detector: str | None,
+    supervision: str | None,
+    porting: str | None,
+) -> dict[str, str]:
+    """The three axis values from whichever spelling was used. Exactly one form.
+
+    Both spellings exist because each is what one would type from a different starting
+    point: the axis flags are `run_fold`'s CLI, and `--arm` is what `metrics.json` and the
+    log's arm column print. Mixing them is refused rather than merged — an `--arm` and a
+    `--porting` that disagreed would otherwise be settled by whichever the code read
+    second, and this CLI's arguments select the fold that gets opened once.
+    """
+    given = {
+        name: value
+        for name, value in (
+            ("detector", detector), ("supervision", supervision), ("porting", porting),
+        )
+        if value is not None
+    }
+    if arm is not None and given:
+        raise SealedEvalError(
+            f"--arm was given together with {sorted('--' + n for n in given)}. They are "
+            "two spellings of the same three values; pass one form or the other."
+        )
+    if arm is not None:
+        return axes_from_arm(arm)
+    missing = [f"--{name}" for name in ARM_AXES if name not in given]
+    if missing:
+        raise SealedEvalError(
+            f"the arm is incompletely specified: {missing} missing. Give all three axis "
+            f"flags, or --arm {'/'.join(ARM_AXES)} as one cell. There is no default for "
+            "any of them: the arm is what the log row records as opened."
+        )
+    return given
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument("--corpus", required=True, help="corpus id from naming.yaml")
-    parser.add_argument("--detector", required=True, help="detector axis value")
-    parser.add_argument("--supervision", required=True,
-                        help="supervision axis value")
-    parser.add_argument("--porting", required=True, help="porting axis value")
+    parser.add_argument(
+        "--arm",
+        help="the arm as one cell, detector/supervision/porting — the spelling the log's "
+             "arm column and metrics.json use. Alternative to the three axis flags below; "
+             "give one form or the other.",
+    )
+    parser.add_argument("--detector", help="detector axis value (or use --arm)")
+    parser.add_argument("--supervision", help="supervision axis value (or use --arm)")
+    parser.add_argument("--porting", help="porting axis value (or use --arm)")
     parser.add_argument(
         "--iteration", type=int, required=True,
         help="the round to score. DESIGN §6.4 permits only the arm's final round, and "
@@ -596,11 +670,18 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 2
 
     try:
-        plan = plan_arm(
-            corpus=args.corpus, detector=args.detector,
+        axes = resolve_axes(
+            arm=args.arm, detector=args.detector,
             supervision=args.supervision, porting=args.porting,
-            iteration=args.iteration,
         )
+    except SealedEvalError as exc:
+        # 2 rather than 1: this is a usage error in argparse's sense — nothing about the
+        # arm was looked up yet — and `--purpose`'s check above already returns 2.
+        print(f"refused: {exc}", file=sys.stderr)
+        return 2
+
+    try:
+        plan = plan_arm(corpus=args.corpus, iteration=args.iteration, **axes)
     except (CorpusError, SealError) as exc:
         print(f"refused: {exc}", file=sys.stderr)
         return 1

@@ -187,6 +187,40 @@ Neither is caught by anything that existed before `tests/test_sealed_scoring.py`
 neither asserted what the row's cells *equal* — an omission of exactly the shape
 the audit above found in `_verify_frozen_split`, one layer further out.
 
+### Two more, on the same columns — 2026-08-28
+
+The columns were closed in the log and in `record_access` on 2026-08-26. What was
+still open was one step further up and one step further out: the loader accepted
+`arm`/`iteration`/`purpose` on an *unsealed* load and ignored them, and the CLI grew
+a second spelling of the arm (`--arm detector/supervision/porting`) that could be
+mixed with the three axis flags. Both are about a value that is right at the call
+site and reaches the wrong place, or nowhere.
+
+| mutation | changes | breaks | tests that catch it |
+|---|---|---|---|
+| `the_arm_and_the_round_are_ignored_off_the_sealed_path` | `base.load`'s refusal of `purpose`/`arm`/`iteration` without `sealed=True` becomes `elif False:` | the three are accepted and discarded, which is what the code did until 2026-08-28 and what its docstring said. Nothing fails and nothing is logged: they are the log row's own content, so a call site that passes an arm has named the arm it believes it is opening, and on an unsealed load there is no row for the answer to reach. A right value going nowhere while the call reads as recorded | **1** |
+| `the_two_arm_spellings_are_merged_instead_of_refused` | `resolve_axes` stops refusing `--arm` given together with an axis flag | `--arm R/sup-free/port-loop --porting port-oneshot` becomes a silent precedence rule: the cell is read first, so the flag typed after it is dropped. Every downstream guard then passes on a coherent plan for an arm the operator did not ask for — valid axes, a real termination record, real rule files, the round checked against *that* arm's final round | **1** |
+
+**Why these are the plausible edits.** The first restores a documented behaviour,
+which is the strongest form: the pre-2026-08-28 docstring said "ignored otherwise",
+so the mutation is not an invented loosening but the previous sentence. The second
+is what refusing looks like when the two forms usually agree — one spelling is
+redundant, and dropping the redundant one is what a merge does. It replaces an error
+with an invented precedence.
+
+**A third guard closed the same day deliberately has no mutation.**
+`run_sealed_eval._loader_for` named `MeddocanLoader` itself and now resolves through
+`base.loader_for`. Restoring the hardcoded class is behaviourally identical while the
+registry holds one entry, so no test could kill it — a mutation nothing can kill is a
+permanent survivor and a false alarm, not coverage. The guarantee is asserted by
+identity instead (`test_the_sealed_path_and_run_fold_resolve_the_same_loader`), and it
+becomes mutable the day a second loader exists.
+
+Both counts are **1**, and that is the honest number rather than a thin one: each
+guard is new, each has exactly one test written against it, and there is no older
+test that would have noticed. A count of 1 says the guarantee has one witness — which
+is a fact about the suite worth seeing, not a target to inflate.
+
 ## The release screener mutations
 
 The screener is the seal's other half: the gate stops the fold being *read*, and
@@ -2230,7 +2264,7 @@ applies to the code. Two safeguards follow from that:
   Three checks, described in the next section. Skipping them lets the harness count
   its own breakage as a kill.
 
-The maintenance cost is real but bounded: **197 anchors across 179 mutations**, each a
+The maintenance cost is real but bounded: **199 anchors across 181 mutations**, each a
 line or two, and a refactor that breaks one gets a `STALE` message naming the file.
 That is cheaper than the failure mode it prevents.
 
@@ -3215,7 +3249,7 @@ fraction of `TEST_FILES`. Change which files are in that list and the recorded c
 *stale*, they are **about a different denominator** — this file went 11 files/531 tests → 28
 files/1867 tests, and a hundred-odd table cells silently became incomparable. So a change to
 `TEST_FILES` membership is the one thing impact scope cannot cover, because the change is to
-the denominator of all 179 counts rather than to any one of them. That is decidable rather
+the denominator of all 181 counts rather than to any one of them. That is decidable rather
 than a judgement call, which is why it is a test:
 `test_the_full_run_covered_the_current_test_files` compares the current list against the one
 recorded in the sidecar and fails when they differ. Deliberately a failure and not a skip —

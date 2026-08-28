@@ -116,6 +116,34 @@ def test_an_ordinary_load_returns_only_the_unsealed_folds(sealed_corpus):
     assert base.count_by_split(docs) == {"train": 500, "dev": 250}
 
 
+def test_an_ordinary_load_refuses_the_log_rows_own_fields(sealed_corpus):
+    """`purpose=`/`arm=`/`iteration=` without `sealed=True` is a refusal, not a no-op.
+
+    They were ignored until 2026-08-28 and the docstring said so. What that permits is
+    quiet in the direction that matters: the three are the log row's content, so a call
+    site that passes an arm has named the arm it is opening — and on an unsealed load there
+    is no row for the answer to go into, which makes the call read as an access that was
+    recorded when nothing was.
+
+    The signature keeps its defaults, because every ordinary load omits all three; the
+    guarantee is the refusal rather than a required argument. `test_sealed_scoring.py`'s
+    `test_no_step_in_the_chain_defaults_the_arm_or_the_round` holds the other half — that
+    the steps *below* this one have no defaults at all.
+    """
+    loader = MeddocanLoader()
+    for kwargs in (
+        {"purpose": "why"}, {"arm": ARM}, {"iteration": ROUND},
+        {"arm": ARM, "iteration": ROUND},
+    ):
+        with pytest.raises(SealError, match="without sealed=True") as raised:
+            loader.load(**kwargs)
+        for name in kwargs:
+            assert name in str(raised.value), (
+                "the refusal names which fields were passed, so the fix is visible from "
+                "the message rather than by re-reading the call"
+            )
+
+
 def test_fold_roots_does_not_offer_the_sealed_fold(sealed_corpus):
     """The reachability decision, checked at its source.
 

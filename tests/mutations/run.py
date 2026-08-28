@@ -2403,6 +2403,59 @@ MUTATIONS = [
         ),
         min_kills=2,
     ),
+    Mutation(
+        name="the_arm_and_the_round_are_ignored_off_the_sealed_path",
+        path=BASE,
+        anchor="        elif purpose is not None or arm is not None or iteration is not None:",
+        replacement="        elif False:",
+        breaks=(
+            "**Also the state the repository was in until 2026-08-28, restored**, and the "
+            "docstring said so in as many words: `purpose`, `arm` and `iteration` were "
+            "\"ignored otherwise\". Three arguments accepted and discarded on any load "
+            "without `sealed=True`.\n"
+            "\n"
+            "Nothing fails and nothing is logged, which is the whole problem. The three are "
+            "the log row's own content, so a call site that passes an arm has named the arm "
+            "it believes it is opening — and on an unsealed load no row exists for the "
+            "answer to go into. The call reads, at the place someone would review it, as an "
+            "access that was recorded. The failure is not that a wrong value reaches the "
+            "log; it is that a right value reaches nothing while looking like it did.\n"
+            "\n"
+            "It is the tidying-shaped edit twice over: the branch has no effect on any "
+            "correct caller, and permissive keyword arguments are what a signature with "
+            "defaults invites.\n"
+            "\n"
+            "Caught by `test_an_ordinary_load_refuses_the_log_rows_own_fields`, which walks "
+            "all four combinations and requires the refusal to name the fields passed."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="the_two_arm_spellings_are_merged_instead_of_refused",
+        path=RUN_SEALED,
+        anchor="    if arm is not None and given:",
+        replacement="    if False:",
+        breaks=(
+            "`--arm R/sup-free/port-loop --porting port-oneshot` stops being a refusal and "
+            "becomes a silent decision: `--arm` is read first, so the cell wins and the "
+            "axis flag typed after it is dropped. The fold is then opened on an arm the "
+            "operator did not ask for, once, with a log row that names the arm the code "
+            "chose and no record that anything else was said.\n"
+            "\n"
+            "Nothing downstream can notice. Both spellings resolve to valid `naming.yaml` "
+            "values, the plan is checked against whichever arm won, its termination record "
+            "and rule files are real, and the round is verified against that arm's final "
+            "round — so every guard in the file passes on a coherent plan for the wrong "
+            "arm.\n"
+            "\n"
+            "The plausible edit, because refusing looks like pedantry when the two forms "
+            "usually agree: one of them is redundant, and dropping the redundant one is "
+            "what a merge does. It is a precedence rule invented in place of an error.\n"
+            "\n"
+            "Caught by `test_the_two_spellings_may_not_be_mixed`."
+        ),
+        min_kills=1,
+    ),
 
     Mutation(
         name="the_frozen_split_check_ignores_a_moved_document",

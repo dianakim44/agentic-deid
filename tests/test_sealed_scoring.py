@@ -321,6 +321,106 @@ def test_verify_dev_writes_nothing_and_opens_nothing(corpus_present, plan, tmp_p
     )
 
 
+def test_the_sealed_path_and_run_fold_resolve_the_same_loader(corpus_present):
+    """One registry answers "which loader reads this corpus", for both paths.
+
+    `_loader_for` named `MeddocanLoader` itself until 2026-08-28 and agreed with
+    `base._loaders()` because both held one entry. What the duplication permitted has no
+    symptom until a second loader exists: `verify_dev` scores dev through `run_fold`, which
+    goes through the registry, so a sealed run resolving its own loader would have been
+    rehearsed against a different reader of the same corpus. Asserted as identity of the
+    class rather than by behaviour, because the behaviours are equal today — that is
+    exactly why the divergence would be quiet.
+    """
+    registry = run_sealed_eval.base._loaders()
+    assert type(run_sealed_eval._loader_for(CORPUS)) is registry[CORPUS]
+    with pytest.raises(run_sealed_eval.CorpusError, match="no loader yet"):
+        run_sealed_eval._loader_for("de-grascco")
+
+
+# ─── the two spellings of the arm ───────────────────────────────────────────
+
+
+def test_the_arm_cell_round_trips_through_the_flag(plan):
+    """`--arm` takes exactly what the log's arm column prints.
+
+    That is the whole reason the compact form exists: a cell read off a committed row, or
+    out of an arm's `metrics.json`, is passed back without transcribing three values. A
+    parser that split on some other character would still work on hand-typed input and
+    would lose that property silently, so the round trip is what is asserted.
+    """
+    assert run_sealed_eval.axes_from_arm(plan.arm.cell) == TERMINATED
+    assert set(run_sealed_eval.ARM_AXES) == set(TERMINATED)
+
+
+def test_both_spellings_plan_the_same_arm(arm_record):
+    """Not two ways in — one, reached by two spellings.
+
+    Compared as plans rather than as parsed axes: the plan is what every step downstream
+    reads, so a spelling that resolved correctly and then planned differently would pass a
+    check on `resolve_axes` alone.
+    """
+    round_ = arm_record["termination"]["iterations"]
+    by_flags = run_sealed_eval.plan_arm(corpus=CORPUS, iteration=round_, **TERMINATED)
+    by_cell = run_sealed_eval.plan_arm(
+        corpus=CORPUS, iteration=round_,
+        **run_sealed_eval.resolve_axes(
+            arm=by_flags.arm.cell, detector=None, supervision=None, porting=None
+        ),
+    )
+    assert by_cell == by_flags
+
+
+@pytest.mark.parametrize(
+    "cell",
+    ["R/sup-free", "R/sup-free/port-loop/extra", "R//port-loop", "",
+     "R sup-free port-loop", "/R/sup-free"],
+)
+def test_a_malformed_arm_cell_is_refused(cell):
+    with pytest.raises(SealError, match="is not an arm cell"):
+        run_sealed_eval.axes_from_arm(cell)
+
+
+def test_the_two_spellings_may_not_be_mixed():
+    """Because a disagreement between them has no right answer.
+
+    Merging would settle `--arm A/b/c --porting d` by whichever the code read second, and
+    the result is a fold opened on an arm nobody typed.
+    """
+    with pytest.raises(SealError, match="together with"):
+        run_sealed_eval.resolve_axes(
+            arm="R/sup-free/port-loop", detector=None, supervision=None,
+            porting="port-oneshot",
+        )
+
+
+def test_an_incompletely_specified_arm_is_refused():
+    """Two of the three axis flags is not two thirds of an arm."""
+    with pytest.raises(SealError, match="incompletely specified"):
+        run_sealed_eval.resolve_axes(
+            arm=None, detector="R", supervision="sup-free", porting=None
+        )
+    with pytest.raises(SealError, match="incompletely specified"):
+        run_sealed_eval.resolve_axes(
+            arm=None, detector=None, supervision=None, porting=None
+        )
+
+
+def test_the_cell_form_is_not_a_way_past_the_vocabulary():
+    """`axes_from_arm` checks the shape and deliberately nothing else.
+
+    The values are checked where they were always checked — `sealed_log.Arm`, against
+    `naming.yaml`, inside `plan_arm`. A second check inside the parser would be a second
+    place that knows the vocabulary, which is what CLAUDE.md's naming rule forbids; what
+    must hold instead is that the new spelling reaches the existing one.
+    """
+    with pytest.raises(SealError):
+        run_sealed_eval.plan_arm(
+            corpus=CORPUS, iteration=1,
+            **run_sealed_eval.axes_from_arm("R/sup-free/port-invented"),
+        )
+
+
 # ─── where the sealed record is written ─────────────────────────────────────
 
 
@@ -459,17 +559,26 @@ def test_the_committed_log_has_nine_columns():
 def test_no_step_in_the_chain_defaults_the_arm_or_the_round(temp_log):
     """The signatures are the control, at all three layers.
 
-    `load_sealed` takes a plan, `base.load` threads `arm`/`iteration`, and
-    `record_access` requires both. A default anywhere in that chain is a value somebody
-    defaults — which is how the arm cell came to be the literal `none (access check)` for
-    the whole life of the log. Checked by inspection rather than by behaviour because the
-    behaviour under test is "nobody can omit it", and an omission has no call to make.
+    `load_sealed` takes a plan, `base.load` threads `arm`/`iteration`, `_authorise_sealed`
+    passes them on, and `record_access` requires both. A default anywhere in that chain is
+    a value somebody defaults — which is how the arm cell came to be the literal
+    `none (access check)` for the whole life of the log. Checked by inspection rather than
+    by behaviour because the behaviour under test is "nobody can omit it", and an omission
+    has no call to make.
+
+    **`_authorise_sealed` was the gap, and it stayed open after `record_access` closed**
+    (fixed 2026-08-28). It defaulted both to `None`, so the refusal was real but lived one
+    call further down: the signature said the fields were optional at the step that decides
+    whether to open the fold. `base.load` keeps its defaults and must — every ordinary load
+    omits all three — so the guarantee there is a refusal instead, which
+    `tests/test_seal.py` covers.
     """
     import inspect
 
     from src.corpora.base import CorpusLoader
 
     assert list(inspect.signature(run_sealed_eval.load_sealed).parameters)[0] == "plan"
+    authorise = inspect.signature(CorpusLoader._authorise_sealed).parameters
     for name in ("arm", "iteration"):
         appended = inspect.signature(sealed_log.record_access).parameters[name]
         assert appended.default is inspect.Parameter.empty, (
@@ -477,6 +586,14 @@ def test_no_step_in_the_chain_defaults_the_arm_or_the_round(temp_log):
         )
         assert name in inspect.signature(CorpusLoader.load).parameters, (
             f"the loader does not thread {name} to the append"
+        )
+        assert authorise[name].default is inspect.Parameter.empty, (
+            f"_authorise_sealed defaults {name}, so an opening with no {name} is "
+            "expressible at the step that authorises the read"
+        )
+        assert authorise[name].kind is inspect.Parameter.KEYWORD_ONLY, (
+            f"{name} is positional in _authorise_sealed, so two of the three could be "
+            "swapped at a call site and the log row would name the wrong thing"
         )
 
 
