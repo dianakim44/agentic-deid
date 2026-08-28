@@ -737,4 +737,22 @@ def _pct(value: float | None) -> str:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    # Call the *imported* module's `main`, not this file's copy of it.
+    #
+    # Under `python -m src.eval.run_sealed_eval` — the invocation this module's own
+    # docstring documents and the only one it supports — this file executes as
+    # `__main__`. So `main`'s frame carries `__name__ == "__main__"`, the string
+    # `base.SEALED_CALLER` appears nowhere on the call stack, and the loader's
+    # identity check refuses the run. Importing the module here puts a frame with the
+    # real name on the stack below `main`, which is what the check asks for and what
+    # it means: the module that vouches for the read is genuinely running the read.
+    #
+    # Found on 2026-08-28 by the first attempt to open a fold. Nothing caught it
+    # earlier because every test imports this module (so `__name__` is already right)
+    # and `--verify-dev`, the pre-flight rehearsal, never reaches `load_sealed` —
+    # which `docs/notes/sealed-eval-preflight.md` item 4 states as the limit of what
+    # that rehearsal establishes. The refusal was upstream of the log append, so the
+    # failed attempt opened nothing and added no row.
+    from src.eval.run_sealed_eval import main as _main
+
+    raise SystemExit(_main())

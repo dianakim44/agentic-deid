@@ -81,7 +81,29 @@ the number exists.
 
    Re-run it on the day of the opening regardless of this record: it is the check that
    catches a rule file edited since the arm closed, which is a state that can arise between
-   any two commits.
+   any two commits. It was re-run on 2026-08-28 before the opening and agreed again.
+
+   **What "unexercised" cost, the same day it was written.** The first attempt to open the
+   fold — correct arm, correct round, correct purpose, every item on this list green — was
+   refused by the loader's gate, because `python3 -m src.eval.run_sealed_eval` executes the
+   file as `__main__` and so put no frame named `src.eval.run_sealed_eval` on the call stack.
+   The documented invocation could not pass its own check. `--verify-dev` had just agreed,
+   twice, and could not have caught it: the paragraph above is the reason, in writing, before
+   the fact.
+
+   Nothing was lost. The identity check runs before the append, so no row was added and
+   `count_runs` stayed 0 — the ordering guarantee doing precisely the job it is for, on the
+   first occasion it was ever load-bearing. The entry point was fixed, given a test that
+   drives it through `runpy.run_module(run_name="__main__")` because no import-based test can
+   reproduce `-m`, and given the mutation `the_entry_point_calls_its_own_copy_of_main`
+   (caught, 1) so that the fix cannot be quietly undone. The run then proceeded on the
+   corrected commit.
+
+   The item this changes for next time is not item 4 but the reading of it: a rehearsal that
+   stops short of the gate leaves the gate's *admit* path untested, and a gate that refuses
+   everything looks exactly like a gate that works. If a second corpus is ever sealed, run
+   its first opening as a deliberate rehearsal against a fold you are willing to spend before
+   the one you are not.
 
 5. **The suite is green and the gate is current.** `python3 -m pytest -q` with no
    failures, and `docs/notes/mutation-full-runs.md`'s last full run covering the current

@@ -2458,6 +2458,38 @@ MUTATIONS = [
     ),
 
     Mutation(
+        name="the_entry_point_calls_its_own_copy_of_main",
+        path=RUN_SEALED,
+        anchor="    from src.eval.run_sealed_eval import main as _main",
+        replacement="    _main = main",
+        breaks=(
+            "Restores the defect this file shipped until 2026-08-28, and it is the *live* "
+            "failure rather than an invented one: `python3 -m src.eval.run_sealed_eval` — "
+            "the invocation the module's own docstring documents, and the only one it "
+            "supports — cannot open the fold at all. Under `-m` the file executes as "
+            "`__main__`, so `main`'s frame carries `__name__ == \"__main__\"`, "
+            "`SEALED_CALLER` appears nowhere on the call stack, and the loader's identity "
+            "check refuses the run.\n"
+            "\n"
+            "The failure direction is the safe one — the refusal is upstream of the log "
+            "append, so nothing is opened and no row is added — which is exactly why it "
+            "survived to the first real opening. A gate that refuses everything, including "
+            "the one caller it exists to admit, reads as a working gate from every angle "
+            "except use, and the only use is once per arm.\n"
+            "\n"
+            "The plausible edit, because the import looks redundant: `main` is defined "
+            "twelve lines up and calling it directly is what every other CLI in this "
+            "repository does. Nothing at the call site says the two copies differ, and "
+            "under any invocation that imports the module first they do not.\n"
+            "\n"
+            "Caught by `test_the_documented_entry_point_puts_the_real_module_on_the_stack`, "
+            "which drives the block through `runpy.run_module(run_name=\"__main__\")` "
+            "because that is what `-m` does and no import-based test can reproduce it."
+        ),
+        min_kills=1,
+    ),
+
+    Mutation(
         name="the_frozen_split_check_ignores_a_moved_document",
         path=RUN_SEALED,
         anchor="        if assigned.get(doc.doc_id) != doc.split:",

@@ -226,6 +226,47 @@ commit because two `src/` modules changed. The cells above are therefore full-ru
 figures, not scope-run ones: 181 of 181 mutations caught, nothing survived, and the
 1 that a narrow denominator produced is the 1 the whole suite produces.
 
+### The entry point that could not open the fold — 2026-08-28, found by using it
+
+This one is different from every other mutation in this file: it does not describe an
+edit somebody might make, it describes the code as shipped. The first attempt to open a
+sealed fold in this project's history was **refused by its own gate.**
+
+| mutation | changes | breaks | tests that catch it |
+|---|---|---|---|
+| `the_entry_point_calls_its_own_copy_of_main` | the `__main__` block's `from src.eval.run_sealed_eval import main as _main` becomes `_main = main` | `python3 -m src.eval.run_sealed_eval` cannot open the fold at all. Under `-m` the file executes as `__main__`, so `main`'s frame carries `__name__ == "__main__"`, `SEALED_CALLER` is nowhere on the call stack, and the loader's identity check refuses the only invocation the module documents or supports | **1** |
+
+**Why nothing caught it.** Three reasons, and each one is a general lesson about testing
+a once-only path:
+
+- **Every test imports the module**, which makes `__name__` correct for free. The
+  property under test — what the *shell's* invocation puts on the stack — is invisible
+  to any test that arrives by import. The new test drives the block through
+  `runpy.run_module(run_name="__main__")`, which is what `-m` does.
+- **`--verify-dev` never reaches `load_sealed`.** The pre-flight rehearsal exercises
+  planning, detection and scoring, and stops exactly short of the gate.
+  `docs/notes/sealed-eval-preflight.md` item 4 says so in writing — "the dirty-tree
+  refusal, the append, the frozen-split verification and the loader's gate itself are
+  all unexercised by it" — written on the morning of the day the gap fired. A limit that
+  is documented and not closed is still a limit.
+- **The failure direction was the safe one.** The refusal sits upstream of the log
+  append, so the failed attempt opened nothing and added no row. A gate that refuses
+  *everything*, including the one caller it exists to admit, is indistinguishable from a
+  working gate from every angle except use — and the use happens once per arm.
+
+That last point is the reusable one, and it is the same shape as the defects the rest of
+this file collects: a mechanism that cannot tell "the check passed" from "the check did
+not run" resolves the ambiguity in the reassuring direction. Here the mechanism could not
+tell "admits the right caller" from "admits nobody", and the reassuring reading is the
+one a reader gets from the refusal message, which is written to sound like a caught
+violation.
+
+**Its count is a full-denominator number even though a full run has not been made since.**
+`run.py`'s baseline is the whole `TEST_FILES` suite (1881 tests here), so a single-mutation
+run and a full run measure each count against the same suite; what a full run adds is the
+other 181 counts under the new baseline, and the baseline moved by one added test, which
+can only raise a count. See `docs/notes/mutation-full-runs.md` for that deferral.
+
 ## The release screener mutations
 
 The screener is the seal's other half: the gate stops the fold being *read*, and
@@ -2269,7 +2310,7 @@ applies to the code. Two safeguards follow from that:
   Three checks, described in the next section. Skipping them lets the harness count
   its own breakage as a kill.
 
-The maintenance cost is real but bounded: **199 anchors across 181 mutations**, each a
+The maintenance cost is real but bounded: **200 anchors across 182 mutations**, each a
 line or two, and a refactor that breaks one gets a `STALE` message naming the file.
 That is cheaper than the failure mode it prevents.
 
@@ -3270,7 +3311,7 @@ fraction of `TEST_FILES`. Change which files are in that list and the recorded c
 *stale*, they are **about a different denominator** — this file went 11 files/531 tests → 28
 files/1867 tests, and a hundred-odd table cells silently became incomparable. So a change to
 `TEST_FILES` membership is the one thing impact scope cannot cover, because the change is to
-the denominator of all 181 counts rather than to any one of them. That is decidable rather
+the denominator of all 182 counts rather than to any one of them. That is decidable rather
 than a judgement call, which is why it is a test:
 `test_the_full_run_covered_the_current_test_files` compares the current list against the one
 recorded in the sidecar and fails when they differ. Deliberately a failure and not a skip —

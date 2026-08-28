@@ -28,6 +28,36 @@ CLAUDE.md's rule that re-anchored mutations are re-measured **regardless of whet
 scope** is what this section serves: an anchor edit is a change to the mutation itself, so its old
 count describes a different experiment, and that fact is invisible from the count alone.
 
+### Owed to the next full run — opened 2026-08-28, after that day's full run
+
+**No full run is required by CLAUDE.md and none was made.** The change is one `src/` module
+and one block inside it — `run_sealed_eval`'s `__main__` block, which called this file's copy
+of `main` instead of the imported module's and so could not satisfy the loader's identity
+check — plus one added mutation and one added test inside an existing `TEST_FILES` member.
+Each of those three is on CLAUDE.md's impact-scope list, and `TEST_FILES` membership did not
+move, so every count in the record below keeps its denominator.
+
+**The added mutation's count is not a scope-run figure in the sense that matters.**
+`the_entry_point_calls_its_own_copy_of_main` measured **1**, and `run.py` measures every
+mutation against the whole `TEST_FILES` suite — the baseline for that run was 1881 tests. A
+scope run and a full run differ in *how many mutations* they measure, never in the suite each
+one is measured against. So the 182nd count is comparable to the other 181 as it stands.
+
+What is owed is narrower than usual, and it is worth naming precisely rather than as
+"confirmation": the other 181 counts were measured at baseline 1880 and the baseline is now
+1881. One added test can only raise a count, so no recorded number can be too high, and any
+that is too low is too low by the number of the new test's assertions that happen to fail
+under that mutation. That is the whole of the debt.
+
+**A note on why this entry exists at all, given that nothing is required.** The mutation it
+adds is a *seal* mutation, and `docs/notes/sealed-eval-preflight.md` item 5 makes a sealed
+evaluation the moment CLAUDE.md's "before citing a count" trigger fires for exactly those.
+`test_the_full_run_covered_the_current_test_files` passes — the currency condition is about
+`TEST_FILES` and `TEST_FILES` is unchanged — so item 5 is satisfied on its own terms and the
+opening proceeded. Written down because that is a judgement, not a check, and a reader
+comparing the sealed row's commit against the last full-run commit will find them different
+and should find the reason here rather than reconstruct it.
+
 ### Nothing outstanding — settled by the full run of 2026-08-28, the same day it was opened
 
 The debt was opened by `86415c8` under CLAUDE.md's second trigger — two `src/` modules

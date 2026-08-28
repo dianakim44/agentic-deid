@@ -253,7 +253,7 @@ def test_every_anchor_is_present_in_its_target():
     `apply()` already refuses a vanished anchor, so nothing here is a new guarantee —
     what is new is *when the answer arrives*. `apply()` runs inside the harness, one
     mutation per full suite run, so a refactor that moves an anchor is reported only when
-    somebody spends the whole run; at 181 mutations that is about fourteen hours serial —
+    somebody spends the whole run; at 182 mutations that is about fourteen hours serial —
     derived, not measured, from the 2.07 h measured across eight shards
     (`tests/mutations/README.md` §"What it actually costs, measured") — and until then the
     anchor is stale and

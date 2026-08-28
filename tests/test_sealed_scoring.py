@@ -22,6 +22,7 @@ would take for a sealed evaluation that never happened.
 """
 from __future__ import annotations
 
+import inspect
 import json
 import os
 import sys
@@ -336,6 +337,59 @@ def test_the_sealed_path_and_run_fold_resolve_the_same_loader(corpus_present):
     assert type(run_sealed_eval._loader_for(CORPUS)) is registry[CORPUS]
     with pytest.raises(run_sealed_eval.CorpusError, match="no loader yet"):
         run_sealed_eval._loader_for("de-grascco")
+
+
+def test_the_documented_entry_point_puts_the_real_module_on_the_stack(monkeypatch):
+    """`python -m src.eval.run_sealed_eval` must satisfy the loader's identity check.
+
+    The check walks the frames' `__name__` looking for `base.SEALED_CALLER`. Under
+    `python -m` the file executes as `__main__`, so until 2026-08-28 the module's own
+    documented invocation put no frame carrying the real name on the stack and the seal
+    gate refused it — the refusal is upstream of the log append, so the first attempt to
+    open a fold opened nothing, but it could not open one either. The `__main__` block now
+    imports the module and calls *that* copy's `main`, whose frame carries the real name.
+
+    Nothing caught this before because every test imports the module, which makes
+    `__name__` right for free, and `--verify-dev` never reaches `load_sealed`. So the
+    entry point is exercised the way the shell exercises it: `runpy.run_module` with
+    `run_name="__main__"` is what `-m` does.
+
+    The assertion is on the stack at the point `main` starts real work, which is the whole
+    content of the fix. `plan_arm` stands in for that point because it is `main`'s first
+    call and needs no corpus; the recorder's own frame belongs to this test module, and
+    what is being asserted is the frame *below* it.
+    """
+    import runpy
+
+    seen: dict[str, set[str]] = {}
+
+    def recorder(**kwargs):
+        frame = inspect.currentframe()
+        names = set()
+        try:
+            while frame is not None:
+                names.add(frame.f_globals.get("__name__", ""))
+                frame = frame.f_back
+        finally:
+            del frame
+        seen["names"] = names
+        raise SystemExit(0)
+
+    monkeypatch.setattr(run_sealed_eval, "plan_arm", recorder)
+    monkeypatch.setattr(
+        sys, "argv",
+        ["run_sealed_eval.py", "--corpus", CORPUS, "--arm", ARM.cell,
+         "--iteration", str(ROUND), "--purpose", "entry point test"],
+    )
+
+    with pytest.raises(SystemExit) as exc:
+        runpy.run_module("src.eval.run_sealed_eval", run_name="__main__")
+
+    assert exc.value.code == 0, "the recorder should have been reached"
+    assert run_sealed_eval.base.SEALED_CALLER in seen["names"], (
+        "the documented entry point must put the real module on the call stack, or the "
+        "loader's seal gate refuses the only invocation permitted to open the fold"
+    )
 
 
 # ─── the two spellings of the arm ───────────────────────────────────────────
