@@ -28,6 +28,58 @@ CLAUDE.md's rule that re-anchored mutations are re-measured **regardless of whet
 scope** is what this section serves: an anchor edit is a change to the mutation itself, so its old
 count describes a different experiment, and that fact is invisible from the count alone.
 
+### Owed to the next full run — opened 2026-08-29, after the sealed opening was read back
+
+**No full run is required by CLAUDE.md and none was made.** One `src/` module again —
+`run_sealed_eval`, where `sealed_run_block` stopped sampling the tree state itself and now
+takes it from `evaluate`, which samples once before `load_sealed` — plus one added mutation
+(`the_tree_state_is_sampled_after_the_run_wrote_to_the_tree`, measured **1**), two added
+tests, and four edited assertions in tests that are already `TEST_FILES` members. Membership
+is unchanged at 28, so every count below keeps its denominator. The added mutation's count is
+a full-denominator figure for the reason the entry beneath this one gives: `run.py` measures
+each mutation against the whole suite, 1883 tests at this baseline.
+
+**What is owed is different in kind from the entry below, and the difference matters.** The
+four edited assertions are *loosenings*: absolute expectations became relative ones.
+
+| test | was | is |
+|---|---|---|
+| `test_the_authorised_caller_passes_the_gate_and_is_logged` | `count_runs(CORPUS) == 1` | `== before + 1` |
+| `test_rows_are_numbered_consecutively` | row numbers `"1"`, `"2"` | `str(rows + 1)`, `str(rows + 2)` |
+| `test_count_runs_still_keys_on_the_corpus_column` | `count_runs(CORPUS) == 1` | `== before + 1` |
+| `test_verify_dev_writes_nothing_and_opens_nothing` | the sealed record does not exist | the sealed record's bytes are unchanged |
+
+A relative assertion can pass where an absolute one failed, so unlike an added test — which
+can only raise a count — these could in principle *lower* one. Tracing each of the four
+suggests they cannot: the temp log holds exactly one real row of the same corpus, so
+`before + 1` and `== 1` diverge only under a mutation that changes what `count_runs` counts,
+and in those cases the relative form fails at least as early. The fourth was strictly
+broken, not loosened — it asserted a file's absence after the file legitimately existed, so
+it failed at baseline and killed nothing.
+
+**That tracing is an argument and not a measurement, and it is recorded as an argument.**
+The comparable numbers do not exist: no run since the edits has measured the mutations in
+those tests' runtime reach, which is the whole seal path — the mutations in
+`src/corpora/base.py`, `src/eval/sealed_log.py`, `src/eval/run_sealed_eval.py` and the three
+provenance-field mutations in `src/eval/scorer.py`. So this entry claims no expectation for
+them, in either direction. Running that scope serially costs about as much as running all
+183 in eight shards, which is the reason to settle it with a full run rather than a scope
+one when the time is next spent.
+
+### The four tests the sealed opening turned red — same event, recorded here because it is a gate fact
+
+Commit `de1d881`, which recorded the opening, left the suite **red**: the four tests above
+asserted a never-opened fold, and opening one falsified them. Two read `count_runs == 1` on
+a `temp_log` seeded from the real log, and one required the sealed `metrics.json` not to
+exist.
+
+The gate consequence is the part that belongs in this file rather than only in
+`tests/mutations/README.md`: **`run.py` refuses to measure anything on a red baseline** — it
+prints `BASELINE IS NOT GREEN` and aborts before applying a single mutation. So between the
+opening and the fix, no kill count could be produced at all, by a scope run or a full one.
+An opening was the one event guaranteed to trigger it, and the tests that broke were the
+seal's own.
+
 ### Owed to the next full run — opened 2026-08-28, after that day's full run
 
 **No full run is required by CLAUDE.md and none was made.** The change is one `src/` module

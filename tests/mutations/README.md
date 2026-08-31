@@ -254,7 +254,28 @@ a once-only path:
   *everything*, including the one caller it exists to admit, is indistinguishable from a
   working gate from every angle except use — and the use happens once per arm.
 
-That last point is the reusable one, and it is the same shape as the defects the rest of
+**The ordering guarantee held, on the first occasion it was ever load-bearing.** This is
+the half of the event worth recording as a result rather than as a defect. The order is
+fixed and it is the whole design of the sealed path: `plan_arm` makes every refusal that
+can be made from committed dev artefacts, then `load_sealed` refuses a dirty tree, then
+the gate checks the caller's identity, and *only then* is the row appended — after which
+the fold is open and the count includes it whatever happens next. Until 2026-08-28 that
+ordering was a claim supported by tests and by nothing else, because no fold had ever been
+opened. Then a genuine failure arrived at exactly the step it was built for, and the cost
+of the failure was zero: `count_runs` stayed at 0, no row was written, the placeholder was
+still in place, and the tree was clean. The arm's one permitted opening was still
+available to spend an hour later on the fixed commit.
+
+So the entry-point defect and the ordering guarantee are one event read two ways, and both
+readings are load-bearing for the same reason: **the thing that failed was the thing that
+had never run, and the thing that saved it was the thing that had never been needed.** A
+design whose safety margin is only ever exercised by tests is a design whose first real
+test is also its first real measurement. This one measured well. The next mechanism in
+that position — `sealed_run_block`'s tree sample, the subsection below — did not, and the
+difference between the two is precisely that a wrong *order* refuses and a wrong *value*
+publishes.
+
+That last point in the list is the reusable one, and it is the same shape as the defects the rest of
 this file collects: a mechanism that cannot tell "the check passed" from "the check did
 not run" resolves the ambiguity in the reassuring direction. Here the mechanism could not
 tell "admits the right caller" from "admits nobody", and the reassuring reading is the
@@ -266,6 +287,95 @@ violation.
 run and a full run measure each count against the same suite; what a full run adds is the
 other 181 counts under the new baseline, and the baseline moved by one added test, which
 can only raise a count. See `docs/notes/mutation-full-runs.md` for that deferral.
+
+### The provenance field that described the run's own output — 2026-08-28, and it shipped
+
+The second mutation in this file to restore a defect the repository actually shipped, and
+the only one whose damage cannot be taken back. The same run as above — the one opening
+`R/sup-free/port-loop` gets under DESIGN §6.4 — recorded `tree: dirty` in its
+`metrics.json` while its log row recorded `clean`, for one execution, on a tree that
+`git status --porcelain` had reported empty seconds earlier.
+
+| mutation | changes | breaks | tests that catch it |
+|---|---|---|---|
+| `the_tree_state_is_sampled_after_the_run_wrote_to_the_tree` | `evaluate`'s pre-sampled `observed` becomes an inline `sealed_log.tree_state()` at the point of use | the sample moves back to *after* `load_sealed` appended the log row (a tracked file, now modified) and after the output directory was created (untracked). The run observes a tree its own writes made dirty and records `dirty` beside a commit hash that describes the running code exactly — which is the negation of what the field means | **1** |
+
+**Why nothing caught it, and why it is the harder of the two.** `tree` means "the commit
+hash does not describe the code that ran". Every ordinary run agrees with the defect
+because `run_fold` writes into a tree it has not touched yet, and `check_run` accepts
+`dirty` beside a hash because that is a real state some runs are genuinely in. So the
+field was wrong only for the one caller that writes into the repository *before* writing
+its record, and that caller runs once per arm. There was no failing assertion to find and
+no exception to raise: the value validated, the file was written, and the run reported
+success.
+
+Set against the entry point, the pair is a clean contrast worth keeping:
+
+| | the entry point | the tree sample |
+|---|---|---|
+| what was wrong | the order of a check | the timing of an observation |
+| how it failed | refused everything | published a false value |
+| cost of the failure | nothing — no row, `count_runs` still 0 | permanent — the arm's only opening is spent |
+| how it was found | by using it, at the first use | by reading the record afterwards |
+
+That is the lesson the two share. Both mechanisms were unexercised until the once-only
+run, and both failed at first use; the reason only one of them cost anything is that a
+misordered gate fails closed and a mistimed measurement fails quiet. A provenance field
+has no closed direction to fail in — it just says something, and what it says is read
+later by someone with no way to check it. So the rule the fix encodes is not "sample
+earlier" but that `sealed_run_block` cannot sample at all: it takes the state as a
+required keyword with no default, because a default is the same mistake arriving by
+omission. `evaluate` takes the one sample, before `load_sealed`, and hands the same tuple
+to the dirty-tree refusal and to the record — one run, one observation, so the state
+refused on is by construction the state reported.
+
+The record itself was not corrected. `results/es-meddocan/R/sup-free/port-loop/test/metrics.json`
+still says `dirty`, with a `provenance_note` beside it naming the log row as authoritative
+and this field as what the run observed of itself. Rewriting the value would make the
+artefact agree with a run that never happened, and re-running is the one thing §6.4
+forbids — so the honest version is the wrong number with its correction attached.
+
+**Its count is a full-denominator number**, for the same reason as the row above: `run.py`
+measures every mutation against the whole `TEST_FILES` suite, 1883 tests at the baseline
+this was measured on.
+
+### The third thing that broke, which has no mutation: four tests that asserted a never-opened fold
+
+No mutation, because there is nothing to mutate — the defect was in the tests, and the fix
+is not a mechanism that can be undone by an edit. It is recorded here because it is the
+clearest instance in this file of a test that was green for a reason unrelated to what it
+claimed.
+
+Commit `de1d881` recorded the opening and left the suite **red**. Four tests asserted, in
+effect, that no fold had ever been opened:
+
+| test | asserted | why it held until 2026-08-28 |
+|---|---|---|
+| `test_the_authorised_caller_passes_the_gate_and_is_logged` | `count_runs(CORPUS) == 1` after one read | `temp_log` copies the real log, which held no rows of its own |
+| `test_count_runs_still_keys_on_the_corpus_column` | `count_runs(CORPUS) == 1` after one append | same |
+| `test_rows_are_numbered_consecutively` | the two rows are numbered `1` and `2` | numbering from an empty log was the only case reachable |
+| `test_verify_dev_writes_nothing_and_opens_nothing` | the sealed `metrics.json` does not exist | no arm had been evaluated, so it never did |
+
+Each is now relative to the log's committed state, and the fourth compares the record's
+bytes instead of its existence — which is also the stronger claim, since a rehearsal that
+overwrote the one irreversible record with a dev score satisfied the old assertion on its
+way past.
+
+**Why this belongs in a file about mutation testing.** A mutation asks "if this code were
+wrong, would a test notice?". These four tests answer a different question than they appear
+to: they read as claims about the gate and the log, and were in fact claims about the
+repository's history. The mutation-shaped lesson is that a fixture which copies real state
+inherits real state's contingencies, and an absolute expectation over inherited state is a
+test with a hidden premise. The premise here was "`count_runs` is 0", which
+`docs/notes/sealed-eval-preflight.md` item 9 treats — correctly — as a *fact to check before
+a run*, never an invariant.
+
+The gate consequence is worth stating separately, because it is the reason this could not be
+left for later: **`run.py` refuses to measure anything on a red baseline.** It prints
+`BASELINE IS NOT GREEN — fix the suite before mutating` and returns before applying a single
+mutation. So from the opening until the fix, no kill count in this file could be reproduced
+at all — not by a scope run and not by a full one. The one event guaranteed to trigger that
+was an opening, and the tests it broke were the seal's own.
 
 ## The release screener mutations
 
@@ -2310,7 +2420,7 @@ applies to the code. Two safeguards follow from that:
   Three checks, described in the next section. Skipping them lets the harness count
   its own breakage as a kill.
 
-The maintenance cost is real but bounded: **200 anchors across 182 mutations**, each a
+The maintenance cost is real but bounded: **201 anchors across 183 mutations**, each a
 line or two, and a refactor that breaks one gets a `STALE` message naming the file.
 That is cheaper than the failure mode it prevents.
 
@@ -3311,7 +3421,7 @@ fraction of `TEST_FILES`. Change which files are in that list and the recorded c
 *stale*, they are **about a different denominator** — this file went 11 files/531 tests → 28
 files/1867 tests, and a hundred-odd table cells silently became incomparable. So a change to
 `TEST_FILES` membership is the one thing impact scope cannot cover, because the change is to
-the denominator of all 182 counts rather than to any one of them. That is decidable rather
+the denominator of all 183 counts rather than to any one of them. That is decidable rather
 than a judgement call, which is why it is a test:
 `test_the_full_run_covered_the_current_test_files` compares the current list against the one
 recorded in the sidecar and fails when they differ. Deliberately a failure and not a skip —
