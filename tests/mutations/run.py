@@ -2490,6 +2490,39 @@ MUTATIONS = [
     ),
 
     Mutation(
+        name="the_tree_state_is_sampled_after_the_run_wrote_to_the_tree",
+        path=RUN_SEALED,
+        anchor="        run=sealed_run_block(plan, observed=observed),",
+        replacement="        run=sealed_run_block(plan, observed=sealed_log.tree_state()),",
+        breaks=(
+            "Moves the tree sample back to where it was on 2026-08-28, which is after "
+            "`load_sealed` appended the log row (a tracked file, now modified) and after the "
+            "output directory was created (untracked). The run then observes a tree its own "
+            "writes made dirty and records `tree: dirty` beside a commit hash that describes "
+            "the code that ran exactly. `tree` means the opposite of that — the hash does "
+            "*not* describe the code — so the field asserts something false.\n"
+            "\n"
+            "This is the second mutation in the set that restores a defect the repository "
+            "actually shipped, and the only one whose damage cannot be undone: the arm's one "
+            "opening (DESIGN §6.4) is spent, so the wrong value stands in "
+            "`results/es-meddocan/R/sup-free/port-loop/test/metrics.json` with a "
+            "`provenance_note` beside it rather than a corrected field.\n"
+            "\n"
+            "The plausible edit, because sampling at the point of use looks like the tidier "
+            "spelling: the argument is threaded three statements down from where it is "
+            "obtained and inlining it removes a local whose purpose is invisible at the call "
+            "site. Everything still validates — `check_run` accepts `dirty` with a hash, "
+            "since that is a real state — and every ordinary dev run agrees, because "
+            "`run_fold` writes into a tree the run has not touched yet.\n"
+            "\n"
+            "Caught by `test_the_recorded_tree_state_is_the_one_the_log_row_saw`, which fakes "
+            "the repository as a clock: clean until the load, dirty from then on, which is "
+            "what the real one did."
+        ),
+        min_kills=1,
+    ),
+
+    Mutation(
         name="the_frozen_split_check_ignores_a_moved_document",
         path=RUN_SEALED,
         anchor="        if assigned.get(doc.doc_id) != doc.split:",

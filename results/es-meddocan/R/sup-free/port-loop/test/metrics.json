@@ -82,6 +82,14 @@
     "tree": "dirty",
     "scorer_version": 1
   },
+  "provenance_note": {
+    "added": "2026-08-29",
+    "added_by": "hand, after the run; not written by write_metrics",
+    "about": "run.tree",
+    "field_value_is_wrong": true,
+    "authoritative_record": "results/sealed_eval_log.md row 1",
+    "note": "run.tree says 'dirty' and is wrong. The log row for this same run says 'clean' and is right. git status --porcelain was empty immediately before the run: the tree went dirty *because of this run*, which appended the log row (a tracked file) and created this directory (untracked). sealed_run_block sampled the tree state after both, so the run read its own output as contamination, while record_access samples before it writes. 'tree' means 'the commit hash does not describe the code that ran'; commit 496df71476a47c35396491d620119121c238c668 describes it exactly. Nothing else in this file is affected — the leak rates, the complementarity decomposition and P/R/F1 do not read this field. The record is not corrected in place and the run is not repeated: DESIGN 6.4 permits one opening per arm and it is spent, so the honest artefact is the wrong value with this note beside it. Where the two records disagree, the log row is authoritative; this field is what the run observed of itself. The code was fixed on 2026-08-29 (sealed_run_block now requires a pre-sampled state, taken in evaluate before load_sealed) and the regression is held by test_the_recorded_tree_state_is_the_one_the_log_row_saw and the mutation the_tree_state_is_sampled_after_the_run_wrote_to_the_tree. No later run can reproduce this value, so this note applies to this file only; schema_version is unchanged, as the schema is not."
+  },
   "cost": {
     "llm_calls": 251,
     "prompt_tokens": 2355561,

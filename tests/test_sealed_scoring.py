@@ -313,12 +313,27 @@ def test_verify_dev_compares_everything_score_produces(plan, monkeypatch):
 
 
 def test_verify_dev_writes_nothing_and_opens_nothing(corpus_present, plan, tmp_path):
-    """It is the rehearsal. A rehearsal that consumed an opening would be the run."""
-    before = sealed_log.LOG.read_text(encoding="utf-8")
+    """It is the rehearsal. A rehearsal that consumed an opening would be the run.
+
+    **Asserted as "unchanged", not as "absent"** (2026-08-29). This test required the
+    sealed metrics file not to exist, which was true until an arm was genuinely evaluated
+    and then false forever — it went red on 2026-08-28 with nothing wrong. Absence was
+    never the property anyway: what the rehearsal must not do is *write*, and a run that
+    overwrote the one irreversible record with a dev score would satisfy the old assertion
+    on the way past. Comparing the bytes catches that and keeps working after the file
+    exists.
+    """
+    sealed = sealed_metrics_path(corpus=CORPUS, **TERMINATED)
+    log_before = sealed_log.LOG.read_text(encoding="utf-8")
+    record_before = sealed.read_bytes() if sealed.exists() else None
+
     run_sealed_eval.verify_dev(plan)
-    assert sealed_log.LOG.read_text(encoding="utf-8") == before
-    assert not sealed_metrics_path(corpus=CORPUS, **TERMINATED).exists(), (
-        "a dev verification must not produce a sealed metrics file"
+
+    assert sealed_log.LOG.read_text(encoding="utf-8") == log_before
+    after = sealed.read_bytes() if sealed.exists() else None
+    assert after == record_before, (
+        "a dev verification changed the sealed metrics file — created it, or overwrote the "
+        "record of an opening that cannot be repeated"
     )
 
 
@@ -542,6 +557,87 @@ def test_the_sealed_record_differs_from_the_dev_one_in_split_and_scores_only(
     )
 
 
+def test_the_recorded_tree_state_is_the_one_the_log_row_saw(
+    tmp_path, arm_record, plan, monkeypatch
+):
+    """`run.tree` must be sampled before the run writes anything. Its first run was not.
+
+    The 2026-08-28 opening of `es-meddocan/test` — the only one this arm gets — recorded
+    `tree: dirty` in `metrics.json` while its log row recorded `clean`, for one run on a
+    tree that `git status --porcelain` had just reported empty. `sealed_run_block` sampled
+    the state itself, which put the sample *after* `load_sealed` had appended the row (a
+    tracked file, modified) and after the output directory existed (untracked). The run
+    read its own footprints as contamination. `record_access` samples before it writes,
+    which is why the row is the one that is right.
+
+    `tree` means "the commit hash does not describe the code that ran", and a run's own
+    outputs cannot make that true of the run producing them. So the property is about
+    *when*, and the fake below is a clock: `tree_state` reports `clean` until the load
+    happens and `dirty` from then on, which is what the real repository did. A sample
+    taken at the wrong moment therefore reaches the record as `dirty` and this test fails;
+    the sample taken where `record_access` takes its own reaches it as `clean`.
+
+    Everything downstream of the load is stubbed because none of it is the subject — the
+    scoring is `test_dev_scoring_reproduces_the_arms_committed_metrics`'s job, and the
+    writer's is the two tests above. What is *not* stubbed is `evaluate`, because the
+    ordering being asserted is entirely a fact about the order of its statements.
+    """
+    commit = "b" * 40
+    dirty_from_now_on = {"tree": "clean"}
+    samples: list[str] = []
+
+    def fake_tree_state():
+        samples.append(dirty_from_now_on["tree"])
+        return commit, dirty_from_now_on["tree"]
+
+    def fake_load_sealed(_plan, *, purpose, allow_dirty=False, observed=None):
+        # Standing in for the append and the mkdir, in the one respect that matters here.
+        dirty_from_now_on["tree"] = "dirty"
+        return []
+
+    scored = {
+        k: v for k, v in arm_record.items()
+        if k not in ("run", "schema_version", "headline_mode", *run_sealed_eval.COPIED_BLOCKS)
+    }
+    monkeypatch.setattr(sealed_log, "tree_state", fake_tree_state)
+    monkeypatch.setattr(run_sealed_eval, "load_sealed", fake_load_sealed)
+    monkeypatch.setattr(
+        run_sealed_eval, "score_fold", lambda _p, _docs, split: (scored, 0.0)
+    )
+
+    path, _ = run_sealed_eval.evaluate(plan, purpose="tree sampling order", root=tmp_path)
+    written = json.loads(path.read_text(encoding="utf-8"))
+
+    assert written["run"]["tree"] == "clean", (
+        "the record reports a tree state observed after the run had already written to the "
+        "tree, so it describes the run's own output and not the code that ran"
+    )
+    assert written["run"]["commit"] == commit
+    assert samples and samples[0] == "clean", (
+        "nothing sampled the tree before the load; the first observation of the run must "
+        "be the one the record and the log row share"
+    )
+    assert dirty_from_now_on["tree"] == "dirty", (
+        "the fake never went dirty, so this test would pass on the defect it is for"
+    )
+
+
+def test_the_tree_state_is_not_sampled_where_it_was_sampled_wrongly(plan):
+    """`sealed_run_block` takes the state and has no way to obtain one.
+
+    The above fails if the sampling moves back; this fails if a default is added, which is
+    the same defect arriving by omission rather than by edit. A keyword with a default
+    would let a future caller reintroduce the late sample without touching `evaluate`, and
+    the symptom would again be a provenance field that is wrong in the safe-looking
+    direction on a run that cannot be repeated.
+    """
+    observed = inspect.signature(run_sealed_eval.sealed_run_block).parameters["observed"]
+    assert observed.default is inspect.Parameter.empty
+    assert observed.kind is inspect.Parameter.KEYWORD_ONLY
+    block = run_sealed_eval.sealed_run_block(plan, observed=("c" * 40, "clean"))
+    assert (block["commit"], block["tree"]) == ("c" * 40, "clean")
+
+
 def test_a_sealed_run_writes_no_spans_and_no_errors():
     """Checked against the module's imports, which is where it would come back.
 
@@ -592,9 +688,16 @@ def test_the_row_carries_the_arm_and_the_round(temp_log):
 
 
 def test_count_runs_still_keys_on_the_corpus_column(temp_log):
-    """The `round` column went in at cell 7 so this index did not move."""
+    """The `round` column went in at cell 7 so this index did not move.
+
+    `+ 1` rather than `== 1`: `temp_log` copies the real log, so an absolute count here
+    asserts that no fold has ever been opened. That became false on 2026-08-28. The
+    zero for the unopened corpus stays absolute, because that is the claim being made —
+    rows are attributed to the corpus in their own column and not to every corpus.
+    """
+    before = sealed_log.count_runs(CORPUS)
     sealed_log.record_access(CORPUS, arm=ARM, iteration=ROUND, purpose="one")
-    assert sealed_log.count_runs(CORPUS) == 1
+    assert sealed_log.count_runs(CORPUS) == before + 1
     assert sealed_log.count_runs("de-grascco") == 0
 
 

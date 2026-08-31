@@ -254,9 +254,18 @@ def synthetic(monkeypatch, tmp_path, temp_log):
 
 
 def test_the_authorised_caller_passes_the_gate_and_is_logged(synthetic, temp_log):
-    """Through `run_sealed_eval.load_sealed`, the gate opens — and logs first."""
+    """Through `run_sealed_eval.load_sealed`, the gate opens — and logs first.
+
+    **Counted relative to the log's committed state, not from zero** (2026-08-29).
+    `temp_log` copies the real log, so this assertion read `== 1` for as long as the real
+    log held none of its own — and went red the first time a fold was genuinely opened,
+    which was 2026-08-28. An absolute count here encodes "no arm has ever been evaluated"
+    as a property of the gate, and that is one of the few facts about this repository
+    guaranteed to change. `+ 1` is also the stronger claim: one read, one row.
+    """
     from src.eval import run_sealed_eval
 
+    before = sealed_log.count_runs(CORPUS)
     docs = run_sealed_eval.load_sealed(a_plan(), purpose="unit test of the gate")
 
     assert synthetic.read_folds == ["dev", "test", "train"], (
@@ -268,7 +277,7 @@ def test_the_authorised_caller_passes_the_gate_and_is_logged(synthetic, temp_log
     assert sealed_log.PLACEHOLDER not in text, (
         "the first real row must replace the placeholder, not sit beside it"
     )
-    assert sealed_log.count_runs(CORPUS) == 1, "one read, one row"
+    assert sealed_log.count_runs(CORPUS) == before + 1, "one read, one row"
 
 
 def test_the_flag_is_cleared_after_the_read(synthetic):
@@ -363,11 +372,21 @@ def test_a_purpose_with_a_pipe_is_refused(temp_log):
 
 
 def test_rows_are_numbered_consecutively(temp_log):
+    """Consecutive with whatever the log already holds, which since 2026-08-28 is a row.
+
+    The numbers were `1` and `2` here until the real log had a row of its own, at which
+    point `temp_log`'s copy of it made them `2` and `3` and this test failed for no defect.
+    Deriving them from `count_runs` keeps the property — each row is the previous plus one —
+    and continues onto a non-empty log, which is the case that actually ships. The old
+    spelling could only ever have tested numbering from empty.
+    """
+    rows = sealed_log.count_runs()          # every corpus: the number is the log's, not a corpus's
+    mine = sealed_log.count_runs(CORPUS)     # this corpus only: what `count_runs` is for
     first = sealed_log.record_access(CORPUS, arm=ARM, iteration=ROUND, purpose="first run")
     second = sealed_log.record_access(CORPUS, arm=ARM, iteration=ROUND, purpose="second run")
-    assert first.split("|")[1].strip() == "1"
-    assert second.split("|")[1].strip() == "2"
-    assert sealed_log.count_runs(CORPUS) == 2
+    assert first.split("|")[1].strip() == str(rows + 1)
+    assert second.split("|")[1].strip() == str(rows + 2)
+    assert sealed_log.count_runs(CORPUS) == mine + 2
     assert sealed_log.count_runs("de-grascco") == 0
 
 

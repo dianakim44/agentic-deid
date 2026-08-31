@@ -340,7 +340,11 @@ def plan_arm(
 
 
 def load_sealed(
-    plan: ArmPlan, *, purpose: str, allow_dirty: bool = False
+    plan: ArmPlan,
+    *,
+    purpose: str,
+    allow_dirty: bool = False,
+    observed: tuple[str | None, str] | None = None,
 ) -> list[Document]:
     """Every fold including the sealed one, after logging the access.
 
@@ -354,8 +358,15 @@ def load_sealed(
     carried the experiment's only test score would have inherited unchanged. Requiring a
     validated plan makes an opening with no arm unrepresentable rather than merely
     discouraged.
+
+    `observed` lets the caller hand in the tree state it will also record, so that one
+    run makes one observation: the state this function refuses on is then, by
+    construction, the state the record reports. Sampling it here as well would give this
+    module two answers to one question, and they would agree until they did not. The
+    default exists for the callers that only want the documents — it samples at this
+    point, which is still before anything has been written.
     """
-    commit, tree = sealed_log.tree_state()
+    commit, tree = sealed_log.tree_state() if observed is None else observed
     if tree != "clean" and not allow_dirty:
         raise SealError(
             f"the working tree is {tree}, so commit {(commit or 'unknown')[:12]} "
@@ -451,7 +462,7 @@ def score_fold(
     return score(pairs, excluded_gold=excluded), elapsed
 
 
-def sealed_run_block(plan: ArmPlan) -> dict:
+def sealed_run_block(plan: ArmPlan, *, observed: tuple[str | None, str]) -> dict:
     """The sealed record's run block: the arm's, with `FRESH_RUN_FIELDS` replaced.
 
     Copied rather than reassembled, and the reason is the same one `COPIED_BLOCKS`
@@ -460,8 +471,21 @@ def sealed_run_block(plan: ArmPlan) -> dict:
     would make this module a second assembler of the block, and the two assemblers would
     agree until the day they did not. What this run genuinely observed is four fields:
     the fold it scored, when it ran, and against which revision and tree state.
+
+    **`observed` is passed in, not sampled here, and it has no default** (2026-08-29).
+    This function used to call `tree_state()` itself, which runs *after* `load_sealed`
+    has appended the log row and after the output directory exists — so it saw a tree
+    made dirty by the run's own writes and recorded `dirty` at a commit that described
+    the running code exactly. The first sealed evaluation (2026-08-28, the only opening
+    this arm gets) shipped with that field wrong: the log row said `clean` and the
+    metrics said `dirty`, for one run. See `provenance_note` in that record.
+
+    `tree` means "the commit hash does not describe the code that ran". A run's own
+    outputs cannot make that true, so the sample has to be taken before there are any —
+    which is what the log row does, and is now the only thing this block will accept.
+    No default, because a default here is a sample taken at the wrong time by omission.
     """
-    commit, tree = sealed_log.tree_state()
+    commit, tree = observed
     return {
         **dict(plan.dev["run"]),
         "split": SEALED_SPLIT,
@@ -481,13 +505,28 @@ def evaluate(
     committed artefacts has already been made. What can still fail here is a read or a
     write, and by then the log row exists — which is the intended ordering: the opening
     happened, and a crash must not be able to un-record it.
+
+    The tree state is sampled *here*, before `load_sealed`, and threaded down into
+    `sealed_run_block`. It is deliberately the first statement: after this line the run
+    has appended a log row and created an output directory, and every later sample would
+    read its own footprints as contamination. `record_access` samples before it writes for
+    the same reason, so the two records now answer the question at the same moment and
+    can only agree. This is a real ordering constraint, not a stylistic one — see
+    `sealed_run_block` for the run that shipped with the field wrong.
+
+    Sampled before `load_sealed` rather than inside it because `load_sealed` returns
+    documents to ~10 test call sites; widening that return type to carry a provenance
+    tuple would change every one of them to fix a fact about this function's output.
     """
-    docs = load_sealed(plan, purpose=purpose, allow_dirty=allow_dirty)
+    observed = sealed_log.tree_state()
+    docs = load_sealed(
+        plan, purpose=purpose, allow_dirty=allow_dirty, observed=observed
+    )
     scored, _ = score_fold(plan, docs, split=SEALED_SPLIT)
     dev = plan.dev
     path = write_metrics(
         scored,
-        run=sealed_run_block(plan),
+        run=sealed_run_block(plan, observed=observed),
         sealed=True,
         root=root,
         **{k: dev[k] for k in COPIED_BLOCKS if k in dev},
