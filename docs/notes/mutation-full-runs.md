@@ -63,16 +63,25 @@ re-measured is the other 153**, and the expectation recorded for them is none �
 rule against writing "unchanged" for a value the current suite has not produced.
 
 **A bookkeeping finding, unrelated to this change and worth the next full run knowing.**
-`tests/mutations/README.md`'s table disagreed with the 2026-08-28 sidecar in **24 of its 127
-cells**, always low — the table was not synced after that run. Six of the 24 fall in this
-scope, were re-measured here, agree with the sidecar exactly, and are corrected in the table
-by this commit (`a_cue_span_swallows_the_cue` 2 → 3, `run_fold_detects_separately` 4 → 5,
-`detect_fold_drops_overlaps` 2 → 3, `spans_file_carries_the_surface` 34 → 40,
-`run_fold_omits_the_layer` 32 → 38, `run_fold_writes_a_null_model_id` 45 → 49). **The other 18
-are left alone deliberately.** They could be copied from the sidecar, which is a run record
-and not a guess, but copying 18 cells for modules this commit did not touch would put numbers
-in the table that this commit did not measure — and the table is what gets cited. They are
-named here so the next full run settles them with its own figures.
+`tests/mutations/README.md`'s tables disagreed with the 2026-08-28 sidecar in **33 of the 180
+comparable cells**, always low — they were not synced after that run. Six of the 33 fall in
+this scope, were re-measured here, agree with the sidecar exactly, and are corrected in the
+table by this commit (`a_cue_span_swallows_the_cue` 2 → 3, `run_fold_detects_separately`
+4 → 5, `detect_fold_drops_overlaps` 2 → 3, `spans_file_carries_the_surface` 34 → 40,
+`run_fold_omits_the_layer` 32 → 38, `run_fold_writes_a_null_model_id` 45 → 49). **The other 27
+are left alone deliberately** and marked `†` in the table by the follow-up commit, meaning
+*not re-measured* — a lower bound, not a current value. They could be copied from the sidecar,
+which is a run record and not a guess, but copying 27 cells for modules this commit did not
+touch would put numbers in the table that no commit measured, and the table is what gets
+cited. **This run settles them**: it re-measures all 27, and whoever records it rewrites those
+cells from this run's own sidecar and removes the markers.
+`test_a_readme_count_that_contradicts_the_last_full_run_is_marked` fails if a marker is
+missing *or* if one survives the drift it describes, so the removal is not left to memory.
+
+The first count written here was "24 of 127", from a scan that missed three tables and
+mis-split the one row whose *changes* cell contains a literal `|` inside backticks. 33 of 180
+is the figure from the code-aware parse that the test now uses; the earlier pair of numbers
+was never a measurement of anything and is superseded rather than reconciled.
 
 ### Owed to the next full run — opened 2026-08-29, after the sealed opening was read back
 

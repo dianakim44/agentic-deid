@@ -21,6 +21,7 @@ how many tests the harness runs, and these do not exercise the loader.
     python3 -m pytest tests/test_mutation_harness.py -q
 """
 import os
+import re
 import sys
 
 import pytest
@@ -548,6 +549,150 @@ def test_the_full_run_covered_the_current_test_files():
         "suite. A full run is required — impact scope cannot cover this, because the change "
         f"is to the denominator of all {len(harness.MUTATIONS)} counts and not to any one "
         "of them"
+    )
+
+
+def _split_row(line):
+    """Split a markdown row on `|`, ignoring pipes inside inline code spans.
+
+    Needed rather than `line.split("|")` because one row's *changes* cell is
+    `` `prompts/(filled|rendered)/` `` — a literal pipe inside backticks, which a naive split
+    shifts every cell after it by one. That row's count agrees with the sidecar, so a naive
+    parser reports it as stale, and a check whose false positives are indistinguishable from
+    its findings is one nobody reads twice.
+    """
+    cells, cur, in_code = [], [], False
+    for ch in line.strip().strip("|"):
+        if ch == "`":
+            in_code = not in_code
+        if ch == "|" and not in_code:
+            cells.append("".join(cur).strip())
+            cur = []
+        else:
+            cur.append(ch)
+    cells.append("".join(cur).strip())
+    return cells
+
+
+def _readme_count_cells(text):
+    """Yield `(line_no, mutation_name, cell_text)` for every kill-count cell in README.md.
+
+    The tables do not share one shape: most are `mutation | changes | breaks | tests that
+    catch it`, the blast-radius lists are `mutation | measured | min_kills`, and one is
+    `mutation | kills`. So the count column is found from the header rather than assumed to
+    be the last one — and `min_kills` is excluded explicitly, because it is an *expectation*
+    and comparing it to a measurement would flag every mutation whose floor sits below what
+    the suite actually does, which is most of them.
+    """
+    rows, table = [], None
+    for lineno, line in enumerate(text.splitlines(), 1):
+        if line.startswith("|"):
+            if table is None:
+                table = []
+            table.append((lineno, _split_row(line)))
+        elif table:
+            rows.append(table)
+            table = None
+    if table:
+        rows.append(table)
+
+    for table in rows:
+        header = table[0][1]
+        column = None
+        for index, name in enumerate(header):
+            if "min_kills" in name:
+                continue
+            if re.fullmatch(r"tests that catch it|kills|measured", name):
+                column = index
+        if column is None:
+            continue
+        for lineno, cells in table[1:]:
+            if cells[0].startswith("---") or column >= len(cells):
+                continue
+            named = re.fullmatch(r"`([a-z0-9_]+)`", cells[0])
+            if named:
+                yield lineno, named.group(1), cells[column]
+
+
+def test_a_readme_count_that_contradicts_the_last_full_run_is_marked():
+    """A stale table cell has to say it is stale, and a cell that says so has to be stale.
+
+    The README's counts were each measured, but not all on the same day and not all against
+    today's suite — a cell is filled from a run of the suite as it stood when its mutation was
+    added, and every test added afterwards that reaches the mutated line makes the cell read
+    low. The drift has one direction for that reason, which is why 33 of 180 cells were low
+    and none were high when this was first checked on 2026-09-01.
+
+    Six of those 33 were inside the impact scope of 04177e8, were re-measured, agreed with the
+    sidecar exactly, and were corrected there. The remaining 27 carry `†`, meaning *not
+    re-measured*: the number is a lower bound and not a current value.
+
+    Both directions are asserted, and the second one is the load-bearing half. A missing `†`
+    is the ordinary failure — a cell contradicts the last full run and nothing says so. A
+    surplus `†` is the subtler one: it marks a cell that has since come back into agreement,
+    so the marker now warns about drift that is gone, and a reader who trusts it discounts a
+    number that is in fact current. Markers that can outlive their cause become decoration,
+    and then the honest cells look marked too.
+
+    Deliberately not a check that the cells *equal* the sidecar. They could be made to by
+    copying 27 values out of a run record, which is arithmetic and not measurement, and the
+    table would then contain numbers no commit took, in rows for modules no commit touched.
+    See README §"Reading a kill count". The next full run re-measures all 27 and its writer
+    rewrites them from its own sidecar; this test is what makes the markers come off then.
+
+    Outside `TEST_FILES`, so a hard failure here cannot redden any mutation baseline.
+    """
+    sidecar = os.path.join(ROOT, "docs", "notes", "mutation-full-runs.counts.json")
+    if not os.path.exists(sidecar):
+        pytest.fail(
+            "no full-run sidecar, so no README count has a run to be compared against. "
+            "test_the_full_run_covered_the_current_test_files says the same thing first"
+        )
+    with open(sidecar, encoding="utf-8") as fh:
+        recorded = json.load(fh)["counts"]
+
+    readme_path = os.path.join(ROOT, "tests", "mutations", "README.md")
+    with open(readme_path, encoding="utf-8") as fh:
+        text = fh.read()
+
+    compared, unmarked, over_marked = 0, [], []
+    for lineno, name, cell in _readme_count_cells(text):
+        if name not in recorded:
+            # Added since the full run: no recorded value, so nothing to contradict. Its
+            # count came from an impact-scope run, and `docs/notes/mutation-full-runs.md`
+            # records which one and what it left unmeasured.
+            assert "†" not in cell, (
+                f"README.md:{lineno}: `{name}` is marked † but has no entry in the "
+                "sidecar — it was added after the last full run, so there is no recorded "
+                "count for it to disagree with"
+            )
+            continue
+        shown = re.match(r"\*{0,2}(\d+)\*{0,2}", cell)
+        if not shown:
+            continue
+        compared += 1
+        agrees = int(shown.group(1)) == recorded[name]
+        marked = "†" in cell
+        if not agrees and not marked:
+            unmarked.append((lineno, name, int(shown.group(1)), recorded[name]))
+        if agrees and marked:
+            over_marked.append((lineno, name, recorded[name]))
+
+    assert compared > 100, (
+        f"only {compared} count cells were compared — the parser stopped matching the "
+        "tables, so this test is passing by measuring almost nothing"
+    )
+    assert not unmarked, (
+        "README.md cells contradict the last full run and are not marked †: "
+        + "; ".join(f"line {ln}: `{n}` says {r}, the run measured {s}"
+                    for ln, n, r, s in unmarked)
+        + ". Mark them † (not re-measured) or re-measure them — do not copy the run's "
+          "numbers into cells this commit did not measure"
+    )
+    assert not over_marked, (
+        "README.md cells are marked † but now agree with the last full run: "
+        + "; ".join(f"line {ln}: `{n}` at {s}" for ln, n, s in over_marked)
+        + ". Remove the marker — it is warning about drift that no longer exists"
     )
 
 
