@@ -418,9 +418,23 @@ def provenance(corpus: str, iteration: int, *, n: int | None = None,
 #: third hash added retroactively would be a claim about a window that never applied
 #: (DESIGN §6.3, `docs/notes/window-freeze-history.md`). That is why `window_drift()` reads
 #: the field list off the record it is checking instead of off this tuple — see there.
+#:
+#: **Six since 2026-09-01, and the three new ones are `port-multi`'s out-of-loop agents**
+#: (DESIGN §6.7.1). The window is the record of *what decided this run*, and a record naming
+#: only `rule_author.md` is equally true of a run that changed `profiler.md` and one that did
+#: not — the same argument that put `auditor.md` and `sampling.yaml` here, applied to three
+#: files that decide how the corpus is loaded, how its types are mapped, and which lexicons
+#: enter detection. They are listed unconditionally rather than per-arm: a window that is
+#: three files for `port-loop` and six for `port-multi` is two windows, and the arm that
+#: reads a rewritten `profiler.md` without recording it would be `port-loop` — the arm the
+#: three files do not run, but whose *comparison* against `port-multi` they decide.
 PROMPT_TEMPLATE = "docs/prompts/rule_author.md"
 AUDITOR_TEMPLATE = "docs/prompts/auditor.md"
-WINDOW_FILES = (PROMPT_TEMPLATE, AUDITOR_TEMPLATE, "config/sampling.yaml")
+PROFILER_TEMPLATE = "docs/prompts/profiler.md"
+MAPPER_TEMPLATE = "docs/prompts/mapper.md"
+LEXICON_BUILDER_TEMPLATE = "docs/prompts/lexicon_builder.md"
+WINDOW_FILES = (PROMPT_TEMPLATE, AUDITOR_TEMPLATE, "config/sampling.yaml",
+                PROFILER_TEMPLATE, MAPPER_TEMPLATE, LEXICON_BUILDER_TEMPLATE)
 
 #: `WINDOW_FILES` entry -> the field its hash is written to. A mapping rather than a
 #: derivation from the filename: the two existing field names (`prompt_sha256`,
@@ -431,6 +445,9 @@ WINDOW_HASH_FIELDS = {
     PROMPT_TEMPLATE: "prompt_sha256",
     AUDITOR_TEMPLATE: "auditor_sha256",
     "config/sampling.yaml": "sampling_sha256",
+    PROFILER_TEMPLATE: "profiler_sha256",
+    MAPPER_TEMPLATE: "mapper_sha256",
+    LEXICON_BUILDER_TEMPLATE: "lexicon_builder_sha256",
 }
 
 
@@ -461,9 +478,10 @@ def window_hashes(files: Sequence[str] | None = None) -> dict:
     line without choosing names — the names are what a reader greps for, and two
     callers inventing two spellings would be two logs.
 
-    Three fields by default since 2026-08-12 (`auditor_sha256`). Built from `WINDOW_FILES`
-    rather than written out, so widening the window is one edit: a fourth file listed there
-    and not here would be hashed into `files` and compared against nothing.
+    Six fields by default since 2026-09-01 (three at 2026-08-12). Built from
+    `WINDOW_FILES` rather than written out, so widening the window is one edit: a file
+    listed there and not in `WINDOW_HASH_FIELDS` raises `KeyError` here rather than being
+    hashed into `files` and compared against nothing.
 
     **`files` exists for an arm whose window is not today's window**, which is
     `port-human`: it is retired, its window was two files, and hashing a third onto a

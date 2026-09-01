@@ -723,12 +723,18 @@ def run_fold(
     correct for every arm whose rules list their terms inline, which is every arm frozen
     before 2026-09-01.
 
-    **What this does not yet carry is the record.** `rules_source` names which rule file
-    the numbers came from, and no field names which lexicon collection — so an arm whose
-    rules read lists cannot be re-run from its own `metrics.json`, and `run_sealed_eval`,
-    which rebuilds the rule paths out of `rules_source`, has nothing to rebuild the
-    collection from. Owed by the commit that wires `port-multi` (DESIGN §6.7.4), and stated
-    here rather than there because this is the function whose run block is short a field.
+    **And it is recorded, as of 2026-09-01.** `lexicons_source` names the lists that were
+    read, keyed by the reference the rule wrote and valued with the file's repo-relative
+    path — the debt DESIGN §6.7.4 recorded here, paid by the commit that wires `port-multi`.
+    Which lists were *read* rather than which collection was *available*: the two differ
+    for any arm whose rule author referenced two of the three lists it was given, and the
+    one a re-run needs is the first. `run_sealed_eval` rebuilds them the way it rebuilds
+    `rules_source` and refuses an arm whose lists have gone missing.
+
+    Empty rather than absent on the arms that read none, which is every arm frozen before
+    that date. A field only one arm carries cannot be compared across arms
+    (`model_id_absent`, DESIGN §4), and `{}` is the true statement "no term list was read"
+    rather than a placeholder for a collection nobody named.
 
     The run block is assembled here and validated by the scorer before anything is
     written, so an arm named wrong fails before it produces a directory. `rules_version`
@@ -985,6 +991,14 @@ def run_fold(
         # instead of it: the version says which revision the author declared and the
         # path says which arm and iteration produced it, and neither implies the other.
         "rules_source": {lang: p for lang, p in sorted(ruleset.sources.items())},
+        # And which term lists a `lexicon:` rule read, by the reference the rule wrote
+        # (DESIGN §6.7.4). Written on every arm and empty on almost all of them: a field
+        # only `port-multi` carried could not be compared across arms, and `{}` is the true
+        # statement for an arm whose rules list their terms inline rather than a placeholder
+        # for one. Not in `scorer.REQUIRED_RUN`, so no committed metrics file becomes
+        # unreadable — the scorer refuses unknown *values*, not unknown keys.
+        "lexicons_source": {ref: p for ref, p
+                            in sorted(ruleset.lexicon_sources.items())},
         "rules": sorted(r.rule_id for r in ruleset.rules),
         # DESIGN §10 A2: the instant, the revision, and whether the revision describes
         # what ran. Required by `scorer.REQUIRED_RUN` since schema 4 — `commit` and `tree`

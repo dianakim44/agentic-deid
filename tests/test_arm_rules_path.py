@@ -313,6 +313,17 @@ def test_the_bootstrap_default_is_the_committed_example_and_not_an_arm_path():
 #: keys, so two arms' Profilers would write one file.
 AUX_KEYS = ("armprofile", "armmapping", "armlexicon")
 
+#: The two records *about* those three, which no hand-written version has: the manifest that
+#: says what the term lists contain without containing it (`lexicon_builder.md` §2.2), and the
+#: freeze that says what all three hashed to before round 1 (`src/porting/multi.py`). They are
+#: not in `AUX_KEYS` because `HAND_KEYS` pairs each of those with a position a person writes
+#: today, and pairing these with anything would be inventing a counterpart. They are in the
+#: axis and iteration tests below, because the reason those hold for the three holds here
+#: unchanged — a second arm's authoring step must not overwrite this arm's attestation, and a
+#: round component would claim the record is re-taken each round, which is the opposite of what
+#: it asserts.
+SIDECAR_KEYS = ("armlexiconmanifest", "armartefactfreeze")
+
 #: What each one replaces. The pairing is asserted rather than assumed because the whole
 #: argument for adding keys instead of widening these is that the hand-written versions keep
 #: their positions — `paths.lexicon` has a live consumer in `src/rules.py` and `profiles/`
@@ -338,7 +349,7 @@ def test_the_auxiliary_input_paths_carry_the_four_axes():
     assert path_template("armlexicon").format(**ARM, lang="es") == f"{arm}/lexicons/es/"
 
 
-@pytest.mark.parametrize("key", AUX_KEYS)
+@pytest.mark.parametrize("key", (*AUX_KEYS, *SIDECAR_KEYS))
 def test_two_arms_cannot_write_the_same_auxiliary_input(key):
     """The collision, stated as the property — the third recurrence of it.
 
@@ -355,7 +366,7 @@ def test_two_arms_cannot_write_the_same_auxiliary_input(key):
     assert one != multi
 
 
-@pytest.mark.parametrize("key", AUX_KEYS)
+@pytest.mark.parametrize("key", (*AUX_KEYS, *SIDECAR_KEYS))
 def test_an_auxiliary_input_path_carries_no_iteration(key):
     """Where these part from `armrules`, and it is not an oversight.
 

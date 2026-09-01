@@ -509,28 +509,34 @@ def test_a_hash_moves_when_the_content_moves(tmp_path):
     assert prompt_hash(str(a)) != first
 
 
-def test_window_hashes_name_all_three_files():
-    """The window is three files, and this is the one place that says which (DESIGN §5.5).
+def test_window_hashes_name_all_six_files():
+    """The window is six files, and this is the one place that says which (DESIGN §5.5).
 
     n and the context width live in the config, not the prompt (DESIGN §11.2), and the
     Auditor prompt is a third input the agent arm reads — an arm whose Auditor was rewritten
-    mid-run is a different arm, so the record has to be able to say so.
+    mid-run is a different arm, so the record has to be able to say so. The three
+    `port-multi` prompts (DESIGN §6.7.1) are here by the same argument: a record naming only
+    `rule_author.md` is equally true of a run that changed `profiler.md` and one that did not.
 
     Spelled out as literals here on purpose. Everywhere else the file list is read off
-    `WINDOW_FILES`; this assertion is the one that would fail if a fourth file were added
+    `WINDOW_FILES`; this assertion is the one that would fail if a seventh file were added
     without a decision, which is the event worth failing on.
     """
     got = window_hashes()
-    assert set(got) == {"prompt_sha256", "auditor_sha256", "sampling_sha256"}
+    assert set(got) == {"prompt_sha256", "auditor_sha256", "sampling_sha256",
+                        "profiler_sha256", "mapper_sha256", "lexicon_builder_sha256"}
     assert got["prompt_sha256"] == file_hash("docs/prompts/rule_author.md")
     assert got["auditor_sha256"] == file_hash("docs/prompts/auditor.md")
     assert got["sampling_sha256"] == file_hash("config/sampling.yaml")
+    assert got["profiler_sha256"] == file_hash("docs/prompts/profiler.md")
+    assert got["mapper_sha256"] == file_hash("docs/prompts/mapper.md")
+    assert got["lexicon_builder_sha256"] == file_hash("docs/prompts/lexicon_builder.md")
 
 
-def test_the_three_window_hashes_are_distinct():
-    """One hash over the three files would be a record that cannot say which changed."""
+def test_the_six_window_hashes_are_distinct():
+    """One hash over the six files would be a record that cannot say which changed."""
     got = window_hashes()
-    assert len(set(got.values())) == 3
+    assert len(set(got.values())) == 6
 
 
 def test_a_narrower_window_can_be_asked_for_by_name():

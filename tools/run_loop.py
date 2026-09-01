@@ -70,7 +70,8 @@ from src.corpora.base import (                                        # noqa: E4
 from src.eval import sealed_log                                       # noqa: E402
 from src.eval.run_fold import DEFAULT_SPLIT                           # noqa: E402
 from src.llm.bedrock import BedrockError                              # noqa: E402
-from src.porting import audit, loop                                   # noqa: E402
+from src.porting import audit, loop, multi                            # noqa: E402
+from src.porting.artefacts import ArtefactError                       # noqa: E402
 from src.rules import RuleError, arm_rules_path                       # noqa: E402
 from src.sample import WINDOW_HASH_FIELDS, window_hashes              # noqa: E402
 from src.termination import TerminationError, should_stop             # noqa: E402
@@ -202,14 +203,44 @@ def _plan(args, history, n_docs: int) -> list[str]:
            f" + {n_docs} {loop.AUDITOR} (one per {args.split} document) = {1 + n_docs}"),
     ]
 
-    # The window, field by field, from the window's own definition. Three files today
-    # (`sample.WINDOW_FILES`); listing them here would be a second answer to what the window
-    # is, and the field names are `WINDOW_HASH_FIELDS`' because that mapping is what the
-    # freeze record and every call line are written from.
+    # The window, field by field, from the window's own definition — six files since
+    # `port-multi`'s three prompts joined it, and the count is not written here for that
+    # reason. Listing them would be a second answer to what the window is, and the field names
+    # are `WINDOW_HASH_FIELDS`' because that mapping is what the freeze record and every call
+    # line are written from.
     hashes = window_hashes()
     lines.append("")
     for name, field in WINDOW_HASH_FIELDS.items():
         lines.append(f"{field:16} {hashes[field]}  ({name})")
+
+    if args.porting == multi.PORTING:
+        # The three inputs this round will read, and whether they have moved. Shown for the
+        # window block's reason one artefact along: a round assembled under a moved prompt and a
+        # round scored against an edited lexicon are the same kind of finding, and this is the
+        # last moment either is legible before the money is spent. `check_ready_for_round()`
+        # refuses on drift; the plan says which file.
+        lines.append("")
+        counts = orchestrate.roles_called(args.corpus, args.detector, args.supervision,
+                                          args.porting)
+        lines.append("authoring    " + "  ".join(
+            f"{role}: {counts.get(role, 0)}" for role in multi.ROLE_ORDER)
+            + "   (one each, before round 1)")
+        collection = multi.lexicon_collection(
+            corpus=args.corpus, detector=args.detector, supervision=args.supervision,
+            porting=args.porting, root=ROOT)
+        lines.append(f"lexicons     {collection.relative_to(ROOT)}"
+                     + ("   (the collection every round's `lexicon:` rules resolve against)"
+                        if collection.is_dir() else "   — ABSENT"))
+        try:
+            moved = multi.artefact_drift(corpus=args.corpus, detector=args.detector,
+                                         supervision=args.supervision, porting=args.porting,
+                                         root=ROOT)
+        except ArtefactError as exc:
+            lines.append(f"artefacts    NOT FROZEN — {exc}")
+        else:
+            lines.append("artefacts    " + (", ".join(moved) + "  — the frozen artefacts "
+                                            "moved; this round will be REFUSED"
+                                            if moved else "frozen, unchanged"))
 
     if history is not None:
         rates, verdict = history
@@ -330,14 +361,45 @@ def main(argv: list[str] | None = None) -> int:
     where = orchestrate.called_where(args.corpus, args.detector, args.supervision,
                                      args.porting)
     cell = f"{args.corpus}/{args.detector}/{args.supervision}/{args.porting}"
-    if args.iteration == loop.ITERATION and where is not None:
+    if args.porting == multi.PORTING:
+        # **`where is not None` is the wrong predicate on this rung and would refuse every
+        # round 1 of it.** `port-multi` makes three authoring calls before the loop starts, so
+        # its log is non-empty at this point on an arm that has not called the RuleAuthor once.
+        # The question is whether a *loop* role has called, which is what `roles_called()` was
+        # added to answer — and it is asked instead of the guard below rather than as well as
+        # it, because the guard's own reason (the window is bound from the first log line) is
+        # already served: `multi.author_profile()` froze the window before that first line, and
+        # `loop.run_iteration_1(already_frozen=True)` is what stops it being frozen twice.
+        spent = sorted(role for role in (orchestrate.RULE_AUTHOR, loop.AUDITOR)
+                       if orchestrate.roles_called(args.corpus, args.detector,
+                                                   args.supervision, args.porting).get(role))
+        if args.iteration == loop.ITERATION and spent:
+            print(f"{cell}: this arm's loop has already called {spent}, so round "
+                  f"{loop.ITERATION} is spent. The three authoring calls are not what makes it "
+                  "spent — they precede round 1 by design (DESIGN §6.7.1) — but a RuleAuthor "
+                  f"line is. Run --iteration {loop.FIRST_ITERATED} to continue the arm.",
+                  file=sys.stderr)
+            return 2
+        if args.iteration >= loop.FIRST_ITERATED and not spent:
+            print(f"{cell}: the three artefacts may be authored, but the loop has made no "
+                  f"call, so there is no round {args.iteration - 1} to iterate from. Run "
+                  f"--iteration {loop.ITERATION} first.", file=sys.stderr)
+            return 2
+        problem = multi.check_ready_for_round(
+            args.iteration, corpus=args.corpus, detector=args.detector,
+            supervision=args.supervision, porting=args.porting, root=ROOT)
+        if problem:
+            print(problem, file=sys.stderr)
+            return 2
+    elif args.iteration == loop.ITERATION and where is not None:
         print(f"{cell}: this arm has already made its first call (evidence: {where}), so "
               f"round {loop.ITERATION} is spent. `freeze_window()` will refuse it — the "
               "freeze is once per arm and the window is bound from the moment the call log "
               f"line lands (DESIGN §6.3, §5.5). Run --iteration {loop.FIRST_ITERATED} to "
               "continue the arm, or a second arm with a written reason.", file=sys.stderr)
         return 2
-    if args.iteration >= loop.FIRST_ITERATED and where is None:
+    if (args.porting != multi.PORTING
+            and args.iteration >= loop.FIRST_ITERATED and where is None):
         print(f"{cell}: this arm has made no call, so there is no round "
               f"{args.iteration - 1} for round {args.iteration} to iterate from. Round "
               f"{args.iteration}'s §§1.2-1.4 are the previous round's rule file, score and "
@@ -396,10 +458,23 @@ def main(argv: list[str] | None = None) -> int:
     common = dict(corpus=args.corpus, lang=args.lang, model_id=args.model_id,
                   detector=args.detector, supervision=args.supervision,
                   porting=args.porting, split=args.split, max_tokens=args.max_tokens)
+    if args.porting == multi.PORTING:
+        # **The whole of what this rung changes in the loop**, and it is two arguments (DESIGN
+        # §6.7.1). `lexicons` is the collection the LexiconBuilder wrote, passed to the
+        # validating `load_rules` and to `run_fold` so the round validates and scores against
+        # one collection. `already_frozen` says this arm's first call was the Profiler's, so
+        # round 1 reports the window's drift instead of freezing it a second time.
+        common["lexicons"] = multi.lexicon_collection(
+            corpus=args.corpus, detector=args.detector, supervision=args.supervision,
+            porting=args.porting, root=ROOT)
+    first_only = ({"already_frozen": True}
+                  if args.porting == multi.PORTING and args.iteration == loop.ITERATION
+                  else {})
     try:
-        out = (loop.run_iteration_1(**common) if args.iteration == loop.ITERATION
+        out = (loop.run_iteration_1(**common, **first_only)
+               if args.iteration == loop.ITERATION
                else loop.run_iteration(args.iteration, **common))
-    except (CorpusError, RuleError, BedrockError, TerminationError,
+    except (ArtefactError, CorpusError, RuleError, BedrockError, TerminationError,
             orchestrate.OrchestrateError) as exc:
         print(f"{exc}", file=sys.stderr)
         return 2

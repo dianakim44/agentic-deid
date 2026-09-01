@@ -254,6 +254,226 @@ def test_a_record_naming_no_rules_source_is_refused(tmp_path, arm_record):
         )
 
 
+# ─── which term lists: DESIGN §6.7.1, §6.7.4 ────────────────────────────────
+#
+# `lexicons_source` names the lists a `lexicon:` rule read, and `plan_arm` rebuilds a
+# collection root out of it. **Every refusal here runs for real exactly once**: the seal
+# opens once per arm (DESIGN §6.4), so the first execution of this path is the run whose
+# number is published. There is no rehearsal on test and no second attempt, which is why
+# each refusal is fired against a fixture here rather than reasoned about.
+#
+# The failure the whole path exists to prevent is not a crash. It is
+# `lexicons=human_lexicon_root()` as a fallback: one line, reads as sensible, and it
+# publishes a test number for the agent's arm computed from a person's word lists.
+
+
+def _with_lexicons(arm_record, sources):
+    """The terminated arm's record with `lexicons_source` replaced. Deep-copied."""
+    record = json.loads(json.dumps(arm_record))
+    record["run"]["lexicons_source"] = sources
+    return record
+
+
+def _plan_under(tmp_path, record):
+    """Plan against a planted record, with the arm's rule files copied in beside it.
+
+    The rule-file check is upstream of the lexicon check — deliberately, since a rule file
+    is what names a term list — so a planted root with no rule files refuses for the wrong
+    reason and every test below would pass on a message about `rules_source`. The copies make
+    the upstream check succeed so the one under test is the one that fires.
+    """
+    for rel in (record["run"].get("rules_source") or {}).values():
+        src, dst = run_sealed_eval.base.ROOT / rel, tmp_path / rel
+        if src.exists():
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            dst.write_bytes(src.read_bytes())
+    return run_sealed_eval.plan_arm(
+        corpus=CORPUS, **TERMINATED, iteration=record["termination"]["iterations"],
+        root=tmp_path,
+    )
+
+
+def test_an_arm_that_read_no_lists_plans_with_no_collection(plan):
+    """The committed arm's own case, and the reason `None` is not a gap.
+
+    `port-loop`'s rules list their terms inline, so there is nothing to name — and `None`
+    reaching `load_for_corpus` makes a `lexicon:` rule *refuse* rather than read the
+    hand-written collection (`src.rules._read_lexicon`). That is the behaviour, not a
+    limitation of it.
+    """
+    assert plan.lexicons is None
+    assert not plan.dev["run"].get("lexicons_source")
+
+
+def test_a_record_predating_the_field_plans(tmp_path, arm_record):
+    """No `lexicons_source` key at all, which is every arm frozen before 2026-09-01.
+
+    Absent and `{}` are the same instruction — no list was read — so the planner does not
+    distinguish them. Asserted because the alternative reading, "absent means unknown, so
+    refuse", would make every committed arm unopenable.
+    """
+    record = json.loads(json.dumps(arm_record))
+    record["run"].pop("lexicons_source", None)
+    _plant(tmp_path, record, **TERMINATED)
+    assert _plan_under(tmp_path, record).lexicons is None
+
+
+def test_the_collection_is_rebuilt_from_the_record(tmp_path, arm_record):
+    """The permitted case, so the refusals below are not vacuously green.
+
+    Two lists under one root, both on disk. What comes back is the root the loader takes,
+    derived from the paths the record holds rather than from the arm's axes — the same rule
+    `rules_source` follows, and for the same reason: a reconstruction from the axes can agree
+    with the path template while disagreeing with what ran.
+    """
+    root = tmp_path / "results" / CORPUS / "R" / "sup-free" / "port-multi" / "lexicons"
+    (root / "es").mkdir(parents=True)
+    for name in ("institutions", "regions"):
+        (root / "es" / f"{name}.txt").write_text("Alpha\nBeta\n", encoding="utf-8")
+    rel = "results/{}/R/sup-free/port-multi/lexicons/es".format(CORPUS)
+    record = _with_lexicons(arm_record, {
+        "es/institutions": f"{rel}/institutions.txt",
+        "es/regions": f"{rel}/regions.txt",
+    })
+    _plant(tmp_path, record, **TERMINATED)
+    assert _plan_under(tmp_path, record).lexicons == root
+
+
+def test_a_missing_term_list_is_refused(tmp_path, arm_record):
+    """**The refusal the user asked to see fire**, and the message says why.
+
+    The arm's lists are gone; the human collection is on disk and would load. The refusal
+    names it as not a substitute, because the substitution is what a reader of this code
+    would otherwise reach for — and the result would be an agent arm's published test number
+    computed from a person's lists (DESIGN §6.7.1).
+    """
+    record = _with_lexicons(arm_record, {"es/institutions": "lexicons/es/no-such.txt"})
+    _plant(tmp_path, record, **TERMINATED)
+    with pytest.raises(SealError, match="not a substitute"):
+        _plan_under(tmp_path, record)
+
+
+def test_the_missing_list_refusal_names_the_reference_and_no_terms(tmp_path, arm_record):
+    """CLAUDE.md: the message carries a reference and a path, and no list content.
+
+    The lists are not corpus text, but they are an arm's artefact and the rule is not
+    per-corpus — a message that quoted one would be the first exception in this repository
+    to carry an authored surface form, and the reason to keep it out is the same as
+    everywhere else: this message reaches terminals and CI logs, which the screener does not.
+    """
+    root = tmp_path / "lexicons" / "es"
+    root.mkdir(parents=True)
+    (root / "institutions.txt").write_text("Hospital Clinic\n", encoding="utf-8")
+    record = _with_lexicons(arm_record, {
+        "es/institutions": "lexicons/es/institutions.txt",
+        "es/regions": "lexicons/es/regions.txt",
+    })
+    _plant(tmp_path, record, **TERMINATED)
+    with pytest.raises(SealError) as excinfo:
+        _plan_under(tmp_path, record)
+    message = str(excinfo.value)
+    assert "es/regions" in message
+    assert "Hospital Clinic" not in message
+
+
+def test_a_record_spanning_two_collections_is_refused(tmp_path, arm_record):
+    """The loader takes one directory, so a record naming two cannot be reproduced.
+
+    Choosing one of them would score part of the arm against lists it never read, which is
+    the missing-file failure in a form that produces a number instead of an error.
+    """
+    for where in ("a", "b"):
+        (tmp_path / where / "es").mkdir(parents=True)
+        (tmp_path / where / "es" / "institutions.txt").write_text("X\n", encoding="utf-8")
+    record = _with_lexicons(arm_record, {
+        "es/institutions": "a/es/institutions.txt",
+        "ca/institutions": "b/es/institutions.txt",
+    })
+    _plant(tmp_path, record, **TERMINATED)
+    with pytest.raises(SealError):
+        _plan_under(tmp_path, record)
+
+
+def test_a_path_that_disagrees_with_its_reference_is_refused(tmp_path, arm_record):
+    """The key is what the rule file wrote; the value is where the loader will look.
+
+    Neither is reconstructible from the other, so a record where they disagree would send
+    this run to a different list than the dev number came from. Caught rather than resolved
+    in favour of either one.
+    """
+    (tmp_path / "lexicons" / "es").mkdir(parents=True)
+    (tmp_path / "lexicons" / "es" / "regions.txt").write_text("X\n", encoding="utf-8")
+    record = _with_lexicons(arm_record,
+                            {"es/institutions": "lexicons/es/regions.txt"})
+    _plant(tmp_path, record, **TERMINATED)
+    with pytest.raises(SealError, match="does not end in"):
+        _plan_under(tmp_path, record)
+
+
+@pytest.mark.parametrize("sources", [
+    "lexicons/es",
+    ["lexicons/es/institutions.txt"],
+    {"institutions": "lexicons/es/institutions.txt"},   # no lang component
+    {"es/institutions": 3},
+])
+def test_a_malformed_lexicons_source_is_refused(tmp_path, arm_record, sources):
+    """Refused rather than guessed at. A string is the shape someone would write if they
+    thought the field named the collection root, which is the near miss worth failing on."""
+    record = _with_lexicons(arm_record, sources)
+    _plant(tmp_path, record, **TERMINATED)
+    with pytest.raises(SealError):
+        _plan_under(tmp_path, record)
+
+
+def test_the_planner_never_reaches_for_the_human_collection(tmp_path, arm_record):
+    """Structural, because the fallback is a one-line edit that reads as a repair.
+
+    `run_sealed_eval` must not *reference* `human_lexicon_root` — no import, no call, no
+    attribute access. A refusal message can be edited away in the same commit that adds the
+    fallback it warns about; a name that is never bound cannot be called.
+
+    Checked through the AST rather than as substring absence, because the module's prose
+    names the function on purpose: `_lexicon_root`'s docstring says which collection is not a
+    substitute, and a test that forbade the word would be satisfied by deleting the
+    explanation.
+    """
+    import ast
+    import inspect as _inspect
+
+    tree = ast.parse(_inspect.getsource(run_sealed_eval))
+    for node in ast.walk(tree):
+        bad = (isinstance(node, ast.Name) and node.id == "human_lexicon_root") or \
+              (isinstance(node, ast.Attribute) and node.attr == "human_lexicon_root") or \
+              (isinstance(node, ast.alias) and node.name == "human_lexicon_root")
+        assert not bad, (
+            "run_sealed_eval binds or calls `human_lexicon_root`. The sealed run scores the "
+            "arm's own lists; a fallback here publishes a test number from a person's "
+            "artefact under an agent's label (DESIGN §6.7.1)."
+        )
+
+
+def test_the_final_rounds_record_must_agree_about_the_lists(tmp_path, arm_record):
+    """`lexicons_source` joined the arm-vs-final-round comparison (DESIGN §5.5).
+
+    The two records are written from one scoring pass, so a disagreement means one of them
+    came from a different run — and this planner reads every premise of the sealed evaluation
+    out of the arm-scoped one. The round record is planted with a list the arm record does not
+    name, which is the shape a re-run of one round and not the other would produce.
+    """
+    final = arm_record["termination"]["iterations"]
+    record = _with_lexicons(arm_record, {})
+    _plant(tmp_path, record, **TERMINATED)
+    scoped = json.loads(json.dumps(record))
+    scoped["run"]["lexicons_source"] = {"es/institutions": "lexicons/es/institutions.txt"}
+    iter_file = run_sealed_eval.iter_metrics_path(
+        corpus=CORPUS, **TERMINATED, iteration=final, root=tmp_path,
+    )
+    iter_file.parent.mkdir(parents=True, exist_ok=True)
+    iter_file.write_text(json.dumps(scoped), encoding="utf-8")
+    with pytest.raises(SealError, match="lexicons_source"):
+        _plan_under(tmp_path, record)
+
+
 # ─── the scoring path reproduces run_fold ───────────────────────────────────
 
 

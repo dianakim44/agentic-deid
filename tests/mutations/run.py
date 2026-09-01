@@ -3976,8 +3976,14 @@ MUTATIONS = [
     Mutation(
         name="the_call_role_is_written_without_being_validated",
         path=ORCHESTRATE,
-        anchor='        "role": check_agent_role(role),',
-        replacement='        "role": role,',
+        # Re-anchored 2026-09-02: the call was hoisted out of the dict literal when
+        # `call_line` grew the role-vs-iteration cross-check, which needs the validated value
+        # before the return. The mutation is the same one — the field is written unvalidated —
+        # and it is now also the value the two cross-checks read, which does not weaken it:
+        # `"RuleAuthor"` is in neither OUT_OF_LOOP_ROLES nor LOOP_ROLES, so both branches let
+        # it through and the near-spelling still reaches the file.
+        anchor='    checked_role = check_agent_role(role)',
+        replacement='    checked_role = role',
         breaks=(
             "**One agent's calls split across two spellings, in the file every per-role cost "
             "figure is computed from.** The field is written, the log is well-formed JSONL, "
@@ -4003,13 +4009,17 @@ MUTATIONS = [
     Mutation(
         name="the_role_is_appended_at_the_end_of_the_line",
         path=ORCHESTRATE,
-        anchor='        "role": check_agent_role(role),\n        "outcome": outcome,',
+        # Re-anchored 2026-09-02 with the hoist above: the dict literal now writes the
+        # already-validated binding, so moving the field moves `checked_role` and not the call.
+        # That is the truer form of this mutation — validation stays exactly where it was and
+        # the *only* thing that changes is the field's position, which is what the name claims.
+        anchor='        "role": checked_role,\n        "outcome": outcome,',
         replacement='        "outcome": outcome,',
         also=((
             ORCHESTRATE,
             "        \"generated\": _now(),\n        **window_hashes(),",
             "        \"generated\": _now(),\n"
-            "        \"role\": check_agent_role(role),\n"
+            "        \"role\": checked_role,\n"
             "        **window_hashes(),",
         ),),
         breaks=(

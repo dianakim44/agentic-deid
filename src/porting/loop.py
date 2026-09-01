@@ -126,6 +126,7 @@ rather than what was called.
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 from .. import orchestrate
 from ..corpora.base import rule_langs
@@ -138,7 +139,7 @@ from ..llm.prompt import (
 from ..orchestrate import (
     CALLED, FORMAT_FAILURE, ONESHOT_SECTIONS, RULE_AUTHOR, SCORED, OrchestrateError,
     _digest, _run_block, _write_failure, _write_rules, append_call, arm_has_called,
-    call_line, freeze_window, read_calls, window_drift,
+    call_line, freeze_path, freeze_window, read_calls, window_drift,
 )
 from ..rules import RuleError, arm_rules_path, load_rules
 from ..sample import config as sampling_config, draw
@@ -294,6 +295,7 @@ def _check_inputs(corpus: str, lang: str, model_id: str) -> None:
 def run_iteration_1(*, corpus: str, lang: str, model_id: str,
                     detector: str = DETECTOR, supervision: str = SUPERVISION,
                     porting: str = PORTING, split: str = DEFAULT_SPLIT,
+                    lexicons: Path | None = None, already_frozen: bool = False,
                     max_tokens: int | None = None, client=None,
                     control_client=None) -> dict:
     """Round 1 of `port-loop`: freeze, assemble, call once, validate, score or record.
@@ -303,6 +305,51 @@ def run_iteration_1(*, corpus: str, lang: str, model_id: str,
     shape plus the round number, so a caller that already reads one arm's result reads this
     one, and the field that differs is named rather than inferred from a path. Nothing in it
     is a summary that has to be trusted: every value is also on disk.
+
+    **`port-multi` adds two parameters to this function and nothing else** (DESIGN §6.7.1).
+    Two, not the one an earlier revision of this docstring claimed: `lexicons` is what the
+    rung is *for*, and `already_frozen` is what its call order forces.
+
+    `lexicons` is the term-list collection a `lexicon:` rule reads from, passed to the
+    validating `load_rules` *and* to `run_fold` so that the round validates and scores against
+    one collection. `None` for this arm — its rules list their terms inline — and `None` is not
+    a fallback: `src.rules._read_lexicon` refuses a `lexicon:` rule that arrives without a
+    collection rather than reading the hand-written one.
+
+    **`already_frozen` says that this arm's first call was not this one**, which is true in
+    `port-multi` and false everywhere else. Its Profiler, Mapper and LexiconBuilder run before
+    round 1 (§6.7.1), so the window is frozen before the *Profiler*'s call — "freeze last"
+    (§6.3) means immediately before the arm's first call, and in that arm the first call is not
+    the RuleAuthor's. `freeze_window()` then refuses a second freeze, correctly and by design:
+    three calls have been made, and a record written now would hash today's files while
+    claiming to be the window they ran under. That refusal is the one this rung must not work
+    around.
+
+    Setting it is a claim about the arm, so it is checked: **with the flag set and no freeze
+    record, this round refuses before anything runs.** `window_drift()` refuses that state too,
+    but its message branches on whether the arm has called, and with the flag set before any
+    call line exists it lands on "freeze_window() runs immediately before the call" — right for
+    a round taking its own freeze and the one repair this flag exists to forbid.
+
+    So when `already_frozen` is set, this round **checks the window instead of writing one** —
+    `window_drift()`, whose result is returned under `window_drift` rather than raised, for
+    that function's own reason: only a person can tell a reworded paragraph from a changed `n`.
+    A boolean rather than a skip, because the alternative shapes are both worse. Making the
+    freeze conditional on the record's existence is precisely what
+    `docs/notes/window-freeze-history.md` records the cost of; and having `port-multi` freeze
+    nothing and trust the loop would leave the arm's window unattested for its first three
+    calls, which are the three whose artefacts every later round consumes.
+
+    `window_drift` is in the returned mapping in **both** cases, `[]` when this round took the
+    freeze — a freeze taken immediately before the call cannot have drifted by the time it is
+    read, so the empty list is a measurement and not a placeholder. Present in both for the
+    reason `call_line`'s `sample_reference` is: a key some rounds omit cannot be compared
+    across rounds.
+
+    A parameter rather than a fourth axis-derived path, for `run_fold(rules=…)`'s reason: a
+    module that inferred the collection from `porting` would have one input location and no
+    way to be pointed at anything else, and `port-multi` reuses this loop unchanged precisely
+    because everything it needs to say it can say in an argument.
 
     The order is `orchestrate.run_arm()`'s and every step's position is load-bearing there
     for reasons that do not change here:
@@ -353,7 +400,31 @@ def run_iteration_1(*, corpus: str, lang: str, model_id: str,
     """
     _check_inputs(corpus, lang, model_id)
 
-    freeze_window(corpus, detector, supervision, porting, sections=ONESHOT_SECTIONS)
+    # Step 1, in the one shape it takes two forms — see `already_frozen` in the docstring. The
+    # freeze is taken immediately before the arm's *first* call, which in `port-multi` is the
+    # Profiler's and not this one; there the window is read and compared rather than rewritten.
+    if already_frozen:
+        # Checked here rather than left to `window_drift`, and this is not a second definition
+        # of the freeze state — it is a precondition on the *flag*. `window_drift` refuses a
+        # missing record either way, but its message branches on `arm_has_called()`, and with
+        # the flag set and no call line yet it lands on the branch that says "freeze_window()
+        # runs immediately before the call" — advice that is correct for a round taking its own
+        # freeze and is the one repair this flag exists to forbid. Setting the flag is itself
+        # the claim that a call came before this one, so a missing record here is a caller that
+        # is wrong about which call was first, not a window that has yet to be frozen.
+        if not freeze_path(corpus, detector, supervision, porting).exists():
+            raise OrchestrateError(
+                f"{corpus}/{detector}/{supervision}/{porting}: already_frozen=True says this "
+                "arm's window was frozen before an earlier call, and there is no freeze record "
+                "for this arm. Do NOT freeze now — a record written here would hash today's "
+                "files while claiming to describe the window those earlier calls ran under "
+                "(DESIGN §6.3). Either the record is gone and belongs restored from git, or "
+                "this round is the arm's first call and the flag does not apply to it."
+            )
+        drift = window_drift(corpus, detector, supervision, porting)
+    else:
+        freeze_window(corpus, detector, supervision, porting, sections=ONESHOT_SECTIONS)
+        drift = []
 
     prompt = assemble_task_prompt(lang=lang, corpus=corpus)
     reference = prompt.reference()
@@ -383,7 +454,7 @@ def run_iteration_1(*, corpus: str, lang: str, model_id: str,
                               supervision=supervision, porting=porting, lang=lang,
                               iteration=ITERATION)
     try:
-        load_rules(lang, path=rules_file)
+        load_rules(lang, path=rules_file, lexicons=lexicons)
     except RuleError as exc:
         failure = _write_failure(
             corpus=corpus, detector=detector, supervision=supervision, porting=porting,
@@ -398,6 +469,9 @@ def run_iteration_1(*, corpus: str, lang: str, model_id: str,
             "cost": cost,
             "rules_path": rules_file,
             "failure_path": failure,
+            # See `already_frozen`: `[]` when this round took the freeze, which is a
+            # measurement rather than a placeholder.
+            "window_drift": drift,
             # Named as absent rather than omitted, for `sample_reference`'s reason: a caller
             # branching on a missing key branches on a typo just as readily.
             "metrics_path": None,
@@ -416,7 +490,8 @@ def run_iteration_1(*, corpus: str, lang: str, model_id: str,
     # patching that file is a second answer to what the run block contains.
     spans_file, metrics_file, scored = run_fold(
         corpus=corpus, detector=detector, supervision=supervision, porting=porting,
-        split=split, rules={lang: rules_file}, model_record=model, cost=cost,
+        split=split, rules={lang: rules_file}, lexicons=lexicons,
+        model_record=model, cost=cost,
         model_lifecycle=lifecycle, iteration=ITERATION, root=orchestrate.ROOT,
     )
     return {
@@ -429,6 +504,7 @@ def run_iteration_1(*, corpus: str, lang: str, model_id: str,
         "metrics_path": metrics_file,
         "spans_path": spans_file,
         "scored": scored,
+        "window_drift": drift,
     }
 
 
@@ -645,10 +721,27 @@ def _written_termination(metrics_file) -> dict:
 def run_iteration(iteration: int, *, corpus: str, lang: str, model_id: str,
                   detector: str = DETECTOR, supervision: str = SUPERVISION,
                   porting: str = PORTING, split: str = DEFAULT_SPLIT,
+                  lexicons: Path | None = None,
                   max_tokens: int | None = None, client=None,
                   control_client=None) -> dict:
     """Round `iteration` of `port-loop`, for any `iteration` ≥ 2: audit, show four blocks,
     call, score, and record where the stopping rule stands.
+
+    **`lexicons` is the one thing `port-multi` adds to *this* function** (DESIGN §6.7.1) — not
+    to this file, which `run_iteration_1` also takes `already_frozen` for. Rounds 2..N take no
+    such flag and want none: the window question is settled by whichever round took the freeze,
+    and a second copy of the answer here would be a copy that could disagree with round 1's.
+    It is the term-list collection a
+    `lexicon:` rule reads from, passed to the validating `load_rules` *and* to `run_fold` so
+    that the round validates and scores against one collection. `None` for this arm — its
+    rules list their terms inline — and `None` is not a fallback: `src.rules._read_lexicon`
+    refuses a `lexicon:` rule that arrives without a collection rather than reading the
+    hand-written one.
+
+    A parameter rather than a fourth axis-derived path, for `run_fold(rules=…)`'s reason: a
+    module that inferred the collection from `porting` would have one input location and no
+    way to be pointed at anything else, and `port-multi` reuses this loop unchanged precisely
+    because everything it needs to say it can say in an argument.
 
     **One function for rounds 2, 3 and 8, because they are one procedure.** What changes
     between them is the round number and the length of the history, and both are arguments or
@@ -925,7 +1018,7 @@ def run_iteration(iteration: int, *, corpus: str, lang: str, model_id: str,
                               supervision=supervision, porting=porting, lang=lang,
                               iteration=iteration)
     try:
-        load_rules(lang, path=rules_file)
+        load_rules(lang, path=rules_file, lexicons=lexicons)
     except RuleError as exc:
         failure = _write_failure(
             corpus=corpus, detector=detector, supervision=supervision, porting=porting,
@@ -974,7 +1067,8 @@ def run_iteration(iteration: int, *, corpus: str, lang: str, model_id: str,
     # why this round ran at all.
     spans_file, metrics_file, scored = run_fold(
         corpus=corpus, detector=detector, supervision=supervision, porting=porting,
-        split=split, rules={lang: rules_file}, model_record=model, cost=cost,
+        split=split, rules={lang: rules_file}, lexicons=lexicons,
+        model_record=model, cost=cost,
         cost_to_date=cost_to_date, caching=caching, abandoned_spend=abandoned,
         model_lifecycle=lifecycle,
         termination=PendingTermination(corpus=corpus,

@@ -1,4 +1,19 @@
-"""The window became three files on 2026-08-12, and the arms already frozen did not move.
+"""The window widened twice, and neither widening moved an arm that was already frozen.
+
+Two events, and the second one is why this file's structure is worth keeping. On
+2026-08-12 the window went from two files to three (`auditor.md`); on 2026-09-01 it went
+from three to six (`port-multi`'s `profiler.md`, `mapper.md`, `lexicon_builder.md`, DESIGN
+§6.7.1). The first widening left three arms behind at two files; the second left those
+three *and* `port-loop` behind at three. So "the frozen window" is not one width, and a
+test written as "the old window is two files" would have quietly stopped covering the arm
+that needed it most — `port-loop`, whose 8-round call log is the thing `port-multi` is
+compared against.
+
+The mechanism is the same both times and is tested once: `recorded_window_fields()` reads
+the field list off the record. What is added per widening is the *evidence* that the
+records on disk did not move — see "the second widening" at the end of this file.
+
+─── the first widening, 2026-08-12 ─────────────────────────────────────────
 
 `docs/prompts/auditor.md` joined `WINDOW_FILES` when DESIGN §5.5 made the Auditor prompt
 part of what a run is held to. Three arms had already frozen a two-file window
@@ -29,6 +44,7 @@ aimed at is not a guard to rely on, hence these tests.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import sys
 from pathlib import Path
@@ -42,7 +58,8 @@ from src.orchestrate import window_drift                          # noqa: E402
 from src.porting.human_arm import HUMAN_WINDOW_FILES              # noqa: E402
 from src.porting.human_arm import window_drift as human_drift     # noqa: E402
 from src.sample import (                                          # noqa: E402
-    AUDITOR_TEMPLATE, PROMPT_TEMPLATE, WINDOW_FILES, WINDOW_HASH_FIELDS,
+    AUDITOR_TEMPLATE, LEXICON_BUILDER_TEMPLATE, MAPPER_TEMPLATE, PROFILER_TEMPLATE,
+    PROMPT_TEMPLATE, WINDOW_FILES, WINDOW_HASH_FIELDS,
     recorded_window_fields, window_hashes,
 )
 
@@ -54,6 +71,21 @@ OLD_WINDOW = ["docs/prompts/rule_author.md", "config/sampling.yaml"]
 #: The arms frozen under it. All three, by name: a test that discovered them by walking
 #: `results/` would pass on an empty tree.
 FROZEN_ARMS = ("port-oneshot", "port-oneshot-nofence", "port-human")
+
+#: The window between 2026-08-12 and 2026-09-01, in order. Written out for the same reason
+#: `OLD_WINDOW` is: it is what a record claims, not what the constant now says.
+THREE_FILE_WINDOW = ["docs/prompts/rule_author.md", "docs/prompts/auditor.md",
+                     "config/sampling.yaml"]
+
+#: The arm frozen under it, by name. One arm, and it is the comparison baseline for
+#: `port-multi` — which is why "only one arm, not worth parametrising" is the wrong reading.
+THREE_FILE_ARMS = ("port-loop",)
+
+#: The three files added on 2026-09-01, and their fields. Listed so a record can be checked
+#: for their *absence*; deriving them as `set(WINDOW_FILES) - set(THREE_FILE_WINDOW)` would
+#: make the check follow the next widening and stop being about this one.
+NEW_FILES = (PROFILER_TEMPLATE, MAPPER_TEMPLATE, LEXICON_BUILDER_TEMPLATE)
+NEW_FIELDS = ("profiler_sha256", "mapper_sha256", "lexicon_builder_sha256")
 
 ARM = ("es-meddocan", "R", "sup-free")
 
@@ -201,16 +233,23 @@ def test_the_human_window_is_a_strict_subset_of_todays():
 
 # ─── the widening itself ───────────────────────────────────────────────────
 
-def test_todays_window_is_the_old_one_plus_the_auditor():
-    """The widening is an addition, in order. Nothing was replaced or reordered.
+def test_both_widenings_added_and_neither_replaced_or_reordered():
+    """Order matters, and the two widenings did not have the same shape.
 
-    Order matters because `recorded_window_fields()` returns fields in window order and
-    `human_arm.FIELDS` fixes the tail of every log line; a reordering would make two lines
-    differ in a diff without differing in content.
+    `recorded_window_fields()` returns fields in window order and `human_arm.FIELDS` fixes
+    the tail of every log line, so a reordering would make two lines differ in a diff without
+    differing in content.
+
+    The first widening *inserted* — `auditor.md` went between the prompt and the config, so
+    `OLD_WINDOW` is not a prefix of the three-file window and is asserted as a deletion
+    instead. The second *appended*, which is why the three-file window is a prefix of today's
+    six. Both are written out rather than described, because "the window only grows" is the
+    claim every frozen record depends on and it is not true in the same way twice.
     """
-    assert list(WINDOW_FILES) == [PROMPT_TEMPLATE, AUDITOR_TEMPLATE,
-                                  "config/sampling.yaml"]
-    assert [f for f in WINDOW_FILES if f != AUDITOR_TEMPLATE] == OLD_WINDOW
+    assert THREE_FILE_WINDOW[:1] + THREE_FILE_WINDOW[2:] == OLD_WINDOW
+    assert THREE_FILE_WINDOW[1] == AUDITOR_TEMPLATE
+    assert list(WINDOW_FILES[:3]) == THREE_FILE_WINDOW
+    assert list(WINDOW_FILES[3:]) == list(NEW_FILES)
 
 
 def test_every_window_file_has_a_field_and_every_field_a_file():
@@ -223,3 +262,100 @@ def test_every_window_file_has_a_field_and_every_field_a_file():
 def test_every_window_file_is_on_disk_where_the_hash_looks():
     for name in WINDOW_FILES:
         assert (ROOT / name).is_file(), name
+
+
+# ─── the second widening, 2026-09-01: port-loop's three files stay three ────
+
+#: SHA-256 of `port-loop`'s committed freeze record. Pinned rather than described.
+#:
+#: Every other assertion in this file is about a *property* of a record, and a property is
+#: what a careless rewrite preserves: a script that reformatted the JSON, re-sorted the keys,
+#: or refreshed `generated` would keep `files` at three names and pass every test above. The
+#: bytes are the claim — DESIGN §6.3 — so the bytes are what is checked. If this fails, the
+#: question is not "which field moved" but "why was a frozen record written to at all".
+PORT_LOOP_FREEZE_SHA256 = \
+    "de3c96781155a733f1072b00a7b047ef961436c5b4ebd7b83b5eee237e78b6de"
+
+
+@pytest.mark.parametrize("porting", THREE_FILE_ARMS)
+def test_a_three_file_arm_still_names_the_window_it_was_frozen_under(porting):
+    """`port-loop` ran under three files and its record must keep saying three."""
+    assert freeze_record(porting)["files"] == THREE_FILE_WINDOW
+
+
+@pytest.mark.parametrize("porting", THREE_FILE_ARMS + FROZEN_ARMS)
+@pytest.mark.parametrize("field", NEW_FIELDS)
+def test_no_frozen_record_acquired_a_port_multi_hash(porting, field):
+    """None of the four frozen arms ever read a `port-multi` prompt.
+
+    Parametrised over both widths together because the requirement does not distinguish
+    them: two files or three, a record carrying `profiler_sha256` says the run was held to a
+    prompt whose agent it never called, and says it in the same shape as a record that is
+    true.
+    """
+    record = freeze_record(porting)
+    assert field not in record
+
+
+@pytest.mark.parametrize("porting", THREE_FILE_ARMS)
+def test_the_fields_compared_are_the_three_the_record_holds(porting):
+    """The unit under test, at the second width. `recorded_window_fields()` again."""
+    assert recorded_window_fields(freeze_record(porting)) == [
+        "prompt_sha256", "auditor_sha256", "sampling_sha256"]
+
+
+@pytest.mark.parametrize("porting", THREE_FILE_ARMS)
+def test_a_three_file_arm_drifts_on_no_file_it_never_saw(porting):
+    """The false alarm this widening could have produced, asserted field by field.
+
+    All three new prompts are on disk and hash to something, so a comparison against today's
+    six fields reports three drifts for `port-loop` forever, and the report reads as "the
+    record and the files disagree about calls that have already happened" — which is
+    `window_drift()`'s documented meaning and is false here.
+
+    Not asserted as an empty list: `port-loop` may legitimately drift on `prompt_sha256`, for
+    the same reason `port-oneshot` does. A test demanding emptiness would be deleted rather
+    than fixed the first time the RuleAuthor prompt was revised.
+    """
+    drift = window_drift(*ARM, porting)
+    for field in NEW_FIELDS:
+        assert field not in drift
+
+
+@pytest.mark.parametrize("porting", THREE_FILE_ARMS)
+def test_the_drift_check_would_have_reported_all_three_before_the_fix(porting):
+    """The counterfactual, measured. Three fields, not one — the failure got wider too."""
+    frozen, now = freeze_record(porting), window_hashes()
+    naive = [field for field in now if frozen.get(field) != now[field]]
+    assert set(NEW_FIELDS) <= set(naive)
+
+
+def test_the_port_loop_freeze_record_is_byte_identical():
+    """The bytes, not the fields. See `PORT_LOOP_FREEZE_SHA256`."""
+    path = ROOT / "results" / "es-meddocan" / "R" / "sup-free" / "port-loop" / \
+        "window_freeze.json"
+    got = hashlib.sha256(path.read_bytes()).hexdigest()
+    assert got == PORT_LOOP_FREEZE_SHA256
+
+
+def test_no_port_loop_call_line_carries_a_port_multi_hash():
+    """The 8-round call log, every line, against the three new fields.
+
+    The freeze record is one file and a widened writer touching it would be conspicuous; the
+    call log is 6 MB and appended to by the same `call_line()` the new driver calls. A
+    `port-multi` run that appended to the wrong arm's log, or a repair script that rewrote
+    old lines through today's `window_hashes()`, would show up here and nowhere else.
+
+    Checked as substring absence over raw lines rather than by parsing each one: the question
+    is whether the field name appears at all, and 6 MB of `json.loads` to answer it is a cost
+    with no matching gain in what is learned.
+    """
+    path = ROOT / "results" / "es-meddocan" / "R" / "sup-free" / "port-loop" / \
+        "agent_calls.jsonl"
+    lines = 0
+    with open(path, encoding="utf-8") as fh:
+        for lineno, line in enumerate(fh, 1):
+            lines += 1
+            for field in NEW_FIELDS:
+                assert f'"{field}"' not in line, f"line {lineno}: {field}"
+    assert lines > 0, "an empty log would pass every assertion above"

@@ -1034,6 +1034,78 @@ def test_a_later_round_does_not_freeze_and_reports_drift_instead(tree, corpus_pr
         revision, "a later round re-froze the window"
 
 
+# ─── `already_frozen`: round 1 when the arm's first call was not round 1's ───
+# `port-multi` calls the Profiler, the Mapper and the LexiconBuilder before this round, so its
+# window is frozen before the *Profiler*'s call — "freeze last" (DESIGN §6.3) means immediately
+# before the arm's first call, and there the first call is not the RuleAuthor's. These four tests
+# are about the flag rather than about that rung: `tests/test_multi.py` owns the authoring side,
+# and what has to hold here is that the flag makes round 1 behave like a *later* round with
+# respect to the window and like round 1 in every other respect.
+
+
+def test_round_one_with_the_window_already_frozen_does_not_freeze_again(tree, corpus_present):
+    """It checks instead, and the round runs. `revision` is the assertion that it checked.
+
+    A round that re-froze would hash the files as they are now while the record it overwrote
+    described the window three calls had already run under — and the overwrite is silent, since
+    `freeze_window` counts revisions rather than refusing. What actually happens is worse than
+    silent: `freeze_window` refuses once a call line exists, so without this flag the arm would
+    be unrunnable at round 1 and the flag's absence would look like a bug in the loop.
+    """
+    freeze_window(*ARM, sections=loop.ONESHOT_SECTIONS)
+    before = json.loads(freeze_path(*ARM).read_text(encoding="utf-8"))
+    out = run_round_1(tree, already_frozen=True)
+
+    assert out["outcome"] == SCORED
+    assert out["window_drift"] == []
+    after = json.loads(freeze_path(*ARM).read_text(encoding="utf-8"))
+    assert after == before, "round 1 re-froze a window that was already frozen"
+
+
+def test_round_one_that_takes_the_freeze_reports_an_empty_drift_list(tree, corpus_present):
+    """`[]` in both cases, and here it is a measurement rather than a placeholder.
+
+    A freeze taken immediately before the call cannot have drifted by the time it is read. The
+    key is present anyway for `sample_reference`'s reason (DESIGN §5.5): a field some rounds
+    omit cannot be compared across rounds, and "no drift" and "not checked" would then be the
+    same absence in the record every later round is compared against.
+    """
+    out = run_round_1(tree)
+    assert out["window_drift"] == []
+    assert json.loads(freeze_path(*ARM).read_text(encoding="utf-8"))["revision"] == 1
+
+
+def test_round_one_reports_drift_when_the_window_moved_before_it(tree, corpus_present):
+    """Reported on the return value, not raised — and the round scores.
+
+    This is the state the flag exists to make visible: the window was frozen before the
+    Profiler, and something edited a prompt between that call and this one. Only a person can
+    tell a reworded paragraph from a changed `n`, so the loop records which hash moved and goes
+    on (`orchestrate.window_drift`). Round 1's own prompt is the one that moved here, which is
+    the case that matters — this round is the call it describes.
+    """
+    freeze_window(*ARM, sections=loop.ONESHOT_SECTIONS)
+    path = tree / "docs" / "prompts" / "rule_author.md"
+    path.write_text(path.read_text(encoding="utf-8") + "\n<!-- edited after the freeze -->\n",
+                    encoding="utf-8")
+    out = run_round_1(tree, already_frozen=True)
+
+    assert out["outcome"] == SCORED
+    assert out["window_drift"] == ["prompt_sha256"]
+
+
+def test_round_one_claiming_a_freeze_that_is_not_there_is_refused(tree, corpus_present):
+    """And the refusal says not to freeze now, which is the repair it would otherwise invite.
+
+    A record written at this point would hash today's files and claim to describe the window the
+    three authoring calls ran under. `orchestrate.window_drift` refuses a missing record for that
+    reason, and this asserts that the flag does not route around it.
+    """
+    with pytest.raises(OrchestrateError, match="Do NOT freeze now"):
+        run_round_1(tree, already_frozen=True)
+    assert calls() == [], "a refused round left a call line behind"
+
+
 @pytest.mark.parametrize("bad_kw", [
     dict(model_id=""),
     dict(model_id=None),

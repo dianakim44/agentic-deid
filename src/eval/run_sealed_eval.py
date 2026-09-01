@@ -129,6 +129,17 @@ class ArmPlan:
     rules: dict[str, Path]
     #: The arm's committed dev `metrics.json`.
     dev: Mapping
+    #: The term-list collection a `lexicon:` rule reads from, or `None` when the arm read
+    #: none (DESIGN §6.7.1, §6.7.4). Reconstructed from the dev record's `lexicons_source`
+    #: and verified against it — see `_lexicon_root`. `None` is the honest value for every
+    #: arm frozen before 2026-09-01 and for any arm whose rules list their terms inline; it
+    #: is not a fallback, and `src.rules._read_lexicon` refuses a `lexicon:` rule that
+    #: arrives with it rather than reading the hand-written collection.
+    #:
+    #: Defaulted so that a caller assembling a plan by hand gets the value that means "no
+    #: collection" instead of the value that means "the human's" — the substitution this
+    #: whole path exists to prevent has a default as its most likely spelling.
+    lexicons: Path | None = None
 
     @property
     def arm(self) -> sealed_log.Arm:
@@ -302,6 +313,8 @@ def plan_arm(
             "somewhere else."
         )
 
+    lexicons = _lexicon_root(run, dev_file, root)
+
     iter_file = iter_metrics_path(
         corpus=corpus, detector=detector, supervision=supervision, porting=porting,
         iteration=final, root=root,
@@ -315,8 +328,14 @@ def plan_arm(
                 f"is round {final}'s own record and DESIGN §5.5 requires it to be "
                 "identical to the arm's; an unreadable one cannot be checked."
             ) from exc
+        # `lexicons_source` joined the comparison on 2026-09-01. Compared with `.get`, so
+        # two records that both predate the field agree by both lacking it — the field is
+        # not in `scorer.REQUIRED_RUN` and demanding it here would refuse every arm frozen
+        # before it existed. What is caught is the case the field was added for: one of the
+        # two records naming a term list the other does not.
         differing = sorted(
-            field for field in ("rules_source", "rules_version", "rules")
+            field for field in ("rules_source", "rules_version", "rules",
+                                "lexicons_source")
             if (scoped.get("run") or {}).get(field) != run.get(field)
         )
         if differing:
@@ -332,8 +351,96 @@ def plan_arm(
 
     return ArmPlan(
         corpus=corpus, detector=detector, supervision=supervision, porting=porting,
-        iteration=iteration, rules=rules, dev=dev,
+        iteration=iteration, rules=rules, dev=dev, lexicons=lexicons,
     )
+
+
+def _lexicon_root(run: Mapping, dev_file: Path, root: Path | None) -> Path | None:
+    """The collection the arm's `lexicon:` rules read, from the dev record. `None` if none.
+
+    **Why a root is reconstructed rather than recorded.** `lexicons_source` names the lists
+    that were read, one path each, because that is what a re-run needs to check and what
+    `src.rules._read_lexicon` is in a position to record. What the loader *takes* is one
+    directory (`load_for_corpus(lexicons=…)`), since a reference names its own language and
+    the same collection serves every rule file. So the root is derived here — from the paths
+    the record holds, with every path required to agree — and the derivation is checked
+    against the reference each path is keyed by. A record whose paths do not all sit under
+    one root is a record no single `lexicons` argument can reproduce, and the honest response
+    is to refuse rather than to pick one.
+
+    **The refusals are what keeps the sealed number the agent's own.** The arm's lists live
+    under the arm (`paths.armlexicon`); the hand-written collection is `paths.lexicon`. If a
+    named list has gone missing, loading with `lexicons=None` would make
+    `src.rules._read_lexicon` refuse — which is correct — and loading with
+    `human_lexicon_root()` would silently score the agent's arm against the human's lists.
+    The second is one line and reads as a sensible fallback, so it is refused here in words
+    rather than left to be noticed.
+
+    **This path runs for real exactly once per arm.** DESIGN §6.4 opens the seal once, so the
+    first time these refusals execute is the run whose number is published;
+    `tests/test_sealed_scoring.py` fires each of them against a fixture for that reason.
+    """
+    sources = run.get("lexicons_source") or {}
+    if not sources:
+        # Absent (an arm frozen before the field existed) and empty (an arm whose rules list
+        # their terms inline) are the same instruction to the loader, and both are true:
+        # no term list was read, so there is no collection to name. Not distinguished,
+        # because the distinction would have to be acted on and there is no second action.
+        return None
+    if not isinstance(sources, dict):
+        raise SealedEvalError(
+            f"{rules_relative(dev_file)} records lexicons_source as "
+            f"{type(sources).__name__} and not a mapping of reference -> path. It is what "
+            "this run rebuilds its term lists from, and a shape it cannot read is not a "
+            "shape it may guess at."
+        )
+
+    base_root = root or base.ROOT
+    roots: dict[str, Path] = {}
+    missing: list[str] = []
+    for ref, rel in sorted(sources.items()):
+        if not isinstance(ref, str) or "/" not in ref or not isinstance(rel, str):
+            raise SealedEvalError(
+                f"{rules_relative(dev_file)}'s lexicons_source holds an entry that is not "
+                "'{lang}/{name}' -> path. The key is the reference the rule wrote and the "
+                "value is the file it was read from; neither is reconstructible from the "
+                "other, so a malformed entry is refused rather than repaired."
+            )
+        path = base_root / rel
+        if not path.exists():
+            missing.append(ref)
+            continue
+        lang, _, name = ref.partition("/")
+        if path.name != f"{name}.txt" or path.parent.name != lang:
+            raise SealedEvalError(
+                f"{rules_relative(dev_file)}'s lexicons_source maps {ref!r} to a path that "
+                f"does not end in {lang}/{name}.txt. The reference is what the rule file "
+                "wrote and the path is where the loader will look; a record where they "
+                "disagree would send this run to a different list than the dev number came "
+                "from."
+            )
+        roots[ref] = path.parent.parent
+
+    if missing:
+        raise SealedEvalError(
+            f"the term list(s) {missing} named by {rules_relative(dev_file)}'s "
+            "lexicons_source are not on disk. **The hand-written collection is not a "
+            "substitute** (DESIGN §6.7.1): `paths.lexicon` holds a person's lists and this "
+            "arm's headline was computed from an agent's, so reading them would publish a "
+            "test number for the agent's arm that came from the human artefact — the one "
+            "outcome this rung cannot survive. The sealed run scores the arm's own "
+            "committed lists and nothing else."
+        )
+
+    distinct = sorted({str(p) for p in roots.values()})
+    if len(distinct) != 1:
+        raise SealedEvalError(
+            f"{rules_relative(dev_file)}'s lexicons_source spans {len(distinct)} "
+            "collections. The loader takes one directory, so a record whose lists came "
+            "from more than one cannot be reproduced by any single argument — and choosing "
+            "one of them would score part of the arm against lists it never read."
+        )
+    return next(iter(roots.values()))
 
 
 # ─── the sealed read ────────────────────────────────────────────────────────
@@ -454,7 +561,11 @@ def score_fold(
             f"split file assigns folds (splits/{plan.corpus}.json); an empty fold means "
             "the corpus on disk and the frozen split disagree, and nothing was scored."
         )
-    ruleset = load_for_corpus(plan.corpus, paths=plan.rules)
+    # `lexicons` from the plan, which read it off the arm's own record and refused every way
+    # it could have gone wrong (`_lexicon_root`). `None` here is not a fallback: a `lexicon:`
+    # rule arriving with it refuses to load, which is what an arm whose lists have vanished
+    # should do.
+    ruleset = load_for_corpus(plan.corpus, paths=plan.rules, lexicons=plan.lexicons)
     started = time.monotonic()
     predictions = detect_fold(subset, ruleset, detector=plan.detector)
     elapsed = time.monotonic() - started

@@ -189,6 +189,27 @@ TEXT_KEYS = frozenset({"text", "surface", "context", "snippet"})
 #: a second place the value is defined.
 RULE_AUTHOR = "rule_author"
 
+#: **The iteration number `port-multi`'s three out-of-loop agents write, and the one no
+#: in-loop agent may write** (DESIGN §6.7.1). Zero, because the rounds are 1-based and the
+#: three calls happen before round 1 — the number is the fact, not a sentinel.
+#:
+#: The reason it is enforced rather than merely conventional: "the Profiler runs once, outside
+#: the loop" is a claim about a driver, and a driver is not what a reader of `results/` has.
+#: With the rule, the claim is readable off the committed log — three lines at iteration 0,
+#: none anywhere else, and no `rule_author` line at 0 — and a driver that called the Profiler
+#: again at round 4 cannot produce a log that looks compliant. Without it, the same log is
+#: produced by a compliant driver and by one that re-profiled every round with the iteration
+#: it happened to be in, and nothing distinguishes them after the fact.
+AUTHORING_ITERATION = 0
+
+#: The two roles the loop calls and the three called before it. Both written out, and their
+#: union is checked against `agent_roles()` by `tests/test_agent_role.py` — a sixth role added
+#: to naming.yaml without landing on a side here is a role this rule cannot judge, and
+#: silently exempting it would be the quietest of the available failures.
+AUDITOR = "auditor"
+LOOP_ROLES = frozenset({RULE_AUTHOR, AUDITOR})
+OUT_OF_LOOP_ROLES = frozenset({"profiler", "mapper", "lexicon_builder"})
+
 #: The three fields `bedrock.Response.model_record()` returns, all required in the run block
 #: this module writes. `scorer.REQUIRED_RUN` names only `model_id` — see `_run_block()` and
 #: DESIGN §10 A2's note on schema 4 for why the requirement lives here instead.
@@ -429,6 +450,33 @@ def arm_has_called(corpus: str, detector: str, supervision: str,
     return called_where(corpus, detector, supervision, porting) is not None
 
 
+def roles_called(corpus: str, detector: str, supervision: str,
+                 porting: str = PORTING) -> dict[str, int]:
+    """How many calls each role has made on this arm. `{}` when the log is absent.
+
+    **`arm_has_called()` cannot answer `port-multi`'s question and this is the narrowest thing
+    that can.** That rung makes three authoring calls before round 1, so its log is non-empty at
+    the moment `tools/run_loop.py` asks "has round 1 been spent" — and the answer read from
+    presence alone is yes, on an arm that has not called the RuleAuthor once. The distinction the
+    driver needs is *which* roles have called, and it is one line of the log per call. Kept here
+    rather than in `src/porting/multi.py` because this is where the log's readers live and a
+    second module reading it would be a second definition of what a spent round looks like.
+
+    Counts rather than a set: `AUTHORING_ITERATION`'s guarantee is one call per out-of-loop role
+    per arm, and a set would report a second Profiler call as the same state as the first.
+
+    No costs and no per-role totals — see `read_calls()`. This returns role names and integers,
+    which is the whole of what a readiness check needs and nothing that would make this the
+    file's general reader.
+    """
+    counts: dict[str, int] = {}
+    for line in read_calls(corpus, detector, supervision, porting):
+        role = line.get("role")
+        if isinstance(role, str):
+            counts[role] = counts.get(role, 0) + 1
+    return counts
+
+
 def prompt_blocks() -> frozenset[str]:
     """The `§1.x` headings present in the RuleAuthor prompt as it stands on disk.
 
@@ -620,6 +668,18 @@ def call_line(iteration: int, *, prompt_reference: dict, model: dict,
     name prohibition one field over, and `test_no_module_derives_a_role_from_a_filename` is
     the structural half of it.
 
+    **`role` and `iteration` are checked against each other, and that is what makes "out of
+    loop" a property of the log rather than of the driver** (DESIGN §6.7.1). `profiler`,
+    `mapper` and `lexicon_builder` may only appear at `AUTHORING_ITERATION`; `rule_author` and
+    `auditor` may not appear there. Both halves are refused, because only the pair makes the
+    reading unambiguous — see `AUTHORING_ITERATION` for why one half alone would leave the log
+    saying less than it appears to.
+
+    The role is validated before the outcome and the text keys, which is a change in the order
+    the three refusals fire and is deliberate: a line whose role and iteration disagree is a
+    line about the wrong *call*, and reporting its `outcome` spelling first would send a reader
+    to fix the spelling of a call that should not have been made.
+
     Defaulted rather than required, and the default is this file's own arm. `port-oneshot`
     makes one call and it is the RuleAuthor's; `port-loop`'s driver passes both values
     explicitly, which is the asymmetry §5.5 wanted from a shared helper — the baseline's
@@ -692,6 +752,26 @@ def call_line(iteration: int, *, prompt_reference: dict, model: dict,
     whose absence claims nothing. `port-loop` may pass it or not, and neither reading of its
     log becomes wrong.
     """
+    checked_role = check_agent_role(role)
+    if checked_role in OUT_OF_LOOP_ROLES and iteration != AUTHORING_ITERATION:
+        raise OrchestrateError(
+            f"role={checked_role!r} at iteration {iteration}. The out-of-loop agents write "
+            f"iteration {AUTHORING_ITERATION} and only that (DESIGN §6.7.1): they are called "
+            "once each before round 1, and their artefacts are inputs to every round rather "
+            "than outputs of one. A line at a round number would say this arm re-profiled, "
+            "re-mapped or rebuilt lexicons mid-run, which is a different experiment and not a "
+            "logging detail — the comparison against `port-loop` is only sound if the three "
+            "artefacts were fixed before the first round scored anything."
+        )
+    if checked_role in LOOP_ROLES and iteration == AUTHORING_ITERATION:
+        raise OrchestrateError(
+            f"role={checked_role!r} at iteration {AUTHORING_ITERATION}. The rounds are "
+            "1-based and iteration 0 is reserved for the out-of-loop agents (DESIGN §6.7.1). "
+            "This half of the rule is what makes the other half readable: if a RuleAuthor "
+            "line could sit at 0, then \"three lines at iteration 0\" would no longer be the "
+            "same statement as \"the three artefacts were authored before the loop\", and the "
+            "log would have to be read against a driver again."
+        )
     if outcome not in OUTCOMES:
         raise OrchestrateError(
             f"{outcome!r} is not a call outcome (have: {list(OUTCOMES)}). The log's own "
@@ -712,7 +792,7 @@ def call_line(iteration: int, *, prompt_reference: dict, model: dict,
         # Which agent spent this call. Beside `iteration` rather than at the end, because the
         # two together are what a per-round per-role cost sum groups by, and a reader scanning
         # the file reads the first fields.
-        "role": check_agent_role(role),
+        "role": checked_role,
         "outcome": outcome,
         **model,
         # A note about the id and not a resolution of it — see the docstring, and the field
@@ -752,18 +832,26 @@ def read_calls(corpus: str, detector: str, supervision: str,
 
     **Why a reader exists at all, when this file was write-only by design.** `called_where()`
     reads it already, and reads one thing from it — whether any call has been made — through a
-    guard that deliberately never parses a line. This returns the lines, and it is added for one
+    guard that deliberately never parses a line. This returns the lines, and it was added for one
     caller with one question: what did the *abandoned* attempts at this round cost
     (`scorer.REQUIRED_ABANDONED`, DESIGN §3's two-HTTP-attempts clause and §5.5.2)? That number
     exists nowhere else. The round's own `cost` block is measured around the attempt that
     succeeded, so an arm that burned two complete audit passes publishes the same figure as one
     that burned none, and the only record of the difference is these lines.
 
+    **There are two callers as of 2026-09-02, and the second is `roles_called()`** — which
+    role has called, for `port-multi`'s round-1 guard. It is a second question and the paragraph
+    above no longer says "one"; both are answered from the same lines, which is the reason this
+    function is where the parsing lives.
+
     **It does not become the general reader of this file.** No aggregation, no filtering, no
     per-role totals: `sum_costs` is the scorer's and the summing of a round's spend stays there
-    (DESIGN §5.5, §11.3). A malformed line raises rather than being skipped — a reader that
-    silently dropped one would answer "what was abandoned" with a number quietly short of the
-    truth, which is the failure the field was added to end.
+    (DESIGN §5.5, §11.3). `roles_called()` counts lines and reads no cost field, which is the
+    line that rule draws — a per-role *spend* would be the aggregation it forbids, and it would
+    also be the figure `call_line`'s docstring says this file deliberately does not make
+    answerable. A malformed line raises rather than being skipped — a reader that silently
+    dropped one would answer "what was abandoned" with a number quietly short of the truth,
+    which is the failure the field was added to end.
 
     **It does not make this file publishable.** `log_path` is deny-listed because the prompt
     references in these lines describe dev corpus text, and reading a denied file in-process is

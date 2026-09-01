@@ -172,11 +172,20 @@ class RuleSet:
     file produced it and a reader can go and check. It is filled even when the file was
     absent — "we looked here and found nothing" is a premise of a zero-rule run, and the
     alternative is a run that read nothing and says nothing about where.
+
+    `lexicon_sources` is the same record for the term lists a `lexicon:` rule read, keyed by
+    the reference the rule wrote (`es/institutions`) and valued with the file's
+    repo-relative path. Keyed by reference rather than by lang, because a reference names
+    its own language and one file may hold several (`_read_lexicon`), so lang is not unique.
+    Empty for every arm whose rules list their terms inline, which is every arm frozen
+    before 2026-09-01 — and empty rather than absent, for `sources`' reason: "no list was
+    read" is a fact about the run and not a gap in it.
     """
 
     rules: list[Rule] = field(default_factory=list)
     versions: dict[str, int] = field(default_factory=dict)
     sources: dict[str, str] = field(default_factory=dict)
+    lexicon_sources: dict[str, str] = field(default_factory=dict)
 
     def detect(self, text: str, detector: str = "R") -> list[Span]:
         """Every rule's matches on `text`, as prediction spans with provenance.
@@ -287,7 +296,8 @@ THEN_SHORTHAND = {
 }
 
 
-def _rule_from(raw: dict, lang: str, source: str, lexicons: Path | None) -> Rule:
+def _rule_from(raw: dict, lang: str, source: str, lexicons: Path | None,
+               record: dict[str, str] | None = None) -> Rule:
     """Validate one rule mapping and compile it. Every field checked, nothing inferred.
 
     The checks are here rather than at first use because a rule file is written by an
@@ -297,7 +307,8 @@ def _rule_from(raw: dict, lang: str, source: str, lexicons: Path | None) -> Rule
 
     `lexicons` is passed through to `_read_lexicon` and used by nothing else — a rule that
     takes any other matcher form never reads it, and a rule that takes the `lexicon:` form
-    refuses without it.
+    refuses without it. `record` travels the same way and in the other direction: the list
+    this rule read, if it read one, so `load_rules` can put it in the run block.
     """
     if not isinstance(raw, dict):
         raise RuleError(f"{source}: a rule must be a mapping, got "
@@ -366,7 +377,7 @@ def _rule_from(raw: dict, lang: str, source: str, lexicons: Path | None) -> Rule
         matcher = _compile(body, flags, prefixed, "pattern")
     elif form in ("terms", "lexicon"):
         terms = (raw["terms"] if form == "terms"
-                 else _read_lexicon(raw["lexicon"], prefixed, lexicons))
+                 else _read_lexicon(raw["lexicon"], prefixed, lexicons, record))
         if not isinstance(terms, list) or not all(isinstance(t, str) and t
                                                   for t in terms):
             raise RuleError(f"{prefixed}: terms must be a list of non-empty strings")
@@ -510,7 +521,8 @@ def arm_lexicon_root(
     )
 
 
-def _read_lexicon(ref: str, rule_id: str, lexicons: Path | None) -> list[str]:
+def _read_lexicon(ref: str, rule_id: str, lexicons: Path | None,
+                  record: dict[str, str] | None = None) -> list[str]:
     """A term list from `{lexicons}/{lang}/{name}.txt`. One term per line, `#` comments.
 
     A plain text file rather than YAML, because this is the LexiconBuilder's artifact
@@ -535,6 +547,14 @@ def _read_lexicon(ref: str, rule_id: str, lexicons: Path | None) -> list[str]:
     collection the caller named cannot change any of them — reporting the caller's
     omission first would let a rule file's `../../sealed/...` pass unremarked whenever a
     caller had also forgotten the directory.
+
+    **`record` is how the read reaches `metrics.json`.** Filled with
+    `{ref: repo-relative path}` for the list actually opened, and it is written here rather
+    than reconstructed from `lexicons` and the rule file because this is the only place that
+    knows a read happened. A run block naming the collection root would say which directory
+    was *available*; what a re-run needs is which lists were *read*, and the two differ for
+    every arm whose rule author referenced two of the three lists it was given. Filled after
+    the existence check, so a path in the record is a path that was opened.
     """
     if not isinstance(ref, str) or "/" not in ref:
         raise RuleError(
@@ -574,6 +594,8 @@ def _read_lexicon(ref: str, rule_id: str, lexicons: Path | None) -> list[str]:
             terms.append(line)
     if not terms:
         raise RuleError(f"{rule_id}: the lexicon at {_relative(path)} is empty")
+    if record is not None:
+        record[ref] = _relative(path)
     return terms
 
 
@@ -713,7 +735,12 @@ def load_rules(lang: str, *, path: Path | None = None,
     if not isinstance(version, int) or isinstance(version, bool) or version < 1:
         raise RuleError(f"{p}: 'version' must be an integer >= 1, got {version!r}. It is "
                         "recorded with the results (rule_author.md §2).")
-    rules = [_rule_from(r, lang, str(p), lexicons) for r in raw.get("rules") or []]
+    # One dict for the whole file, filled by whichever rules take the `lexicon:` form. Built
+    # here rather than returned by `_rule_from`, which returns a compiled rule and would have
+    # to return a pair for the benefit of one matcher form out of four.
+    read_lists: dict[str, str] = {}
+    rules = [_rule_from(r, lang, str(p), lexicons, read_lists)
+             for r in raw.get("rules") or []]
     seen = set()
     for r in rules:
         if r.rule_id in seen:
@@ -724,7 +751,8 @@ def load_rules(lang: str, *, path: Path | None = None,
                 "attribution into one bucket (rule_author.md §2)."
             )
         seen.add(r.rule_id)
-    return RuleSet(rules=rules, versions={lang: version}, sources={lang: where})
+    return RuleSet(rules=rules, versions={lang: version}, sources={lang: where},
+                   lexicon_sources=read_lists)
 
 
 def load_for_corpus(corpus: str, *, paths: dict[str, Path] | None = None,
@@ -754,4 +782,8 @@ def load_for_corpus(corpus: str, *, paths: dict[str, Path] | None = None,
         combined.rules.extend(part.rules)
         combined.versions.update(part.versions)
         combined.sources.update(part.sources)
+        # Two rule files may reference one list, in which case both write the same key and
+        # the same path — the reference carries its own language, so the key cannot collide
+        # across files while meaning two different things.
+        combined.lexicon_sources.update(part.lexicon_sources)
     return combined

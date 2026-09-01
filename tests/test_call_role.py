@@ -281,6 +281,115 @@ def test_the_role_sits_beside_the_iteration():
     assert list(a_line())[:3] == ["iteration", "role", "outcome"]
 
 
+# ─── the role and the iteration are checked against each other ─────────────
+#
+# 2026-09-01, and it is the third addition this file's reasoning covers. `port-multi` calls
+# three agents once each before round 1 (DESIGN §6.7.1), and the sentence that has to survive
+# into the paper is "they ran outside the loop". That sentence is about a driver, and a driver
+# is not what a reader of `results/` has — so `call_line()` refuses the pairs that would make
+# the log ambiguous, and the sentence becomes readable off the file.
+#
+# **The failure without the rule is not a wrong log, it is two indistinguishable logs.** A
+# driver that re-profiled at every round would write `profiler` lines at 1..8 and a driver that
+# profiled once would write one at 0; a driver that re-profiled and passed *the iteration it
+# had* would write lines nobody could separate from the compliant case after the fact, since
+# `profile.json` on disk is the last one written either way.
+
+def test_an_out_of_loop_role_is_refused_at_a_round_number():
+    """The half that catches re-profiling mid-run."""
+    for role in sorted(orchestrate.OUT_OF_LOOP_ROLES):
+        with pytest.raises(OrchestrateError, match="out-of-loop agents write iteration"):
+            a_line(role=role)          # `a_line` writes iteration 1
+
+
+@pytest.mark.parametrize("iteration", [1, 2, 8, -1])
+def test_no_round_number_at_all_admits_an_out_of_loop_role(iteration):
+    """Including a negative, which is the shape a sentinel-minded caller would try next."""
+    for role in sorted(orchestrate.OUT_OF_LOOP_ROLES):
+        with pytest.raises(OrchestrateError):
+            call_line(iteration, role=role, prompt_reference={}, model={"model_id": "m"},
+                      response_chars=0, response_sha256="sha256:aa", outcome="called",
+                      cost={})
+
+
+def test_an_out_of_loop_role_is_accepted_at_iteration_zero():
+    """The three roles the rule exists for, at the one number it permits them."""
+    for role in sorted(orchestrate.OUT_OF_LOOP_ROLES):
+        line = call_line(orchestrate.AUTHORING_ITERATION, role=role, prompt_reference={},
+                         model={"model_id": "m"}, response_chars=0,
+                         response_sha256="sha256:aa", outcome="called", cost={})
+        assert (line["iteration"], line["role"]) == (0, role)
+
+
+@pytest.mark.parametrize("role", sorted(orchestrate.LOOP_ROLES))
+def test_a_loop_role_is_refused_at_iteration_zero(role):
+    """**The load-bearing half.**
+
+    Without it, "three lines at iteration 0" stops being the same statement as "the three
+    artefacts were authored before the loop" — a RuleAuthor line could sit there too, and the
+    log would have to be read against a driver again, which is the situation the rule was
+    added to end.
+    """
+    with pytest.raises(OrchestrateError, match="rounds are 1-based"):
+        call_line(0, role=role, prompt_reference={}, model={"model_id": "m"},
+                  response_chars=0, response_sha256="sha256:aa", outcome="called", cost={})
+
+
+def test_the_two_halves_partition_the_vocabulary():
+    """Every declared role is judged by the rule, and no role is judged by both halves.
+
+    Read off `agent_roles()` rather than written out, because the failure this guards is a
+    *sixth* role added to naming.yaml — and a test naming five could not see it. The written-out
+    version of this assertion is in `tests/test_agent_role.py`; this is the half that says the
+    enforcer's two sets and the vocabulary are the same five values.
+    """
+    from src.corpora.base import agent_roles
+    assert orchestrate.LOOP_ROLES | orchestrate.OUT_OF_LOOP_ROLES == set(agent_roles())
+    assert not (orchestrate.LOOP_ROLES & orchestrate.OUT_OF_LOOP_ROLES)
+
+
+def test_the_iteration_refusal_fires_before_the_outcome_refusal():
+    """Order, and it is a decision rather than an accident of where the code sits.
+
+    A line whose role and iteration disagree is a line about the wrong *call*. Reporting its
+    `outcome` spelling first would send a reader to fix the spelling of a call that should not
+    have been made — so the pair is checked first, and this pins it against the next refactor
+    that groups the validations by what they read.
+    """
+    with pytest.raises(OrchestrateError, match="out-of-loop agents write iteration"):
+        call_line(3, role="profiler", prompt_reference={}, model={"model_id": "m"},
+                  response_chars=0, response_sha256="sha256:aa",
+                  outcome="not_an_outcome", cost={})
+
+
+def test_the_refusals_name_no_corpus_text():
+    """CLAUDE.md, at a message that names a role and a number and must name nothing else."""
+    for kwargs in ({"iteration": 3, "role": "profiler"}, {"iteration": 0, "role": "auditor"}):
+        with pytest.raises(OrchestrateError) as excinfo:
+            call_line(kwargs["iteration"], role=kwargs["role"], prompt_reference={},
+                      model={"model_id": "m"}, response_chars=0,
+                      response_sha256="sha256:aa", outcome="called", cost={})
+        assert "DESIGN §6.7.1" in str(excinfo.value)
+
+
+def test_the_frozen_arms_lines_all_sit_at_round_numbers():
+    """The rule is not retroactive, and it does not need to be — it is already true.
+
+    Every committed line is a `rule_author` or `auditor` line at iteration ≥ 1, so the new
+    refusal would have accepted all of them. Checked rather than assumed: a rule that would
+    have rejected history is a rule whose history has to be explained, and the honest time to
+    find that out is before it is enforced rather than the first time a log is replayed.
+    """
+    seen = 0
+    for porting in FROZEN_ARMS + ("port-loop",):
+        for line in frozen_lines(porting):
+            seen += 1
+            assert line["iteration"] >= 1, f"{porting}: iteration {line['iteration']}"
+            assert line.get("role", RULE_AUTHOR) in orchestrate.LOOP_ROLES
+    if not seen:
+        pytest.skip("no committed call log on this tree — see `an_absent_log_skips`")
+
+
 # ─── `sample_reference` became a parameter, and the frozen lines did not move ───
 #
 # 2026-08-13, the second addition this file's reasoning covers and the smaller one: the field
@@ -299,14 +408,21 @@ def test_the_role_sits_beside_the_iteration():
 # parameter. `port-oneshot`'s is checked alongside it wherever the assertion is per-arm, since a
 # change that moved one arm's lines and not the other's is not a shape a writer can produce.
 
-#: The three fields today's writer produces that the frozen lines do not carry, each added after
+#: The fields today's writer produces that the frozen lines do not carry, each added after
 #: those two calls were made and each with a file arguing why it did not reach backwards:
-#: `role` here, `auditor_sha256` in `tests/test_window_widening.py`. `generated` is the instant
-#: of the call and differs from itself on every run — the one difference that is not an addition.
+#: `role` here, the four window hashes in `tests/test_window_widening.py`. `generated` is the
+#: instant of the call and differs from itself on every run — the one difference that is not an
+#: addition.
 #:
 #: Written out because a replay test whose permitted differences were computed from the diff it
-#: is checking would permit anything it found.
-ADDED_SINCE = ("role", "auditor_sha256")
+#: is checking would permit anything it found. Five since 2026-09-01: a *replay* of a frozen
+#: line does pick up today's six window hashes, because `call_line()` writes the current window
+#: and that is its job. What must not move is the line **on disk**, which is
+#: `test_no_frozen_record_acquired_a_port_multi_hash` and the byte-identity assertions in
+#: `tests/test_window_widening.py`. The distinction is the whole of why this list is permitted
+#: to grow and those are not.
+ADDED_SINCE = ("role", "auditor_sha256", "profiler_sha256", "mapper_sha256",
+               "lexicon_builder_sha256")
 
 
 def replay(line: dict, **kw) -> dict:
@@ -405,10 +521,15 @@ def test_the_field_order_the_frozen_line_has_survives_a_filled_reference():
         "filling `sample_reference` changed the line's field order. The two arms' lines are "
         "supposed to differ in a value rather than in a shape."
     )
+    # Only `role` was inserted *before* this field; the four window hashes go at the end. So
+    # the shift is one, and it is written as one rather than as `len(ADDED_SINCE) - 1` — that
+    # arithmetic gave the right answer only while `ADDED_SINCE` had two entries, which made it
+    # a coincidence that read as a derivation. The 2026-09-01 widening added three more fields
+    # after this one and the expected shift did not change.
     assert list(filled).index("sample_reference") == \
-        list(line).index("sample_reference") + len(ADDED_SINCE) - 1, (
-        "the field moved relative to the frozen line by more than the fields added since it "
-        "(`role` is inserted before it, `auditor_sha256` after)."
+        list(line).index("sample_reference") + 1, (
+        "the field moved relative to the frozen line by more than the one field inserted "
+        "ahead of it (`role`). The window hashes are appended and must stay appended."
     )
 
 

@@ -105,6 +105,13 @@ def _check_axes(args) -> str | None:
     Returns a message or `None`. `orchestrate._arm_path()` performs the same validation
     when it fills a template, and that is the guarantee; this is the same check moved
     earlier, because the first template `run_arm()` fills is the freeze record's.
+
+    **`lang` is optional as of 2026-09-02 and is checked only when the caller has one.**
+    `tools/run_multi.py` authors no rule file — one LexiconBuilder call writes every language
+    the corpus loads (`lexicon_builder.md` §1.3) — so there is no single `--lang` for it to
+    pass. Skipped rather than satisfied with `rule_langs(corpus)[0]`: a value invented to make
+    a validator pass is a validator that has stopped checking anything, and a driver with a
+    `--lang` flag and no file behind it would be worse than one without.
     """
     for name, value in (("corpus", args.corpus), ("detector", args.detector),
                         ("supervision", args.supervision), ("porting", args.porting),
@@ -120,9 +127,12 @@ def _check_axes(args) -> str | None:
                 "through `python3 -m src.eval.run_sealed_eval`, which appends the access "
                 "to results/sealed_eval_log.md before anything is read (CLAUDE.md, "
                 "DESIGN §6.1). An agent arm never reads it.")
+    lang = getattr(args, "lang", None)
+    if lang is None:
+        return None
     langs = rule_langs(args.corpus)
-    if args.lang not in langs:
-        return (f"--lang {args.lang!r}: {args.corpus} loads {langs} "
+    if lang not in langs:
+        return (f"--lang {lang!r}: {args.corpus} loads {langs} "
                 "(config/naming.yaml corpus_rule_langs). One call authors one file, and a "
                 "file no corpus loads would be scored by nothing (DESIGN §5.2).")
     return None
