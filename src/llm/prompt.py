@@ -95,9 +95,12 @@ from typing import IO, Mapping, Sequence
 
 from .. import sample as sample_module
 from ..corpora.base import (
-    CorpusError, Document, axis, check_caching_boundary, check_caching_ttl, corpus_ids,
-    excluded_types, masked_tag_heterogeneous, rule_langs,
+    PROFILE_VOCABULARY_FIELDS, CorpusError, Document, axis, check_caching_boundary,
+    check_caching_ttl, corpus_ids, excluded_types, lexicon_bases, lexicon_names,
+    lexicon_target_types, mapping_bases, masked_tag_heterogeneous, profile_schema_fields,
+    profile_vocabulary, rule_langs,
 )
+from ..porting.artefacts import _canonical_json, render_json
 from ..porting.audit import MaskedLine
 from ..rules import rule_layers
 from ..sample import MISSED, ErrorSpan, WINDOW_FILES, file_hash, non_target_types
@@ -878,9 +881,12 @@ def _score_block(metrics: Mapping) -> tuple[str, dict]:
         "score_types": sorted(first["by_type"]),
         "score_rules": sorted(first["by_rule"]),
         # **The rendered block's hash and not the source metrics'.** Hashing the source would
-        # need `json.dumps` for a canonical form, and this module deliberately does not import
-        # `json` — `test_the_module_imports_nothing_that_writes` asserts it as a closed set,
-        # because a module that cannot reach a writer cannot be edited into one. The block is
+        # need a canonical form, and this module does not import `json` —
+        # `test_the_module_imports_nothing_that_writes` asserts the import set as closed,
+        # because a module that cannot reach a writer cannot be edited into one. (Since
+        # 2026-09-02 two prompts do hash a structured input, through
+        # `artefacts._canonical_json`; a borrowed function is not a reachable writer, and
+        # borrowing it was the alternative to a second spelling of "canonical".) The block is
         # what the call saw, which is the question a reference form answers; the source score
         # is at `paths.itermetrics` under the round this block names, and `rules_sha256` one
         # section up hashes a file for the different reason that a rule file is *input to a
@@ -1930,5 +1936,446 @@ def assemble_audit_prompt(
         # `metrics.json`'s `caching` block, and its absence there is what records "unused".
         "cache_after": cache_after,
         "cache_boundary": CACHE_BOUNDARY,
+        "window_files": {name: file_hash(name) for name in WINDOW_FILES},
+    })
+
+
+# ─── the three out-of-loop calls: §1 of each of the three new templates ──────
+#
+# `port-multi`'s three agents run once each before iteration 1 (DESIGN §4, §6.7.1), and their
+# assemblers are here rather than in `src/porting/multi.py` for `assemble_audit_prompt`'s
+# reason: a prompt is assembled in one place so that what a call carried is one function's
+# answer, and `FilledPrompt` is the only type these may return.
+#
+# **All three inputs are this repository's own committed bytes.** The filtered inventory is a
+# tracked file with four blocks removed (`profiler.md` §1.2), the Mapper's two lists are
+# `profile.json` and `config/naming.yaml`, and the LexiconBuilder is shown nothing
+# corpus-derived at all (`lexicon_builder.md` §1.1). They still return `FilledPrompt` and are
+# still never written down — the module docstring's argument does not turn on how dangerous a
+# particular prompt is, and an exception for the safe-looking one is the exception that makes
+# the rule unenforceable.
+
+#: The input sections of each template, by that template's own numbering. Separate constants
+#: per template for `AUDIT_FRAME`'s stated reason — the strings coincide and the sections do
+#: not, and a reference form recording `sections_filled` has to say which agent was called.
+#:
+#: The Profiler's input is **one** block (`profiler.md` §1: "One block: the mechanical
+#: inventory … Then nothing else"); §1.2 and §1.3 are prose about it, not blocks. The Mapper's
+#: is two, and §1.3 is the withheld one — recorded separately below, because "not shown" is a
+#: claim this arm's only measurement depends on. The LexiconBuilder's is one, §1.2, since its
+#: §1.1 is the argument that nothing corpus-derived exists to show.
+PROFILER_INVENTORY = "1.1"
+PROFILER_SECTIONS = (PROFILER_INVENTORY,)
+MAPPER_TYPE_LABELS = "1.1"
+MAPPER_CANONICAL = "1.2"
+MAPPER_SECTIONS = (MAPPER_TYPE_LABELS, MAPPER_CANONICAL)
+LEXICON_FRAME = "1.2"
+LEXICON_SECTIONS = (LEXICON_FRAME,)
+
+#: `mapper.md` §1.3: DESIGN §9.0's table is withheld, and "the withholding has to hold in
+#: code". Recorded on every Mapper prompt so that the claim is a field a reader can check
+#: rather than a sentence in a document — `sections_empty`'s reason, one step stronger,
+#: because here the section is not empty for this call but withheld from every call.
+MAPPER_WITHHELD = ("1.3",)
+
+
+def _vocabulary_block(heading: str, values: Mapping[str, str]) -> str:
+    """One closed vocabulary, one value per line, with its `naming.yaml` gloss.
+
+    **One value per line, and that is load-bearing rather than cosmetic.** It is what makes
+    `_check_design_withheld()` a real check: a table row is a line, so "no line pairs a source
+    label with its DESIGN §9.0 target" is only a statement about pairings if each list puts one
+    name on each line. Rendered from the config's mapping, so the glosses are the committed
+    ones and this module spells no value (`_task_frame`'s rule).
+    """
+    lines = [f"{heading}"]
+    for name, gloss in values.items():
+        lines.append(f"  - {name} — {gloss}" if gloss else f"  - {name}")
+    return "\n".join(lines)
+
+
+def _profiler_frame(corpus: str) -> str:
+    """The Profiler's vocabularies, enumerated. `profiler.md` §2.1's list of ten.
+
+    The template names the vocabularies — "`annotation_encoding`, `text_location`, … ,
+    `profile_unresolved`" — and enumerates none of their values, deliberately: it says they
+    "are added to that file by the commit that implements the validator, not coined in the
+    validator, and not coined here". So the values are shown by this function, read from
+    `config/naming.yaml`, and the template and the config cannot disagree about them because
+    only one of the two states them.
+
+    The consequence is the one `_task_frame` names: an agent shown a hardcoded list would be
+    taught an axis that has drifted from the config, and every value it wrote would then be
+    refused as `undeclared_value` by that same config.
+    """
+    if corpus not in corpus_ids():
+        raise PromptError(
+            f"{corpus!r} is not a corpus in config/naming.yaml (have: {corpus_ids()}). The "
+            "profile is written to a four-axis path under results/ and an unknown corpus "
+            "would create a cell of the experiment rather than fail."
+        )
+    blocks = [
+        f"### §{PROFILER_INVENTORY} The corpus: {corpus}",
+        "",
+        "Below are the closed vocabularies §2.1 refers to, read from config/naming.yaml as it "
+        "stands for this run. Every field of the profile except `type_inventory` and `cites` "
+        "takes one of these values. A value outside them is refused as `undeclared_value` and "
+        "the arm does not start, so there is no value in approximating one: `unresolved` is "
+        "how you say the value is a guess, and it requires you to still supply one.",
+        "",
+    ]
+    for field in PROFILE_VOCABULARY_FIELDS:
+        blocks.append(_vocabulary_block(f"`{field}`:", profile_vocabulary(field)))
+        blocks.append("")
+    blocks.append(_vocabulary_block(
+        "`unresolved` — entries are field names of this schema, drawn from:",
+        {name: "" for name in profile_schema_fields()}))
+    blocks.append("")
+    blocks.append(
+        "`patient_key_available` is a boolean and `type_inventory` is a list of the corpus's "
+        "own labels copied from the inventory's type counts. A label not present in those "
+        "counts is refused as `type_not_in_inventory`.")
+    return "\n".join(blocks)
+
+
+def assemble_profiler_prompt(*, corpus: str, inventory: Mapping) -> FilledPrompt:
+    """The Profiler's one call: the template, the vocabularies, the filtered inventory.
+
+    `inventory` is `artefacts.filter_inventory()`'s return and **this function does not
+    filter.** The two could have been one, and separating them is what makes `profiler.md`
+    §1.2 checkable: the filter is a named function with a named input, the hash recorded in
+    `profile.json` is taken over the object that arrives here, and a test can compare the
+    filtered object against the file. An assembler that filtered internally would make "the
+    per-fold decomposition was not shown" a claim about the inside of a prompt builder, and §6
+    guarantees that prompt is never written down.
+
+    The inventory is serialised with sorted keys and two-space indent — the same bytes
+    `_canonical_json` hashes, modulo the indent — so that two runs on one file send one prompt.
+
+    **Nothing here refers to `sealed/`.** The Profiler reads one JSON file (§1.2), and the
+    filtered inventory carries no per-fold decomposition; there is no parameter on this
+    signature that could carry a fold, which is the form the guarantee takes.
+    """
+    if not isinstance(inventory, Mapping) or not inventory:
+        raise PromptError(
+            f"the filtered inventory must be a non-empty mapping, got "
+            f"{type(inventory).__name__}. It is `artefacts.filter_inventory()`'s return, and "
+            "an empty one would send the Profiler a prompt with no input while the arm still "
+            "spent its one authoring call (profiler.md §1.3)."
+        )
+    frame = _profiler_frame(corpus)
+    rendered = render_json(inventory)
+    text = "\n\n".join([
+        _profiler_template(),
+        INPUT_BANNER,
+        frame,
+        f"### §{PROFILER_INVENTORY} The mechanical inventory, filtered "
+        f"({_count(len(inventory), 'top-level block', 'top-level blocks')})",
+        "",
+        "This is profiles/{corpus}.raw.json with §1.2's four blocks removed before the call. "
+        "The removal is not an instruction to ignore them: they are absent. Cite into what is "
+        "below — a `cites` path that does not resolve here is refused as `uncited_field`.",
+        "",
+        rendered,
+        "Return one JSON object: the profile, and nothing else.",
+    ])
+    return FilledPrompt(text, {
+        "block": "profiler",
+        "corpus": corpus,
+        "sections_filled": list(PROFILER_SECTIONS),
+        # Present and empty for `assemble_task_prompt`'s reason: a key some calls omit cannot
+        # be compared across calls.
+        "sections_empty": [],
+        # Which vocabularies the call enumerated, by field name. Not a section number, because
+        # the template gives this block none — it names the vocabularies in §2.1 and leaves
+        # their values to the implementing commit, which is this function. Recording the field
+        # names keeps "the agent was shown the vocabulary it was scored against" checkable
+        # without inventing a heading the template does not have.
+        "vocabularies_shown": list(PROFILE_VOCABULARY_FIELDS),
+        # The same hash `profile.json` records, over the same object. Taken here as well so
+        # that the prompt's own account of its input and the artefact's account of it are two
+        # statements rather than one restated (`sections_empty`'s reason at the input).
+        "inventory_filtered_sha256": _digest(_canonical_json(inventory)),
+        "inventory_blocks": len(inventory),
+        "text_chars": len(text),
+        "text_sha256": _digest(text),
+        "window_files": {name: file_hash(name) for name in WINDOW_FILES},
+    })
+
+
+def _profiler_template() -> str:
+    """`docs/prompts/profiler.md`, verbatim, resolved through `src.sample`'s globals.
+
+    `_template()`'s reason for the indirection, at the third template: `window_hashes()`
+    resolves it that way, so a local copy of the path is how a freeze record comes to hash one
+    file while the call was shown another.
+    """
+    return (sample_module.ROOT / sample_module.PROFILER_TEMPLATE).read_text(encoding="utf-8")
+
+
+def _mapper_template() -> str:
+    """`docs/prompts/mapper.md`, verbatim. `_profiler_template()`'s note applies."""
+    return (sample_module.ROOT / sample_module.MAPPER_TEMPLATE).read_text(encoding="utf-8")
+
+
+def _lexicon_template() -> str:
+    """`docs/prompts/lexicon_builder.md`, verbatim. `_profiler_template()`'s note applies."""
+    return (sample_module.ROOT / sample_module.LEXICON_BUILDER_TEMPLATE).read_text(
+        encoding="utf-8")
+
+
+def _check_design_withheld(text: str, corpus: str) -> tuple[int, int]:
+    """Refuse a Mapper prompt that shows a source label beside its DESIGN §9.0 target.
+
+    Returns `(checked, self_evident)` — the pairings this could police and the ones it could
+    not, both recorded on the prompt so the check's coverage is a number rather than an
+    assumption.
+
+    `mapper.md` §1.3 makes the withholding the whole design of the input — "an agent shown
+    that table and asked for a mapping would be asked to copy one, and §4's agreement figure
+    would measure reading comprehension" — and then says it "has to hold in code". This is
+    that check, and it is here rather than in a test because a test protects the assembler as
+    written while this protects the prompt as assembled.
+
+    **Line by line, because a table row is a line.** The prompt legitimately contains every
+    source label (§1.1's type inventory) and every canonical type (§1.2's axis); what it must
+    not contain is a *pairing*, and one value per line is what `_vocabulary_block` guarantees
+    so that co-occurrence on a line is evidence of one.
+
+    **Pairings where the target is a substring of the source label are skipped, and that is a
+    limit rather than an oversight.** `FAMILIARES_SUJETO_ASISTENCIA` → `FAMILIARES` and
+    `NAME_PATIENT` → `NAME` cannot be withheld by not showing them together: §1.1 requires the
+    label to be shown, and the label contains the answer. Such a pairing carries no information
+    *from §9.0* — it is a fact about the corpus's own naming, which §2.2's `source_label_family`
+    basis exists to let the agent appeal to openly. The first version of this check did not skip
+    them and refused every `es-meddocan` prompt, which is how the distinction was found. The
+    pairings the check does police are the ones the information is in: `TERRITORIO` →
+    `LOCATION_AREA`, `HOSPITAL` → `ORGANISATION`, `CALLE` → `LOCATION_STREET`.
+
+    Runs over the assembled text including the template, which is deliberate: `mapper.md`
+    itself must not grow a worked example that pairs a real source label with its target.
+    """
+    design = _design_pairs(corpus)
+    if not design:
+        return 0, 0
+    checkable = {source: target for source, target in design.items()
+                 if target not in source and source not in target}
+    for number, line in enumerate(text.splitlines(), 1):
+        for source, target in checkable.items():
+            if source in line and target in line:
+                raise PromptError(
+                    f"the Mapper prompt pairs a source label with its DESIGN §9.0 target on "
+                    f"line {number} of the assembled text. mapper.md §1.3 withholds that "
+                    "table because §4's disagreement figure is the only evidence this arm "
+                    "produces, and an agent shown the answer would be asked to copy it. "
+                    "Neither the label nor the target is quoted here — the line number is "
+                    "enough to find it and the pairing is what leaked."
+                )
+    return len(checkable), len(design) - len(checkable)
+
+
+def _design_pairs(corpus: str) -> dict[str, str]:
+    """`{source label: its §9.0 canonical type}` for one corpus. Empty when §9.0 has no row.
+
+    §9.0's mapped rows only, which is all there is to withhold: §9.1's exclusions are the
+    complement of this table (`artefacts.DESIGN_MAPPINGS`), and "this label is not in the
+    table" is not a pairing a prompt can show.
+
+    Imported lazily from `src.porting.artefacts`, which imports `src.rules`, which this module
+    also imports — the lazy import is `write_mapping`'s and is here for the same reason, to
+    keep the prompt layer importable without the porting layer.
+    """
+    from ..porting.artefacts import DESIGN_MAPPINGS
+
+    return dict(DESIGN_MAPPINGS.get(corpus) or {})
+
+
+def _mapper_frame(corpus: str, profile: Mapping) -> str:
+    """§1.1's type labels and §1.2's canonical ten, and nothing else from the profile.
+
+    **Two fields of the profile, `type_inventory` and `type_system_level`, and no others.**
+    §1.1 is explicit: not `bom`, not the offset block, not `group_key` — "a field shown to an
+    agent that cannot use it is a field it can contradict". So the fields are read out by name
+    rather than the profile being forwarded, and a profile that grew a field does not widen
+    this block.
+    """
+    labels = profile.get("type_inventory")
+    level = profile.get("type_system_level")
+    if not isinstance(labels, list) or not labels or not all(
+            isinstance(x, str) for x in labels):
+        raise PromptError(
+            f"the profile carries no usable `type_inventory` (got "
+            f"{type(labels).__name__}). It is the list the Mapper maps (mapper.md §1.1) and "
+            "there is nothing to map without it. A profile with any refusal does not reach "
+            "this call (profiler.md §2.3), so this is a caller passing the wrong object."
+        )
+    if level not in profile_vocabulary("type_system_level"):
+        raise PromptError(
+            f"the profile's `type_system_level` is {level!r}, which is not a declared value "
+            f"(have: {list(profile_vocabulary('type_system_level'))}). §1.1 shows it so the "
+            "agent knows which of a corpus's label systems the list is drawn from; on a "
+            "two-level corpus a mapping over the wrong one maps labels the loader never sees."
+        )
+    return "\n".join([
+        f"### §{MAPPER_TYPE_LABELS} The corpus's own type labels — {corpus}, "
+        f"{_count(len(labels), 'label', 'labels')}, type system `{level}`",
+        "",
+        "As the Profiler wrote them. Every one of them must appear exactly once across `map` "
+        "and `excluded`: a label left out is refused as `unmapped_source_type`, because an "
+        "unmapped label is a silently dropped set of gold spans.",
+        "",
+        *(f"  - {label}" for label in labels),
+        "",
+        _vocabulary_block(
+            f"### §{MAPPER_CANONICAL} The canonical types, with their glosses — `map` targets:",
+            axis("phi_type")),
+        "",
+        _vocabulary_block(
+            "The excluded types, with the reason each was excluded — `excluded` targets:",
+            excluded_types()),
+        "",
+        _vocabulary_block(
+            "`basis` — what makes the assignment; each value pairs with a checkable fact:",
+            mapping_bases()),
+    ])
+
+
+def assemble_mapper_prompt(*, corpus: str, profile: Mapping) -> FilledPrompt:
+    """The Mapper's one call: the template, the type labels, the canonical ten.
+
+    Takes the **validated profile object**, not a path and not the `profile.json` record: the
+    record's `refused` and `counts` are the orchestrator's and the Mapper is shown neither, and
+    a path parameter would put a file read inside an assembler whose input has to be the object
+    the artefact's `profile_sha256` attests to.
+
+    **There is no parameter that could carry DESIGN §9.0's table**, which is §1.3's first
+    consequence in the form the signature can state it, and `_check_design_withheld()` is the
+    second — because "no parameter carries it" says nothing about the template growing an
+    example or a gloss acquiring a source label.
+    """
+    frame = _mapper_frame(corpus, profile)
+    text = "\n\n".join([
+        _mapper_template(),
+        INPUT_BANNER,
+        frame,
+        "Return one JSON object: `map`, `excluded` and `unresolved`, and nothing else. Every "
+        "entry carries a `basis`.",
+    ])
+    checked, self_evident = _check_design_withheld(text, corpus)
+    return FilledPrompt(text, {
+        "block": "mapper",
+        "corpus": corpus,
+        "sections_filled": list(MAPPER_SECTIONS),
+        "sections_empty": [],
+        # What the withholding check could and could not police, as two numbers. Recorded
+        # because the second is not zero: a pairing whose target is a substring of the source
+        # label is shown by §1.1 whatever this function does, and a reader comparing §4's
+        # disagreement rate across corpora needs to know how many of a corpus's rows were
+        # self-evident from its own naming. Silent coverage would read as full coverage.
+        "design_pairs_checked": checked,
+        "design_pairs_self_evident": self_evident,
+        # §1.3's withheld section, recorded on the prompt that withheld it. Distinct from
+        # `sections_empty`: an empty section is one this call did not fill, and a withheld one
+        # is a section no call in this arm may fill.
+        "sections_withheld": list(MAPPER_WITHHELD),
+        # The join `mapping.yaml` records under the same name. Two statements, as at the
+        # Profiler: this is the prompt's account of the profile it was built from.
+        "profile_sha256": _digest(_canonical_json(profile)),
+        "source_types": len(profile["type_inventory"]),
+        "type_system_level": profile["type_system_level"],
+        "text_chars": len(text),
+        "text_sha256": _digest(text),
+        "window_files": {name: file_hash(name) for name in WINDOW_FILES},
+    })
+
+
+def _lexicon_frame(corpus: str, langs: Sequence[str]) -> str:
+    """§1.2's three blocks: the languages, the serviceable types, the declared file names.
+
+    **No corpus text and nothing corpus-derived**, which `lexicon_builder.md` §1.1 argues is
+    structural rather than chosen. Not the profile, not the mapping, not the corpus's own type
+    labels — §1.2's closing sentence: a corpus label "would be a string it has no use for and
+    could emit".
+
+    The canonical types are `lexicon_target_types()`'s three and not the ten, read from
+    `config/naming.yaml` for the reason its accessor gives: what the prompt shows is a subset
+    of an axis, and a literal here could not report an axis renamed underneath it.
+    """
+    types = lexicon_target_types()
+    glosses = axis("phi_type")
+    return "\n".join([
+        f"### §{LEXICON_FRAME} The languages, the types a gazetteer can serve, and the "
+        f"file names — {corpus}",
+        "",
+        _vocabulary_block(
+            "The rule languages for this corpus. Write one lexicon set per language, all in "
+            "this one call:",
+            {lang: axis("lang").get(lang, "") for lang in langs}),
+        "",
+        _vocabulary_block(
+            "The canonical types a term list can serve. **Three, not the full ten** — the "
+            "others are not gazetteer-shaped, and `NAME` is excluded deliberately (§3):",
+            {name: glosses[name] for name in types}),
+        "",
+        _vocabulary_block(
+            "The declared file names. A list you have no matching name for is not written: "
+            "the correct behaviour is to leave it out, and `unresolved` is how you say so.",
+            lexicon_names()),
+        "",
+        _vocabulary_block(
+            "`basis` — what kind of knowledge the list is. Each value predicts something "
+            "different about how well the list transfers, so the declaration is falsifiable:",
+            lexicon_bases()),
+    ])
+
+
+def assemble_lexicon_prompt(*, corpus: str, langs: Sequence[str]) -> FilledPrompt:
+    """The LexiconBuilder's one call: the template and §1.2's three lists.
+
+    **One call for every language** (§1.3), because `corpus_rule_langs` documents that a
+    multilingual corpus's languages co-occur within documents and every rule file is loaded
+    for every document. Two calls would produce two lexicons with no view of each other and
+    the duplicate entries across them would be invisible — `duplicate_entry` is within a file.
+
+    `langs` is `rule_langs(corpus)` and is checked against it here rather than trusted: the
+    languages decide which directories are written under `paths.armlexicon`, and a language
+    this corpus loads no rule file for would be a directory nothing reads.
+
+    **This is the one of the three whose output enters detection** (DESIGN §4), and the one
+    whose input contains nothing from the corpus. Both are true at once and that is the arm's
+    cleanest case: the causal path runs from the agent's own knowledge to a rule's `lexicon:`
+    reference, with no corpus text on it.
+    """
+    declared = rule_langs(corpus)
+    if list(langs) != list(declared):
+        raise PromptError(
+            f"this call was given languages {list(langs)} and config/naming.yaml's "
+            f"corpus_rule_langs gives {list(declared)} for {corpus}. §1.3 makes one call cover "
+            "all of a corpus's languages, so a mismatch is either a language whose directory "
+            "nothing would read or a language whose lexicons would never be written."
+        )
+    frame = _lexicon_frame(corpus, langs)
+    text = "\n\n".join([
+        _lexicon_template(),
+        INPUT_BANNER,
+        frame,
+        "Return one JSON object: `lexicons` keyed by language then by file name, and "
+        "`unresolved`. Nothing else.",
+    ])
+    return FilledPrompt(text, {
+        "block": "lexicon_builder",
+        "corpus": corpus,
+        "langs": list(langs),
+        "sections_filled": list(LEXICON_SECTIONS),
+        "sections_empty": [],
+        # The three names and three types the call declared, so that a manifest naming a file
+        # can be checked against a prompt that offered it. Cheap here and impossible later:
+        # `lexicon_name` is a committed vocabulary that may grow, and a manifest read a month
+        # on would otherwise be compared against the vocabulary as it stands rather than as it
+        # stood.
+        "lexicon_names_shown": list(lexicon_names()),
+        "target_types_shown": list(lexicon_target_types()),
+        "text_chars": len(text),
+        "text_sha256": _digest(text),
         "window_files": {name: file_hash(name) for name in WINDOW_FILES},
     })

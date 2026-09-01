@@ -1468,20 +1468,27 @@ def test_the_reference_form_carries_references_and_no_text():
 
 
 def test_the_reference_form_records_every_window_file():
-    """The two prompt templates and the sampling config, hashed.
+    """Every prompt template and the sampling config, hashed — six files since 2026-09-02.
 
     All of them, for `src/sample.py`'s reason: a record naming only the RuleAuthor template
     would agree with a doubled `n` as readily as with 40, and — since 2026-08-12 — with a
-    rewritten Auditor as readily as with the frozen one.
+    rewritten Auditor as readily as with the frozen one. `port-multi`'s three prompts joined on
+    2026-09-02, and the argument did not change shape: a window naming `rule_author.md` alone is
+    equally true of the run that edited `profiler.md` and the run that did not.
 
     Read off `WINDOW_FILES` rather than listed, deliberately. This assertion is about the
     reference form carrying *the whole window*, not about which files are in it; the window's
     membership is DESIGN §5.5's and is pinned by `tests/test_sample.py`. A literal list here
-    would be a second copy that has to be edited on the same day.
+    would be a second copy that has to be edited on the same day — which is what the count
+    below was, at 3, on the day the window went to 6.
     """
     files = a_prompt().reference()["window_files"]
     assert set(files) == set(WINDOW_FILES)
-    assert len(files) == 3
+    # Asserted against `WINDOW_FILES` and not against a number, for the reason above. It is not
+    # redundant beside the set comparison: `window_files` is built by a comprehension over
+    # `WINDOW_FILES`, so a duplicate entry there would collapse into one key and the two sets
+    # would still agree.
+    assert len(files) == len(WINDOW_FILES)
     assert all(v.startswith("sha256:") for v in files.values())
 
 
