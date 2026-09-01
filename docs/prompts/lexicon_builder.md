@@ -255,17 +255,28 @@ corpus**, and it holds for a reason that is not compliance:
 
 ## 4. How the lexicon is consumed — and two things that are true today
 
-### 4.1 The loader cannot read an agent-authored lexicon yet
+### 4.1 The loader could not read an agent-authored lexicon — fixed 2026-09-01, before the first call
 
-`src/rules.py`'s `_read_lexicon` resolves a rule's `lexicon:` reference through
+~~`src/rules.py`'s `_read_lexicon` resolves a rule's `lexicon:` reference through
 `path_template("lexicon")`, which is the **human** key `lexicons/{lang}/` — not `paths.armlexicon`.
 So as the code stands, a rule in a `port-multi` rule file that takes the `lexicon` form would read
 the human directory, and **that directory is empty on disk.** The implementing commit owes the
 redirection: an arm that has its own lexicon resolves against `paths.armlexicon`, and an arm that
-does not keeps today's behaviour. **Recorded here because it is the difference between this arm
+does not keeps today's behaviour.~~ **Recorded here because it is the difference between this arm
 having a live third artefact and having an unread one**, and because DESIGN §6.7.4's cause 1 — "the
-lexicon was never read" — has two possible mechanisms and this is the one that would be our bug
+lexicon was never read" — had two possible mechanisms and this was the one that would be our bug
 rather than the agent's outcome.
+
+**What was done instead of the redirection, and why it is not the same fix.** The plan above was
+"resolve against `paths.armlexicon` for an arm that has a lexicon, keep today's behaviour for an arm
+that does not", and that is two defaults where the text asked for one correction. `_read_lexicon`
+now takes the collection **from its caller** and refuses a `lexicon:` rule when none was named:
+`human_lexicon_root()` is the hand-written lists, `arm_lexicon_root()` is an arm's, and neither is
+automatic. The reason is §3's, one artefact over — on the day `lexicons/es/` is not empty, "keep
+today's behaviour" reads the human lists into an agent-labelled result, and that is exactly the
+substitution `profiler.md` §2.3 and `mapper.md` §4 refuse for the other two artefacts. A rule file
+that lists its terms inline never reaches the refusal, which is why every arm frozen before this
+date loads identically (`tests/test_rules.py::test_no_frozen_arms_rule_file_needs_a_lexicon_collection`).
 
 `lexicons/` being empty is consistent with DESIGN §4: `port-loop` took the `lexicon` form zero
 times across eight rule files, so this artefact form has never had an instance in this repository.

@@ -28,6 +28,52 @@ CLAUDE.md's rule that re-anchored mutations are re-measured **regardless of whet
 scope** is what this section serves: an anchor edit is a change to the mutation itself, so its old
 count describes a different experiment, and that fact is invisible from the count alone.
 
+### Owed to the next full run — opened 2026-09-01, and this one meets the trigger
+
+**A full run is required by CLAUDE.md and was not made. This is a deferral, not an
+exemption.** The change touches **two `src/` modules**, which is the second trigger verbatim:
+`src/rules.py` (the lexicon collection becomes an argument threaded through `_read_lexicon`,
+`_rule_from`, `load_rules` and `load_for_corpus`, plus two new path builders) and
+`src/eval/run_fold.py` (one forwarded keyword). It also adds two mutations — 183 → **185** —
+and re-anchors one, `run_fold_infers_its_own_rule_path`, whose anchor was the
+`load_for_corpus` call that grew the argument.
+
+Deferred to the commit that wires `port-multi`, which meets the same trigger far more
+strongly: `src/orchestrate.py`, `src/porting/loop.py`, `src/sample.py` and `config/naming.yaml`
+all move there, and a full run spent today would be superseded within the same day's work.
+`TEST_FILES` membership is unchanged at 28, so the denominators below still hold and it is a
+deferral of *confirmation*, not of comparability.
+
+**What the impact-scope run measured, and it is more than the usual scope entry.** Every
+mutation whose target is one of the two changed modules — 32 of the 185, run as four
+concurrent shards, baseline **1889 passed** in all four (the 2026-08-28 full run's baseline was
+1880; the nine additional tests are this commit's six and the 2026-08-29 entry's two, plus one
+edited-not-added). Result: **32 of 32 caught, and 30 of the 32 counts are identical to the
+2026-08-28 sidecar — not one moved.** The two new ones measured
+`a_lexicon_falls_back_to_the_hand_written_collection` **2** and
+`the_lexicon_collection_is_dropped_on_the_way_down` **1**, and the re-anchored one measured
+**1**, unchanged.
+
+Scope chosen as the two changed modules rather than by the runtime reach of the changed test
+files, and the narrowing is argued rather than assumed: the assertions added to
+`tests/test_rules.py` and `tests/test_run_fold.py` are all about which lexicon collection a
+rule reads, a question no code outside those two modules answers. Added assertions can only
+raise a count, so a mutation they cannot reach cannot have moved. **What is therefore not
+re-measured is the other 153**, and the expectation recorded for them is none — CLAUDE.md's
+rule against writing "unchanged" for a value the current suite has not produced.
+
+**A bookkeeping finding, unrelated to this change and worth the next full run knowing.**
+`tests/mutations/README.md`'s table disagreed with the 2026-08-28 sidecar in **24 of its 127
+cells**, always low — the table was not synced after that run. Six of the 24 fall in this
+scope, were re-measured here, agree with the sidecar exactly, and are corrected in the table
+by this commit (`a_cue_span_swallows_the_cue` 2 → 3, `run_fold_detects_separately` 4 → 5,
+`detect_fold_drops_overlaps` 2 → 3, `spans_file_carries_the_surface` 34 → 40,
+`run_fold_omits_the_layer` 32 → 38, `run_fold_writes_a_null_model_id` 45 → 49). **The other 18
+are left alone deliberately.** They could be copied from the sidecar, which is a run record
+and not a guess, but copying 18 cells for modules this commit did not touch would put numbers
+in the table that this commit did not measure — and the table is what gets cited. They are
+named here so the next full run settles them with its own figures.
+
 ### Owed to the next full run — opened 2026-08-29, after the sealed opening was read back
 
 **No full run is required by CLAUDE.md and none was made.** One `src/` module again —

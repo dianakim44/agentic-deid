@@ -1297,6 +1297,41 @@ MUTATIONS = [
         min_kills=1,
     ),
     Mutation(
+        name="a_lexicon_falls_back_to_the_hand_written_collection",
+        path=RULES,
+        anchor="    if lexicons is None:",
+        replacement="    if lexicons is None:\n"
+                    "        lexicons = human_lexicon_root()\n"
+                    "    if lexicons is None:",
+        breaks=(
+            "Restores the default this module carried until 2026-09-01, in the form the "
+            "repair would most plausibly be undone in: a fallback rather than a hardcoded "
+            "path. A `port-multi` rule naming `es/institutions` then reads the *human* "
+            "list whenever `lexicons/es/` is not empty, and the arm reports a number "
+            "obtained from the human artefact under the agent's label — the one "
+            "outcome the rung cannot survive (DESIGN §6.7.1). Nothing fails: the "
+            "rule loads, compiles and fires, and the only evidence is which directory was "
+            "read."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="the_lexicon_collection_is_dropped_on_the_way_down",
+        path=RULES,
+        anchor="        part = load_rules(lang, path=(paths or {}).get(lang), "
+               "lexicons=lexicons)",
+        replacement="        part = load_rules(lang, path=(paths or {}).get(lang))",
+        breaks=(
+            "Accepts the collection at the corpus-level entry point and does not pass it "
+            "to the per-language loader, so an arm that names its own lists is loaded as "
+            "if it had named none. Paired with the fallback above this is silent; on its "
+            "own it is a refusal, and it is here as the second half of the same bug — "
+            "the argument that the fix threaded through four functions is only worth as "
+            "much as the narrowest hop in it."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
         name="a_cue_span_swallows_the_cue",
         path=RULES,
         anchor="        group = 1",
@@ -1678,7 +1713,7 @@ MUTATIONS = [
     Mutation(
         name="run_fold_infers_its_own_rule_path",
         path=RUN_FOLD,
-        anchor="    ruleset = load_for_corpus(corpus, paths=rules)",
+        anchor="    ruleset = load_for_corpus(corpus, paths=rules, lexicons=lexicons)",
         replacement=(
             "    from ..rules import arm_rules_path\n"
             "    from ..corpora.base import rule_langs\n"
@@ -1687,7 +1722,7 @@ MUTATIONS = [
             "                                   supervision=supervision,\n"
             "                                   porting=porting, iteration=1, lang=l)\n"
             "                 for l in rule_langs(corpus)}\n"
-            "    ruleset = load_for_corpus(corpus, paths=rules)"
+            "    ruleset = load_for_corpus(corpus, paths=rules, lexicons=lexicons)"
         ),
         breaks=(
             "`run_fold` derives its input from its own axis arguments instead of being "

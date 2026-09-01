@@ -30,6 +30,7 @@ public in a committed file.
 """
 from __future__ import annotations
 
+import string
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -286,13 +287,17 @@ THEN_SHORTHAND = {
 }
 
 
-def _rule_from(raw: dict, lang: str, source: str) -> Rule:
+def _rule_from(raw: dict, lang: str, source: str, lexicons: Path | None) -> Rule:
     """Validate one rule mapping and compile it. Every field checked, nothing inferred.
 
     The checks are here rather than at first use because a rule file is written by an
     agent or by a person mid-iteration, and a rule that loads and then behaves
     unexpectedly costs a scoring round to notice. A rule that refuses to load costs a
     line of output.
+
+    `lexicons` is passed through to `_read_lexicon` and used by nothing else — a rule that
+    takes any other matcher form never reads it, and a rule that takes the `lexicon:` form
+    refuses without it.
     """
     if not isinstance(raw, dict):
         raise RuleError(f"{source}: a rule must be a mapping, got "
@@ -361,7 +366,7 @@ def _rule_from(raw: dict, lang: str, source: str) -> Rule:
         matcher = _compile(body, flags, prefixed, "pattern")
     elif form in ("terms", "lexicon"):
         terms = (raw["terms"] if form == "terms"
-                 else _read_lexicon(raw["lexicon"], prefixed))
+                 else _read_lexicon(raw["lexicon"], prefixed, lexicons))
         if not isinstance(terms, list) or not all(isinstance(t, str) and t
                                                   for t in terms):
             raise RuleError(f"{prefixed}: terms must be a list of non-empty strings")
@@ -417,12 +422,119 @@ def _rule_from(raw: dict, lang: str, source: str) -> Rule:
                 score=float(score) if score is not None else None, source=source)
 
 
-def _read_lexicon(ref: str, rule_id: str) -> list[str]:
-    """A term list from `lexicons/{lang}/{name}.txt`. One term per line, `#` comments.
+#: The trailing component both lexicon templates in naming.yaml end with. A lexicon
+#: *collection* is a directory of per-language directories, and the language is named by
+#: the rule's own reference rather than by the caller — so what a caller can be told is
+#: the collection, and this is the part of the template the caller does not fill.
+_LANG_LEAF = "{lang}/"
+
+
+def _lexicon_root(key: str, *, root: Path | None = None, **components: str) -> Path:
+    """One `paths` lexicon template, filled and cut back to the collection directory.
+
+    `paths.lexicon` and `paths.armlexicon` both end in `{lang}/` and differ only in the
+    prefix, so one function reads both and the ending is checked rather than assumed: a
+    template that stopped ending that way would be a template whose language component
+    the reference no longer supplies, and cutting a fixed number of characters off it
+    would produce a directory that exists and holds someone else's lists.
+
+    Every component is checked against its axis, and which components exist is read off
+    the template. That is the fourth site in the repository doing this check
+    (`human_arm._arm_path`, `orchestrate._arm_path`, `corpora.base.round_path`) and the
+    reason it is not the third is `round_path`'s: it requires an `iteration`, and a
+    lexicon collection is not round-scoped — an arm's lists are authored once, before
+    iteration 1 (DESIGN §6.7). The reason it is not `orchestrate._arm_path` is the one
+    that function's own docstring gives for there being more than one: each raises the
+    error type its callers catch, and a `RuleError` is what every caller of this module
+    handles.
+    """
+    template = path_template(key)
+    if not template.endswith(_LANG_LEAF):
+        raise RuleError(
+            f"paths.{key} is {template!r} and does not end in {_LANG_LEAF!r}. A lexicon "
+            "reference names its own language (`es/institutions`), so the language "
+            "component is filled here and not by the caller — a template shaped any "
+            "other way needs someone to decide what fills it."
+        )
+    prefix = template[: -len(_LANG_LEAF)]
+    fields = [f for _, f, _, _ in string.Formatter().parse(prefix) if f]
+    for field_name in fields:
+        if field_name not in components:
+            raise RuleError(
+                f"paths.{key} needs a {field_name!r} component and none was given. The "
+                "template is the authority on what the path is made of."
+            )
+        if components[field_name] not in axis(field_name):
+            raise RuleError(
+                f"{components[field_name]!r} is not a {field_name} in config/naming.yaml "
+                f"(have: {sorted(axis(field_name))}). A results path names the cell of "
+                "the experiment an artefact belongs to, so an unknown component would "
+                "create a cell rather than fail (DESIGN §5.3, §5.5)."
+            )
+    extra = sorted(set(components) - set(fields))
+    if extra:
+        raise RuleError(
+            f"paths.{key} names {sorted(fields)} and was given {extra} as well. A "
+            "component the template does not name is silently dropped, and the lists "
+            "then come from a directory the caller did not ask for."
+        )
+    return (root or ROOT) / prefix.format(**{f: components[f] for f in fields})
+
+
+def human_lexicon_root(root: Path | None = None) -> Path:
+    """Where the hand-written term lists live (`paths.lexicon`).
+
+    The human authors' collection, and the bootstrap state — `rules/{lang}.yaml` may name
+    a list from here. It is **not** a default: a caller that wants these lists says so.
+    See `_read_lexicon` for why the alternative is a silent substitution.
+    """
+    return _lexicon_root("lexicon", root=root)
+
+
+def arm_lexicon_root(
+    *, corpus: str, detector: str, supervision: str, porting: str,
+    root: Path | None = None,
+) -> Path:
+    """Where an arm's agent-authored term lists live (`paths.armlexicon`, DESIGN §5.3).
+
+    `arm_rules_path`'s sibling, one artefact over, and scoped by the four axes for the
+    same reason: two arms sharing a path means the second to run reads the first's lists,
+    and an overwritten *input* leaves a complete and internally consistent `metrics.json`
+    behind whose premise no longer exists. No `{iteration}`, because the LexiconBuilder
+    is called once, before iteration 1 (DESIGN §6.7.1) — the artefact is an input to every
+    round and the output of none.
+    """
+    return _lexicon_root(
+        "armlexicon", root=root,
+        corpus=corpus, detector=detector, supervision=supervision, porting=porting,
+    )
+
+
+def _read_lexicon(ref: str, rule_id: str, lexicons: Path | None) -> list[str]:
+    """A term list from `{lexicons}/{lang}/{name}.txt`. One term per line, `#` comments.
 
     A plain text file rather than YAML, because this is the LexiconBuilder's artifact
     (DESIGN §3) and it is a list — a format with no syntax is a format an author cannot
     get wrong, and the file may be long.
+
+    **`lexicons` is which collection, and there is no default.** It read
+    `path_template("lexicon")` — the hand-written collection — from the day the form was
+    implemented until 2026-09-01, which was wrong in two ways at once. It closed
+    `port-multi`'s only causal path to the leak rate with a hardcoded path rather than
+    with a decision (DESIGN §6.7.1): the agent's lists are written under the arm, nothing
+    read them, and `lexicons/` is empty, so the rung's third artefact could not reach
+    detection. And the repair is not a second default. On the day `lexicons/es/` is not
+    empty, a `port-multi` rule naming `es/institutions` would load the *human* list and
+    the arm would report a number obtained from the human artefact under the agent's
+    label — the one outcome this rung cannot survive, and the reason `profiler.md` §2.3
+    and `mapper.md` §4 refuse a fallback for the other two artefacts. So a caller that
+    wants the hand-written lists passes `human_lexicon_root()` and says so.
+
+    The reference's own checks run *before* that refusal. A malformed reference, an
+    unknown language and a traversing name are facts about the rule file, and which
+    collection the caller named cannot change any of them — reporting the caller's
+    omission first would let a rule file's `../../sealed/...` pass unremarked whenever a
+    caller had also forgotten the directory.
     """
     if not isinstance(ref, str) or "/" not in ref:
         raise RuleError(
@@ -439,10 +551,19 @@ def _read_lexicon(ref: str, rule_id: str) -> list[str]:
             "component from a rule file is attacker-adjacent input in the sense that "
             "matters here: `../../sealed/es-meddocan/test` is a valid-looking name."
         )
-    path = ROOT / path_template("lexicon").format(lang=lang) / f"{name}.txt"
+    if lexicons is None:
+        raise RuleError(
+            f"{rule_id}: declares lexicon {ref!r} and the loader was given no lexicon "
+            "directory. Which collection to read is the caller's to state — the "
+            "hand-written lists are `human_lexicon_root()` and an arm's are "
+            "`arm_lexicon_root()` (DESIGN §5.3, §6.7.1). Defaulting to either one makes "
+            "the arm's number a claim about whichever author's lists happened to be on "
+            "disk."
+        )
+    path = Path(lexicons) / lang / f"{name}.txt"
     if not path.exists():
         raise RuleError(
-            f"{rule_id}: no lexicon at {path.relative_to(ROOT)}. A gazetteer rule "
+            f"{rule_id}: no lexicon at {_relative(path)} for {ref!r}. A gazetteer rule "
             "naming a list that does not exist would silently match nothing, which "
             "reads as a rule that does not generalise."
         )
@@ -452,7 +573,7 @@ def _read_lexicon(ref: str, rule_id: str) -> list[str]:
         if line and not line.startswith("#"):
             terms.append(line)
     if not terms:
-        raise RuleError(f"{rule_id}: the lexicon at {path.relative_to(ROOT)} is empty")
+        raise RuleError(f"{rule_id}: the lexicon at {_relative(path)} is empty")
     return terms
 
 
@@ -506,7 +627,8 @@ def arm_rules_path(
     )
 
 
-def load_rules(lang: str, *, path: Path | None = None) -> RuleSet:
+def load_rules(lang: str, *, path: Path | None = None,
+               lexicons: Path | None = None) -> RuleSet:
     """One rule file, validated and compiled. `path` says which one.
 
     `path` defaults to `paths.rules` — `rules/{lang}.yaml`, the committed format example
@@ -516,6 +638,13 @@ def load_rules(lang: str, *, path: Path | None = None) -> RuleSet:
     what the bootstrap and a practice file both need — a rehearsal never touches
     `rules/es.yaml`, since the practice file lives outside the repository
     (`docs/notes/port-human-practice.md`).
+
+    `lexicons` is the collection a `lexicon:` rule reads from, and it has **no** default
+    for the reason `path` has one: the bootstrap needs a rule file to start from, and no
+    caller needs a term list it did not ask for. A file whose rules take no `lexicon:`
+    form loads identically either way, which is why every arm frozen before 2026-09-01 is
+    unaffected — none of their rule files takes it (`test_rules.py`,
+    `test_no_frozen_arms_rule_file_takes_the_lexicon_form`).
     """
     if lang not in axis("lang"):
         raise RuleError(
@@ -584,7 +713,7 @@ def load_rules(lang: str, *, path: Path | None = None) -> RuleSet:
     if not isinstance(version, int) or isinstance(version, bool) or version < 1:
         raise RuleError(f"{p}: 'version' must be an integer >= 1, got {version!r}. It is "
                         "recorded with the results (rule_author.md §2).")
-    rules = [_rule_from(r, lang, str(p)) for r in raw.get("rules") or []]
+    rules = [_rule_from(r, lang, str(p), lexicons) for r in raw.get("rules") or []]
     seen = set()
     for r in rules:
         if r.rule_id in seen:
@@ -598,7 +727,8 @@ def load_rules(lang: str, *, path: Path | None = None) -> RuleSet:
     return RuleSet(rules=rules, versions={lang: version}, sources={lang: where})
 
 
-def load_for_corpus(corpus: str, *, paths: dict[str, Path] | None = None) -> RuleSet:
+def load_for_corpus(corpus: str, *, paths: dict[str, Path] | None = None,
+                    lexicons: Path | None = None) -> RuleSet:
     """Every rule file `corpus` loads, per `corpus_rule_langs` (DESIGN §5.2).
 
     All of them, unioned. No per-document language selection: a selector's own error
@@ -611,10 +741,16 @@ def load_for_corpus(corpus: str, *, paths: dict[str, Path] | None = None) -> Rul
     `paths` falls back to `paths.rules`, which is the bootstrap state and not a location
     any arm writes to. Nothing here infers a path from an arm's axes: `run_fold` is told,
     which keeps one code path for an arm's file, a trial file and the example file.
+
+    `lexicons` is one directory and not a per-language mapping, unlike `paths`, and the
+    asymmetry is in the reference rather than in the artefact: a rule file *is* a
+    language's file, while a `lexicon:` reference names its own language and need not name
+    the rule file's (`_read_lexicon`). So the same collection is handed to every language,
+    and which list inside it a rule reads is the rule's statement.
     """
     combined = RuleSet()
     for lang in rule_langs(corpus):
-        part = load_rules(lang, path=(paths or {}).get(lang))
+        part = load_rules(lang, path=(paths or {}).get(lang), lexicons=lexicons)
         combined.rules.extend(part.rules)
         combined.versions.update(part.versions)
         combined.sources.update(part.sources)

@@ -4331,7 +4331,7 @@ paths, and two of the paths are closed.**
 |---|---|---|---|
 | `profile.json` (Profiler) | configures the loader — encoding, offset base and end, BOM, newline, text location, offset unit, type system level, type inventory | nothing, for nine fields. **`group_key` and `patient_key_available` are dead**: `splits/es-meddocan.json` is confirmed and its test fold sealed, so a group key that re-partitioned the corpus would unseal it. Those two are compared and recorded; the split does not move | 9 of 11 |
 | `mapping.yaml` (Mapper) | would decide which canonical type each gold span gets — i.e. the evaluation labels | **all of it**, on any corpus §9.0 covers. §9.0 wins; the mapping is recorded with `applied: design` (§9.0, decided 2026-09-01) | 0 of 1 |
-| `lexicons/{lang}/` (LexiconBuilder) | `src/rules.py` resolves a rule's `lexicon` form through `paths.lexicon`, and a resolved term list is matched against document text | nothing by design — the only one of the three that enters detection. **But `_read_lexicon` resolves through the *human* key today, and that directory is empty**, so the implementing commit owes the redirection to `paths.armlexicon` or this path is closed too, by our bug rather than by decision (`lexicon_builder.md` §4.1) | all |
+| `lexicons/{lang}/` (LexiconBuilder) | `src/rules.py` resolves a rule's `lexicon` form through the collection its caller names, and a resolved term list is matched against document text | nothing by design — the only one of the three that enters detection. ~~**But `_read_lexicon` resolves through the *human* key today, and that directory is empty**, so the implementing commit owes the redirection to `paths.armlexicon` or this path is closed too, by our bug rather than by decision (`lexicon_builder.md` §4.1)~~ **Paid 2026-09-01, and not by a second default.** `_read_lexicon` now takes the collection from its caller and *refuses* a `lexicon:` rule when none was named — `human_lexicon_root()` and `arm_lexicon_root()` are the two, and neither is automatic, because a fallback would score the human lists under the agent's label on the day `lexicons/es/` is not empty. The consequence for the null below is in §6.7.4 cause 1 | all |
 
 **So if `port-multi`'s leak rate differs from `port-loop`'s, almost all of the difference is
 the lexicon.** The Profiler's nine live fields are conventions with one correct answer
@@ -4482,10 +4482,30 @@ this order and report which obtained:**
    three artefacts of which one is unread, and **that is the primary result — no lexicon
    effect is reported at all.** Checked from the rule files' rule forms; no new measurement
    needed. This is the outcome §4 already flags as live ("a capability of the loader rather
-   than an observed dependency"). **Distinguish the two mechanisms before reporting it**: the
+   than an observed dependency"). ~~**Distinguish the two mechanisms before reporting it**: the
    RuleAuthor declining to reference a lexicon is the agent's outcome, and `_read_lexicon`
    still resolving through the human key is our bug (§6.7.1, `lexicon_builder.md` §4.1).
-   Only the first is a finding.
+   Only the first is a finding.~~
+
+   **Resolved 2026-09-01, before the first call: only one mechanism remains, and it is the
+   finding.** The separation above was written while `_read_lexicon` hardcoded the human key,
+   which made "the lexicon was never read" ambiguous between the agent's decision and our
+   defect. The fix removes the second reading rather than making it easier to tell apart:
+   the collection is now the caller's to name and a `lexicon:` rule with none named
+   **refuses to load**, which stops the arm. So a `port-multi` run that reaches a score at
+   all has either read the collection it was given or contains no rule that asked for one —
+   there is no third state in which a rule silently read the wrong lists, and no state in
+   which our omission produces an unread-lexicon *result*. If cause 1 obtains, it is the
+   RuleAuthor's outcome and it is reportable as one. The superseded text is kept because the
+   pre-registration's value is that it was written before the run, and a claim removed
+   without trace is a claim nobody can check (§6.6).
+
+   Two things this does **not** close, both owed by the commit that wires the arm: no run
+   block field records *which* collection a score was computed from (`rules_source`'s
+   counterpart), and `run_sealed_eval` rebuilds rule paths from that record and so has
+   nothing to rebuild a collection from. Until both exist, a `port-multi` sealed opening
+   would refuse rather than mis-read — the refusal above — which is the right failure but is
+   still a failure, and it must not be met by passing the human collection to get past it.
 2. **The RuleAuthor routed `ORGANISATION` away from the gazetteer.** If the type acquires a
    `context_cue` or `regex_checksum` rule, it is no longer single-layer and the §6.7.3
    comparison is not like-for-like. Checked from `by_rule`'s `layer` attribution and

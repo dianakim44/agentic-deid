@@ -715,14 +715,19 @@ def test_all_of_a_corpus_rule_files_are_loaded(monkeypatch, tmp_path, corpus_pre
     seen = {}
     from src.eval import run_fold as module
 
-    def spy(corpus, *, paths=None):
+    def spy(corpus, *, paths=None, lexicons=None):
         from src.corpora.base import rule_langs
         seen["langs"] = rule_langs(corpus)
+        seen["lexicons"] = lexicons
         return RuleSet()
 
     monkeypatch.setattr(module, "load_for_corpus", spy)
-    rf.run_fold(**ARM, root=tmp_path)
+    rf.run_fold(**ARM, root=tmp_path, lexicons=tmp_path / "lists")
     assert seen["langs"] == ["es"]
+    # And the lexicon collection reaches the loader. `run_fold` is told which one rather
+    # than deriving it from the axes (`src/rules.py::_read_lexicon`), so the forwarding is
+    # the whole of the mechanism — dropped here, an arm's own lists are never read.
+    assert seen["lexicons"] == tmp_path / "lists"
 
 
 def test_an_empty_rule_set_still_produces_a_score(tmp_path, corpus_present):

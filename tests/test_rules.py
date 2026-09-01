@@ -32,10 +32,10 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from src.corpora.base import axis, family_of                          # noqa: E402
+from src.corpora.base import axis, family_of, path_template           # noqa: E402
 from src.rules import (                                               # noqa: E402
-    CHECKSUMS, FLAGS, THEN_SHORTHAND, RuleError, RuleSet, load_for_corpus,
-    load_rules, rule_layers,
+    CHECKSUMS, FLAGS, THEN_SHORTHAND, RuleError, RuleSet, arm_lexicon_root,
+    human_lexicon_root, load_for_corpus, load_rules, rule_layers,
 )
 
 
@@ -47,9 +47,9 @@ def write(tmp_path: Path, rules: list[dict], *, lang: str = "es",
     return path
 
 
-def one(tmp_path: Path, rule: dict, **kw) -> RuleSet:
+def one(tmp_path: Path, rule: dict, *, lexicons: Path | None = None, **kw) -> RuleSet:
     lang = kw.get("lang", "es")
-    return load_rules(lang, path=write(tmp_path, [rule], **kw))
+    return load_rules(lang, path=write(tmp_path, [rule], **kw), lexicons=lexicons)
 
 
 # ─── the layers come from the config ─────────────────────────────────────────
@@ -217,33 +217,141 @@ def test_an_empty_term_list_is_refused(tmp_path):
 
 # ─── the lexicon file ────────────────────────────────────────────────────────
 
-def test_a_lexicon_is_one_term_per_line_with_hash_comments(tmp_path, monkeypatch):
-    lex = tmp_path / "lexicons" / "es"
-    lex.mkdir(parents=True)
-    (lex / "insts.txt").write_text("# a comment\nZzyzxville\n\n  Qqqq Centre  \n",
-                                   encoding="utf-8")
-    monkeypatch.setattr("src.rules.ROOT", tmp_path)
-    rs = one(tmp_path, {"rule_id": "inst", "layer": "gazetteer",
-                        "phi_type": "ORGANISATION", "lexicon": "es/insts"})
+def gazetteer(ref: str) -> dict:
+    return {"rule_id": "inst", "layer": "gazetteer", "phi_type": "ORGANISATION",
+            "lexicon": ref}
+
+
+def collection(tmp_path: Path, name: str, body: str, *, lang: str = "es",
+               where: str = "lexicons") -> Path:
+    """Write one term list and return the *collection* directory that holds it."""
+    root = tmp_path / where
+    (root / lang).mkdir(parents=True, exist_ok=True)
+    (root / lang / f"{name}.txt").write_text(body, encoding="utf-8")
+    return root
+
+
+def test_a_lexicon_is_one_term_per_line_with_hash_comments(tmp_path):
+    lex = collection(tmp_path, "insts", "# a comment\nZzyzxville\n\n  Qqqq Centre  \n")
+    rs = one(tmp_path, gazetteer("es/insts"), lexicons=lex)
     assert len(rs.detect("Zzyzxville, Qqqq Centre, # a comment")) == 2
 
 
-def test_a_missing_lexicon_is_refused_rather_than_matching_nothing(tmp_path,
-                                                                  monkeypatch):
-    monkeypatch.setattr("src.rules.ROOT", tmp_path)
+def test_a_missing_lexicon_is_refused_rather_than_matching_nothing(tmp_path):
     with pytest.raises(RuleError, match="no lexicon at"):
-        one(tmp_path, {"rule_id": "inst", "layer": "gazetteer",
-                       "phi_type": "ORGANISATION", "lexicon": "es/absent"})
+        one(tmp_path, gazetteer("es/absent"), lexicons=tmp_path / "lexicons")
 
 
-def test_an_empty_lexicon_is_refused(tmp_path, monkeypatch):
-    lex = tmp_path / "lexicons" / "es"
-    lex.mkdir(parents=True)
-    (lex / "empty.txt").write_text("# only comments\n", encoding="utf-8")
-    monkeypatch.setattr("src.rules.ROOT", tmp_path)
+def test_an_empty_lexicon_is_refused(tmp_path):
+    lex = collection(tmp_path, "empty", "# only comments\n")
     with pytest.raises(RuleError, match="is empty"):
-        one(tmp_path, {"rule_id": "inst", "layer": "gazetteer",
-                       "phi_type": "ORGANISATION", "lexicon": "es/empty"})
+        one(tmp_path, gazetteer("es/empty"), lexicons=lex)
+
+
+# ─── which collection: told, never defaulted ─────────────────────────────────
+#
+# `_read_lexicon` read `paths.lexicon` — the hand-written collection — from the day the
+# form was implemented until 2026-09-01. That hardcoding closed `port-multi`'s only causal
+# path to the leak rate (DESIGN §6.7.1) with a path rather than with a decision, and the
+# repair is not a second default: on the day `lexicons/es/` is not empty, a fallback would
+# score the human artefact under the agent's label.
+
+def test_the_collection_a_lexicon_is_read_from_is_the_one_the_caller_names(tmp_path):
+    """Two collections, the same reference, and the caller decides which one answers."""
+    human = collection(tmp_path, "insts", "Zzyzxville\n", where="lexicons")
+    arm = collection(tmp_path, "insts", "Qqqq Centre\n", where="arm/lexicons")
+    text = "Zzyzxville and Qqqq Centre"
+
+    from_human = one(tmp_path, gazetteer("es/insts"), lexicons=human).detect(text)
+    from_arm = one(tmp_path, gazetteer("es/insts"), lexicons=arm).detect(text)
+
+    assert [(s.start, s.end) for s in from_human] == [(0, 10)]
+    assert [(s.start, s.end) for s in from_arm] == [(15, 26)]
+
+
+def test_a_lexicon_rule_with_no_collection_named_is_refused(tmp_path, monkeypatch):
+    """And refused *even though* a list of that name is sitting in the human collection.
+
+    The failure this guards is silent by construction. A caller that forgets the argument
+    gets a rule that loads, compiles and fires — on someone else's terms.
+    """
+    collection(tmp_path, "insts", "Zzyzxville\n")
+    monkeypatch.setattr("src.rules.ROOT", tmp_path)
+    with pytest.raises(RuleError, match="no lexicon directory"):
+        one(tmp_path, gazetteer("es/insts"))
+
+
+def test_the_two_collection_roots_come_from_naming_yaml(tmp_path):
+    arm = dict(corpus="es-meddocan", detector="R", supervision="sup-free",
+               porting="port-multi")
+    assert human_lexicon_root(tmp_path) == (
+        tmp_path / path_template("lexicon").format(lang="").rstrip("/")
+    )
+    assert arm_lexicon_root(root=tmp_path, **arm) == (
+        tmp_path / path_template("armlexicon").format(**arm, lang="").rstrip("/")
+    )
+
+
+def test_an_arm_lexicon_root_refuses_an_axis_value_naming_no_cell(tmp_path):
+    """`arm_rules_path`'s check, one artefact over: a typo would mint a cell."""
+    with pytest.raises(RuleError, match="is not a porting"):
+        arm_lexicon_root(corpus="es-meddocan", detector="R", supervision="sup-free",
+                         porting="port-multiple", root=tmp_path)
+
+
+def test_load_for_corpus_hands_one_collection_to_every_language(tmp_path):
+    """One directory rather than a per-language mapping, unlike `paths`.
+
+    The asymmetry is in the reference: a rule file *is* a language's file, while a
+    `lexicon:` reference names its own language and need not name the rule file's.
+    """
+    lex = collection(tmp_path, "insts", "Zzyzxville\n", lang="es")
+    path = write(tmp_path, [gazetteer("es/insts")])
+    rs = load_for_corpus("es-meddocan", paths={"es": path}, lexicons=lex)
+    assert [r.rule_id for r in rs.rules] == ["es:inst"]
+    with pytest.raises(RuleError, match="no lexicon directory"):
+        load_for_corpus("es-meddocan", paths={"es": path})
+
+
+def test_no_frozen_arms_rule_file_needs_a_lexicon_collection(tmp_path):
+    """Why requiring the collection changes no arm that has already run.
+
+    The `lexicon:` form had no user when it was fixed: every committed rule file lists its
+    terms inline, so every one of them loads identically with the argument and without it.
+    That is the whole of the "port-loop's results do not move retroactively" claim, and it
+    is checked rather than asserted in a commit message — a frozen arm's number changing
+    later is not something to find out from a diff.
+
+    Checked through the loader rather than by reading the files for a `lexicon:` key,
+    because one committed file is not YAML: `port-oneshot`'s round 1 is a fenced response
+    and refusing it *is* that arm's recorded result (there is no `metrics.json` beside it).
+    A key search would score that file as compliant; the loader says the only thing worth
+    asserting about it, which is that it refuses for the reason it always did.
+
+    Scoped to the arms frozen before 2026-09-01 on purpose. `port-multi` is the arm that
+    introduces the form, and adding it here would make this test say the opposite of what
+    it means.
+    """
+    frozen = ("port-oneshot", "port-oneshot-nofence", "port-loop")
+    files = [ROOT / "rules" / "es.yaml"]
+    for arm in frozen:
+        files += sorted((ROOT / "results").glob(f"*/*/*/{arm}/rules/iter*/*.yaml"))
+    files = [f for f in files if f.exists()]
+    assert files, "no committed rule file found — this test would pass by measuring nothing"
+
+    loaded = 0
+    for path in files:
+        try:
+            without = load_rules(path.stem, path=path)
+        except RuleError as exc:
+            assert "no lexicon directory" not in str(exc), \
+                f"{path.relative_to(ROOT)} now needs a collection it did not need before"
+            continue
+        given = load_rules(path.stem, path=path, lexicons=tmp_path / "no-such-collection")
+        assert [r.rule_id for r in without.rules] == [r.rule_id for r in given.rules]
+        assert without.versions == given.versions
+        loaded += 1
+    assert loaded, "no committed rule file loaded — the identity above measured nothing"
 
 
 def test_a_lexicon_name_cannot_traverse_out_of_the_lexicon_directory(tmp_path):
@@ -252,6 +360,12 @@ def test_a_lexicon_name_cannot_traverse_out_of_the_lexicon_directory(tmp_path):
     A rule file is written by an agent, and this is the one place a rule file names a
     path. The sealing rule (CLAUDE.md) is not a thing to enforce by hoping nobody
     composes that string.
+
+    **This test and the two below name no collection, and that is the assertion.** The
+    reference's own checks run before the "no lexicon directory" refusal, so a traversing
+    name is caught on a call that also forgot the directory — reverse the order and this
+    test fails with the caller's mistake instead of the rule file's, which is the reading
+    that lets `../../sealed/…` through unremarked.
     """
     with pytest.raises(RuleError, match=r"\[a-z0-9_\]"):
         one(tmp_path, {"rule_id": "inst", "layer": "gazetteer",

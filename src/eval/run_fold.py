@@ -687,6 +687,7 @@ def run_fold(
     porting: str,
     split: str = DEFAULT_SPLIT,
     rules: dict[str, Path] | None = None,
+    lexicons: Path | None = None,
     root: Path | None = None,
     model_record: Mapping[str, str | None] | None = None,
     model_lifecycle: Mapping[str, str | None] | None = None,
@@ -710,6 +711,24 @@ def run_fold(
     way to be pointed at anything else, so a trial file and the bootstrap file would each
     need a special case, and it would make the input a function of the run block, which is
     the coupling that lets an arm read its own results directory by accident.
+
+    **`lexicons` is the same arrangement one artefact over, and it has no fallback.** A
+    `gazetteer` rule may name a term list instead of listing its terms, and which
+    collection that list comes from is again this function's to be told:
+    `src.rules.human_lexicon_root()` for the hand-written lists,
+    `src.rules.arm_lexicon_root()` for an agent-authored one (DESIGN §5.3, §6.7.1). Absent,
+    a rule taking that form refuses to load rather than reading either collection — the
+    difference from `rules`, and the reason is that a rule file's *absence* is the
+    bootstrap state while a term list's absence is nothing at all. Passing nothing is
+    correct for every arm whose rules list their terms inline, which is every arm frozen
+    before 2026-09-01.
+
+    **What this does not yet carry is the record.** `rules_source` names which rule file
+    the numbers came from, and no field names which lexicon collection — so an arm whose
+    rules read lists cannot be re-run from its own `metrics.json`, and `run_sealed_eval`,
+    which rebuilds the rule paths out of `rules_source`, has nothing to rebuild the
+    collection from. Owed by the commit that wires `port-multi` (DESIGN §6.7.4), and stated
+    here rather than there because this is the function whose run block is short a field.
 
     The run block is assembled here and validated by the scorer before anything is
     written, so an arm named wrong fails before it produces a directory. `rules_version`
@@ -886,7 +905,7 @@ def run_fold(
     `iter{N}/` hold every arm's only score.
     """
     docs = load_fold(corpus, split)
-    ruleset = load_for_corpus(corpus, paths=rules)
+    ruleset = load_for_corpus(corpus, paths=rules, lexicons=lexicons)
 
     started = time.monotonic()
     predictions = detect_fold(docs, ruleset, detector=detector)
