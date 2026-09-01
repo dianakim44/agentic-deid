@@ -307,9 +307,19 @@ termination:
 #
 # port-oneshot 계열의 기존 행은 다시 쓰지 않는다 (§5.5). 그 행들은 role 필드가
 # 없던 시점의 기록이고, 나중에 채워 넣은 값은 그 호출에 대한 진술이 아니다.
+#
+# 아래 셋은 port-multi 가 추가하는 루프 **밖** 에이전트다 (DESIGN §6.7.1).
+# 호출 순서는 profiler → mapper → lexicon_builder 이고 회차 1 보다 앞이다.
+# 로그에서 그 사실이 검사 가능하도록 세 역할은 iteration 0 에만 쓰고,
+# rule_author·auditor 는 iteration 0 에 쓰지 않는다 — orchestrate.call_line 이
+# 거부한다. "루프 밖" 이 드라이버를 믿어야 아는 사실이 아니라 커밋된 로그에서
+# 읽히는 사실이 되는 것이 그 규칙의 목적이다.
 agent_role:
   rule_author: rules/{lang}.yaml 을 쓰는 에이전트. 모든 porting arm 이 최소 한 번 호출한다
   auditor:     마스킹된 dev 텍스트를 읽고 잔존 PHI 를 의심 표시한다. port-loop 회차 2 이상에서만 호출된다
+  profiler:    profile.json 을 쓴다 (paths.armprofile). 루프 밖 첫 호출. 로더의 인코딩·오프셋 규약을 정한다
+  mapper:      mapping.yaml 을 쓴다 (paths.armmapping). 루프 밖 둘째 호출. profile.type_inventory 를 읽는다
+  lexicon_builder: lexicons/{lang}/ 을 쓴다 (paths.armlexicon). 루프 밖 셋째 호출. 세 산출물 중 유일하게 탐지에 들어간다
 
 # ─── 프롬프트 캐시 경계 ─────────────────────────────────────
 # metrics.json 의 caching.boundary 에 들어가는 값. **경계는 프롬프트의 어느
@@ -380,6 +390,239 @@ audit_refusal:
   undeclared_phi_type: phi_type 축에 없는 값이다. OTHER 도 여기에 해당한다 (규칙을 쓸 수 없는 유형)
   crosses_a_line:      end 가 start 보다 앞이거나 그 줄이 담을 수 없는 길이다. 표시는 줄을 넘지 않는다
   malformed:           JSON 객체 하나가 아니거나, 모르는 필드가 있거나, 필수 필드가 없거나, score 가 [0,1] 밖이다
+
+# ═══ port-multi 의 세 산출물 어휘 ═══════════════════════════
+# 아래 블록들은 profiler·mapper·lexicon_builder 가 만드는 파일의 *내용*에
+# 들어가는 값이다. audit_refusal 과 같은 층위다 — 축이 아니고, 결과 경로에
+# 들어가지 않고, results/ 아래 파일에 들어간다. CLAUDE.md 의 규칙은 그런 값도
+# 포함한다.
+#
+# 세 프롬프트가 각각 "구현 커밋이 이 파일에 추가한다" 고 약속했고, 이 커밋이
+# 그것이다 (docs/prompts/profiler.md §2.1, mapper.md §2.1, lexicon_builder.md §2.1).
+# 어휘가 validator 안에서 발명되지 않는 것이 요점이다 — 발명되면 프롬프트가
+# 약속한 닫힌 집합과 코드가 검사하는 집합이 두 답이 되고, 어느 쪽이 낡았는지
+# 보이지 않는다.
+#
+# **약속된 일곱 중 둘은 목록이 아니다.** mapping_unresolved 와
+# lexicon_unresolved 는 값을 갖지 않는다. 각 블록에 그 이유를 적었다. 값이
+# 없는 어휘를 만들면 아무도 쓰지 않는 목록이 남고, 그것은 이 규칙이 막으려던
+# 두 번째 답이다.
+
+# ─── Profiler: 로드 규약 필드 아홉 ──────────────────────────
+# profile.json 의 아홉 필드가 각각 이 어휘 하나에서 값을 받는다
+# (docs/prompts/profiler.md §2.1). 나머지 두 필드는 어휘가 없다 —
+# type_inventory 는 코퍼스 자신의 라벨 목록이고 patient_key_available 은
+# 불리언이다. 그래서 스키마는 11 필드이고 어휘는 9 개다.
+#
+# **이 아홉은 로더가 실제로 하는 일의 목록이다.** 값을 늘리는 것은
+# src/corpora/ 가 그 값을 실행할 수 있게 만드는 것과 같은 일이다 — 로더가
+# 처리하지 못하는 규약을 여기 넣으면, 에이전트가 그것을 고르고 arm 은 로드
+# 시점에 죽는다. 그 죽음은 정직하지만 (profiler.md §4: 틀린 프로필은 오프셋
+# 불일치 수와 함께 멈춘다) 예방 가능한 것이었다.
+annotation_encoding:
+  brat_standoff:  .ann 파일이 T 행으로 오프셋을 담고 텍스트는 별도 .txt 에 있다 (MEDDOCAN)
+  inline_xml:     주석이 텍스트 안 태그로 들어가 있어 표면형과 라벨이 한 파일에 있다
+  csv_offsets:    행 단위 표에 문서 id·오프셋·유형이 들어 있다
+  json_spans:     문서마다 JSON 객체 하나가 스팬 목록을 담는다
+
+text_location:
+  separate_file:  주석과 원문이 다른 파일이다. 오프셋은 원문 파일 기준이다
+  same_file:      한 파일이 원문과 주석을 함께 담는다. 오프셋 기준이 태그 제거 전인지 후인지가 별개 질문이 된다
+
+offset_unit:
+  character:       파이썬 str 인덱스와 같은 단위 (코드포인트). 로더가 슬라이스하는 단위다
+  byte:            UTF-8 바이트 오프셋. 로더가 디코드 전에 변환해야 한다
+  utf16_code_unit: UTF-16 코드 유닛. BMP 밖 문자에서 character 와 갈린다
+
+offset_base:
+  zero: 첫 문자가 0
+  one:  첫 문자가 1
+
+offset_end:
+  exclusive: end 가 스팬에 포함되지 않는다 (파이썬 슬라이스)
+  inclusive: end 가 마지막 문자를 가리킨다. 길이가 end - start + 1 이다
+
+newline:
+  lf_only:   \n 만 나온다
+  crlf_only: \r\n 만 나온다. 오프셋이 \r 을 세는지가 별개 질문이다
+  mixed:     한 코퍼스 안에 두 형태가 섞여 있다
+
+# DESIGN §9.7 의 그 필드다. 32 개 BOM 파일에서 오프셋이 BOM 을 한 문자로
+# 세는지 아닌지가 761 스팬의 정합을 가른다. stripped 를 고르면 arm 은 utf-8-sig
+# 로 열고 그 761 개가 전부 어긋난다 — 조용히 나빠지지 않고 로드에서 멈춘다.
+bom:
+  absent:                    BOM 이 없다
+  counted_as_one_character:  BOM 이 있고 오프셋이 그것을 한 문자로 센다 (MEDDOCAN 의 실측)
+  stripped:                  BOM 이 있고 오프셋은 그것을 세지 않는다. 디코드 시점에 제거해야 한다
+
+# **두 값의 표기는 프롬프트와 인벤토리 스크립트가 이미 정한 것이다.**
+# mapper.md §1.1 이 "(flat or two_level)" 이라고 적고, 인벤토리의
+# annotation_format.type_system_depth 가 "brat is FLAT ...; xml is TWO-LEVEL"
+# 이라고 적고, 집계 키 자체가 phi_types_brat_flat / phi_types_xml_two_level 이다.
+# 여기서 hierarchical 같은 다른 단어를 쓰면 에이전트가 프롬프트에서 읽은 값이
+# 어휘 밖이 되어 undeclared_value 로 거부된다 — 어휘를 코드가 아니라 config 에
+# 두는 규칙이 막으려는 것이 정확히 그 두 답이다.
+type_system_level:
+  flat:      유형이 단일 층이다. 상위·하위 관계가 없다
+  two_level: 거친 층과 세밀한 층이 둘 다 있어 어느 층에서 매핑할지가 결정 사항이 된다 (MEDDOCAN 의 XML)
+
+# **얼린 분할이 있는 코퍼스에서 이 필드는 비교되고 적용되지 않는다**
+# (profiler.md §4, DESIGN §6.7.1: 11 필드 중 죽은 두 개의 하나). 값을 바꾸면
+# 코퍼스가 다시 나뉘고 그것이 test fold 봉인을 여는 것이다.
+group_key:
+  document_id_stem: 문서 id 의 어간이 그룹이다 (DESIGN §9.5 의 stem parse)
+  patient_id:       환자 키가 있고 그것이 그룹이다. 가장 강한 자연 그룹
+  filename:         파일명이 그룹이다. 문서 하나가 곧 그룹인 경우
+  none:             그룹이 없다. 레코드 단위 분할이 되는데 CLAUDE.md 가 금지한다
+
+# profile.json 의 unresolved 리스트에 들어갈 수 있는 이름. 스키마 11 필드
+# 그대로다 — 값을 못 정했다고 말할 수 있는 필드가 곧 값을 갖는 필드이기
+# 때문이다. cites 와 unresolved 자신은 필드가 아니라 메타이고 목록에 없다.
+#
+# **여기 있는 이유는 이 목록이 두 곳에 있으면 안 되기 때문이다.** validator 는
+# 스키마 검사와 unresolved 검사를 같은 목록으로 한다. 스키마를 코드에 두고
+# 이것만 여기 두면 필드 추가가 두 편집이 되고, 한쪽을 잊으면 새 필드는
+# "모른다" 고 말할 수 없는 필드가 된다.
+profile_unresolved:
+  annotation_encoding:   §2.1 스키마 필드
+  text_location:         §2.1 스키마 필드
+  offset_unit:           §2.1 스키마 필드
+  offset_base:           §2.1 스키마 필드
+  offset_end:            §2.1 스키마 필드
+  newline:               §2.1 스키마 필드
+  bom:                   §2.1 스키마 필드
+  type_system_level:     §2.1 스키마 필드
+  type_inventory:        §2.1 스키마 필드
+  group_key:             §2.1 스키마 필드
+  patient_key_available: §2.1 스키마 필드
+
+# profile.json 의 refused 목록과 counts.by_refusal 에 들어가는 값
+# (profiler.md §2.3). audit_refusal 과 같은 이유로 여기 있다.
+#
+# **거부가 하나라도 있으면 루프가 시작되지 않는다** — audit_report.json 과
+# 다른 점이고, 이 산출물이 로드를 설정하기 때문이다. 빠진 bom 은 나쁜
+# 프로필이 아니라 프로필이 아니다. 사람이 쓴 profiles/{corpus}.json 으로
+# 되돌아가지 않는다 (profiler.md §2.3 마지막 문단).
+profile_refusal:
+  undeclared_value:      필드 어휘 밖의 값이다
+  unknown_field:         §2.1 스키마에 없는 키다. 산문 키를 포함한다
+  missing_field:         스키마 필드가 없다. 기본값은 없다 — 없는 규약은 규약이 아니다
+  uncited_field:         cites 의 점 경로가 보낸 인벤토리에 없다
+  type_not_in_inventory: type_inventory 의 라벨이 인벤토리 유형 집계에 없다. 발명된 코퍼스 라벨이다
+  malformed:             JSON 객체 하나가 아니거나, type_inventory 가 문자열 리스트가 아니거나, unresolved 가 스키마 밖 필드를 부른다
+
+# ─── Mapper: 근거와 거부 사유 ───────────────────────────────
+# mapping.yaml 의 각 항목이 갖는 basis 값 (mapper.md §2.2). profiler 의
+# cites 가 하는 일을 다른 방법으로 한다 — Mapper 의 입력은 두 목록이라
+# 점 경로 인용이 "방금 쓴 값" 을 가리키게 되어 아무 증거가 아니다.
+#
+# **각 값에 코드가 검사할 수 있는 짝이 있다** (mapper.md §2.2 의 표).
+# 그래서 basis 는 선언이 아니라 검증 가능한 주장이다. 짝이 깨지면
+# basis_mismatch 로 거부한다.
+mapping_basis:
+  canonical_gloss:        표준 유형 자신의 범례가 이 종류를 지칭한다. map 항목에만 올 수 있다
+  source_label_family:    원 라벨의 어간·접두어가 종류를 지칭하고 코퍼스에 그것을 공유하는 라벨 계열이 있다. map 항목에만, 그리고 인벤토리에 접두어를 공유하는 라벨이 둘 이상 있어야 한다
+  source_type_is_coarser: 원 유형의 외연이 어느 표준 유형보다 넓어 거친 쪽을 택했다. map 항목에만, 대상이 병합을 선언한 표준 유형이어야 한다
+  residual_bucket:        원 유형이 코퍼스 자신의 잔여 범주다. map 항목에만, 대상이 OTHER 여야 한다
+  design_exclusion:       프로젝트가 채점에서 제외하는 유형이다. excluded 항목에만, 다른 어디에도 오지 않는다
+
+# mapping.yaml 의 refused 목록과 counts.by_refusal 에 들어가는 값
+# (mapper.md §2.3). 거부가 하나라도 있으면 루프가 시작되지 않고, 그것은
+# §9.0 이 그 코퍼스를 덮는지와 무관하게 성립한다 — 실패 의미가 코퍼스에
+# 따라 갈리면 그것은 어느 코퍼스가 돌고 있는지에 따라 갈리는 규율이고,
+# CLAUDE.md 가 거부하는 형태다.
+mapping_refusal:
+  undeclared_value:      canonical·excluded_type·basis 가 어휘 밖이다
+  unknown_field:         §2.1 스키마에 없는 키다. 산문 키를 포함한다
+  missing_field:         항목에 canonical 또는 excluded_type 이 없거나 basis 가 없다
+  type_not_in_inventory: 키가 profile.type_inventory 에 없다. 발명된 코퍼스 라벨이다
+  unmapped_source_type:  인벤토리 라벨이 map 에도 excluded 에도 없다. 조용히 버려지는 gold 스팬 집합이다
+  duplicate_source_type: 같은 라벨이 map 과 excluded 양쪽에 있다
+  basis_mismatch:        basis 의 §2.2 짝이 성립하지 않는다
+  malformed:             JSON 객체 하나가 아니거나, 항목이 객체가 아니거나, unresolved 가 map·excluded 밖 라벨을 부른다
+
+# **mapping_unresolved 는 값을 갖지 않는다.** mapper.md §2.1 이 이 파일에
+# 추가하겠다고 적었고, 구현이 그 약속을 이렇게 지킨다: unresolved 항목은
+# map 또는 excluded 의 키이고 그 키는 코퍼스 자신의 라벨이다. 코퍼스 라벨은
+# 이 파일이 담을 수 있는 닫힌 집합이 아니다 (profile.type_inventory 가 코퍼스
+# 데이터다). 검사는 어휘 대조가 아니라 구조 대조 — map ∪ excluded 의 키인지 —
+# 이고 malformed 가 그것을 거부한다. 값 없는 목록을 만들면 아무도 읽지 않는
+# 블록이 남고, 그것이 이 규칙이 막으려던 두 번째 답이다.
+
+# ─── LexiconBuilder: 파일명·근거·거부 사유 ──────────────────
+# lexicons/{lang}/{name}.txt 의 {name} (lexicon_builder.md §1, §2.1).
+# DESIGN §3 이 이 산출물에 쓴 세 단어 그대로이고 네 번째 값은 없다.
+# 이 코퍼스에 필요한 네 번째 종류는 사람이 커밋으로 여기 추가한다 —
+# 산출물 안에서 발명되지 않는다. 맞는 이름이 없을 때의 올바른 동작은
+# undeclared_value 거부다.
+lexicon_name:
+  institutions: 병원·기관 이름
+  regions:      행정 구역 이름
+  departments:  진료과·부서 이름
+
+# LexiconBuilder 프롬프트 §1.2 가 보여주는 표준 유형. **열 개가 아니라 셋이다.**
+#
+# 새 값이 아니라 phi_type 축의 부분집합 선언이고, 그래서 여기 있다. 모듈에
+# ("ORGANISATION","LOCATION_AREA","LOCATION_STREET") 를 적으면 프롬프트가 무엇을
+# 보여주는지가 코드 안의 리터럴이 되고, phi_type 이름이 바뀌면 조용히 어긋난다.
+# 목록으로 두면 lexicon_target_types() 가 부분집합인지 대조하고 어긋남이 import
+# 에서 터진다.
+#
+# 왜 셋인가는 프롬프트 §1.2 와 §3 에 있고 여기 되풀이하지 않는다. 요지만: NAME
+# 은 의도적으로 빼고 (§3), 남는 일곱은 gazetteer 모양이 아니다 — 산출물이
+# 서비스할 수 없는 유형까지 보여주면 갈 곳 없는 항목을 부른다.
+#
+# 이 목록과 lexicon_name 은 서로 다른 축이고 대응표가 아니다. departments 가
+# ORGANISATION 을 서비스하는지 regions 가 LOCATION_AREA 를 서비스하는지는
+# 규칙이 결정하는 것이고 (rules/*.yaml 의 어느 규칙이 어느 파일을 읽는가),
+# 여기서 짝지으면 그 결정이 config 로 올라온다.
+lexicon_target_types:
+  - ORGANISATION
+  - LOCATION_AREA
+  - LOCATION_STREET
+
+# 각 파일이 선언하는 basis (lexicon_builder.md §5 의 표). 세 값이 서로 다른
+# 전이 행동을 주장하므로 선언이 반증 가능하다 — administrative_enumeration
+# 을 선언한 파일의 fires-retained 가 낮으면 그 선언이 반증된 것이고,
+# arm 의 누출률과 독립적으로 보고할 수 있는 발견이다.
+lexicon_basis:
+  administrative_enumeration:     닫힌 공식 목록 (주·자치구). 꼬리가 없으므로 전이가 높을 것으로 예측한다
+  morphological_class:            생산적 명명 패턴의 머리 단어이고 개별 사례가 아니다. 계열은 fold 와 무관하므로 전이가 높을 것으로 예측한다
+  general_knowledge_named_entities: 에이전트가 아는 실세계 기관명. 열린 집합이고 예측하지 않는다 — 합성 코퍼스에서는 양쪽 fold 모두 0 에 가까울 수 있다
+
+# lexicon_manifest.json 의 refused 목록과 counts.by_refusal 에 들어가는 값
+# (lexicon_builder.md §2.3).
+#
+# **거부된 항목은 버려지고 세어지고 arm 은 계속된다** — profile·mapping 과
+# 다르고, 그 차이는 각 산출물이 하는 일에 대한 것이지 얼마나 신뢰하는지에
+# 대한 것이 아니다. 항목 하나가 빠진 사전은 항목 하나가 빠진 사전이고,
+# 그 귀결은 이 arm 이 하지 않는 탐지로서 누출률에 들어가 *보고된다*.
+# 세 산출물 중 열화가 이미 headline 숫자에 보이는 유일한 것이므로 게이트가
+# 필요하지 않다.
+#
+# 거부 사유에 표면형이 붙지 않는다. 거부된 항목은 파일명과 사유만 남기고
+# 문자열은 남기지 않는다 — 출처 불명의 표면형을 두 번째 파일에 넣는 것은
+# 디버깅 편의를 위해 산출물의 노출을 두 배로 만드는 거래이고, CLAUDE.md 가
+# 예외 메시지에 대해 거부하는 거래와 같은 것이다.
+lexicon_refusal:
+  undeclared_value:            언어·파일명·basis 가 어휘 밖이다
+  unknown_field:               §2.1 스키마에 없는 키다. 산문 키를 포함한다
+  missing_field:               선언된 파일에 basis 또는 entries 가 없다
+  malformed:                   JSON 객체 하나가 아니거나, entries 가 문자열 리스트가 아니다
+  duplicate_entry:             한 파일에 같은 항목이 대소문자 무시로 두 번 있다. src/rules.py 가 case-fold 로 매칭하므로 두 표기는 한 항목이다
+  entry_contains_newline:      항목이 두 줄이 되는 문자를 담고 있다
+  entry_contains_comment_mark: 항목이 # 을 담고 있어 읽는 쪽이 잘라낸다
+  entry_too_short:             항목이 3자 미만이다. 1~2자 gazetteer 항목은 어디에나 맞는다
+  entry_is_vocabulary_term:    항목이 표준 유형명·사전 이름·층 이름과 같다. 에이전트가 지시문을 산출물에 되쓴 것이다
+  empty_lexicon:               선언된 파일에 살아남은 항목이 없다. _read_lexicon 이 빈 파일을 로드에서 거부하므로 쓰기 시점에 잡는다
+
+# **lexicon_unresolved 는 값을 갖지 않는다.** lexicon_builder.md §2.1 이 이
+# 파일에 추가하겠다고 적었고, 구현이 그 약속을 이렇게 지킨다: unresolved
+# 항목은 `{lang}/{name}` 이고 그 두 조각은 이미 선언되어 있다 — lang 은 축,
+# name 은 위의 lexicon_name 이다. 세 번째 목록을 만들면 lexicon_name 에
+# 값이 추가될 때 갱신을 잊는 목록이 하나 생기고, 그러면 새 사전 종류는
+# "모른다" 고 말할 수 없는 종류가 된다. 허용 집합은 두 어휘의 곱으로
+# 유도하고 여기 적지 않는다.
 
 # ─── 유형이 확정되지 않은 마스크 태그 ───────────────────────
 # 마스커가 겹치는 스팬들의 합집합을 마스킹할 때, 합집합이 유형 동질적이면
@@ -697,6 +940,34 @@ paths:
   # audit_report 를 디렉토리가 아니라 이름으로 거는 판단의 반대 방향이고 이유는 같다:
   # 규칙의 단위가 잡아야 할 것과 정확히 겹쳐야 한다.
   armlexicon: "results/{corpus}/{detector}/{supervision}/{porting}/lexicons/{lang}/"
+  # armlexicon 이 담을 수 없는 것을 담는 사이드카 (lexicon_builder.md §2.2).
+  # {lang} 이 없다 — 한 호출이 코퍼스의 모든 언어를 쓰므로 (§1.3) 매니페스트도
+  # 하나다. 언어마다 매니페스트를 두면 파일 간 중복이 보이지 않게 되고, 그것이
+  # 한 호출로 묶은 이유였다.
+  #
+  # **deny 대상이 아니다. armlexicon 은 deny 이고 이것은 아니다.** 근거는 위
+  # armprofile · armmapping 을 통과시킨 것과 같다: 이 파일에는 항목 텍스트가
+  # 없다 (§2.2 — 파일별 개수와 basis 뿐이고, 거부는 파일명과 사유만 남기고
+  # 거부된 문자열은 남기지 않는다). 표면형이 들어오면 그 순간 이 분류가
+  # 무효가 되고, 그것은 스키마를 넓히는 것이 아니라 스크리너 결정을 뒤집는
+  # 것이다 (profiler.md §3 의 마지막 문단과 같은 형태의 의존).
+  armlexiconmanifest: "results/{corpus}/{detector}/{supervision}/{porting}/lexicon_manifest.json"
+  # 세 산출물의 해시를 저술 직후 · 첫 회차 직전에 한 번 얼린 기록
+  # (src/porting/multi.py). armfreeze 가 프롬프트 창에 대해 하는 일을 산출물에
+  # 대해 한다.
+  #
+  # **회차가 별개 프로세스이기 때문에 이 파일이 필요하다.** tools/run_loop.py 는
+  # 한 번에 한 회차를 돌리고 "the chain is on disk, not in a process" 다. 그래서
+  # "루프가 세 산출물을 고치지 않았다" 를 프로세스 안의 변수로 확인할 수 없다.
+  # _refuse_existing 은 *쓰기* 를 막지만 회차 4 에서 손으로 고친 mapping.yaml 은
+  # 막지 못한다 — 그건 덮어쓰기가 아니라 편집이다. 얼린 해시가 그것을 잡는다.
+  # {iteration} 이 없는 이유는 armprofile 세 키와 같고, 같아야 한다: 이 기록의
+  # 주장이 "회차에 불변" 이다.
+  #
+  # **deny 대상이 아니다.** 근거는 armlexiconmanifest 와 같다 — 파일 이름과
+  # sha256 뿐이고 항목 텍스트가 없다. 사전 파일 키는 `{lang}/{name}.txt` 이고
+  # {name} 은 lexicon_name 어휘값이다 (표면형이 아니다).
+  armartefactfreeze: "results/{corpus}/{detector}/{supervision}/{porting}/artefact_freeze.json"
   # ─── 사람이 쓴 판본 셋. 축이 없고, 그대로 남는다 ────────────────────────
   # 위 arm 범위 키 셋이 덮는 것은 이 경로들이 아니라 이 경로들의 *에이전트 판본* 이다.
   # port-multi 아래의 모든 rung 은 여기 있는 것을 읽는다 (§9.0 — 매핑은 "모든 arm 이
@@ -704,6 +975,17 @@ paths:
   lexicon:  "lexicons/{lang}/"
   profile:  "profiles/{corpus}.json"
   mapping:  "mappings/{corpus}.yaml"
+  # Profiler 의 **입력**이고 사람 판본의 형제가 아니다. profile 은 사람이 쓴
+  # 프로필(해석)이고 이것은 손으로 쓴 인벤토리 스크립트의 산출물(측정)이다
+  # (profiler.md §1.1: "인벤토리는 측정하고 Profiler 는 해석한다"). 축이 없는
+  # 이유는 profile 과 같다 — 코퍼스마다 하나이고 arm 에 불변이다.
+  #
+  # **여기 있는 이유는 이 경로가 커밋되는 값이 되었기 때문이다.** profile.json
+  # 은 자기가 보낸 인벤토리의 sha256 을 기록하고 (§2.2 의
+  # inventory_filtered_sha256), 그 해시가 가리키는 파일이 무엇인지는 경로가
+  # 정한다. 모듈 안의 리터럴이면 그 답이 코드에 있고 결과 파일이 참조하는
+  # 것은 어휘가 아니게 된다.
+  inventory: "profiles/{corpus}.raw.json"
   # **축이 없고, 그것이 결함이 아니다.** 위 재발 판정이 이 키에 걸리지 않는 이유를
   # 적어둔다 — 축 없는 키가 전부 결함이면 이 키에도 arm 축을 붙이게 된다.
   # 분할은 arm 에 불변이어야 한다. arm 축이 들어가면 arm 마다 다른 분할이 가능해지고,

@@ -32,15 +32,40 @@ def _clear_caches():
     base.naming.cache_clear()
 
 
-def test_the_two_roles_are_the_declared_ones():
+#: The five roles, written out. §3 counts agents by the file they produce: the RuleAuthor
+#: writes `rules/{lang}.yaml`, the Auditor the audit report, and `port-multi`'s three
+#: out-of-loop agents write `profile.json`, `mapping.yaml` and `lexicons/{lang}/`
+#: (DESIGN §6.7.1).
+ROLES = {"rule_author", "auditor", "profiler", "mapper", "lexicon_builder"}
+
+#: The two the loop calls, and the three called before iteration 1. The split is what
+#: `orchestrate.call_line()` enforces against the iteration number, so it is declared here
+#: rather than only there — a log line is the only place "out of loop" is checkable, and it
+#: is checkable because these two sets are disjoint.
+LOOP_ROLES = {"rule_author", "auditor"}
+OUT_OF_LOOP_ROLES = {"profiler", "mapper", "lexicon_builder"}
+
+
+def test_the_five_roles_are_the_declared_ones():
     """Written out rather than compared to the config, which would compare it to itself.
 
-    Two roles because §3 counts agents by the file they produce, and `port-loop` has two
-    that call a model: the RuleAuthor writes `rules/{lang}.yaml` and the Auditor writes the
-    audit report. The Profiler, Mapper and LexiconBuilder are not here — no arm in the
-    ladder calls them, so a value for them would be vocabulary nothing writes.
+    Three since 2026-09-01. They were absent while no arm called them, on the stated ground
+    that a value nothing writes is not vocabulary; `port-multi` writes all three, and each
+    has a prompt whose hash is in the window (`tests/test_window_widening.py`).
     """
-    assert set(agent_roles()) == {"rule_author", "auditor"}
+    assert set(agent_roles()) == ROLES
+
+
+def test_the_loop_roles_and_the_out_of_loop_roles_partition_the_vocabulary():
+    """Every role is on exactly one side of iteration 0, and the two sides are disjoint.
+
+    The partition is the fact `call_line()` enforces. A sixth role added to `naming.yaml`
+    without being placed on a side would be a role the iteration rule cannot judge, and
+    `call_line()` would either refuse every line that carries it or accept every one — both
+    of which are decisions, and neither of which anyone made.
+    """
+    assert LOOP_ROLES | OUT_OF_LOOP_ROLES == ROLES
+    assert not (LOOP_ROLES & OUT_OF_LOOP_ROLES)
 
 
 def test_every_role_carries_a_description():
@@ -93,9 +118,9 @@ def test_the_near_spellings_are_all_refused(bad):
         check_agent_role(bad)
 
 
-def test_a_declared_role_is_returned_unchanged():
-    for role in ("rule_author", "auditor"):
-        assert check_agent_role(role) == role
+@pytest.mark.parametrize("role", sorted(ROLES))
+def test_a_declared_role_is_returned_unchanged(role):
+    assert check_agent_role(role) == role
 
 
 def test_a_missing_block_is_refused_rather_than_defaulted(monkeypatch):

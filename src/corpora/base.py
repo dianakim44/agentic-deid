@@ -384,10 +384,20 @@ def termination_params() -> dict[str, int | float]:
 def agent_roles() -> dict[str, str]:
     """Which agent made a call, from `config/naming.yaml`. DESIGN §5.5.
 
-    Two values today, `rule_author` and `auditor`, and the field exists because they share
-    one `agent_calls.jsonl`. `llm_calls` sums their lines, which is right for cost — it is
-    what a round spent — and useless for attribution: without the role, "the Auditor
-    accounts for half this arm's spend" is unverifiable from the log that holds the spend.
+    Five values since 2026-09-01: `rule_author` and `auditor`, which are the loop's, and
+    `profiler`, `mapper` and `lexicon_builder`, which `port-multi` calls once each *before*
+    iteration 1. The field exists because they all share one `agent_calls.jsonl`. `llm_calls`
+    sums their lines, which is right for cost — it is what an arm spent — and useless for
+    attribution: without the role, "the Auditor accounts for half this arm's spend" is
+    unverifiable from the log that holds the spend, and on `port-multi` so is "the three
+    out-of-loop calls cost three calls out of 1,251".
+
+    **The split into loop and out-of-loop roles is enforced against `iteration`, and it is
+    enforced in `orchestrate.call_line()` rather than here.** This accessor answers "is this
+    a declared role"; which rounds a role may appear at is a property of the arm's procedure,
+    and `LOOP_ROLES` / `OUT_OF_LOOP_ROLES` there are where it lands. The point of putting it
+    at the write is that "the three ran outside the loop" becomes readable off the committed
+    log instead of being a claim about a driver nobody can re-run.
 
     A closed vocabulary and **not** an axis, like `termination_reason` and
     `model_id_resolution`. It is here rather than as a module literal because CLAUDE.md's
@@ -572,6 +582,273 @@ def check_audit_refusal(value: str) -> str:
     if value not in reasons:
         raise CorpusError(
             f"{value!r} is not an audit refusal reason in config/naming.yaml "
+            f"(have: {sorted(reasons)}). Add it there before a module writes it."
+        )
+    return value
+
+
+# ─── port-multi's three artefacts: their closed vocabularies ─────────────────
+#
+# Ten mappings in `config/naming.yaml`, read here and nowhere else. They are the same
+# *layer* as `audit_refusal`: not axes, absent from every results path, and present in the
+# content of a file under `results/`. CLAUDE.md's vocabulary rule covers them for that
+# reason, and the three prompts each promised in §2.1 that the implementing commit would
+# add them to the config rather than coin them in the validator.
+#
+# **One reader, and it is `_closed_vocabulary()` below rather than ten copies of
+# `audit_refusals()`'s body.** The eight functions above this line each spell their own
+# validation because each was written on its own day; ten more would put the same four
+# checks in eighteen places, and the failure that matters is not one of them being wrong —
+# it is one of them being *different*, so that a malformed block is a `CorpusError` from
+# one accessor and a `KeyError` from another. The named wrappers stay, because a caller
+# says which vocabulary it wants by calling a function whose name is that vocabulary, and
+# because the docstring is where the field's argument lives.
+
+
+def _closed_vocabulary(key: str, what: str) -> dict[str, str]:
+    """One `config/naming.yaml` mapping of value → gloss, checked as `audit_refusals()` is.
+
+    `key` is the config's own key and `what` completes the message a caller reads when the
+    block is missing or malformed — "It is the closed vocabulary for {what}". Both are
+    passed rather than derived: a message assembled from the key would read "no
+    `entry_too_short` mapping" at the one moment a person needs to be told which artefact
+    they are missing a vocabulary for.
+
+    Returns a copy, so a caller that mutated what it got would not be editing the parsed
+    config every later reader shares.
+    """
+    value = naming().get(key)
+    if not isinstance(value, dict) or not value:
+        raise CorpusError(
+            f"config/naming.yaml has no `{key}` mapping. It is the closed vocabulary for "
+            f"{what}, it lands in a file under results/, and CLAUDE.md keeps such values "
+            "out of the modules."
+        )
+    bad = [name for name in value if not isinstance(name, str) or not name]
+    if bad:
+        raise CorpusError(
+            f"config/naming.yaml `{key}` has {len(bad)} non-string or empty key(s). Each "
+            "key is a value written to an artefact."
+        )
+    return dict(value)
+
+
+#: The nine `profile.json` fields whose value comes from a closed vocabulary, in
+#: `docs/prompts/profiler.md` §2.1's order — which is also the order the schema is read in,
+#: so the two cannot be reordered apart.
+#:
+#: **Nine and not eleven, and the two missing ones are missing for stated reasons.**
+#: `type_inventory` is a list of the corpus's own labels — corpus data, checked against the
+#: inventory rather than against a vocabulary (§2.3's `type_not_in_inventory`) — and
+#: `patient_key_available` is a boolean. So the schema has eleven fields and this has nine,
+#: and `profile_schema_fields()` is the eleven.
+#:
+#: A literal here rather than a config block, because it is not a vocabulary: it is the set
+#: of fields that *have* one, and each name in it is already a config key. A config list
+#: naming config keys is a second place the same nine strings live.
+PROFILE_VOCABULARY_FIELDS = (
+    "annotation_encoding", "text_location", "offset_unit", "offset_base", "offset_end",
+    "newline", "bom", "type_system_level", "group_key",
+)
+
+
+def profile_vocabulary(field: str) -> dict[str, str]:
+    """The declared values for one `profile.json` load-convention field, with glosses.
+
+    `docs/prompts/profiler.md` §2.1: every value in the profile is a vocabulary member
+    except `type_inventory` and `cites`, and §2.3's `undeclared_value` is what refuses one
+    that is not. The gloss travels with the value because the Profiler is *shown* these
+    vocabularies — a bare list of names would make it guess at what `counted_as_one_character`
+    means, and §9.7's 32-file, 761-span fact is the whole content of that value.
+    """
+    if field not in PROFILE_VOCABULARY_FIELDS:
+        raise CorpusError(
+            f"{field!r} is not a profile field with a closed vocabulary (have: "
+            f"{list(PROFILE_VOCABULARY_FIELDS)}). `type_inventory` is the corpus's own "
+            "labels and `patient_key_available` is a boolean; both are checked by "
+            "something other than a vocabulary (docs/prompts/profiler.md §2.3)."
+        )
+    return _closed_vocabulary(field, f"a profile's {field}")
+
+
+def profile_schema_fields() -> tuple[str, ...]:
+    """`profile.json`'s eleven agent-written field names, in `profiler.md` §2.1's order.
+
+    **Read off `profile_unresolved`, which is the same list.** §2.1 makes `unresolved`'s
+    entries "field names from this schema", so the set a field may be *named in* and the set
+    a field may *be* are one set. Two copies would let a field be added to the schema and not
+    to `unresolved`, and the new field would then be one the agent cannot say it is unsure
+    about — silence and a guess back to being the same bytes, which is the thing `unresolved`
+    exists to separate.
+
+    A tuple and ordered, because `counts.fields` is a count of this and the refusal list is
+    read in this order; a set would make the refusals arrive in whatever order a hash gave.
+    `cites` and `unresolved` are not in it: they are metadata about the fields rather than
+    fields, and neither can be listed in `unresolved`.
+    """
+    return tuple(_closed_vocabulary("profile_unresolved",
+                                    "which profile fields may be called unresolved"))
+
+
+def profile_refusals() -> dict[str, str]:
+    """Why a `profile.json` field was refused. `docs/prompts/profiler.md` §2.3.
+
+    Six values. The vocabulary exists because the validator **refuses rather than repairs** —
+    `audit_refusals()`'s argument, with the consequence one step sharper: a validator that
+    filled a missing `offset_base` with `zero` would produce a load convention the agent never
+    claimed, and the whole arm would then load under it.
+
+    **Any refusal here stops the arm** (§2.3), which is where this vocabulary parts company
+    with `audit_refusal` and with `lexicon_refusal`. A partial profile is not a degraded
+    profile; it configures the load, and a missing `bom` has no default. So these six values
+    are read by a caller deciding whether the loop starts at all.
+    """
+    return _closed_vocabulary("profile_refusal", "why a profile field was refused")
+
+
+def check_profile_refusal(value: str) -> str:
+    """Return `value` if it is a declared profile refusal reason; raise otherwise."""
+    reasons = profile_refusals()
+    if value not in reasons:
+        raise CorpusError(
+            f"{value!r} is not a profile refusal reason in config/naming.yaml "
+            f"(have: {sorted(reasons)}). Add it there before a module writes it."
+        )
+    return value
+
+
+def mapping_bases() -> dict[str, str]:
+    """Why a source type maps where it does. `docs/prompts/mapper.md` §2.2.
+
+    Five values, and each carries a pairing code can check — `canonical_gloss` and
+    `source_label_family` and `source_type_is_coarser` and `residual_bucket` may appear only
+    on a `map` entry, `design_exclusion` only on an `excluded` one, and two of them constrain
+    the target further. That is what makes `basis` the verifiable part of this artefact, the
+    property `profiler.md` §2.1 claims for `cites` by a different mechanism: a dotted-path
+    citation cannot work here, because the Mapper's input is two lists and the path would be
+    `phi_type.<the value just written>`.
+
+    `basis_mismatch` is the refusal for a violated pairing, and the pairings are
+    `porting.artefacts`'s — the gloss states them and the code enforces them, which is one
+    fact in two registers rather than two rules.
+    """
+    return _closed_vocabulary("mapping_basis", "why a source type maps where it does")
+
+
+def mapping_refusals() -> dict[str, str]:
+    """Why a `mapping.yaml` entry was refused. `docs/prompts/mapper.md` §2.3.
+
+    Eight values. **Any refusal stops the arm, and that holds on every corpus** — including
+    the ones where §4 means the mapping is recorded and never loaded. Making the failure
+    semantics depend on whether DESIGN §9.0 happens to cover the corpus would be a rule that
+    branches on which corpus is running, which is the shape CLAUDE.md rejects for the
+    surface-form checks one section over.
+    """
+    return _closed_vocabulary("mapping_refusal", "why a mapping entry was refused")
+
+
+def check_mapping_refusal(value: str) -> str:
+    """Return `value` if it is a declared mapping refusal reason; raise otherwise."""
+    reasons = mapping_refusals()
+    if value not in reasons:
+        raise CorpusError(
+            f"{value!r} is not a mapping refusal reason in config/naming.yaml "
+            f"(have: {sorted(reasons)}). Add it there before a module writes it."
+        )
+    return value
+
+
+def lexicon_names() -> dict[str, str]:
+    """The declared term-list file names, without the `.txt`. `lexicon_builder.md` §1.2, §2.1.
+
+    Three values — DESIGN §3's own three words for this artefact — and there is no fourth.
+    `NAME` is deliberately not among them: a list of real people's names is a categorically
+    more dangerous artefact than a list of hospitals and would be indistinguishable from a
+    re-identification resource, and `port-loop` served `NAME` at 0.935 recall with nine
+    `context_cue` rules and no gazetteer, so there is no recall argument for one either
+    (`lexicon_builder.md` §3). `undeclared_value` refuses a fourth name; a corpus that needs
+    one gets it from a human in a commit here.
+
+    These are also the file names `src/rules.py`'s `_read_lexicon` resolves a `lexicon:`
+    reference against, so a name declared here and a name the loader can read are one set.
+    """
+    return _closed_vocabulary("lexicon_name", "a term list's file name")
+
+
+def lexicon_target_types() -> tuple[str, ...]:
+    """The canonical types the LexiconBuilder is shown. `lexicon_builder.md` §1.2 — **three.**
+
+    Not the full ten, and the prompt's reason is that a type list longer than the artefact can
+    serve invites entries with nowhere to go: `NAME` is excluded deliberately (§3, and
+    `lexicon_names()`'s docstring) and the remaining six are not gazetteer-shaped.
+
+    A `naming.yaml` list rather than a literal in `src/llm/prompt.py`, and the difference is
+    not style. What this declares is a *subset of an existing axis*, so it has two ways to go
+    wrong that a literal could not report: a value that is not a `phi_type` at all, and a
+    `phi_type` renamed out from under it. Both are checked here, so they fail at the first
+    call into this module rather than by the agent being shown a type the config no longer has.
+
+    Order is the config's, because it is the order the prompt block renders in and a set would
+    make that order the dict's.
+    """
+    value = naming().get("lexicon_target_types")
+    if not isinstance(value, list) or not value:
+        raise CorpusError(
+            "config/naming.yaml has no `lexicon_target_types` list. It is the subset of "
+            "phi_type the LexiconBuilder prompt shows (lexicon_builder.md §1.2), and the "
+            "prompt cannot state which types a term list may serve without it."
+        )
+    types = canonical_types()
+    unknown = [name for name in value if name not in types]
+    if unknown:
+        raise CorpusError(
+            f"config/naming.yaml `lexicon_target_types` names {unknown}, which are not "
+            f"phi_type values (have: {sorted(types)}). It declares a subset of that axis, so "
+            "a name here that the axis does not carry is either a typo or a type that was "
+            "renamed — and either way the prompt would show the agent a type the rest of the "
+            "config has no meaning for."
+        )
+    return tuple(value)
+
+
+def lexicon_bases() -> dict[str, str]:
+    """What kind of knowledge a term list claims to be. `lexicon_builder.md` §2.1, §5.
+
+    Three values, and each makes a different, falsifiable prediction about transfer:
+    `administrative_enumeration` and `morphological_class` predict high dev→test retention,
+    `general_knowledge_named_entities` predicts nothing and may be near zero on a synthetic
+    corpus. So the declaration is checkable against measured behaviour rather than merely
+    recorded — which is as much as `basis` can be here, since it is a claim about provenance
+    and this artefact's entries are surface forms by construction (§3).
+    """
+    return _closed_vocabulary("lexicon_basis", "what kind of knowledge a term list is")
+
+
+def lexicon_refusals() -> dict[str, str]:
+    """Why a lexicon entry or file was refused. `lexicon_builder.md` §2.3.
+
+    Ten values, and **a refusal here drops the entry, counts it, and lets the arm continue** —
+    the one of the three artefacts that does not gate the loop. The reason is what the artefact
+    does rather than how much it is trusted: a lexicon with a term missing is a lexicon with a
+    term missing, and the consequence is a detection this arm does not make, which lands in the
+    leak rate and is *reported*. It is the only one of the three whose degradation is already
+    visible in the headline number, so it needs no gate to make it visible.
+
+    **No refusal carries the rejected string**, and the vocabulary is where that is stated
+    because the reason is the only thing a refused entry keeps. A rejected entry is a surface
+    form of unknown provenance, and putting it in a second file would double this artefact's
+    exposure to buy a debugging convenience — the trade CLAUDE.md rules out for exception
+    messages, ruled out here for the same reason.
+    """
+    return _closed_vocabulary("lexicon_refusal", "why a lexicon entry was refused")
+
+
+def check_lexicon_refusal(value: str) -> str:
+    """Return `value` if it is a declared lexicon refusal reason; raise otherwise."""
+    reasons = lexicon_refusals()
+    if value not in reasons:
+        raise CorpusError(
+            f"{value!r} is not a lexicon refusal reason in config/naming.yaml "
             f"(have: {sorted(reasons)}). Add it there before a module writes it."
         )
     return value
