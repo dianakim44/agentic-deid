@@ -4302,6 +4302,222 @@ are measurements and no decision is left to make.
 
 ---
 
+### 6.7 `port-multi`'s pre-registration — the three artefacts have three causal paths, 2026-09-01
+
+> **Status: pre-registered, before the first call.** No `port-multi` call has been made and
+> `results/es-meddocan/R/sup-free/port-multi/` does not exist. Written now because every
+> statement below becomes an explanation rather than a prediction the moment a number
+> exists, and the central claim — that two of this arm's three new artefacts cannot move
+> the headline — is exactly the claim that would read as an excuse if it appeared next to a
+> null result.
+
+`port-multi` adds three agents whose authorship is the rung's one capability (§4). It does
+not add three contributions. **The three artefacts reach the leak rate by three different
+paths, and two of the paths are closed.**
+
+#### 6.7.1 The three paths, stated as a table
+
+| artefact | how it reaches detection | what closes the path | live fields |
+|---|---|---|---|
+| `profile.json` (Profiler) | configures the loader — encoding, offset base and end, BOM, newline, text location, offset unit, type system level, type inventory | nothing, for nine fields. **`group_key` and `patient_key_available` are dead**: `splits/es-meddocan.json` is confirmed and its test fold sealed, so a group key that re-partitioned the corpus would unseal it. Those two are compared and recorded; the split does not move | 9 of 11 |
+| `mapping.yaml` (Mapper) | would decide which canonical type each gold span gets — i.e. the evaluation labels | **all of it**, on any corpus §9.0 covers. §9.0 wins; the mapping is recorded with `applied: design` (§9.0, decided 2026-09-01) | 0 of 1 |
+| `lexicons/{lang}/` (LexiconBuilder) | `src/rules.py` resolves a rule's `lexicon` form through `paths.lexicon`, and a resolved term list is matched against document text | nothing. This is the only one of the three that enters detection | all |
+
+**So if `port-multi`'s leak rate differs from `port-loop`'s, almost all of the difference is
+the lexicon.** The Profiler's nine live fields are conventions with one correct answer
+each; the arm either loads or fails at load with an offset-mismatch count
+(`docs/prompts/profiler.md` §4), so their contribution to a *successful* run's leak rate is
+zero by construction — a profile that loads is a profile that agreed. The Mapper's
+contribution is zero by decision. The residual is the lexicon plus whatever the RuleAuthor
+does differently in a loop whose gold labelling and load are unchanged, which is call
+variance (`docs/notes/call-variance.md`) and not a new capability.
+
+#### 6.7.2 What a null result therefore does and does not license
+
+**If `port-multi`'s headline leak rate does not differ from `port-loop`'s, that is not
+evidence that role differentiation does not pay.** It is consistent with two readings:
+
+1. Role differentiation genuinely adds nothing.
+2. Of the three things added, two could not reach the metric, and the third did not.
+
+**This arm cannot distinguish them, and the reason is that reading 2 is already known to be
+true in part.** §6.7.1 establishes by construction — not by measurement — that the Mapper's
+path is closed and two of the Profiler's eleven fields are dead. So a null is *guaranteed*
+to be partly explained by reading 2, and no version of this arm's data can rule reading 2
+out. **Reading 1 is therefore not available as a conclusion from a null result of this arm**,
+and the paper must not state it. The strongest licensed statement is: "moving the authorship
+of profile, mapping and lexicon from a human to an agent did not change the leak rate, on a
+corpus where only the lexicon of the three can affect it."
+
+**What would distinguish them, pre-registered as not-run.** A rung that adds the
+LexiconBuilder alone — `port-loop` plus one artefact — isolates the only live path and
+would make a null interpretable. It is not on the ladder in §4 and this block does not add
+it; naming it is the honest form of the limitation, and adding a rung after seeing a null
+would be choosing the experiment from the result.
+
+#### 6.7.3 Prediction: an agent-authored lexicon may improve dev and worsen test
+
+**The prediction.** `port-multi`'s lexicon-served types will show a *larger* dev→test
+degradation than `port-loop`'s, in the same direction.
+
+**The mechanism, and why authorship does not change its sign.** A gazetteer contains the
+names someone put in it. Names not in it are not found, and the names most easily put in it
+are the ones observed in the fold being read. Nothing about that argument depends on whether
+a human or an agent does the observing — so the *direction* is authorship-independent — but
+an agent that reads more of dev, more systematically, and at no marginal cost can enumerate
+more of it, so the *magnitude* may be larger. This is not a claim that agents are careless.
+It is a claim about what enumeration is.
+
+**The evidence this prediction is built on is already measured, in `port-loop`, on the
+sealed fold** (`results/sealed_eval_log.md` row 1; opening 1 of 1 for that arm, §6.4). All
+figures `fully_covered`, dev = `iter8`, test = the sealed run:
+
+| | dev (iter8) | test (sealed) | move |
+|---|---|---|---|
+| `ORGANISATION` leak rate | 0.6589 | 0.8424 | **+18.35pp** |
+| `ORGANISATION` recall | 0.3131 | 0.1527 | −16.04pp |
+| `ORGANISATION` gold spans | 214 | 203 | comparable folds |
+| `LOCATION_AREA` leak rate | 0.1409 | 0.1622 | +2.13pp |
+
+**`ORGANISATION` is the only canonical type in that arm served by exactly one layer, and
+that layer is `gazetteer`** — round 8's rule file gives it two rules,
+`hospital_nombre_gazetteer` and `pharma_device_gazetteer`, and nothing else.
+`LOCATION_AREA` has one gazetteer rule and seven `regex_checksum`/`context_cue` rules. So
+the two rows above are the same layer under two coverage conditions, and the type with no
+other layer moved nearly nine times as far.
+
+**The per-rule figures separate transfer of precision from transfer of recall, which is the
+signature the prediction rests on:**
+
+| rule | dev fires → tp | test fires → tp | fires retained | precision |
+|---|---|---|---|---|
+| `hospital_nombre_gazetteer` | 71 → 65 | 33 → 30 | **46.5%** | 0.915 → 0.909 |
+| `city_name_gazetteer` | 420 → 261 | 390 → 250 | 93.0% | 0.621 → 0.641 |
+| `pharma_device_gazetteer` | 3 → 2 | 7 → 1 | — (n too small) | 0.667 → 0.143 |
+
+**Precision transfers and recall does not.** The hospital gazetteer is as accurate on the
+sealed fold as on dev and fires less than half as often; the city gazetteer fires almost as
+often. The difference between those two rows is the difference between enumerating instances
+and naming a class: Spanish city names recur across documents, and hospital names are
+long-tail per document. **That contrast is the discriminator §6.7.5 uses, and it is
+pre-registered as the measurement rather than derived later.**
+
+**One scope correction that sharpens rather than weakens the prediction.** §4 records that
+`port-loop` took the `lexicon` form zero times — all three gazetteer rules above carry
+inline `terms`, authored by the RuleAuthor from dev errors, not by any LexiconBuilder. So
+the measured 18.35pp is evidence about **gazetteer-by-enumeration**, whatever writes it, and
+`lexicons/{lang}/` is that same artefact given its own author and its own file. The
+prediction transfers; the arm has not yet produced one instance of the artefact form.
+
+**What is at stake, numbered in advance.** `ORGANISATION` is 203 of 5,119 test gold spans
+(**3.97%**) and 171 of 753 total leaks (**22.7%**). So it is where the headline is
+available and also bounded: eliminating `ORGANISATION` leakage entirely would move the arm's
+leak rate by **3.34pp** (0.1471 → 0.1137), and closing only the measured dev→test transfer
+gap — leaking at dev's rate instead of test's — is worth **0.72pp**. Those two numbers bound
+the lexicon's effect in both directions and are the reason §6.7.2's null is a live
+possibility rather than a hedge.
+
+#### 6.7.4 What is reported if the prediction holds, and if it fails
+
+Both branches are fixed now. Neither is contingent on which happens.
+
+**If it holds** — `port-multi`'s `ORGANISATION` dev→test degradation exceeds `port-loop`'s
++18.35pp:
+
+- Report the **difference of differences**: (`port-multi` test − dev) − (`port-loop`
+  test − dev) on `ORGANISATION`, and the same for every type whose layer set includes
+  `gazetteer`. That quantity, not the raw test number, is what authorship changed — the raw
+  number confounds authorship with the arm's other differences.
+- Report it as a limitation of **enumerated-gazetteer de-identification**, not as a finding
+  about agents. `port-loop`'s gap is already 18.35pp with no agent-authored lexicon in the
+  arm, so the artefact form carries most of the effect and agent authorship is the increment.
+- Report the per-rule fires-retained and precision figures in the §6.7.3 form, because a
+  gap that shows up as recall loss with intact precision is the mechanism and a gap that
+  shows up as precision loss is a different finding.
+- Report the arm's headline movement against the 3.34pp / 0.72pp bounds, and attribute it to
+  the lexicon **by §6.7.1's construction argument, stated as such** — not as an inference
+  from the numbers, which cannot support an attribution on their own.
+
+**If it fails** — the degradation is equal or smaller — three causes are possible and the
+first two are mechanically distinguishable from artefacts the arm writes. **Check them in
+this order and report which obtained:**
+
+1. **The lexicon was never read.** If `port-multi`'s rule files take the `lexicon` form zero
+   times, as `port-loop`'s did, then LexiconBuilder contributed nothing, the arm shipped
+   three artefacts of which one is unread, and **that is the primary result — no lexicon
+   effect is reported at all.** Checked from the rule files' rule forms; no new measurement
+   needed. This is the outcome §4 already flags as live ("a capability of the loader rather
+   than an observed dependency").
+2. **The RuleAuthor routed `ORGANISATION` away from the gazetteer.** If the type acquires a
+   `context_cue` or `regex_checksum` rule, it is no longer single-layer and the §6.7.3
+   comparison is not like-for-like. Checked from `by_rule`'s `layer` attribution and
+   `complementarity.by_type.ORGANISATION.layers.sets`. Report the type as no longer
+   diagnostic and report the finding on whatever types remain gazetteer-only.
+3. **The lexicon generalised** — it named classes rather than transcribing instances.
+   Report the fires-retained ratio as the evidence, and report §6.7.5's dev-overlap figure
+   beside it, since a lexicon that generalised should show *both* high fires retention and
+   low dev overlap. If retention is high and dev overlap is also high, the folds share
+   institution names and the arm measured the corpus, not the lexicon.
+
+Cause 3 is the only one that supports a positive claim about agent authorship, and it is the
+only one of the three not verifiable from the arm's own bookkeeping alone. That asymmetry is
+stated here so the easy explanations must be ruled out first.
+
+#### 6.7.5 Whether "transcribed dev names" is distinguishable from "a general lexicon"
+
+Pre-registered as a measurement with a declared limit, because
+`docs/prompts/lexicon_builder.md` §3 needs it and because the answer is *partly no*.
+
+**Available, and computed from the dev side only, so it needs no seal opening:** for each
+lexicon file, the fraction of entries that match some dev document surface. A lexicon whose
+entries are all present in dev is a transcription of dev; one whose entries are largely
+absent from dev came from elsewhere. This is a fact about the artefact and the fold the
+agent read, and it is measurable before any test evaluation.
+
+**Available from the single sealed opening, in aggregate only:** the number of entries with
+at least one test-fold match, and the fires-retained ratio of §6.7.3. **Per-entry test
+counts are not recorded.** An entry is an institution or place name — a surface form — and a
+per-entry test fire count crossed with entry names is a map of which institution names
+appear in the sealed fold. `paths.armlexicon` is deny-listed for adjacent reasons
+(`config/naming.yaml`) and this block does not weaken that: only counts and ratios leave the
+sealed run.
+
+**Not available, and this is the limit.** Neither figure separates *an agent that generalised
+well* from *an agent whose dev transcription happened to overlap the test fold*, because
+both produce high retention. The two are separable only by a lexicon built without seeing
+dev at all, which is a different arm. **So the honest statement is that the arm measures
+whether the lexicon is a dev transcription, and does not measure whether a non-transcribed
+lexicon generalises.** `lexicon_builder.md` records the same limitation at the prompt level.
+
+#### 6.7.6 What the Profiler and the Mapper are evaluated on instead
+
+§6.7.1 closes their paths to the leak rate, so they need their own criteria, fixed now.
+These are **evidence about the agent, not results of the arm** — they are reported in a
+per-agent artefact table and **must not be summed into a score.** A composite index would
+let a good profile mask a bad mapping, which is precisely what §6.7.1 says cannot be traded
+off.
+
+| # | figure | source | falsifiable? |
+|---|---|---|---|
+| P1 | refusal count, and `by_refusal` | `profile.json` `counts` | yes — 0 is the pass, and any refusal stops the arm |
+| P2 | fields agreeing with the human `profiles/es-meddocan.json`, of the 9 live ones | field-by-field comparison | yes — a known answer |
+| P3 | whether the arm loaded, and the offset-mismatch count if not | loader | yes — binary |
+| P4 | `group_key` and `patient_key_available` agreement with the frozen split's recorded key | `splits/es-meddocan.json` | yes — a known answer, and the 2 dead fields' only use |
+| P5 | `unresolved` count, and which fields | `profile.json` | no — descriptive |
+| M1 | refusal count, and `by_refusal` | `mapping.yaml` `counts` | yes — 0 is the pass |
+| M2 | **disagreements against §9.0, over `compared_against_design`** — the Mapper's headline | `mapping.yaml` `disagreements` | yes — a known answer |
+| M3 | of those, how many cross the excluded/mapped boundary, counted separately | same | yes, and §9.1 prices this boundary at 9.90% (es) and 9.68% (de) |
+| M4 | whether `source_type_is_coarser` flags include `TERRITORIO` | `mapping.yaml` | yes — §9.2 is one human-recorded instance of the finding, so this is hit/miss |
+| M5 | `unresolved` count, and which labels | `mapping.yaml` | no — descriptive, and it measures how much of §9.0 is derivable from published vocabulary |
+
+**No thresholds are set, and that is deliberate.** There is no prior for what an agreement
+rate on a type-system mapping ought to be, and a threshold chosen after the number exists is
+the thing pre-registration prevents. P1, P3 and M1 have a natural pass at zero; M4 is
+hit/miss against an answer a human already wrote down; everything else is reported as
+measured, with no claim that a given value is good.
+
+---
+
 ## 7. Data
 
 No corpus is redistributed in this repository — neither DUA-restricted
@@ -4660,6 +4876,26 @@ retirement of `port-human` (§11) and is unaffected by it: this mapping is a des
 input shared by every arm, not one arm's output. Only `port-multi` and above have a
 Mapper, so the arms below use this table — which is why it is in DESIGN rather than
 in an arm's results directory.
+
+**On any corpus this table covers, `port-multi`'s Mapper output is recorded and not
+applied — decided 2026-09-01, before the first call.** The agent's mapping is written
+to `paths.armmapping`, compared against this table entry by entry, and every
+disagreement is recorded there with `applied: design`. The table does not move.
+Overwriting it is refused for three reasons, and only the first is about tidiness:
+`port-multi` would be scored against different gold from every arm below it, leaving
+§4's ladder nothing to compare; a model would be setting the *evaluation* labels,
+which is the inference §9.2 already refuses when it declines to split `TERRITORIO` on
+`^\d{5}$` — "a label produced by inference is not gold", and `sup-free` is a claim
+about where a detector's supervision comes from, never about where the gold's labels
+come from; and the leak-rate denominator would move (§9.4, §9.1), which makes two leak
+rates non-comparable. Refusing the arm on disagreement is also rejected, because a
+disagreement rate is not observable if disagreement is fatal. The consequence — that
+the Mapper therefore has no causal path to this arm's leak rate on `es-meddocan` or
+`de-grascco`, and that it is the *whole* artefact and not one field — is pre-registered
+in §6.7 together with what the Mapper is evaluated on instead. `docs/prompts/mapper.md`
+§4 is the operative statement of the comparison procedure. On a corpus this table has
+no row for, the mapping is load-bearing and `applied` reads `agent`; §6.7 records that
+as an open question rather than a permission.
 
 ### 9.1 Excluded from the canonical set
 
