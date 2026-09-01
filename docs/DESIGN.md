@@ -4310,6 +4310,16 @@ are measurements and no decision is left to make.
 > exists, and the central claim — that two of this arm's three new artefacts cannot move
 > the headline — is exactly the claim that would read as an excuse if it appeared next to a
 > null result.
+>
+> **Two scope corrections, made in place the same day and still before any call.** Writing
+> `docs/prompts/lexicon_builder.md` established a fact this block had assumed the other way:
+> **the LexiconBuilder is called before iteration 1, so it never sees dev** — no
+> `errors.jsonl` exists yet, nothing has been detected, and nothing can be masked because
+> nothing has been detected. §6.7.3 therefore mis-attributed its prediction's mechanism to
+> the wrong agent, and §6.7.5 understated what is settled about the lexicon while
+> overstating what is settled about the arm. Both are fixed below with the superseded claim
+> shown rather than deleted. Corrected before any number exists, which is the one time a
+> pre-registration may be corrected — the §6.6 precedent.
 
 `port-multi` adds three agents whose authorship is the rung's one capability (§4). It does
 not add three contributions. **The three artefacts reach the leak rate by three different
@@ -4321,7 +4331,7 @@ paths, and two of the paths are closed.**
 |---|---|---|---|
 | `profile.json` (Profiler) | configures the loader — encoding, offset base and end, BOM, newline, text location, offset unit, type system level, type inventory | nothing, for nine fields. **`group_key` and `patient_key_available` are dead**: `splits/es-meddocan.json` is confirmed and its test fold sealed, so a group key that re-partitioned the corpus would unseal it. Those two are compared and recorded; the split does not move | 9 of 11 |
 | `mapping.yaml` (Mapper) | would decide which canonical type each gold span gets — i.e. the evaluation labels | **all of it**, on any corpus §9.0 covers. §9.0 wins; the mapping is recorded with `applied: design` (§9.0, decided 2026-09-01) | 0 of 1 |
-| `lexicons/{lang}/` (LexiconBuilder) | `src/rules.py` resolves a rule's `lexicon` form through `paths.lexicon`, and a resolved term list is matched against document text | nothing. This is the only one of the three that enters detection | all |
+| `lexicons/{lang}/` (LexiconBuilder) | `src/rules.py` resolves a rule's `lexicon` form through `paths.lexicon`, and a resolved term list is matched against document text | nothing by design — the only one of the three that enters detection. **But `_read_lexicon` resolves through the *human* key today, and that directory is empty**, so the implementing commit owes the redirection to `paths.armlexicon` or this path is closed too, by our bug rather than by decision (`lexicon_builder.md` §4.1) | all |
 
 **So if `port-multi`'s leak rate differs from `port-loop`'s, almost all of the difference is
 the lexicon.** The Profiler's nine live fields are conventions with one correct answer
@@ -4402,12 +4412,37 @@ and naming a class: Spanish city names recur across documents, and hospital name
 long-tail per document. **That contrast is the discriminator §6.7.5 uses, and it is
 pre-registered as the measurement rather than derived later.**
 
-**One scope correction that sharpens rather than weakens the prediction.** §4 records that
-`port-loop` took the `lexicon` form zero times — all three gazetteer rules above carry
-inline `terms`, authored by the RuleAuthor from dev errors, not by any LexiconBuilder. So
-the measured 18.35pp is evidence about **gazetteer-by-enumeration**, whatever writes it, and
-`lexicons/{lang}/` is that same artefact given its own author and its own file. The
-prediction transfers; the arm has not yet produced one instance of the artefact form.
+**Correction, 2026-09-01: the prediction holds and its agent is the RuleAuthor, not the
+LexiconBuilder.** §4 records that `port-loop` took the `lexicon` form zero times — all three
+gazetteer rules above carry inline `terms`, authored by the RuleAuthor from dev errors. The
+sentence that first stood here concluded that the 18.35pp is evidence about
+gazetteer-by-enumeration "whatever writes it", and that `lexicons/{lang}/` is the same
+artefact with its own author. The first half stands; the second does not, because it assumed
+both authors have the same access, and they do not:
+
+- **The LexiconBuilder is called before iteration 1 and never sees dev**
+  (`docs/prompts/lexicon_builder.md` §1.1). Its entries cannot be dev transcriptions. So the
+  artefact whose transfer failure is measured above and the artefact this arm newly
+  introduces are **not** the same artefact under a new author.
+- **The RuleAuthor still writes inline `terms` and still reads dev errors, and `port-multi`
+  removes neither.** `src/rules.py` gives a gazetteer rule both forms and the RuleAuthor's
+  prompt is frozen and unchanged. **So the transcription channel this prediction is about
+  survives into `port-multi` untouched**, which is why the prediction still stands — it is
+  now a prediction about a component the arm inherits rather than about the component the arm
+  adds.
+- **Attribution therefore requires the rule form, which `by_rule` does not carry.** A
+  `port-multi` gazetteer result belongs to the LexiconBuilder only for rules taking the
+  `lexicon` form; the check is against the rule files. This is adjacent to §6.7.4's cause 2
+  and is not the same check.
+
+**A second prediction, about the LexiconBuilder's own artefact, in the opposite direction.**
+A lexicon built from parametric knowledge cannot be fold-specific, so it should transfer
+dev→test **evenly** — and on `es-meddocan` it may match almost nothing in either fold,
+because MEDDOCAN is synthetic and its institution names are invented surrogates rather than
+real Spanish hospitals. **The expected outcome for this artefact is low recall with even
+transfer, not high recall that collapses.** `fires` and `tp` per lexicon-backed rule report
+it, and 0 fires is a null to state plainly rather than to explain. The two predictions are
+about two different agents and can both hold at once.
 
 **What is at stake, numbered in advance.** `ORGANISATION` is 203 of 5,119 test gold spans
 (**3.97%**) and 171 of 753 total leaks (**22.7%**). So it is where the headline is
@@ -4447,7 +4482,10 @@ this order and report which obtained:**
    three artefacts of which one is unread, and **that is the primary result — no lexicon
    effect is reported at all.** Checked from the rule files' rule forms; no new measurement
    needed. This is the outcome §4 already flags as live ("a capability of the loader rather
-   than an observed dependency").
+   than an observed dependency"). **Distinguish the two mechanisms before reporting it**: the
+   RuleAuthor declining to reference a lexicon is the agent's outcome, and `_read_lexicon`
+   still resolving through the human key is our bug (§6.7.1, `lexicon_builder.md` §4.1).
+   Only the first is a finding.
 2. **The RuleAuthor routed `ORGANISATION` away from the gazetteer.** If the type acquires a
    `context_cue` or `regex_checksum` rule, it is no longer single-layer and the §6.7.3
    comparison is not like-for-like. Checked from `by_rule`'s `layer` attribution and
@@ -4465,14 +4503,33 @@ stated here so the easy explanations must be ruled out first.
 
 #### 6.7.5 Whether "transcribed dev names" is distinguishable from "a general lexicon"
 
-Pre-registered as a measurement with a declared limit, because
-`docs/prompts/lexicon_builder.md` §3 needs it and because the answer is *partly no*.
+**Corrected 2026-09-01, before any call.** This section first answered "partly no" for the
+whole question, on the assumption that the LexiconBuilder reads dev. It does not
+(`docs/prompts/lexicon_builder.md` §1.1), so the answer splits: **settled for the
+LexiconBuilder's artefact, and open for the RuleAuthor's inline `terms`** — which is where
+§6.7.3's prediction now lives. The superseded reading was more optimistic about the arm and
+more pessimistic about the artefact than the facts support.
 
-**Available, and computed from the dev side only, so it needs no seal opening:** for each
-lexicon file, the fraction of entries that match some dev document surface. A lexicon whose
-entries are all present in dev is a transcription of dev; one whose entries are largely
-absent from dev came from elsewhere. This is a fact about the artefact and the fold the
-agent read, and it is measurable before any test evaluation.
+**Settled by construction, for `lexicons/{lang}/`.** The LexiconBuilder is called before
+iteration 1, when no error list, no detection and no masked text exist, and it is shown no
+corpus text. Its entries cannot be dev transcriptions. No measurement strengthens this; it is
+a property of the input, like "the Profiler never sees corpus text".
+
+**Measured anyway, dev-side and needing no seal opening — as a tripwire on the construction
+rather than a test of the agent:** for each lexicon file, the fraction of entries matching
+some dev surface. **A high fraction is not evidence of transcription** — Spanish provinces
+appear in every fold, which is a closed administrative list working as declared. It is a
+check on the harness: a file with near-total dev overlap, an open-set declared basis, and
+entries a general lexicon would be unlikely to hold is a signal that dev text reached the
+call, which is a bug to report. A structural guarantee is worth a tripwire.
+
+**`basis` × transfer is the cross-check that makes the declaration falsifiable.** Each
+lexicon file declares a `lexicon_basis`, and the basis predicts transfer:
+`administrative_enumeration` and `morphological_class` are closed or fold-independent and
+predict high fires retention; `general_knowledge_named_entities` is an open set and predicts
+nothing. **A file declared `administrative_enumeration` whose retention is low has a
+falsified self-description**, reportable independently of the arm's leak rate. The comparison
+pair is §6.7.3's measured 46.5% against 93.0% at unchanged precision.
 
 **Available from the single sealed opening, in aggregate only:** the number of entries with
 at least one test-fold match, and the fires-retained ratio of §6.7.3. **Per-entry test
@@ -4482,12 +4539,25 @@ appear in the sealed fold. `paths.armlexicon` is deny-listed for adjacent reason
 (`config/naming.yaml`) and this block does not weaken that: only counts and ratios leave the
 sealed run.
 
-**Not available, and this is the limit.** Neither figure separates *an agent that generalised
-well* from *an agent whose dev transcription happened to overlap the test fold*, because
-both produce high retention. The two are separable only by a lexicon built without seeing
-dev at all, which is a different arm. **So the honest statement is that the arm measures
-whether the lexicon is a dev transcription, and does not measure whether a non-transcribed
-lexicon generalises.** `lexicon_builder.md` records the same limitation at the prompt level.
+**Not available, and this is the limit — restated after the correction.** Two things, and the
+second is the one that matters:
+
+1. **Whether a non-transcribed lexicon generalises well, or merely overlaps.** Both produce
+   high retention. Separating them would need a fold unrelated to the lexicon's author, which
+   every fold here is — so the question is really whether MEDDOCAN's surrogate names and the
+   agent's parametric knowledge overlap. That is a fact about the corpus, not about the agent.
+2. **Whether the RuleAuthor's inline `terms` are dev transcriptions.** They are written from
+   dev errors, so in the relevant sense they are, and §6.7.3's 18.35pp is what that costs.
+   **`port-multi` does not close that channel.** So the arm's gazetteer behaviour is a mixture
+   of one artefact that provably cannot transcribe and one that provably can, separable by
+   rule form and by no measurement of the lexicon alone.
+
+**So the honest statement is narrower than "the arm measures whether agent-authored lexicons
+generalise", and narrower than what this section first claimed.** It measures whether an agent
+asked for a lexicon without corpus access produces one that fires at all, and it measures each
+declared basis against observed transfer. The transcription-versus-generalisation contrast is a
+property of the RuleAuthor's `terms`, which this arm inherits unchanged.
+`lexicon_builder.md` §5 records the same split at the prompt level.
 
 #### 6.7.6 What the Profiler and the Mapper are evaluated on instead
 
