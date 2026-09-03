@@ -81,10 +81,9 @@ and note types, with annotation-free supervision.
 ## 뮤테이션 게이트 — 전량 실행을 언제 요구하나
 
 킬 카운트는 `tests/mutations/run.py` 의 `TEST_FILES` 목록 **전체**에 대한 값이다.
-전량은 현재 185건이고 8샤드로 **2.20시간 실측**이다 (`tests/mutations/parallel.py`,
-185건 전량 · 스위트 1945건 기준). 직렬로는 약 15시간이고 도출값이며 실측이 아니다.
-`TEST_FILES` 가 29개 · 스위트 1982건으로 늘었으므로 다음 전량은 약 2.3시간이다 —
-이것도 도출값이다. 실측 시점은 `docs/notes/mutation-full-runs.md` 에만 있다.
+전량은 현재 185건이고 8샤드로 **2.21시간 실측**이다 (`tests/mutations/parallel.py`,
+185건 전량 · `TEST_FILES` 29개 · 스위트 1982건 기준). 직렬로는 약 15시간이고
+도출값이며 실측이 아니다. 실측 시점은 `docs/notes/mutation-full-runs.md` 에만 있다.
 매 커밋에 낼 수 있는 비용이 아니므로, 매번 판단하지 않도록 기준을 여기 고정한다.
 근거와 비용 실측은 `tests/mutations/README.md` §"Running all of it".
 

@@ -92,8 +92,8 @@ in `docs/notes/mutation-full-runs.md` alongside what that run did **not** measur
 | `no_bom_shift` | offsets are not decremented by the BOM length | same one-character error, reached from the other direction | **157** |
 | `assert_offsets_noop` | `Document.assert_offsets` returns immediately | the §9.7 assertion stops asserting; counts are unaffected, so only tests that slice spans themselves can notice | **3** |
 | `drop_excluded` | `load()` filters out `excluded` spans | §9.1 spans discarded instead of flagged; the canonical count stays a correct 20,538 while the reported exclusion volume becomes unmeasurable | **13** |
-| `familiares_as_other` | `FAMILIARES_SUJETO_ASISTENCIA` moves from `EXCLUDED_TYPES` into `TYPE_MAP` as `OTHER` | an excluded type is scored; every span still loads and the total still reconciles to 22,795, so the corruption is entirely in *which* spans count | **9** |
-| `type_in_both_lists` | the same type is added to `TYPE_MAP` while left in `EXCLUDED_TYPES` | `_check_type_map` must reject it at construction. See "What this found", below | **167** |
+| `familiares_as_other` | `FAMILIARES_SUJETO_ASISTENCIA` moves from `EXCLUDED_TYPES` into `TYPE_MAP` as `OTHER` | an excluded type is scored; every span still loads and the total still reconciles to 22,795, so the corruption is entirely in *which* spans count | **29** |
+| `type_in_both_lists` | the same type is added to `TYPE_MAP` while left in `EXCLUDED_TYPES` | `_check_type_map` must reject it at construction. See "What this found", below | **187** |
 | `missing_test_fold` | `SPLIT_DIRS` loses its `test` entry | before the seal: 750 documents loaded instead of 1,000. Now 750 is correct, so what remains visible is that an *authorised* sealed read would return no sealed documents while the log records a completed evaluation | **2** |
 | `bucket_unknown_types` | `classify()` returns `("OTHER", False)` instead of raising | an unmapped type is scored as a residual bucket. Invisible on today's corpus and waiting for the day a re-release adds a type | **1** |
 
@@ -851,7 +851,7 @@ no enforcement but a field in a log.
 | `absent_token_counts_default_to_zero` | `usage.get("inputTokens")` gains a default of `0` | a partial `usage` block becomes a cost block asserting the call consumed nothing, in the same column as measured counts. CLAUDE.md requires cost beside quality so a gain bought at twice the price is legible; a zero does not weaken that comparison but strengthens it wrongly — the arm that lost a field looks free. The two-argument `.get` is the natural edit, removing an exception from a path nobody has seen fire | **2** |
 | `a_mismatched_model_is_recorded_rather_than_refused` | `_resolution` returns `check_model_resolution(MISMATCH)` where it raises | the mutation that looks like an improvement: it uses the declared vocabulary, loses no information, and puts the disagreement in `metrics.json` where a reader could find it. Recording is strictly more data than refusing — and still wrong, because a `mismatch` row means nobody can say which model produced the artefact, so it is unusable for the one purpose it exists for and writing it down does not make it usable (§10 A2). naming.yaml declares the value so the refusal can name it; declaring is not permission to emit | **3** |
 | `the_client_hardcodes_botocores_default_attempts` | `Config(retries={"max_attempts": 3})` instead of `MAX_ATTEMPTS` | one `invoke()` becomes up to three calls. `MAX_ATTEMPTS = 1`, its comment, and the module docstring's claim that the transport is pinned all stay exactly as they are. The damage is invisible and lands in the cost column: `Response.cost()` reports `llm_calls: 1` because the type is one call, so a throttled run bills three times and reports once — undoing §10 A2's zero-retry symmetry underneath it, in the direction where the throttled arm looks cheap | **2** |
-| `the_reply_text_is_taken_from_the_first_block` | `_text` reads `blocks[:1]` instead of every text block | reverts the client to the shape the response *looks* like it has. Not hypothetical — it is what was written first and it failed on the first real call: this model returns `reasoningContent` and *then* `text`, so a good reply is reported as having none. Kept as a mutation because the fix is invisible in a fixture written from the API docs, which is why `test_bedrock.py`'s fixtures put a reasoning block first by default | **95** |
+| `the_reply_text_is_taken_from_the_first_block` | `_text` reads `blocks[:1]` instead of every text block | reverts the client to the shape the response *looks* like it has. Not hypothetical — it is what was written first and it failed on the first real call: this model returns `reasoningContent` and *then* `text`, so a good reply is reported as having none. Kept as a mutation because the fix is invisible in a fixture written from the API docs, which is why `test_bedrock.py`'s fixtures put a reasoning block first by default | **121** |
 | `the_logging_check_reports_an_unreadable_setting_as_clean` | `check_region` returns `(region, CLEAN)` where it raises on `ClientError` | an IAM denial becomes a clean bill of health, the tool appends a dated record for a region it could not read, the client's gate opens on it, and `compliance.md` — cited by the paper's ethics section — carries a measurement nobody made. The worst failure in the pair, because it manufactures evidence rather than losing it, and the plausible edit: `AccessDeniedException` in an unused region reads as noise, and `cloudtrail:DescribeTrails` already returns exactly that for this principal | **4** |
 | `conftest_availability_from_a_load` | the shared availability fixture goes back to deciding availability by loading the corpus | the defect that shipped four times, reverted. Changes nothing until a real loader bug arrives, and then hides it: measured alongside `type_in_both_lists`, **93 tests skip and 78 non-passing outcomes become 3**, reported as a green suite | **1** |
 | `test_file_shadows_the_shared_fixture` | one test file defines its own `corpus_present`, in the defective form | the propagation rather than the defect: the local definition wins over conftest's silently, and only that file's tests are affected — which is how three files carried it unnoticed | **2** |
@@ -3306,7 +3306,8 @@ not a rule; the reasoning is here, with the measurements it rests on.
 | 176 mutations, 8 shards | **2.02 h** | measured, 2026-08-25 |
 | 179 mutations, 8 shards | **2.07 h** | measured, 2026-08-26 |
 | 181 mutations, 8 shards | **2.05 h** | measured, 2026-08-28 |
-| 185 mutations, 8 shards | **2.20 h** | measured, 2026-09-02 |
+| 185 mutations, 8 shards | **2.20 h** | measured, 2026-09-02, suite 1945 |
+| 185 mutations, 8 shards | **2.21 h** | measured, 2026-09-03, suite 1982 |
 
 The three serial rows are derivations and are marked as such; nobody has spent a serial run to
 check any of them. The first two disagree by more than the mutation count explains — 170 → 179 is
@@ -3363,6 +3364,18 @@ unaccounted for it is small and on the side of the run costing more, not less. *
 model is now measured across 170 → 176 → 185**, with the 179 → 181 step still below its own
 resolution, and it goes on saying what `CLAUDE.md`'s trigger is written on: the cost per mutation
 follows the size of `TEST_FILES`.
+
+**The 2026-09-03 run is the sixth data point, and it is the pair that isolates the denominator
+from the mutation count.** Same 185 mutations, `TEST_FILES` alone moved — 1945 → 1982 tests, a
+factor of 1.019 — and the wall clock went 2.20 h → 2.21 h, 42.8 s per mutation → 43.0 s, a factor
+of 1.005. The model predicted 1.9% and the clock gave 0.5%, a shortfall of 1.4 points against the
+noise floor of about 2 that the 2026-08-28 entry established. **So this step is below its own
+resolution and confirms nothing**, in the same way and for the same reason as 179 → 181. What it
+does do is exclude the alternative reading: with the mutation count held fixed, an added test file
+cost about what the model says it costs and certainly not what a per-mutation model would say,
+which is nothing. No serial row was added for it — 8 × 2.21 h ÷ 1.16 = 15.2 h, unchanged from the
+row above at this precision, and a derivation restated from a figure that moved by less than the
+noise reads as a new measurement.
 
 One thing that reads as a reversal and is not. The serial derivation for 185 comes out at ~15.2 h,
 which is the number the correction below rejected — but not the same number. The rejected fifteen

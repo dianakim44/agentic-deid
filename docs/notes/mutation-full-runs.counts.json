@@ -1,6 +1,6 @@
 {
- "baseline_outcomes": 1945,
- "commit": "031bff3db4797926e72c3638b01eb560683de962",
+ "baseline_outcomes": 1982,
+ "commit": "de526528b932bf0bfa4dd98bf052974ceb2a6e65",
  "counts": {
   "a_ceiling_stop_is_recorded_as_converged": 4,
   "a_checksum_accepts_every_match": 1,
@@ -52,7 +52,7 @@
   "detect_fold_drops_overlaps": 3,
   "drift_is_checked_against_todays_window_not_the_recorded_one": 3,
   "drop_excluded": 13,
-  "familiares_as_other": 9,
+  "familiares_as_other": 29,
   "filled_prompt_exposes_its_text": 2,
   "filled_prompt_paths_allowed": 4,
   "fold_from_directory_not_file": 2,
@@ -122,7 +122,7 @@
   "the_abandoned_block_uses_the_cost_block_names": 20,
   "the_abandoned_gate_is_the_draw_count_alone": 2,
   "the_arm_and_the_round_are_ignored_off_the_sealed_path": 1,
-  "the_arm_axis_comes_back_off_an_auxiliary_input": 5,
+  "the_arm_axis_comes_back_off_an_auxiliary_input": 6,
   "the_arm_cell_is_a_constant_again": 2,
   "the_arm_freeze_guard_only_checks_the_file": 7,
   "the_arm_reports_no_model_and_no_cost_to_the_scorer": 4,
@@ -171,7 +171,7 @@
   "the_probe_error_carries_the_exception_message": 3,
   "the_provenance_fields_are_optional_again": 5,
   "the_recorded_files_list_is_ignored_in_favour_of_the_fields_present": 1,
-  "the_reply_text_is_taken_from_the_first_block": 95,
+  "the_reply_text_is_taken_from_the_first_block": 121,
   "the_report_reads_its_own_round_as_the_masked_one": 1,
   "the_role_is_appended_at_the_end_of_the_line": 2,
   "the_round_s_files_are_written_by_every_arm": 3,
@@ -183,12 +183,12 @@
   "the_writer_adds_the_rounds_up_itself": 11,
   "the_writer_calls_the_stopping_rule_itself": 1,
   "top_level_leak_allowed": 1,
-  "type_in_both_lists": 167,
+  "type_in_both_lists": 187,
   "unsealed_load_filters_instead_of_not_reaching": 160,
   "utf8_sig": 157,
   "zero_minutes_read_as_not_started": 1
  },
- "date": "2026-09-02",
+ "date": "2026-09-03",
  "dirty": false,
  "test_files": [
   "tests/test_meddocan_loader.py",
@@ -218,6 +218,7 @@
   "tests/test_masked_tag.py",
   "tests/test_window_widening.py",
   "tests/test_call_role.py",
-  "tests/test_loop.py"
+  "tests/test_loop.py",
+  "tests/test_multi.py"
  ]
 }
