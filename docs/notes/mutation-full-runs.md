@@ -28,105 +28,47 @@ CLAUDE.md's rule that re-anchored mutations are re-measured **regardless of whet
 scope** is what this section serves: an anchor edit is a change to the mutation itself, so its old
 count describes a different experiment, and that fact is invisible from the count alone.
 
-### Owed to the next full run — opened 2026-09-01, and this one meets the trigger
+### Settled by the full run of 2026-09-02 — the three entries that stood here are discharged
 
-**A full run is required by CLAUDE.md and was not made. This is a deferral, not an
-exemption.** The change touches **two `src/` modules**, which is the second trigger verbatim:
-`src/rules.py` (the lexicon collection becomes an argument threaded through `_read_lexicon`,
-`_rule_from`, `load_rules` and `load_for_corpus`, plus two new path builders) and
-`src/eval/run_fold.py` (one forwarded keyword). It also adds two mutations — 183 → **185** —
-and re-anchors one, `run_fold_infers_its_own_rule_path`, whose anchor was the
-`load_for_corpus` call that grew the argument.
+**185 of 185 caught, nothing survived, at commit `031bff3db479` with a clean tree.** The record
+is appended below. Three "owed to the next full run" entries stood above this line and are
+deleted rather than kept, which is this section's rule: an entry goes when a full run has
+re-measured it.
 
-Deferred to the commit that wires `port-multi`, which meets the same trigger far more
-strongly: `src/orchestrate.py`, `src/porting/loop.py`, `src/sample.py` and `config/naming.yaml`
-all move there, and a full run spent today would be superseded within the same day's work.
-`TEST_FILES` membership is unchanged at 28, so the denominators below still hold and it is a
-deferral of *confirmation*, not of comparability.
-
-**What the impact-scope run measured, and it is more than the usual scope entry.** Every
-mutation whose target is one of the two changed modules — 32 of the 185, run as four
-concurrent shards, baseline **1889 passed** in all four (the 2026-08-28 full run's baseline was
-1880; the nine additional tests are this commit's six and the 2026-08-29 entry's two, plus one
-edited-not-added). Result: **32 of 32 caught, and 30 of the 32 counts are identical to the
-2026-08-28 sidecar — not one moved.** The two new ones measured
-`a_lexicon_falls_back_to_the_hand_written_collection` **2** and
-`the_lexicon_collection_is_dropped_on_the_way_down` **1**, and the re-anchored one measured
-**1**, unchanged.
-
-Scope chosen as the two changed modules rather than by the runtime reach of the changed test
-files, and the narrowing is argued rather than assumed: the assertions added to
-`tests/test_rules.py` and `tests/test_run_fold.py` are all about which lexicon collection a
-rule reads, a question no code outside those two modules answers. Added assertions can only
-raise a count, so a mutation they cannot reach cannot have moved. **What is therefore not
-re-measured is the other 153**, and the expectation recorded for them is none — CLAUDE.md's
-rule against writing "unchanged" for a value the current suite has not produced.
-
-**A bookkeeping finding, unrelated to this change and worth the next full run knowing.**
-`tests/mutations/README.md`'s tables disagreed with the 2026-08-28 sidecar in **33 of the 180
-comparable cells**, always low — they were not synced after that run. Six of the 33 fall in
-this scope, were re-measured here, agree with the sidecar exactly, and are corrected in the
-table by this commit (`a_cue_span_swallows_the_cue` 2 → 3, `run_fold_detects_separately`
-4 → 5, `detect_fold_drops_overlaps` 2 → 3, `spans_file_carries_the_surface` 34 → 40,
-`run_fold_omits_the_layer` 32 → 38, `run_fold_writes_a_null_model_id` 45 → 49). **The other 27
-are left alone deliberately** and marked `†` in the table by the follow-up commit, meaning
-*not re-measured* — a lower bound, not a current value. They could be copied from the sidecar,
-which is a run record and not a guess, but copying 27 cells for modules this commit did not
-touch would put numbers in the table that no commit measured, and the table is what gets
-cited. **This run settles them**: it re-measures all 27, and whoever records it rewrites those
-cells from this run's own sidecar and removes the markers.
-`test_a_readme_count_that_contradicts_the_last_full_run_is_marked` fails if a marker is
-missing *or* if one survives the drift it describes, so the removal is not left to memory.
-
-The first count written here was "24 of 127", from a scan that missed three tables and
-mis-split the one row whose *changes* cell contains a literal `|` inside backticks. 33 of 180
-is the figure from the code-aware parse that the test now uses; the earlier pair of numbers
-was never a measurement of anything and is superseded rather than reconciled.
-
-### Owed to the next full run — opened 2026-08-29, after the sealed opening was read back
-
-**No full run is required by CLAUDE.md and none was made.** One `src/` module again —
-`run_sealed_eval`, where `sealed_run_block` stopped sampling the tree state itself and now
-takes it from `evaluate`, which samples once before `load_sealed` — plus one added mutation
-(`the_tree_state_is_sampled_after_the_run_wrote_to_the_tree`, measured **1**), two added
-tests, and four edited assertions in tests that are already `TEST_FILES` members. Membership
-is unchanged at 28, so every count below keeps its denominator. The added mutation's count is
-a full-denominator figure for the reason the entry beneath this one gives: `run.py` measures
-each mutation against the whole suite, 1883 tests at this baseline.
-
-**What is owed is different in kind from the entry below, and the difference matters.** The
-four edited assertions are *loosenings*: absolute expectations became relative ones.
-
-| test | was | is |
+| opened | what it owed | how it came back |
 |---|---|---|
-| `test_the_authorised_caller_passes_the_gate_and_is_logged` | `count_runs(CORPUS) == 1` | `== before + 1` |
-| `test_rows_are_numbered_consecutively` | row numbers `"1"`, `"2"` | `str(rows + 1)`, `str(rows + 2)` |
-| `test_count_runs_still_keys_on_the_corpus_column` | `count_runs(CORPUS) == 1` | `== before + 1` |
-| `test_verify_dev_writes_nothing_and_opens_nothing` | the sealed record does not exist | the sealed record's bytes are unchanged |
+| 2026-09-01 | confirmation for the lexicon-collection change — two `src/` modules, two added mutations, one re-anchor — deferred to the `port-multi` commit | the deferral was honoured at the commit named; the two added mutations reproduce their scope-run counts (2 and 1) and the re-anchored `run_fold_infers_its_own_rule_path` reproduces its 1 |
+| 2026-08-29 | no expectation in either direction for the whole seal path, because four assertions had been *loosened* from absolute to relative and a loosening can in principle lower a count | **no count fell anywhere in the set.** The tracing recorded there as an argument is now a measurement on the only question it was making a claim about |
+| 2026-08-28 | confirmation that the other 181 counts, measured at baseline 1880, were not left low by the one test added afterwards | measured at baseline 1945; the added mutation `the_entry_point_calls_its_own_copy_of_main` reproduces its 1 |
 
-A relative assertion can pass where an absolute one failed, so unlike an added test — which
-can only raise a count — these could in principle *lower* one. Tracing each of the four
-suggests they cannot: the temp log holds exactly one real row of the same corpus, so
-`before + 1` and `== 1` diverge only under a mutation that changes what `count_runs` counts,
-and in those cases the relative form fails at least as early. The fourth was strictly
-broken, not loosened — it asserted a file's absence after the file legitimately existed, so
-it failed at baseline and killed nothing.
+**Also settled: the 27 README cells marked `†`.** They were the 2026-09-01 entry's bookkeeping
+finding — cells that contradicted the 2026-08-28 sidecar and had not been re-measured, so they
+carried a marker meaning *lower bound, not a current value*. This run re-measured all 27, and
+they are rewritten in `tests/mutations/README.md` from this run's own sidecar with the markers
+removed, together with one cell that drifted after the marking was done and so was never marked
+(`drift_is_checked_against_todays_window_not_the_recorded_one`, 2 → 3). Twenty-eight cells
+changed and all 28 rose, which is the only direction the drift has.
+`test_a_readme_count_that_contradicts_the_last_full_run_is_marked` is what took the markers off
+rather than memory: it fails on a surplus `†` as well as a missing one.
 
-**That tracing is an argument and not a measurement, and it is recorded as an argument.**
-The comparable numbers do not exist: no run since the edits has measured the mutations in
-those tests' runtime reach, which is the whole seal path — the mutations in
-`src/corpora/base.py`, `src/eval/sealed_log.py`, `src/eval/run_sealed_eval.py` and the three
-provenance-field mutations in `src/eval/scorer.py`. So this entry claims no expectation for
-them, in either direction. Running that scope serially costs about as much as running all
-183 in eight shards, which is the reason to settle it with a full run rather than a scope
-one when the time is next spent.
+**The baseline moved 1880 → 1945 tests**, all eight shards agreeing — one of `parallel.py`'s five
+invariants, so the number is checked and not merely reported. Eleven counts rose, none fell, four
+were first measured under the full denominator and 170 are unchanged; the largest single rise is
+`the_per_iteration_key_replaces_the_arm_level_one` 146 → 164. With no decrease anywhere, nothing
+in the record below describes a guarantee that has since been weakened.
 
 ### The four tests the sealed opening turned red — same event, recorded here because it is a gate fact
 
-Commit `de1d881`, which recorded the opening, left the suite **red**: the four tests above
-asserted a never-opened fold, and opening one falsified them. Two read `count_runs == 1` on
-a `temp_log` seeded from the real log, and one required the sealed `metrics.json` not to
-exist.
+Commit `de1d881`, which recorded the opening, left the suite **red**: four tests asserted a
+never-opened fold, and opening one falsified them. Two read `count_runs == 1` on a `temp_log`
+seeded from the real log (`test_the_authorised_caller_passes_the_gate_and_is_logged`,
+`test_count_runs_still_keys_on_the_corpus_column`), one asserted the row numbers `"1"` and
+`"2"` (`test_rows_are_numbered_consecutively`), and one required the sealed `metrics.json` not
+to exist (`test_verify_dev_writes_nothing_and_opens_nothing`). The first three were repaired by
+loosening the absolute expectations to relative ones; the fourth was strictly broken rather
+than loosened, since it asserted a file's absence after the file legitimately existed, and so
+had been failing at baseline and killing nothing. That loosening is what the 2026-08-29 debt
+entry was about, and the full run of 2026-09-02 settled it — no count fell.
 
 The gate consequence is the part that belongs in this file rather than only in
 `tests/mutations/README.md`: **`run.py` refuses to measure anything on a red baseline** — it
@@ -134,36 +76,6 @@ prints `BASELINE IS NOT GREEN` and aborts before applying a single mutation. So 
 opening and the fix, no kill count could be produced at all, by a scope run or a full one.
 An opening was the one event guaranteed to trigger it, and the tests that broke were the
 seal's own.
-
-### Owed to the next full run — opened 2026-08-28, after that day's full run
-
-**No full run is required by CLAUDE.md and none was made.** The change is one `src/` module
-and one block inside it — `run_sealed_eval`'s `__main__` block, which called this file's copy
-of `main` instead of the imported module's and so could not satisfy the loader's identity
-check — plus one added mutation and one added test inside an existing `TEST_FILES` member.
-Each of those three is on CLAUDE.md's impact-scope list, and `TEST_FILES` membership did not
-move, so every count in the record below keeps its denominator.
-
-**The added mutation's count is not a scope-run figure in the sense that matters.**
-`the_entry_point_calls_its_own_copy_of_main` measured **1**, and `run.py` measures every
-mutation against the whole `TEST_FILES` suite — the baseline for that run was 1881 tests. A
-scope run and a full run differ in *how many mutations* they measure, never in the suite each
-one is measured against. So the 182nd count is comparable to the other 181 as it stands.
-
-What is owed is narrower than usual, and it is worth naming precisely rather than as
-"confirmation": the other 181 counts were measured at baseline 1880 and the baseline is now
-1881. One added test can only raise a count, so no recorded number can be too high, and any
-that is too low is too low by the number of the new test's assertions that happen to fail
-under that mutation. That is the whole of the debt.
-
-**A note on why this entry exists at all, given that nothing is required.** The mutation it
-adds is a *seal* mutation, and `docs/notes/sealed-eval-preflight.md` item 5 makes a sealed
-evaluation the moment CLAUDE.md's "before citing a count" trigger fires for exactly those.
-`test_the_full_run_covered_the_current_test_files` passes — the currency condition is about
-`TEST_FILES` and `TEST_FILES` is unchanged — so item 5 is satisfied on its own terms and the
-opening proceeded. Written down because that is a judgement, not a check, and a reader
-comparing the sealed row's commit against the last full-run commit will find them different
-and should find the reason here rather than reconstruct it.
 
 ### Nothing outstanding — settled by the full run of 2026-08-28, the same day it was opened
 
@@ -1266,6 +1178,236 @@ Unchanged: 177.
 | `type_in_both_lists` | 164 | 2 |
 | `unsealed_load_filters_instead_of_not_reaching` | 157 | 1 |
 | `utf8_sig` | 154 | 23 |
+| `zero_minutes_read_as_not_started` | 1 | 1 |
+
+</details>
+
+## 2026-09-02 — full run
+
+- commit `031bff3db479` (clean working tree)
+- 8 shards, 185 of 185 mutations measured
+- wall clock **2.20 h** (7918 s)
+- tree fingerprint `976b4f854dcf74ac` (all shards agree)
+- baseline 1945 tests (all shards agree)
+
+| verdict | n |
+|---|---|
+| caught | 185 |
+| survived | 0 |
+| stale | 0 |
+| broken | 0 |
+| dirty | 0 |
+
+### Kill counts that differ from the previous record
+
+No decreases.
+
+Increases:
+
+- `an_unreadable_tree_state_reads_as_clean` 119 → 121
+- `arm_rules_path_drops_the_axes` 81 → 84
+- `drift_is_checked_against_todays_window_not_the_recorded_one` 2 → 3
+- `no_bom_shift` 154 → 157
+- `the_abandoned_block_uses_the_cost_block_names` 19 → 20
+- `the_folds_seconds_go_to_the_round_and_not_the_arm` 84 → 87
+- `the_per_iteration_key_replaces_the_arm_level_one` 146 → 164
+- `the_reply_text_is_taken_from_the_first_block` 92 → 95
+- `type_in_both_lists` 164 → 167
+- `unsealed_load_filters_instead_of_not_reaching` 157 → 160
+- `utf8_sig` 154 → 157
+
+First measured here (4): `a_lexicon_falls_back_to_the_hand_written_collection`, `the_entry_point_calls_its_own_copy_of_main`, `the_lexicon_collection_is_dropped_on_the_way_down`, `the_tree_state_is_sampled_after_the_run_wrote_to_the_tree`
+
+Unchanged: 170.
+
+<details><summary>All measured counts</summary>
+
+| mutation | kills | min_kills |
+|---|---|---|
+| `a_ceiling_stop_is_recorded_as_converged` | 4 | 2 |
+| `a_checksum_accepts_every_match` | 1 | 1 |
+| `a_cue_span_swallows_the_cue` | 3 | 1 |
+| `a_dirty_tree_reads_as_clean` | 7 | 3 |
+| `a_disagreeing_prefix_still_opens_the_layer` | 1 | 1 |
+| `a_duplicate_rule_id_is_allowed` | 1 | 1 |
+| `a_flag_overlapping_a_mask_tag_is_kept_when_it_is_not_contained` | 3 | 2 |
+| `a_format_failure_writes_zeroed_metrics_too` | 1 | 1 |
+| `a_gazetteer_term_is_a_regex` | 2 | 1 |
+| `a_gazetteer_term_needs_a_word_character_at_each_edge` | 1 | 1 |
+| `a_heterogeneous_union_prints_one_of_its_types` | 4 | 3 |
+| `a_later_round_audits_and_samples_round_one` | 2 | 2 |
+| `a_lexicon_falls_back_to_the_hand_written_collection` | 2 | 1 |
+| `a_lexicon_name_may_traverse_directories` | 1 | 1 |
+| `a_mismatched_model_is_recorded_rather_than_refused` | 3 | 2 |
+| `a_non_target_type_may_be_a_rule_target` | 1 | 1 |
+| `a_null_commit_needs_no_unknown_tree` | 1 | 1 |
+| `a_real_arm_may_draw_a_practice_number` | 4 | 1 |
+| `a_rehearsal_may_draw_a_real_number` | 5 | 1 |
+| `a_round_other_than_the_last_can_be_scored` | 4 | 2 |
+| `a_round_with_no_score_walks_back_to_the_last_one` | 1 | 1 |
+| `a_rule_layer_is_derived_from_the_rule_id` | 1 | 1 |
+| `a_stale_patch_exemption_is_ignored` | 1 | 1 |
+| `a_total_below_its_round_is_published` | 2 | 2 |
+| `absent_token_counts_default_to_zero` | 2 | 1 |
+| `allowlist_may_name_corpus_paths` | 2 | 1 |
+| `an_empty_lifecycle_mapping_is_written_as_no_probe` | 1 | 1 |
+| `an_out_of_range_column_is_snapped_to_the_line` | 2 | 2 |
+| `an_undefined_rate_prints_as_zero` | 1 | 1 |
+| `an_unimplemented_checksum_is_ignored` | 1 | 1 |
+| `an_unknown_flag_field_is_ignored_instead_of_refused` | 8 | 1 |
+| `an_unknown_language_gets_every_layer` | 1 | 1 |
+| `an_unreadable_tree_state_reads_as_clean` | 121 | 3 |
+| `arm_rules_path_drops_the_axes` | 84 | 3 |
+| `arm_rules_path_drops_the_iteration` | 10 | 2 |
+| `arm_rules_path_loses_the_rules_component` | 7 | 1 |
+| `arm_started_reads_the_last_line_only` | 1 | 1 |
+| `assert_offsets_noop` | 3 | 3 |
+| `both_halves_of_the_export_use_one_mode` | 4 | 2 |
+| `bucket_unknown_types` | 1 | 1 |
+| `by_rule_fp_from_coverage` | 6 | 1 |
+| `caching_is_inferred_from_the_prompt_carrying_a_boundary` | 2 | 2 |
+| `check_rules_detects_separately` | 1 | 1 |
+| `check_rules_reads_every_fold` | 3 | 1 |
+| `conftest_availability_from_a_load` | 1 | 1 |
+| `converged_is_stored_beside_the_reason` | 1 | 1 |
+| `delta_reverts_to_the_constant_half_point` | 6 | 2 |
+| `detect_fold_drops_overlaps` | 3 | 1 |
+| `drift_is_checked_against_todays_window_not_the_recorded_one` | 3 | 2 |
+| `drop_excluded` | 13 | 11 |
+| `familiares_as_other` | 9 | 7 |
+| `filled_prompt_exposes_its_text` | 2 | 1 |
+| `filled_prompt_paths_allowed` | 4 | 1 |
+| `fold_from_directory_not_file` | 2 | 1 |
+| `freeze_guard_only_checks_the_file` | 8 | 1 |
+| `fully_covered_is_relaxed` | 15 | 1 |
+| `generated_accepts_a_bare_date` | 3 | 1 |
+| `greedy_allows_reuse` | 10 | 1 |
+| `greedy_tiebreak_dropped` | 2 | 1 |
+| `grouping_name_only` | 2 | 1 |
+| `grouping_numeric_suffix_only` | 1 | 1 |
+| `human_log_allowed_under_any_arm` | 1 | 1 |
+| `human_log_path_from_a_literal` | 1 | 1 |
+| `initial_pool_excludes_train_instead_of_selecting_dev` | 1 | 1 |
+| `k_drops_to_one_so_consecutive_means_nothing` | 11 | 3 |
+| `layer_family_union_becomes_subset` | 2 | 1 |
+| `leak_rate_from_assignment` | 11 | 1 |
+| `log_append_disabled` | 2 | 2 |
+| `logging_gate_defaults_to_open` | 4 | 2 |
+| `missed_is_the_unmatched_gold_rather_than_the_uncovered` | 3 | 3 |
+| `missing_test_fold` | 2 | 1 |
+| `no_bom_shift` | 157 | 23 |
+| `non_target_filter_removed` | 9 | 1 |
+| `non_target_types_hardcoded_not_read_from_config` | 1 | 1 |
+| `only_the_round_the_report_names_is_checked` | 1 | 1 |
+| `only_the_score_is_scoped_to_the_round` | 32 | 1 |
+| `only_tracked_modifications_count_as_dirty` | 2 | 2 |
+| `overlapping_mask_tags_are_accepted` | 5 | 3 |
+| `prompt_tokens_is_what_the_invoice_was_computed_on` | 4 | 3 |
+| `render_offsets_are_document_offsets` | 1 | 1 |
+| `rendered_window_may_be_redirected` | 2 | 1 |
+| `renderer_writes_a_debug_copy` | 1 | 1 |
+| `round_one_ignores_the_feedback_it_was_handed` | 4 | 1 |
+| `round_one_reassembles_the_baselines_prompt` | 1 | 1 |
+| `rule_id_vocabulary_not_checked` | 25 | 1 |
+| `rule_source_not_recorded` | 2 | 1 |
+| `rule_source_recorded_absolute` | 7 | 1 |
+| `run_fold_detects_separately` | 5 | 1 |
+| `run_fold_hardcodes_the_absent_value` | 1 | 1 |
+| `run_fold_infers_its_own_rule_path` | 1 | 1 |
+| `run_fold_omits_the_layer` | 38 | 1 |
+| `run_fold_reads_the_sealed_fold` | 2 | 1 |
+| `run_fold_skips_axis_validation` | 1 | 1 |
+| `run_fold_writes_a_null_model_id` | 49 | 1 |
+| `run_fold_writes_unsorted_spans` | 3 | 1 |
+| `sample_pool_not_sorted` | 3 | 1 |
+| `sample_seed_from_process_hash` | 2 | 1 |
+| `sealed_callable_from_anywhere` | 2 | 2 |
+| `sealed_exempt_from_exit_code` | 1 | 1 |
+| `sealed_flag_not_cleared` | 1 | 1 |
+| `sealed_root_falls_back_to_corpus` | 1 | 1 |
+| `self_report_defaults_to_none` | 1 | 1 |
+| `self_report_refuses_the_violation` | 3 | 1 |
+| `spans_file_carries_the_surface` | 40 | 1 |
+| `split_disagreement_ignored` | 1 | 1 |
+| `split_file_span_count` | 3 | 1 |
+| `split_ignores_membership` | 1 | 1 |
+| `split_verify_noop` | 2 | 1 |
+| `staged_sealed_not_escalated` | 2 | 2 |
+| `started_where_reads_the_worktree_only` | 8 | 1 |
+| `summary_reports_offsets` | 1 | 1 |
+| `summing_carries_an_undeclared_key_into_the_total` | 1 | 1 |
+| `summing_takes_the_longest_call_as_the_wall_time` | 1 | 1 |
+| `tags_out_of_order_are_sorted_instead_of_refused` | 2 | 2 |
+| `terminal_exit_does_not_check_the_destination` | 3 | 1 |
+| `test_file_shadows_the_shared_fixture` | 2 | 2 |
+| `the_abandoned_attempt_count_comes_from_the_log_alone` | 1 | 1 |
+| `the_abandoned_block_uses_the_cost_block_names` | 20 | 3 |
+| `the_abandoned_gate_is_the_draw_count_alone` | 2 | 2 |
+| `the_arm_and_the_round_are_ignored_off_the_sealed_path` | 1 | 1 |
+| `the_arm_axis_comes_back_off_an_auxiliary_input` | 5 | 4 |
+| `the_arm_cell_is_a_constant_again` | 2 | 2 |
+| `the_arm_freeze_guard_only_checks_the_file` | 7 | 3 |
+| `the_arm_reports_no_model_and_no_cost_to_the_scorer` | 4 | 2 |
+| `the_arms_total_is_the_last_rounds_cost` | 3 | 1 |
+| `the_assembled_total_is_trusted_rather_than_checked` | 1 | 1 |
+| `the_audit_report_gets_a_second_path_key` | 1 | 1 |
+| `the_audit_report_is_allowed_instead_of_denied` | 4 | 2 |
+| `the_audit_report_is_read_as_the_previous_rounds_file` | 75 | 1 |
+| `the_audit_report_records_no_draw_number` | 36 | 3 |
+| `the_baseline_draws_error_spans` | 2 | 1 |
+| `the_cache_boundary_crosses_onto_the_masked_document` | 2 | 1 |
+| `the_call_is_logged_after_the_response_is_judged` | 8 | 1 |
+| `the_call_role_is_written_without_being_validated` | 1 | 1 |
+| `the_captured_surface_check_reads_only_direct_stream_access` | 1 | 1 |
+| `the_captured_surface_control_is_scoped_to_the_function` | 1 | 1 |
+| `the_client_hardcodes_botocores_default_attempts` | 2 | 1 |
+| `the_conftest_suite_glob_points_one_level_deep` | 5 | 1 |
+| `the_declared_rule_file_language_is_trusted` | 2 | 1 |
+| `the_entry_point_calls_its_own_copy_of_main` | 1 | 1 |
+| `the_export_index_is_the_in_scope_position` | 2 | 1 |
+| `the_export_reads_the_missing_index_as_zero` | 1 | 1 |
+| `the_failure_record_paraphrases_the_validator` | 3 | 1 |
+| `the_final_rounds_duplicate_comes_from_a_second_scoring` | 1 | 1 |
+| `the_folds_seconds_go_to_the_round_and_not_the_arm` | 87 | 1 |
+| `the_freeze_record_claims_the_sampling_parameters_applied` | 5 | 2 |
+| `the_freeze_record_drops_the_empty_block_marking` | 4 | 1 |
+| `the_frozen_split_check_ignores_a_moved_document` | 3 | 2 |
+| `the_frozen_split_is_verified_after_the_read` | 1 | 1 |
+| `the_history_is_pre_seeded_with_this_rounds_rate` | 5 | 3 |
+| `the_iteration_allow_pattern_covers_the_whole_directory` | 4 | 1 |
+| `the_language_layer_is_a_substring_test` | 3 | 1 |
+| `the_language_layer_is_keyed_on_the_id_the_model_wrote` | 3 | 1 |
+| `the_lexicon_collection_is_dropped_on_the_way_down` | 1 | 1 |
+| `the_lifecycle_block_moves_into_the_run_block` | 2 | 2 |
+| `the_lifecycle_probe_can_abort_the_arm` | 2 | 2 |
+| `the_logging_check_reports_an_unreadable_setting_as_clean` | 4 | 2 |
+| `the_mask_tags_are_emitted_in_the_order_they_were_applied` | 91 | 3 |
+| `the_next_draw_counts_the_draws_that_exist` | 2 | 2 |
+| `the_parse_error_quotes_the_line_it_choked_on` | 1 | 1 |
+| `the_patch_allowlist_stops_requiring_a_reason` | 2 | 2 |
+| `the_patch_check_credits_a_bare_function_name` | 1 | 1 |
+| `the_patch_check_credits_a_whole_file` | 1 | 1 |
+| `the_per_iteration_key_replaces_the_arm_level_one` | 164 | 2 |
+| `the_practice_window_may_overlap_iteration_one` | 4 | 1 |
+| `the_preserved_draw_is_written_to_the_canonical_path` | 4 | 3 |
+| `the_probe_error_carries_the_exception_message` | 3 | 1 |
+| `the_provenance_fields_are_optional_again` | 5 | 3 |
+| `the_recorded_files_list_is_ignored_in_favour_of_the_fields_present` | 1 | 1 |
+| `the_reply_text_is_taken_from_the_first_block` | 95 | 1 |
+| `the_report_reads_its_own_round_as_the_masked_one` | 1 | 1 |
+| `the_role_is_appended_at_the_end_of_the_line` | 2 | 1 |
+| `the_round_s_files_are_written_by_every_arm` | 3 | 2 |
+| `the_rule_authors_prompt_is_cached_too` | 2 | 2 |
+| `the_score_block_carries_the_run_and_cost_blocks_too` | 1 | 1 |
+| `the_suite_glob_points_one_level_deep` | 5 | 1 |
+| `the_tree_state_is_sampled_after_the_run_wrote_to_the_tree` | 1 | 1 |
+| `the_two_arm_spellings_are_merged_instead_of_refused` | 1 | 1 |
+| `the_writer_adds_the_rounds_up_itself` | 11 | 1 |
+| `the_writer_calls_the_stopping_rule_itself` | 1 | 1 |
+| `top_level_leak_allowed` | 1 | 1 |
+| `type_in_both_lists` | 167 | 2 |
+| `unsealed_load_filters_instead_of_not_reaching` | 160 | 1 |
+| `utf8_sig` | 157 | 23 |
 | `zero_minutes_read_as_not_started` | 1 | 1 |
 
 </details>
