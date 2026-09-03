@@ -637,7 +637,7 @@ That is the mutation, and its count of **1** is honest: there is one test that c
 see it, because every other check in `check_run` passes on the contradictory block.
 
 Counts are the number of tests that fail or error across the whole of `run.py`'s
-`TEST_FILES` — **28 files, 1945 tests**, measured by the harness's own baseline run.
+`TEST_FILES` — **29 files, 1982 tests**, measured by the harness's own baseline run.
 Errors count as kills: a mutation that breaks the module-scoped fixture takes whole tests
 out, and those are caught, not uncounted.
 

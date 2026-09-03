@@ -28,6 +28,55 @@ CLAUDE.md's rule that re-anchored mutations are re-measured **regardless of whet
 scope** is what this section serves: an anchor edit is a change to the mutation itself, so its old
 count describes a different experiment, and that fact is invisible from the count alone.
 
+### Owed to the next full run — opened 2026-09-02, and it is a denominator change
+
+**`tests/test_multi.py` joined `TEST_FILES`: 28 files → 29, and the mutation baseline
+1945 → 1982 tests, measured in a `make_tree` copy rather than extrapolated.** This is the
+first trigger in CLAUDE.md's list, the one that is not about a count going stale: every one of
+the 185 counts appended below is a fraction of `TEST_FILES`, and adding a member makes them
+values against a *different denominator*. Nothing short of a full run settles it, because the
+change is to the denominator of all 185 and to none of them individually.
+
+**It took a second change to make that baseline green, and that change is on the trigger list
+too.** `profiles/` was not in `COPIED`, so `tests/test_multi.py`'s fixture — which copies the
+real `profiles/{corpus}.raw.json` into its redirected root, because the Profiler's prompt is
+built from that inventory — raised `FileNotFoundError` in 28 of its 37 tests and the baseline
+came back `1954 passed, 28 errors`. `make_tree` is one of the measuring devices CLAUDE.md names,
+so on its own it would require a full run; here it is folded into the same debt. It also moves
+`tree_fingerprint`, which is why this run's recorded fingerprint is not reproducible from the
+current tree and the next run's will differ for a reason that is not a source change.
+
+One count was re-measured incidentally by the check that established the baseline, and it is
+recorded as the single measurement it is rather than as evidence about the other 184:
+`utf8_sig` **157** under the 1982-test denominator, identical to its 157 under 1945. So the
+added file is not one that reaches every mutation.
+
+**`test_the_full_run_covered_the_current_test_files` fails until that run is made, and the
+failure is not an accident — it is this entry's other half.** It names the added file and the
+date of the run it is measured against. This prose is here because the test can say what
+changed and not why it was worth changing; the suite is red by exactly that one test, which
+sits outside `TEST_FILES` and so cannot redden any mutation baseline.
+
+The direction is claimable and the values are not. A whole added test file can only *raise* a
+count — it adds 37 tests to the suite every mutation is measured against and removes none — so
+no number below is too high, and any that is too low is too low by however many of the 37
+happen to fail under that mutation. **No count below is expected to be unchanged**, per
+CLAUDE.md's rule against recording an expectation for a value the current suite has not
+produced.
+
+Cost of settling it, derived rather than measured: about **2.3 h** on eight shards. The
+denominator model in `tests/mutations/README.md` §"Running all of it" puts the per-mutation cost
+on the size of `TEST_FILES`; 1945 → 1982 tests is a factor of 1.019, and 2.20 h × 1.019 = 2.24 h.
+The 1.019 is measured and the 2.24 h is not.
+
+One consequence for the tables rather than the counts: the 185 cells in
+`tests/mutations/README.md` were rewritten from this run's sidecar and carry no `†`, and they
+stay in agreement with that sidecar — so
+`test_a_readme_count_that_contradicts_the_last_full_run_is_marked` keeps passing. They are
+nonetheless lower bounds again from the moment this entry was opened. The marker convention
+tracks drift against the last full run; a denominator change is tracked here and by the other
+test, not by daggers.
+
 ### Settled by the full run of 2026-09-02 — the three entries that stood here are discharged
 
 **185 of 185 caught, nothing survived, at commit `031bff3db479` with a clean tree.** The record

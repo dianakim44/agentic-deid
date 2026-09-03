@@ -66,6 +66,7 @@ TEST_FILES = [
     "tests/test_window_widening.py",
     "tests/test_call_role.py",
     "tests/test_loop.py",
+    "tests/test_multi.py",
 ]
 
 #: Repository directories the loader tests need. `splits/` is here because the
@@ -83,7 +84,16 @@ TEST_FILES = [
 #: when it is absent, which is the state iteration 1 starts from — so without the
 #: directory those two would skip rather than run, and a mutation to the loader would be
 #: reported as caught by a suite that never exercised it.
-COPIED = ("src", "tests", "config", "splits", "results", "tools", "docs", "rules")
+#: `profiles/` is here for `tests/test_multi.py`, whose fixture copies the real
+#: `profiles/{corpus}.raw.json` into its redirected root: the Profiler's prompt is built from
+#: that mechanical inventory, and a stub one would turn every `type_not_in_inventory`
+#: assertion into a test of the stub. Measured rather than reasoned — with the directory
+#: absent, 28 of that file's 37 tests raise `FileNotFoundError` in the fixture, and the
+#: baseline is not green at all. That is the `docs/` note's failure mode with a louder
+#: symptom: an error counts as a kill, so had the baseline tolerated it, every mutation
+#: would have been reported as caught by 28 tests that never ran.
+COPIED = ("src", "tests", "config", "splits", "results", "tools", "docs", "rules",
+          "profiles")
 
 #: Single files copied alongside COPIED. `.gitignore` is one half of a rule the
 #: screener encodes twice (DENY_EXCEPTIONS is the other), and
