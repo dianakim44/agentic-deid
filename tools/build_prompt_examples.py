@@ -43,9 +43,9 @@ from src.porting.artefacts import (  # noqa: E402
 from src.porting.audit import MaskedLine, parse_response, report  # noqa: E402
 from src.rules import load_rules  # noqa: E402
 
-#: Where the examples live. Deliberately *not* `docs/prompts/*.md`: these are `.json` so that
-#: they parse rather than illustrate, and a markdown file here would be one more document under
-#: `docs/prompts/` that a reader has to decide is not a template.
+#: Where the examples live. Deliberately *not* `docs/prompts/*.md`: the fence check in
+#: `tests/test_prompt.py` covers every markdown file under `docs/prompts/`, and these are
+#: `.json` so that they parse rather than illustrate.
 EXAMPLES = ROOT / "docs" / "prompts" / "examples"
 
 #: The corpus the examples are built for. One corpus rather than a synthetic one, because a

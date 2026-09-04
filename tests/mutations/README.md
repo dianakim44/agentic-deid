@@ -2413,6 +2413,56 @@ reproduced all six of the counts above exactly**, measured under a different tre
 full one say the selective numbers were not artefacts of the tree they were taken on; they say
 nothing about the other 170, which is why the run had to happen.
 
+### Two on the fence check, where a clean repository cannot tell them apart — 2026-09-04
+
+The prompt templates are joined into the call verbatim, so a fenced block in one is a
+demonstration the response can copy, and it was copied twice: `port-oneshot`'s first run fenced
+its YAML and `load_rules` refused at line 1, `port-multi`'s first run fenced its JSON and
+`parse_object` refused at position 0. The fix after the first one was a sentence in one file, and
+the four prompts written afterwards inherited both that sentence and the fenced block it had
+failed to neutralise (`docs/notes/arm-port-multi-es.md` §4). So the examples are gone from all
+six prompts and `prompt.fenced_prompt_lines()` is what keeps them gone.
+
+**Both mutations are here because the check's success is an absence, which is the hardest kind to
+test and the easiest kind to fake.** On the repository as committed the correct function returns
+`{}` — and so does a version that never records a hit, and so does a version that skips a file.
+The test anyone writes first reads the real templates and asserts an empty mapping, and it passes
+against all three.
+
+| mutation | kills |
+| --- | --- |
+| `the_fence_check_finds_nothing` | *(pending the full run — see below)* |
+| `the_fence_check_exempts_one_file` | *(pending)* |
+
+`the_fence_check_finds_nothing` reduces `fenced_prompt_lines()` to the answer it gives when it
+passes: the loop still walks every file and still knows CommonMark's rule, it just never records
+what it found. What catches it is the positive control,
+`test_the_fence_check_reports_a_fence_when_there_is_one`, which builds a two-file tree in
+`tempfile` — one clean, one fenced — and asserts the filename *and* the two line numbers. Both
+`prompt_markdown_files()` and `fenced_prompt_lines()` take a `root` parameter for exactly this
+reason: the only test that separates "found nothing" from "cannot find anything" would otherwise
+have to commit a fence to the repository to ask its question.
+
+`the_fence_check_exempts_one_file` drops `rule_author.md` from the file list. It is not a typo —
+it is the change a reasonable reviewer asks for, in the form they would ask for it, because
+`rule_author.md` holds the only measured pass record in the repository (eight loadable
+`rules/iter*/es.yaml` from `port-loop`) and exempting it looks like protecting a measurement
+rather than weakening a check. **It is the trade that failed the first time.** `d44bd14` fixed
+that one file and left the convention standing; the prompts written after it copied the fence
+from the file that was now considered handled. One exemption is never one file's worth of risk,
+because the exempt file is the one the next prompt is copied from — and from the test that reads
+the committed templates the exemption is invisible, since a shortened file list still returns
+`{}`. `test_the_fence_check_covers_every_prompt_file_including_nested_ones` is what sees it: it
+compares the function's list against an independent `rglob` and checks a nested file in a tmp
+tree, so selection stays a property of the directory rather than an enumeration somebody edits.
+
+These two took `MUTATIONS` from 185 to 187. That is not a `TEST_FILES` membership change, so the
+recorded counts keep their denominator and nothing here invalidates them (CLAUDE.md, "When a full
+run is required" below). **The two cells above are empty because the run had not happened when the
+section was written, and an empty cell is the honest state** — the alternative is a number from a
+`--probe` run, which skips the green-baseline check and so measures against a baseline nobody
+verified. The run and its scope are recorded in `docs/notes/mutation-full-runs.md`.
+
 ## What the seal cost, and what carries the difference
 
 Sealing 250 documents removed checks that cannot be replaced, and pretending
@@ -2470,7 +2520,7 @@ applies to the code. Two safeguards follow from that:
   Three checks, described in the next section. Skipping them lets the harness count
   its own breakage as a kill.
 
-The maintenance cost is real but bounded: **203 anchors across 185 mutations**, each a
+The maintenance cost is real but bounded: **205 anchors across 187 mutations**, each a
 line or two, and a refactor that breaks one gets a `STALE` message naming the file.
 That is cheaper than the failure mode it prevents.
 

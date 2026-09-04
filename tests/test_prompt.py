@@ -2908,6 +2908,116 @@ def test_the_window_tool_hands_the_prompt_straight_to_the_terminal():
 
 
 # --------------------------------------------------------------------------------------
+# The fence convention: a prompt that forbids fences contains none.
+#
+# `port-oneshot`'s first run wrapped its YAML in a ```yaml fence and `load_rules` refused at
+# line 1 column 1. `d44bd14` fixed the format instruction in `rule_author.md` §2 and added one
+# sentence saying the fence was that document's quoting convention. The four prompts written
+# afterwards inherited the sentence **together with the fenced example it was meant to
+# neutralise**, and fourteen days later `port-multi`'s first run wrapped its JSON in a ```json
+# fence and `parse_object` refused at position 0 (`docs/notes/arm-port-multi-es.md`).
+#
+# So the fix this time is not wording. The templates carry no demonstration at all, the
+# instances live in `docs/prompts/examples/` where no call can read them, and these tests are
+# what keeps the sixth prompt from inheriting the defect the way the second through fifth did.
+# --------------------------------------------------------------------------------------
+
+
+def test_no_prompt_template_contains_a_fence_line():
+    """Zero fence lines under `docs/prompts/`, with no per-file exemption.
+
+    **The exemption is the defect.** What went wrong was not that a fence is hard to notice;
+    it is that the fix applied to one file and the convention stayed. A checker with a skip
+    list would have let `rule_author.md` pass while `profiler.md` shipped the same block, which
+    is the state the repository was actually in for fourteen days.
+
+    Every offender is named at once rather than the first — a failure that reports one file
+    invites a one-file fix, which is the mistake this test exists to prevent.
+    """
+    found = prompt_module.fenced_prompt_lines()
+    assert found == {}, (
+        "fenced block(s) in prompt template(s): "
+        + "; ".join(f"{name} at line(s) {lines}" for name, lines in sorted(found.items()))
+        + ". The template is sent to the model verbatim, so a fence in it is a demonstration "
+        "the response can copy — twice now. Move the instance to docs/prompts/examples/ and "
+        "describe the schema in prose (profiler.md §2.4)."
+    )
+
+
+def test_the_fence_check_reports_a_fence_when_there_is_one():
+    """The positive control, in a temporary tree: a checker that found nothing may find nothing.
+
+    `test_no_prompt_template_contains_a_fence_line` passes both when the templates are clean
+    and when `fenced_prompt_lines` has been reduced to returning an empty mapping. Only this
+    test separates the two, which is why the function takes a root at all — the alternative is
+    putting a fence in the repository to see whether it is noticed.
+    """
+    with tempfile.TemporaryDirectory() as raw:
+        root = Path(raw)
+        directory = root / prompt_module.PROMPT_DIR
+        directory.mkdir(parents=True)
+        (directory / "clean.md").write_text(
+            "No code fence, no triple-backtick line. Inline `x` is fine.\n", encoding="utf-8")
+        fence = "`" * 3
+        (directory / "fenced.md").write_text(
+            f"before\n{fence}json\n{{}}\n{fence}\nafter\n", encoding="utf-8")
+        found = prompt_module.fenced_prompt_lines(root)
+    relative = str(Path(prompt_module.PROMPT_DIR) / "fenced.md")
+    assert found == {relative: [2, 4]}, found
+
+
+def test_the_fence_check_covers_every_prompt_file_including_nested_ones():
+    """The selection is the directory, so exempting a file shortens it and this fails.
+
+    Two claims, and the second is the one a mutation attacks. That every real template is in
+    the list — so a skip list for one file is visible here rather than in a green suite. And
+    that a markdown file in a subdirectory is reached, so filing a template one level down is
+    not a way out.
+    """
+    covered = prompt_module.prompt_markdown_files()
+    on_disk = sorted(
+        str(path.relative_to(ROOT))
+        for path in (ROOT / prompt_module.PROMPT_DIR).rglob("*.md"))
+    assert covered == on_disk, (
+        "the fence check does not cover every markdown file under docs/prompts/. Missing: "
+        f"{sorted(set(on_disk) - set(covered))}. A per-file exemption is how this defect was "
+        "inherited once already."
+    )
+    assert len(covered) >= 5, covered
+    with tempfile.TemporaryDirectory() as raw:
+        root = Path(raw)
+        nested = root / prompt_module.PROMPT_DIR / "sub"
+        nested.mkdir(parents=True)
+        (nested / "deep.md").write_text("no fence here\n", encoding="utf-8")
+        assert prompt_module.prompt_markdown_files(root) == [
+            str(Path(prompt_module.PROMPT_DIR) / "sub" / "deep.md")]
+
+
+def test_every_prompt_that_forbids_a_fence_says_so_in_the_same_words():
+    """The prohibition is present in all five, and `lexicon_builder.md` is why this exists.
+
+    That file forbade the fence and — alone among the five — never carried even the mitigating
+    sentence, because the sentence was copied by hand from file to file and one copy was
+    missed. A prohibition propagated by copying is a prohibition with a hole in it, so its
+    presence is asserted rather than assumed.
+
+    Matched on "triple-backtick" rather than on the delimiter itself: the templates spell it
+    out precisely so that no line of a template can begin with one.
+    """
+    missing = []
+    for relative in prompt_module.prompt_markdown_files():
+        if Path(relative).name == "README.md":
+            continue
+        text = (ROOT / relative).read_text(encoding="utf-8")
+        if "no triple-backtick line" not in text:
+            missing.append(relative)
+    assert missing == [], (
+        f"prompt template(s) without the fence prohibition: {missing}. Every template that "
+        "asks for a structured response carries it in the same words."
+    )
+
+
+# --------------------------------------------------------------------------------------
 # The example files: generated, validated, and outside the frozen window.
 #
 # The templates are sent to the model verbatim, so an example inside a template is a

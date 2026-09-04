@@ -2124,6 +2124,66 @@ def _lexicon_template() -> str:
         encoding="utf-8")
 
 
+#: Where the prompt templates live. The fence check below selects its inputs from this
+#: directory rather than from a list of file names, and the difference is the whole point:
+#: `d44bd14` fixed the fence instruction in `rule_author.md` and the four prompts written
+#: afterwards inherited the defect, because nothing enumerated them and nothing had to.
+PROMPT_DIR = "docs/prompts"
+
+
+def prompt_markdown_files(root: Path | None = None) -> list[str]:
+    """Every markdown file under `docs/prompts/`, recursively, repo-relative and sorted.
+
+    **Selected by location and not enumerated, and there is no exemption parameter.** A list
+    would have to be extended by whoever adds the sixth prompt, which is exactly what did not
+    happen the first time this defect was fixed: the fix was one file's wording, the four
+    prompts written after it copied the wording *and* the fenced block it was meant to
+    neutralise, and the second format failure followed fourteen days later
+    (`docs/notes/arm-port-multi-es.md` §4).
+
+    Recursive rather than one level deep, so a template filed under a subdirectory is covered
+    without anyone remembering to widen a glob. That reaches `examples/`'s own README too,
+    which is not a template — and it is left in scope deliberately: "this file is not sent to
+    a model" is a judgement, and a checker that makes judgements is a checker with exemptions.
+
+    `root` exists so a test can build a tree with a fence in it. Without it the only way to
+    check that the checker reports anything is to put a fence in the repository, and a check
+    whose positive case is never exercised is the check this repository already has too many of.
+    """
+    base = (root or sample_module.ROOT)
+    directory = base / PROMPT_DIR
+    return sorted(str(path.relative_to(base)) for path in directory.rglob("*.md"))
+
+
+def fenced_prompt_lines(root: Path | None = None) -> dict[str, list[int]]:
+    """Prompt files that contain a fence line, mapped to the 1-indexed lines it is on.
+
+    Empty is the passing state. **A fenced block in a prompt template reaches the model**:
+    `assemble_profiler_prompt` and its two siblings join the template verbatim, so the file's
+    every line is sent, and a document that quotes structured data in fences teaches that
+    fences are how structured data is presented here. That is what happened twice —
+    `port-oneshot`'s first run fenced its YAML, `port-multi`'s fenced its JSON — and the
+    convention now is that the templates contain no demonstration at all. `profiler.md` §2.4
+    carries the argument; `docs/prompts/examples/` carries the instances, for people.
+
+    A fence line is a line *beginning* with three backticks, which is CommonMark's rule. An
+    inline span in the middle of a sentence is not one and is not reported: the prohibition
+    itself has to be able to name the thing it forbids, and the three prompts spell it
+    "triple-backtick" precisely so that no line of a template starts with one.
+
+    Returns rather than raises. The caller is a test, which wants to name every offending file
+    and line in one failure instead of the first one.
+    """
+    base = (root or sample_module.ROOT)
+    found: dict[str, list[int]] = {}
+    for relative in prompt_markdown_files(root):
+        lines = (base / relative).read_text(encoding="utf-8").splitlines()
+        hits = [number for number, line in enumerate(lines, 1) if line.startswith("```")]
+        if hits:
+            found[relative] = hits
+    return found
+
+
 def _check_design_withheld(text: str, corpus: str) -> tuple[int, int]:
     """Refuse a Mapper prompt that shows a source label beside its DESIGN §9.0 target.
 

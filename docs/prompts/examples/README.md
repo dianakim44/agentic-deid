@@ -65,7 +65,7 @@ build fails on any refusal, so an example cannot document a schema that no longe
 
 **Edit the builder, not these files.**
 
-## What this directory is not allowed to become
+## Two things this directory is not allowed to become
 
 **It is not a place to put text a prompt then quotes.** The Mapper case is the sharp one:
 `mapper_agent_object.json` holds DESIGN §9.0's pairings, which `mapper.md` §1.3 deliberately
@@ -73,3 +73,9 @@ withholds from the agent. That is safe only because nothing sends this file.
 `_check_design_withheld()` in `src/llm/prompt.py` refuses an assembled Mapper prompt that shows
 a source label beside its §9.0 target, so inlining this example back into the template fails a
 check rather than silently teaching the answer.
+
+**It is not exempt from the fence rule.** `tests/test_prompt.py` refuses a fence line in any
+markdown file under `docs/prompts/`, this README included. It is not a template and it is still
+in scope, because "this file is not sent to a model" is a judgement and a checker that makes
+judgements is a checker with exemptions — which is the mechanism by which the defect this
+directory exists to fix was inherited in the first place.

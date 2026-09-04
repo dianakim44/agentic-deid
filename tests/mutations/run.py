@@ -5207,6 +5207,76 @@ MUTATIONS = [
              '                      "calls_unmeasured")'),
         ),
     ),
+    Mutation(
+        name="the_fence_check_finds_nothing",
+        path=PROMPT,
+        # The loop still runs, still reads every file, still knows CommonMark's rule. It just
+        # never records a hit. Every other outcome of the function is unchanged: the file list
+        # is right, the return type is right, the empty mapping it returns on a clean
+        # repository is byte-identical to the correct answer.
+        anchor='            found[relative] = hits\n',
+        replacement='            pass\n',
+        breaks=(
+            "**Reduces the fence check to the answer it gives when it passes.** This is the "
+            "shape of every check whose success is an absence, and it is why the positive "
+            "control exists. On the repository as committed, `fenced_prompt_lines()` returns "
+            "`{}` and the mutated version returns `{}`, so the test that reads the real "
+            "templates cannot tell them apart — and that test is the one anyone would write "
+            "first.\n"
+            "\n"
+            "What it costs is the whole guarantee. The prompt templates are joined into the "
+            "call verbatim (`assemble_profiler_prompt`), so a fenced block in one is a "
+            "demonstration the response can copy. It was copied twice: `port-oneshot`'s first "
+            "run fenced its YAML and `load_rules` refused at line 1, `port-multi`'s first run "
+            "fenced its JSON and `parse_object` refused at position 0. The first fix was one "
+            "file's wording and the four prompts written after it inherited the defect "
+            "(`docs/notes/arm-port-multi-es.md` §4). With the check blind, the sixth prompt "
+            "inherits it again and the evidence is a third `format_failure.json`.\n"
+            "\n"
+            "Caught by `test_the_fence_check_reports_a_fence_when_there_is_one`, which builds "
+            "a two-file tree in `tempfile` — one clean, one fenced — and asserts both the "
+            "filename and the two line numbers. It is the only test that separates 'found "
+            "nothing' from 'cannot find anything', and the `root` parameter on both functions "
+            "exists so that it does not have to commit a fence to the repository to ask."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="the_fence_check_exempts_one_file",
+        path=PROMPT,
+        # The exemption a reviewer would ask for, in the form they would ask for it: the two
+        # prompts with measured pass records carry a fence, so skip the file that is *allowed*
+        # to have one. Written as a name filter because that is how it would really be written
+        # — a set of blessed basenames, one entry, with a comment about the measured record.
+        anchor=(
+            '    return sorted(str(path.relative_to(base)) for path in directory.rglob("*.md"))'
+        ),
+        replacement=(
+            '    return sorted(str(path.relative_to(base)) for path in directory.rglob("*.md")\n'
+            '                  if path.name != "rule_author.md")'
+        ),
+        breaks=(
+            "**Reintroduces the exact mechanism by which the defect was inherited.** Not a "
+            "typo — the change a reasonable reviewer asks for. `rule_author.md` has the only "
+            "measured pass record in the repository (eight loadable `rules/iter*/es.yaml` from "
+            "`port-loop`), so exempting it trades a check for a measurement, and the trade "
+            "sounds good.\n"
+            "\n"
+            "It is the trade that failed the first time. `d44bd14` fixed `rule_author.md` and "
+            "left the convention in place; the prompts written afterwards copied the fence "
+            "from the file that was now considered handled. One exemption is not one file's "
+            "worth of risk, because the exempt file is the one the next prompt is copied "
+            "from — and the exemption is invisible from the test that matters, since a "
+            "shortened file list still returns `{}` on a clean repository.\n"
+            "\n"
+            "Caught by `test_the_fence_check_covers_every_prompt_file_including_nested_ones`, "
+            "which compares the function's list against `rglob` run independently and names "
+            "what is missing. That test exists for this mutation and for nothing else: it "
+            "asserts a property of the *selection*, which no test of the selection's output "
+            "can see."
+        ),
+        min_kills=1,
+    ),
 ]
 
 COUNT_RE = re.compile(r"(\d+) (passed|failed|error|errors)")
