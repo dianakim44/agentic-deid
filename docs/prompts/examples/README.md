@@ -1,15 +1,9 @@
 # Prompt output examples — for people, and for the validators
 
 **Nothing in this directory is sent to any agent.** These are the schema instances the five
-prompts carried inside their own text. They were moved here because the
+prompts used to carry inside their own text. They were moved here because the
 templates are sent to the model verbatim, so an example inside a template is a demonstration
 the model can copy — and it did, twice.
-
-Three of the five templates no longer carry theirs. `rule_author.md` and `auditor.md` still do
-as of this commit: both have a measured pass record, so the removal is a trade and it waits on
-the measurement that prices it. This directory and the builder are complete for all five,
-because the builder is one program and splitting it would produce a fixture set nothing
-validates.
 
 `docs/prompts/profiler.md` §2.4 carries the full argument and the same section appears in the
 other four prompts. The short form, in three steps:
@@ -50,10 +44,14 @@ normalised form no agent emits. It is still loaded through the real `load_rules`
 temporary lexicon collection built for its one `lexicon:` rule, so being a literal buys it no
 exemption from the schema.
 
-**The `auditor_*` pair states a fact `auditor.md`'s own example does not.** `line` is 0-based.
-The fenced example shows `"line": 3` beside three displayed lines, which cannot be 0-based and
-so establishes nothing, and the prompt says nothing either way. What that omission costs is not
-measured yet; it is measured in the commit that removes the example.
+**The `auditor_*` pair pins down a fact its removed example never stated.** `line` is 0-based.
+The fenced example showed `"line": 3` beside three displayed lines, which cannot be 0-based and
+so established nothing, and the prompt said nothing either way.
+`tools/probe_prompt_format.py` measured what that omission costs: on one invented document the
+same model went from 1 flag accepted and 5 refused to **5 accepted and 1 refused** once the
+prompt stated the base (`docs/notes/prompt-format-probe.md`, 2026-09-04). The 69–112
+`crosses_a_line` refusals per round in `port-loop` iterations 2–8 are consistent with the same
+off-by-one, and that is a suspicion rather than a finding: those rounds cannot be re-run.
 
 They are built for `es-meddocan` and for a real corpus rather than an invented one, because a
 `cites` path has to resolve in a real filtered inventory and a `type_inventory` label has to be

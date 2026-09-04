@@ -192,11 +192,11 @@ def _lexicon() -> dict:
 
 
 
-#: The RuleAuthor's artefact, as YAML because that is what it is. **This is the sharpest of the
-#: five examples to remove from its template**, and `profiler.md` §2.4 gives the reason: in YAML
-#: indentation *is* the format, so an indented example is more copyable than a fenced one rather
-#: than less, and there is no delimiter that makes a demonstration of this artefact safe inside
-#: a prompt. That removal is not in this commit; the fixture it needs is.
+#: The RuleAuthor's artefact, as YAML because that is what it is. **This is the example whose
+#: removal from `rule_author.md` was the sharpest of the five**, for the reason that file's
+#: no-example section gives: in YAML indentation *is* the format, so an indented example is more
+#: copyable than a fenced one rather than less, and there is no delimiter that makes a
+#: demonstration of this artefact safe inside a prompt.
 #:
 #: Written as a literal string rather than dumped from an object, and that is deliberate: the
 #: point of this fixture is the *file*, comments and layout included, and `yaml.dump` would
@@ -246,10 +246,11 @@ def _audit() -> tuple[dict, dict]:
     the identifiers a round did not catch, and an example of that file has to be one that maps
     nothing.
 
-    `line` is **0-based**, which is the fact this example exists to pin down. `auditor.md`'s own
-    fenced example shows `"line": 3` beside three displayed lines and so establishes no base at
-    all, and the prompt states none either way. What that omission costs is measured in the
-    commit that removes the example.
+    `line` is **0-based**, which is the fact this example exists to pin down. The removed
+    fenced example showed `"line": 3` beside three displayed lines and so never established the
+    base at all; `tools/probe_prompt_format.py` measured what that omission costs — the same
+    invented document went from 1 flag accepted and 5 refused to 5 accepted and 1 refused when
+    the prompt stated the base (`docs/notes/prompt-format-probe.md`, 2026-09-04).
     """
     lines = (
         MaskedLine(length=50, doc_offset=0, tags=((34, 6, 34, 53),)),

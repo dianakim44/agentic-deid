@@ -118,23 +118,26 @@ document count, not 1, and this is precisely why `call_line()` carries `role`
 what the round spent and no answer at all for who spent it.
 
 **The document is rendered one line per line, prefixed with that line's start offset in the
-masked text.** The three lines below are **invented for this document and quoted from no
-corpus** — the same caveat `rule_author.md` §8.1 attaches to its one example string, and it
-applies here because an illustration of a residual identifier has to be name-shaped to
-illustrate anything:
+masked text.** Each rendered line is that offset as a zero-padded seven-digit number, then a
+space, a vertical bar and a space, then the line's own text. The prefix is not part of the
+line: column 0 is the character after it.
 
-```
-0000000 | Servicio de Cardiología. Paciente: [NAME], [AGE].
-0000051 | Domicilio: [LOCATION_STREET], [LOCATION_AREA].
-0000098 | Remitido por el Dr. Ejemplo Apellido el [DATE].
-```
+No sample lines are shown here. §2.4 gives the reason and it holds for the input format as
+much as for the output — this document reaches you verbatim, so a rendering of the input in it
+is one more thing you have been shown as a way of presenting content. **The masked document
+itself is below in this same call**, which specifies its shape better than any illustration
+could.
 
-The third line is the case the role exists for: the clinician's name was missed, so it is not
-masked and it is sitting there in the input, while the date beside it was found and is a tag.
+What the rendering looks like where a detector missed something is the case this role exists
+for, and it is worth stating without drawing it: a found identifier has been replaced by its
+bracketed tag, so the surface form is gone; a missed one was replaced by nothing, so it is
+sitting in the text unchanged, in the ordinary company of tags that did get placed. Your job is
+the second kind.
 
 **Coordinates are `(line, start, end)` where `start`/`end` are columns within that line**,
-half-open, counted from 0 at the character after `| `. Not document offsets, and the choice
-is about where arithmetic is done rather than about convenience:
+half-open, counted from 0 at the character after `| `. **`line` counts from 0 as well: the
+first rendered line is `line: 0`.** Not document offsets, and the choice is about where
+arithmetic is done rather than about convenience:
 
 - **Column-within-line is a bounded count; offset-within-document is not.** Asking a model
   for a character offset 4,000 characters into a note is asking for the one arithmetic task
@@ -145,7 +148,9 @@ is about where arithmetic is done rather than about convenience:
   translates; the agent is never asked to compute across a tag boundary. **A translation the
   agent performed would be a place a wrong answer looks right**, which is the same objection
   DESIGN §3 makes to a masker that made judgements.
-- **The line prefix is not part of the line.** It is stripped before column 0.
+- **The line prefix is not part of the line.** It is stripped before column 0. It is also
+  not a line *number*: it is that line's start offset in the masked text, so it is not the
+  value `line` takes. Count the rendered lines from 0.
 
 **A flag does not cross a line boundary.** The cost is real and is recorded here rather than
 discovered: an identifier split by a line break can only be flagged on one of its lines, so
@@ -160,21 +165,21 @@ detection.
 
 ### 2.1 Per call, from the agent
 
-One JSON object. **Emit the JSON and nothing else. No code fence, no ``` line, no `json`
-language tag, no preamble, no closing remark.** The fenced block below is an example inside
-these instructions and the fence is how this document quotes it.
+One JSON object. **Emit the JSON and nothing else. No code fence, no triple-backtick line, no
+`json` language tag, no preamble, no closing remark.** The first character of the response is
+`{` and the last is `}`. Nothing strips a fence or repairs a key, so a fenced response is not a
+formatting preference that gets normalised — it is refused as `malformed` and the round records
+a format failure.
 
-```json
-{
-  "flags": [
-    {"line": 3, "start": 20, "end": 38, "phi_type": "NAME", "score": 0.8},
-    {"line": 3, "start": 16, "end": 19, "phi_type": "PROFESSION", "score": 0.4}
-  ]
-}
-```
+**This document shows no example of that object.** §2.4 gives the reason.
 
-Four required fields per flag plus `score`, and **no others**. §3 is why there is no field
-for a reason, a note, or a quotation.
+The object in prose. **One key, `flags`, and no others.** Its value is a list of flag objects.
+
+Each flag object has **exactly five keys**: `line`, the **0-based** index of the rendered line the flag is on — the first rendered line is `line: 0`; `start` and `end`, columns **within that line**, half-open, so `end` is one past the
+last character; `phi_type`, a value of the `phi_type` axis, whose permitted values are appended
+to this call from `config/naming.yaml`; and `score`, your own confidence in [0, 1]. Four
+required fields plus `score`, and **no others** — §3 is why there is no field for a reason, a
+note, or a quotation.
 
 **An empty list is required where nothing was found.** `{"flags": []}` means *this document
 was audited and nothing survived*; a document with no entry in the report means *this
@@ -194,22 +199,13 @@ axis- and iteration-scoped, and **deny-listed** in `config/naming.yaml`: a list 
 an agent believes are surviving PHI is a map of the residual identifiers in a DUA corpus, the
 most concentrated such artefact the loop produces (DESIGN §5.5).
 
-```json
-{
-  "iteration": 4,
-  "masked_from_iteration": 3,
-  "corpus": "es-meddocan",
-  "documents_audited": 250,
-  "documents_with_no_flags": 96,
-  "flags": [
-    {"doc_id": "doc-0007", "phi_type": "NAME",
-     "start": 1841, "end": 1859, "score": 0.8}
-  ],
-  "refused": [{"doc_id": "…", "reason": "inside_a_mask_tag"}],
-  "counts": {"flags": 118, "refused": 3, "by_phi_type": {"NAME": 61, "DATE": 22},
-             "by_refusal": {"inside_a_mask_tag": 2, "out_of_range": 1}}
-}
-```
+**You do not write this file and it is described here so you know where your flags go, not so
+you can produce it.** Eight top-level keys: `iteration`; `masked_from_iteration`, the round
+whose predictions did the masking; `corpus`; `documents_audited`; `documents_with_no_flags`;
+`flags`, every flag from every call with the orchestrator's `doc_id` added and the columns
+already translated to document offsets; `refused`, each entry a `doc_id` with a `reason` and no
+value; and `counts`, holding a total, a refused total, a `by_phi_type` breakdown and a
+`by_refusal` breakdown. An instance is in `docs/prompts/examples/`, which nothing sends to you.
 
 `start`/`end` are **document** offsets, translated from the agent's `(line, start, end)` by
 the masker's map. `doc_id` is the orchestrator's. Both are code's contribution, and neither is
@@ -259,6 +255,44 @@ forbids.
 **The refusal reasons are a closed vocabulary declared in `config/naming.yaml`** by the
 commit that implements the validator — not coined in the validator. They are written into a
 file under `results/`, and CLAUDE.md's rule covers values in results as much as axis names.
+
+---
+
+### 2.4 Why this file contains no example, and no fenced block of any kind
+
+**This document is sent to you verbatim.** `assemble_audit_prompt` joins this file's every byte
+with the input banner, §1.1's frame and the masked document. So anything this file demonstrates
+is something you have been shown as a way of presenting structured content — and that has been
+copied twice in this project's history.
+
+The first time, `rule_author.md` §2 carried a fenced YAML example together with a sentence
+saying the fence was that document's quoting convention. The response arrived fenced;
+`load_rules` refused it at line 1, column 1. The sentence was reworded — in that one file. Four
+prompts written afterwards, this one among them, copied the reworded sentence **together with
+the fenced block it was meant to neutralise**, and fourteen days later a second arm's first call
+arrived fenced and `parse_object` refused it at position 0.
+
+Three reasons the fix is removal and not rewording:
+
+1. **A demonstration that reaches you reproduces the failure whatever delimiter it wears.** The
+   observed behaviour is *the demonstration was imitated*; the fence is only the form the
+   imitation took. Indenting the example instead would change which characters got copied, not
+   whether.
+2. **An example file is for people.** The instances live in `docs/prompts/examples/`, as
+   validator fixtures and as what a reviewer reads. No call sends them, and this document naming
+   that path transmits no bytes to you.
+3. **So those files are not in the frozen window.** The window is the record of what decided a
+   run (DESIGN §5.5, §6.3), and a file no call could read is not in that definition.
+
+**One point specific to this prompt.** §3 forbids any free-text field precisely because the
+shortest honest justification for a flag is a quotation of the text flagged. An example flag
+object has to be *plausible* to illustrate anything, and the previous one was: it named a line,
+two columns and `NAME`. That is the least dangerous example in this project — and it is still
+removed, because the rule that makes it safe is a judgement about one block, and a fence rule
+with judgements in it is the rule that failed here already. `tests/test_prompt.py` refuses a
+fence line in any markdown file under `docs/prompts/` with no per-file exemption, and two
+mutations in `tests/mutations/run.py` fail if that check is disabled or narrowed to spare one
+file.
 
 ---
 

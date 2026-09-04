@@ -103,6 +103,11 @@
       "why": "Korean prose recording how far the same prompt's output moves when the input does not: rule counts, rule_id overlap, layer distributions, completion tokens and response hashes across repeated calls. rule_id values are agent-authored identifiers this screener already checks against a vocabulary, and no matcher, span, offset or document text is recorded. The Korean here is the note's own explanation of why the probe does not score dev."
     },
     {
+      "path": "docs/notes/prompt-format-probe.md",
+      "sniff": "Korean prose",
+      "why": "Korean prose recording whether a prompt with its example removed still returns an artefact its own validator accepts: outcome, rule and flag counts, layer and phi_type histograms, refusal reason names, token counts, wall seconds, and prompt and response hashes. Same shape as docs/notes/call-variance.md's entry, one probe over. The Korean is the note's explanation of what n=1 does and does not establish against the measured pass records it is traded for. No span, offset, matcher or document text: the probe invents the three lines it sends, and the auditor rows record refusal reason names and per-type counts rather than the positions they were refused at."
+    },
+    {
       "path": "docs/notes/port-human-practice.md",
       "sniff": "Korean prose",
       "why": "Korean prose recording that a practice session happened before port-human iteration 1, its date and its reserved iteration number, and what that adds to DESIGN 11.1's memory carry-over asymmetry. Deliberately holds nothing about what was seen or written during it: recording that would make it an input to iteration 1 that no agent arm receives."

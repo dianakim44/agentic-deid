@@ -42,12 +42,12 @@ condition the operator controlled, so the correctness of every re-freeze rested 
 operator's own judgement about whether §7 applied — which is what the record was supposed
 to remove from the operator's hands.
 
-## The six revisions, and the seventh that was not re-frozen
+## The six revisions, and the three since that were not re-frozen
 
 All six are before iteration 1's rule work — which, after revision 6, is where they will
-stay. Revision 7 is listed with them and is a different kind of entry: the hashed file moved
-and the record was deliberately left alone, for the reason given below. At every one of the
-six:
+stay. Revisions 7, 8 and 9 are listed with them and are a different kind of entry: the hashed
+file moved and the record was deliberately left alone, for the reasons given below. At every
+one of the six:
 
 - `rules/es.yaml` did not exist — no rule had been written for this arm,
 - `human_log.jsonl` held exactly one line, `event: read_sample`,
@@ -72,9 +72,10 @@ still did not, for the reason given below.
 | 6 | `804e22c` | `558bfe3fe86f…` | the arm was **retired**; §§7–8 of the prompt gained dormancy banners and the header was rewritten |
 | 7 | this commit (`docs: define port-oneshot as port-loop truncated (DESIGN §4)`) | `c4d1b66c1dc3…` on disk, **`558bfe3fe86f…` still in the record** | the banner gained the ladder condition — an edit made **for the agent arms**, and the first one this record does not follow |
 | 8 | `docs: state the output format, and name the arm that runs under it` (2026-08-11) | `ddc48bdb0a0c…` on disk, **`558bfe3fe86f…` still in the record** | §2 gained the no-code-fence instruction after `port-oneshot`'s first run returned a fenced file (`arm-port-oneshot-es.md`). Not followed here either, and for a second reason beyond revision 7's — see below |
+| 9 | `fix: remove the fenced examples from every prompt, and check that they stay out` (2026-09-04) | `bcef6f397aa9…` on disk, **`558bfe3fe86f…` still in the record** | §§1.4, 1.5 and 2 lost their fenced examples and the schema is stated in prose, after the fenced block was copied a *second* time — `port-multi`'s Profiler (`arm-port-multi-es.md`). Part of the one revision that moved five of the six hashed files, three of them one commit earlier in `0480abb`, and the first to postdate a `port-loop` freeze rather than only a `port-oneshot` one — see below |
 
 `sampling_sha256` = `fbfbbe107e2e…` at revisions 1–4 and `4c0e2cc725d3…` from revision 5
-onward, including revisions 7 and 8 — `config/sampling.yaml` is untouched by either edit.
+onward, including revisions 7, 8 and 9 — `config/sampling.yaml` is untouched by all three.
 
 ### Revision 8 is counted here and belongs to no arm's record
 
@@ -320,6 +321,83 @@ arm's lifetime: `freeze_window()` refuses a re-freeze once the arm has started, 
 reports the disagreement rather than repairing it, and the only remedy is the one revision 8
 produced — a new arm. So the free window for correcting `auditor.md` closes at `port-loop`'s
 first call, and after it the correct move is a new arm and not an edit.
+
+## 2026-09-04: five of the six hashed files moved, and `auditor.md`'s free window had closed
+
+Revision 9 in the table above, and the largest move this file has recorded. Removing the fenced
+examples touched every prompt in `WINDOW_FILES` except the config.
+
+**It is one revision written across two commits, and the split is why the table below has a
+commit column.** The three prompts written for `port-multi` had no measured pass record to
+trade, so their examples came out first (`0480abb`). `rule_author.md` and `auditor.md` did have
+one — eight loadable `rules/iter*/es.yaml` and seven parseable `audit_report.json` — so their
+removal waited on `tools/probe_prompt_format.py` measuring that the example-free versions still
+produce loadable output, which is the commit this entry is in. The row in the table above sits
+on the second of the two because `prompt_sha256` is `rule_author.md`'s hash and that is the file
+this arm's window is about; the first commit moved three hashes no row here tracks, and said so
+in its own message.
+
+| hashed file | before | after | moved in | which record holds the old value |
+|---|---|---|---|---|
+| `docs/prompts/rule_author.md` | `ddc48bdb0a0c…` | `bcef6f397aa9…` | this commit | `port-oneshot-nofence`, `port-loop`, `port-multi` (and `558bfe3fe86f…` on this one, `c4d1b66c1dc3…` on `port-oneshot`) |
+| `docs/prompts/auditor.md` | `b7e983a4d8aa…` | `a49739eec170…` | this commit | `port-loop`, `port-multi` |
+| `docs/prompts/profiler.md` | `5c84c7afedbe…` | `b4434e1807e5…` | `0480abb` | `port-multi` |
+| `docs/prompts/mapper.md` | `58fd151961e4…` | `63bc99c04f37…` | `0480abb` | `port-multi` |
+| `docs/prompts/lexicon_builder.md` | `ce1cc75e420e…` | `62a7c54b8102…` | `0480abb` | `port-multi` |
+| `config/sampling.yaml` | `4c0e2cc725d3…` | unchanged | — | every record |
+
+**This record is not followed, for both of the reasons already on the list.** Revision 7's: the
+edit is for the agent arms and `port-human` is retired. Revision 8's, which is the stronger one:
+it postdates spent calls. Nothing here is new about `port-human`, and the entry exists for what
+it says about the arms that are live.
+
+**The 2026-08-18 note predicted the expiry that this edit is on the wrong side of, and it came
+due.** That note said the free window for correcting `auditor.md` closes at `port-loop`'s first
+call, and that after it "the correct move is a new arm and not an edit". `port-loop` froze on
+2026-08-19 with `auditor.md` in its window and has since spent eight rounds of calls. So the
+prediction is not a warning any more; it is a description of this revision. Two things follow,
+and they are different:
+
+- **The edit is still right.** The fence was copied a second time — `port-multi`'s Profiler
+  returned a fenced object and `parse_object` refused at position 0 — after the first fix had
+  been made to one file's wording and the four prompts written afterwards had inherited the
+  block it was meant to neutralise (`docs/notes/arm-port-multi-es.md`). Leaving the fenced
+  examples in place to keep five hashes still would be preserving the defect to protect the
+  record of it.
+- **No record follows the edit.** Not `port-loop`'s, which has started; not `port-multi`'s,
+  which froze all six files and then spent its Profiler call on the response that motivated
+  this; not the two `port-oneshot` records. Every one of them now disagrees with the disk on at
+  least one hash, `window_drift()` reports it, and that is the record working (DESIGN §6.3).
+
+**`port-multi`'s record is the one worth naming separately, because it is the first arm to
+freeze a window it never authored anything under.** All six hashes are in
+`results/es-meddocan/R/sup-free/port-multi/window_freeze.json`, the Profiler call is spent, and
+the arm produced `format_failure.json` instead of a profile. A window frozen against a failed
+run is still frozen: the call happened, its cost is recorded, and re-freezing would present
+today's prompts as the ones that produced that failure. So the three prompts that have never
+returned a usable artefact are nevertheless past the point where their arm can be re-frozen,
+and the revised prompts run as a new `porting` value with a new record (`config/naming.yaml`,
+DESIGN §4). That is `port-oneshot-nofence`'s precedent applied for the second time, and the
+naming rule with it: the identifier names what the prompt now states, not how many attempts
+have been made.
+
+**What is new in revision 9 is that the suite reads this file.**
+`tests/test_call_role.py` replays `call_line()` against `port-oneshot-nofence`'s committed log
+line and used to demand that `prompt_sha256` still match, on the correct reasoning that a
+replay whose window hashes are computed from disk is only evidence about the real call while the
+disk still holds that window. Revision 9 broke that equality permanently, and the repair that
+would restore it is the forbidden one. So the demand was replaced rather than deleted: the field
+is named in `REVISED_SINCE`, and the test requires the value now on disk — `bcef6f397aa9…` — to
+appear *in this file*. Three consequences, stated because a test that reads a note is unusual
+enough to be surprising later:
+
+- A prompt revision now turns the suite red until its row is written here. The row is the fix,
+  and the row is what this file is for.
+- A name in `REVISED_SINCE` whose drift has gone away also fails, so the list cannot outlive
+  what it describes — the same shape as the † convention in `tests/mutations/README.md`.
+- `sampling_sha256` is still held to plain equality. It is the hash that moves if `n`,
+  `context_chars`, `min_per_type`, `base_seed` or `seed_scheme` change, and nothing in this
+  revision touches it.
 
 ## What is guaranteed now
 

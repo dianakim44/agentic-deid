@@ -424,6 +424,23 @@ def test_the_frozen_arms_lines_all_sit_at_round_numbers():
 ADDED_SINCE = ("role", "auditor_sha256", "profiler_sha256", "mapper_sha256",
                "lexicon_builder_sha256")
 
+#: The window fields whose value on disk has moved *past* this frozen line, because a hashed
+#: prompt was revised after the call was spent. Different in kind from `ADDED_SINCE`: those
+#: fields did not exist when the line was written, these did and held another value. The line
+#: is not what changed, and re-freezing it is the one repair that is forbidden
+#: (`docs/notes/window-freeze-history.md`, DESIGN §6.3) — so the drift is permanent and this
+#: is where the tests below are told about it.
+#:
+#: An entry is not an exemption. `the_replay_is_of_the_real_call` requires the value now on
+#: disk to appear in `window-freeze-history.md`, which is the file whose whole purpose is to
+#: be the list of prompt revisions, so a field named here without a recorded revision fails
+#: exactly as it did before the field was named. Adding a name costs writing the entry.
+REVISED_SINCE = ("prompt_sha256",)
+
+#: The one file that counts a prompt revision. Read rather than restated so that the check
+#: below is about a record and not about a literal in a test.
+REVISION_HISTORY = ROOT / "docs" / "notes" / "window-freeze-history.md"
+
 
 def replay(line: dict, **kw) -> dict:
     """What today's writer produces from the frozen line's own inputs.
@@ -478,9 +495,10 @@ def test_the_reference_arms_line_is_what_the_default_still_writes():
     line, = frozen_lines("port-oneshot-nofence")
     today = replay(line)
     differing = [k for k in today if k not in line or today[k] != line[k]]
-    assert sorted(differing) == sorted([*ADDED_SINCE, "generated"]), (
+    assert sorted(differing) == sorted([*ADDED_SINCE, *REVISED_SINCE, "generated"]), (
         f"the replay differs in {sorted(differing)}. Expected only the fields added since "
-        f"the call ({list(ADDED_SINCE)}) and the timestamp. `sample_reference` in that list "
+        f"the call ({list(ADDED_SINCE)}), the window fields a recorded revision has moved "
+        f"({list(REVISED_SINCE)}), and the timestamp. `sample_reference` in that list "
         "means the default is not the null this line carries."
     )
     assert not set(line) - set(today), (
@@ -496,14 +514,50 @@ def test_the_replay_is_of_the_real_call_and_not_a_resembling_one():
     so their agreeing with the recorded ones is evidence the replay reproduces the call that
     was made. If §1.1–1.2's template or `config/sampling.yaml` had changed, this fails, and
     the failure is real: the frozen arm's window moved (DESIGN §11.2).
+
+    **It changed, on 2026-09-04, and this is what the failure was replaced with rather than
+    silenced.** Removing the example from `rule_author.md` moved `prompt_sha256` after this
+    arm had spent its only call, and DESIGN §6.3 forbids the one repair that would restore the
+    equality: re-freezing would hash today's prompt and present it as the window the call ran
+    under. So the drift is permanent, and the field is named in `REVISED_SINCE` — but naming
+    it buys nothing on its own. What replaces the equality is a demand on the *record*: the
+    value now on disk has to appear in `docs/notes/window-freeze-history.md`, the file that
+    counts prompt revisions, which is a check the next prompt edit fails until somebody writes
+    the entry saying what moved and why.
+
+    Two ways to read what is left, and only one of them is right. The weaker reading is that
+    the replay is now of a resembling call and the test above has been hollowed out. The
+    reading this asserts is narrower and still worth having: **every field the replay computes
+    from disk either matches the frozen call's or has a written revision behind it**, and the
+    equality is still demanded of `sampling_sha256`, the hash that would move if `n`,
+    `context_chars`, `min_per_type`, `base_seed` or `seed_scheme` had changed. A drift with no
+    entry, and a drift on a field nobody expected, both still fail here.
     """
     line, = frozen_lines("port-oneshot-nofence")
     today = replay(line)
+    recorded = REVISION_HISTORY.read_text(encoding="utf-8")
     for field in ("prompt_sha256", "sampling_sha256"):
-        assert today[field] == line[field], (
-            f"{field} no longer matches the frozen call's. The replay is of a different "
-            "window than the one that ran, which makes every other comparison here weaker "
-            "than it reads."
+        if field not in REVISED_SINCE:
+            assert today[field] == line[field], (
+                f"{field} no longer matches the frozen call's. The replay is of a different "
+                "window than the one that ran, which makes every other comparison here "
+                "weaker than it reads. If a hashed file was revised on purpose, the entry "
+                f"goes in {REVISION_HISTORY.name} and the field goes in `REVISED_SINCE` — in "
+                "that order, because the entry is what the test reads."
+            )
+            continue
+        assert today[field] != line[field], (
+            f"{field} is in `REVISED_SINCE` and now agrees with the frozen line again. Either "
+            "the revision was reverted, in which case delete the entry, or a hashed file was "
+            "restored to a state it should not be in. A name that outlives its drift is the "
+            "exemption this constant is written to not become."
+        )
+        digest = today[field].split(":", 1)[-1][:12]
+        assert digest in recorded, (
+            f"{field} is {digest}… on disk and {REVISION_HISTORY.name} does not mention that "
+            "value. The revision is unrecorded, which is the state that file exists to make "
+            "impossible: a hashed prompt moved past a spent call and nothing says which edit "
+            "did it. Add the row, then this passes."
         )
 
 

@@ -104,15 +104,18 @@ inert.
 exists to make.**
 
 `n` error spans drawn from the previous iteration's scorer output, by the **seeded**
-selection §1.5 fixes, recorded with the run. Each span is shown as:
+selection §1.5 fixes, recorded with the run.
 
-```
-type      NAME                      canonical phi_type of the gold span
-error     missed | false_positive    missed = leaked under fully_covered
-context   …±120 characters of dev text around the span…
-offsets   (start, end) within that context window
-detected  es:doctor_prefix (context_cue)   present only for false positives
-```
+Each span arrives as five labelled lines, one field per line, the label then the value. The
+fields in order: `type`, the canonical `phi_type` of the gold span; `error`, either `missed`
+or `false_positive`, where `missed` means leaked under `fully_covered`; `context`, ±120
+characters of dev text around the span; `offsets`, the `(start, end)` pair *within that
+context window* and not within the document; and `detected`, the rule id and its layer,
+present only for a false positive because a missed span was detected by nothing. No example
+of the block is shown here — the note at the end of §2 says why, and it applies to the input format as much
+as to the output: this document is sent to you verbatim, so anything it demonstrates is
+something you can copy. You will have the real block in front of you below, which is a
+better specification of its shape than a rendering of it here.
 
 **The surrounding text is included, and that is a deliberate cost.** A rule author who
 cannot see the words around a missed identifier cannot write a context cue for it — the
@@ -145,12 +148,8 @@ recorded in the results, not left implicit in this file's revision history.** Th
 ### 1.5 How the sample is drawn — the seed
 
 **The seed is derived from the iteration number, deterministically, and from nothing that
-varies between runs.** `src/sample.py`:
-
-```python
-seed = sha256(seed_scheme || base_seed || corpus || iteration)   # first 8 bytes
-```
-
+varies between runs.** In `src/sample.py` the seed is the first 8 bytes of the SHA-256 of four
+values concatenated in this order: `seed_scheme`, `base_seed`, `corpus`, `iteration` —
 with `seed_scheme` and `base_seed` from `config/sampling.yaml`, the four parts joined by a
 delimiter that cannot occur in them. Three inputs are **forbidden**, and each is forbidden
 because it fails without a symptom:
@@ -201,34 +200,37 @@ The agent's entire output is this file. It emits the complete file, not a patch:
 requires the agent to have tracked line numbers it cannot see, and a malformed patch
 fails in a way that looks like a bad rule rather than a bad edit.
 
-**Emit the file's content and nothing else. No code fence, no ``` line, no `yaml`
+**Emit the file's content and nothing else. No code fence, no triple-backtick line, no `yaml`
 language tag, no preamble and no closing remark.** The first character of the response is
 the first character of the file, and the last is the last. The response is written to
 `rules/{lang}.yaml` verbatim — nothing strips a fence or repairs a key — so a fenced
 response is not a formatting preference that gets normalised, it is an invalid YAML file
-and the arm records a format failure. The fenced block below is an *example inside these
-instructions*, and the fence is how this document quotes it; it is not part of what the
-example says to emit.
+and the arm records a format failure.
 
-```yaml
-version: 3                    # integer, incremented on every emission
-lang: es                      # must equal {lang}; a mismatch is rejected
-rules:
-  - rule_id: doctor_prefix    # unprefixed here; loader prepends "es:" (DESIGN §3)
-    layer: context_cue        # a `layer` axis value — required, never inferred
-    phi_type: NAME            # a `phi_type` axis value — the span's canonical type
-    cue: ["Dr.", "Dra."]      # the matcher: cue words, then what follows them
-    then: capitalised_words   # no regex here — see the table below
-    score: 0.8                # optional confidence, recorded on the span
-    comment: >                # optional rationale; no corpus surface forms
-      Title-prefixed clinician name. Cue is the title, not the name.
-  - rule_id: dni
-    layer: regex_checksum
-    phi_type: ID
-    pattern: '\b\d{8}[A-Z]\b'   # the regex form
-    checksum: dni_mod23       # arithmetic in the engine, named here
-    flags: [unicode]          # optional; from a fixed allowlist
-```
+**This document shows no example of that file.** The section below — *Why this file contains no example* — gives the reason, and it is sharper here
+than anywhere else in this project: in YAML indentation *is* the format, so an example that
+had been merely indented instead of fenced would be more copyable than a fenced one, not
+less — the indentation would be part of what got imitated and the result would still not be
+the file. There is no delimiter that makes a demonstration safe, so there is no demonstration.
+
+The file's shape in prose. **Three top-level keys and no others:** `version`, an integer
+incremented on every emission; `lang`, which must equal the `{lang}` the frame names, since a
+mismatch is rejected; and `rules`, a list.
+
+Each entry in `rules` is a mapping. **Required: `rule_id`, `layer`, `phi_type`, and exactly one
+matcher.** `rule_id` is written **without** the language prefix — a bare name such as the one a
+clinician-title rule would carry — because the loader prepends `es:` or `cat:` from the file it
+read. `layer` is a `layer` axis value and `phi_type` is a `phi_type` axis value; both
+vocabularies are appended to this call from `config/naming.yaml`, so neither is guessed from
+this document.
+
+**Optional on any rule:** `score`, a confidence in [0, 1] recorded onto the span; `comment`, a
+rationale carrying no corpus surface forms; and `flags`, a list drawn from a fixed allowlist
+and meaningful only on a regex form.
+
+The matcher forms are the table in the next section, which names each form's keys — the cue
+form takes `cue` and `then`, the regex form takes `pattern`, and the checksum form takes
+`pattern` together with `checksum`. Exactly one form per rule.
 
 **Required fields per rule: `rule_id`, `layer`, `phi_type`, and one matcher.** Each is
 required for a reason that is not stylistic:
@@ -321,6 +323,38 @@ change it.
 counts in §1.3 and the `rule_id` on every emitted span are the same identifier, so
 renaming a rule silently breaks the attribution history. A changed rule keeps its ID; a
 genuinely different rule gets a new one.
+
+### Why this file contains no example, and no fenced block of any kind
+
+**This document is sent to you verbatim.** The call that produced it joins this file's every
+byte with the input blocks below it. So anything this file demonstrates is something you have
+been shown as a way of presenting structured content, and that has been copied twice in this
+project's history.
+
+The first time, this section carried a fenced YAML example and a sentence saying the fence was
+this document's quoting convention and not part of what to emit. The response arrived fenced;
+`load_rules` refused it at line 1, column 1; the arm recorded a format failure. The sentence
+was then reworded — and only here, in this one file. Four prompts written afterwards copied the
+reworded sentence **together with the fenced block it was meant to neutralise**, and fourteen
+days later a second arm's first call arrived fenced and `parse_object` refused it at position 0.
+
+Three reasons the fix this time is removal and not rewording:
+
+1. **A demonstration that reaches you reproduces the failure whatever delimiter it wears.**
+   The observed behaviour is *the demonstration was imitated*; a fence is only the form the
+   imitation took. Indenting the example instead would change which characters got copied and
+   not whether — and for YAML it would be worse, because there indentation *is* the format, so
+   an indented example is more copyable than a fenced one rather than less.
+2. **An example file is for people.** The instances live in `docs/prompts/examples/`, where
+   they serve as validator fixtures and as what a reviewer reads. No call sends them, and this
+   document naming that path transmits no bytes to you.
+3. **So those files are not in the frozen window.** The window is the record of what decided a
+   run (DESIGN §5.5, §6.3), and a file no call could read is not in that definition.
+
+The absence is checked rather than asserted: `tests/test_prompt.py` refuses a fence line in any
+markdown file under `docs/prompts/`, with no per-file exemption, and two mutations in
+`tests/mutations/run.py` fail if that check is disabled or narrowed to spare one file. A
+per-file exemption is precisely how the defect was inherited the first time.
 
 ---
 
