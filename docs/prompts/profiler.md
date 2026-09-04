@@ -101,17 +101,16 @@ and there is no batching question of the kind `auditor.md` §1.3 settles. The Pr
 why `call_line()` carries `role` at all (DESIGN §5.5): `llm_calls` summed over one
 `agent_calls.jsonl` is the right answer for what the arm spent and no answer for who spent it.
 
-**The example below is invented for this document and quoted from no corpus** — the same caveat
-`rule_author.md` §8.1 attaches to its one example string and `auditor.md` §1.3 to its three
-lines. It illustrates the shape of a standoff annotation line, which is all the agent needs:
+**A standoff annotation line is named here rather than shown, and §2.4 is why.** Its shape,
+in order: a label such as `T1`, a tab, the type name, a space, the start offset, a space, the
+end offset, a tab, and then the annotated surface as it stands on disk. That schematic form is
+also in the input itself — `annotation_format.brat` states it — so this paragraph is a
+restatement and not the only source.
 
-```
-T1	TYPENAME 215 225	«the annotated surface stands here on disk»
-```
-
-The three fields after the tab are what the `format` and `offsets` blocks are about: a label, a
-start, an end. Whether that `225` is exclusive, whether `215` counts a byte-order mark, and
-whether the label is the flat one or the coarse one are the questions §2 asks.
+The three fields between the tabs are what the `format` and `offsets` blocks are about: a
+label, a start, an end. Whether the end offset is exclusive, whether the start counts a
+byte-order mark, and whether the label is the flat one or the coarse one are the questions §2
+asks.
 
 ---
 
@@ -119,31 +118,34 @@ whether the label is the flat one or the coarse one are the questions §2 asks.
 
 ### 2.1 From the agent
 
-One JSON object. **Emit the JSON and nothing else. No code fence, no ``` line, no `json`
-language tag, no preamble, no closing remark.** The fenced block below is an example inside
-these instructions and the fence is how this document quotes it.
+One JSON object. **Emit the JSON and nothing else. No code fence, no triple-backtick line, no
+`json` language tag, no preamble, no closing remark.** The first character of the response is
+`{` and the last is `}`.
 
-```json
-{
-  "annotation_encoding": "brat_standoff",
-  "text_location": "separate_file",
-  "offset_unit": "character",
-  "offset_base": "zero",
-  "offset_end": "exclusive",
-  "newline": "lf_only",
-  "bom": "counted_as_one_character",
-  "type_system_level": "flat",
-  "type_inventory": ["TERRITORIO", "FECHAS", "EDAD_SUJETO_ASISTENCIA"],
-  "group_key": "document_id_stem",
-  "patient_key_available": false,
-  "cites": {
-    "annotation_encoding": "pairing.brat",
-    "bom": "encoding.bom_offset_interaction.finding",
-    "group_key": "identifiers.stem_parse_rule"
-  },
-  "unresolved": ["type_system_level"]
-}
-```
+**This document shows no example of that object.** The schema is described below in prose, and
+§2.4 says why that is the form the specification takes here.
+
+**Thirteen keys, no others, all thirteen present.** Eleven are profile claims and two are about
+the claims:
+
+- **Nine take one string each, a member of the closed vocabulary of the same name:**
+  `annotation_encoding`, `text_location`, `offset_unit`, `offset_base`, `offset_end`, `newline`,
+  `bom`, `type_system_level`, `group_key`. The permitted values are not listed in this file —
+  they are appended to this prompt from `config/naming.yaml` as it stands for the run, so the
+  specification cannot drift from the axis it describes.
+- **`type_inventory` takes a list of strings:** the corpus's own type labels, copied from the
+  inventory's type counts. A label absent from those counts is refused as
+  `type_not_in_inventory`.
+- **`patient_key_available` takes a JSON boolean**, `true` or `false`, and not the strings
+  `"true"` or `"false"`.
+- **`cites` takes an object.** Each key is one of the field names above; each value is a dotted
+  field path into the filtered inventory that was sent, naming where in it the claim was read.
+  Not every field need be cited, and a path that does not resolve in what was sent is refused as
+  `uncited_field`.
+- **`unresolved` takes a list of field names from this schema**, drawn from the
+  `profile_unresolved` vocabulary, which is also appended at call time. A field named there
+  still carries its value; the list says the value is a guess. An empty list is a claim, not a
+  formality: it says every field is known.
 
 **Every value is a member of a closed vocabulary declared in `config/naming.yaml`, except
 `type_inventory` (a list of the corpus's own labels, copied from the inventory's type counts)
@@ -178,18 +180,13 @@ axes, no iteration (see the header). The orchestrator adds `corpus`, the invento
 `generated` date, the sha256 of the **filtered** inventory it sent, and the `refused` list. It
 adds no claim and removes only claims it can prove impossible.
 
-```json
-{
-  "corpus": "es-meddocan",
-  "porting": "port-multi",
-  "inventory_generated": "2026-08-05",
-  "inventory_filtered_sha256": "…",
-  "profile": { "…": "the agent's object, validated, unchanged" },
-  "refused": [{"field": "offset_base", "reason": "undeclared_value"}],
-  "counts": {"fields": 11, "unresolved": 1, "refused": 1,
-             "by_refusal": {"undeclared_value": 1}}
-}
-```
+Seven keys, and the agent writes none of them: `corpus` and `porting`, the two axes a reader
+needs to know which cell wrote the file; `inventory_generated`, the inventory's own date;
+`inventory_filtered_sha256`; `profile`, holding the agent's object validated and unchanged;
+`refused`, a list of objects each carrying a `field` and a `reason` from §2.3's table and **not**
+the value that was refused; and `counts`, with `fields`, `unresolved`, `refused`, and a
+`by_refusal` breakdown keyed by reason. A worked instance is not shown here for §2.4's reason;
+`docs/prompts/examples/` holds one for a reader, outside this file and outside the call.
 
 **`inventory_filtered_sha256` is what makes §1.2 checkable after the fact.** The claim "the
 Profiler was not shown the per-fold decomposition" is otherwise a claim about a prompt that is
@@ -234,6 +231,44 @@ has, and stops. **It does not retry with a repaired object and it does not fall 
 hand-written `profiles/{corpus}.json`.** A fallback would make the arm report a result obtained
 from the human artefact under the label of the agent one, which is the one outcome this rung
 cannot survive.
+
+### 2.4 Why this file contains no example, and no fenced block of any kind
+
+**This prompt is sent to the model verbatim.** `assemble_profiler_prompt` joins this template,
+the vocabulary frame, and the filtered inventory; the template is not summarised, excerpted, or
+stripped on the way. So every block in this file reaches the agent, and a path this file merely
+names does not.
+
+**The first run of `port-multi` on `es-meddocan` failed because a demonstration was copied**
+(`docs/notes/arm-port-multi-es.md`). The response obeyed three of the four prohibitions above
+and wrapped the object in the fence this file used to quote its own example. That was the second
+occurrence in this repository: `port-oneshot`'s first run wrapped its YAML the same way, and the
+fix then was one file's wording plus a sentence saying the fence was this document's quoting
+convention. The sentence was inherited by the four prompts written afterwards **together with
+the fenced block it failed to neutralise**.
+
+So the convention is now the absence of the demonstration, for three reasons in order:
+
+1. **A demonstration that reaches the model reproduces the failure in a different form.** The
+   observed failure is *the demonstration was copied*. Changing the delimiter — indentation, a
+   different marker, a nested block — leaves a format in the prompt to be copied and changes
+   only which characters get copied with it. Indentation is the worst of those for a YAML
+   artefact specifically, because in YAML indentation *is* the format, so an indented example is
+   more copyable than a fenced one rather than less.
+2. **An example file is for people.** `docs/prompts/examples/` holds instances as validator
+   fixtures and as what a reviewer reads. They are not sent to any agent, so they do not
+   determine what a run does, and there is no argument from "the prompt names the path" — naming
+   a path transmits no bytes.
+3. **Therefore the example files are not in `WINDOW_FILES`.** The frozen window is the record of
+   *what decided this run* (DESIGN §5.5, §6.3). A file the model never saw is not in that
+   definition, and adding it would grow every freeze record with a hash that attests to nothing
+   the call could have read.
+
+**And the absence is checked rather than remembered.** `tests/test_prompt.py` refuses any
+markdown file under `docs/prompts/` that contains a fence line, with no per-file exemption,
+because a per-file exemption is precisely the path by which this defect was inherited. Two
+mutations in `tests/mutations/run.py` — one removing that check, one exempting a single file from
+it — keep the test load-bearing.
 
 ---
 

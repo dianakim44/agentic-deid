@@ -1,0 +1,25 @@
+{
+  "flags": [
+    {
+      "line": 2,
+      "start": 18,
+      "end": 34,
+      "phi_type": "NAME",
+      "score": 0.8
+    },
+    {
+      "line": 2,
+      "start": 0,
+      "end": 8,
+      "phi_type": "PROFESSION",
+      "score": 0.4
+    },
+    {
+      "line": 1,
+      "start": 11,
+      "end": 27,
+      "phi_type": "LOCATION_STREET",
+      "score": 0.7
+    }
+  ]
+}

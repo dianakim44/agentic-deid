@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import ast
 import dataclasses
+import importlib.util
 import io
 import itertools
 import json
@@ -2904,3 +2905,56 @@ def test_the_window_tool_hands_the_prompt_straight_to_the_terminal():
                 "show_human_window.py binds the rendered window to a name. A named value "
                 "is one a later edit can print, log or write."
             )
+
+
+# --------------------------------------------------------------------------------------
+# The example files: generated, validated, and outside the frozen window.
+#
+# The templates are sent to the model verbatim, so an example inside a template is a
+# demonstration the model can copy — and it did, twice (`docs/notes/arm-port-oneshot-es.md`,
+# `docs/notes/arm-port-multi-es.md` §4). So the instances live in `docs/prompts/examples/`,
+# where no call can read them, and the prompts name the path instead. These two tests are what
+# make that a real substitution rather than a move: an example nobody validates goes stale
+# silently, and an example file inside `WINDOW_FILES` would put a file no call reads into the
+# record of what decided a run.
+# --------------------------------------------------------------------------------------
+
+
+def test_the_prompt_examples_are_current_and_pass_their_own_validators():
+    """`docs/prompts/examples/` is generated, so a schema change cannot leave it behind.
+
+    The examples are the only demonstration of these three schemas that exists anywhere now.
+    A stale one is worse than none: a reader would trust it, and the prompt names its
+    directory. `tools/build_prompt_examples.py` validates every object it writes, so this
+    test's `--check` covers both staleness and validity.
+    """
+    spec = importlib.util.spec_from_file_location(
+        "build_prompt_examples", ROOT / "tools" / "build_prompt_examples.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    expected = module.expected_files()
+    # Asserted before the loop, because a loop over a mapping that lost an entry passes. The
+    # entry most likely to be lost is the YAML one — it is the only non-JSON file here and the
+    # only one a JSON-shaped rewrite of `expected_files()` would drop.
+    assert module.RULES_FILE in expected, sorted(expected)
+    assert len(expected) >= 9, sorted(expected)
+    for name, content in expected.items():
+        path = module.EXAMPLES / name
+        assert path.exists(), f"{name} is missing; run tools/build_prompt_examples.py"
+        assert path.read_text(encoding="utf-8") == content, (
+            f"{name} is stale. Edit tools/build_prompt_examples.py and re-run it; the file is "
+            "generated so that an example cannot document a schema that no longer exists."
+        )
+
+
+def test_the_example_directory_is_not_in_the_frozen_window():
+    """The window is what decided a run, and no call can read these files.
+
+    Stated as a test because the argument runs the other way at first glance: the prompts name
+    the directory, and a file a prompt names looks like a file that decided the run. It is not
+    — naming a path transmits no bytes, and hashing a file the model never saw would grow every
+    freeze record with an attestation to nothing (DESIGN §6.3, profiler.md §2.4).
+    """
+    for name in WINDOW_FILES:
+        assert "examples" not in name, name
+    assert len(WINDOW_FILES) == 6, WINDOW_FILES

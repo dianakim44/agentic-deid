@@ -1,0 +1,34 @@
+{
+  "corpus": "es-meddocan",
+  "porting": "port-multi",
+  "files": {
+    "es/departments": {
+      "basis": "morphological_class",
+      "entries": 2,
+      "refused": 0,
+      "unresolved": false
+    },
+    "es/institutions": {
+      "basis": "general_knowledge_named_entities",
+      "entries": 3,
+      "refused": 0,
+      "unresolved": true
+    },
+    "es/regions": {
+      "basis": "administrative_enumeration",
+      "entries": 3,
+      "refused": 0,
+      "unresolved": false
+    }
+  },
+  "unresolved": [
+    "es/institutions"
+  ],
+  "refused": [],
+  "counts": {
+    "files": 3,
+    "entries": 8,
+    "refused": 0,
+    "by_refusal": {}
+  }
+}

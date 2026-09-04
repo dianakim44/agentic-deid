@@ -1,0 +1,32 @@
+{
+  "lexicons": {
+    "es": {
+      "institutions": {
+        "basis": "general_knowledge_named_entities",
+        "entries": [
+          "Hospital Clínic",
+          "Instituto Nacional de la Seguridad Social",
+          "Centro de Salud"
+        ]
+      },
+      "regions": {
+        "basis": "administrative_enumeration",
+        "entries": [
+          "Andalucía",
+          "Cataluña",
+          "Comunidad de Madrid"
+        ]
+      },
+      "departments": {
+        "basis": "morphological_class",
+        "entries": [
+          "Servicio de Cardiología",
+          "Servicio de Urología"
+        ]
+      }
+    }
+  },
+  "unresolved": [
+    "es/institutions"
+  ]
+}

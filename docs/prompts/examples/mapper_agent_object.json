@@ -1,0 +1,97 @@
+{
+  "map": {
+    "NOMBRE_SUJETO_ASISTENCIA": {
+      "canonical": "NAME",
+      "basis": "source_label_family"
+    },
+    "NOMBRE_PERSONAL_SANITARIO": {
+      "canonical": "NAME",
+      "basis": "source_label_family"
+    },
+    "FECHAS": {
+      "canonical": "DATE",
+      "basis": "canonical_gloss"
+    },
+    "EDAD_SUJETO_ASISTENCIA": {
+      "canonical": "AGE",
+      "basis": "canonical_gloss"
+    },
+    "TERRITORIO": {
+      "canonical": "LOCATION_AREA",
+      "basis": "source_type_is_coarser"
+    },
+    "PAIS": {
+      "canonical": "LOCATION_AREA",
+      "basis": "canonical_gloss"
+    },
+    "CALLE": {
+      "canonical": "LOCATION_STREET",
+      "basis": "canonical_gloss"
+    },
+    "HOSPITAL": {
+      "canonical": "ORGANISATION",
+      "basis": "canonical_gloss"
+    },
+    "INSTITUCION": {
+      "canonical": "ORGANISATION",
+      "basis": "canonical_gloss"
+    },
+    "CENTRO_SALUD": {
+      "canonical": "ORGANISATION",
+      "basis": "canonical_gloss"
+    },
+    "CORREO_ELECTRONICO": {
+      "canonical": "CONTACT",
+      "basis": "canonical_gloss"
+    },
+    "NUMERO_TELEFONO": {
+      "canonical": "CONTACT",
+      "basis": "source_label_family"
+    },
+    "NUMERO_FAX": {
+      "canonical": "CONTACT",
+      "basis": "source_label_family"
+    },
+    "ID_SUJETO_ASISTENCIA": {
+      "canonical": "ID",
+      "basis": "source_label_family"
+    },
+    "ID_ASEGURAMIENTO": {
+      "canonical": "ID",
+      "basis": "source_label_family"
+    },
+    "ID_TITULACION_PERSONAL_SANITARIO": {
+      "canonical": "ID",
+      "basis": "source_label_family"
+    },
+    "ID_CONTACTO_ASISTENCIAL": {
+      "canonical": "ID",
+      "basis": "source_label_family"
+    },
+    "ID_EMPLEO_PERSONAL_SANITARIO": {
+      "canonical": "ID",
+      "basis": "source_label_family"
+    },
+    "PROFESION": {
+      "canonical": "PROFESSION",
+      "basis": "canonical_gloss"
+    },
+    "OTROS_SUJETO_ASISTENCIA": {
+      "canonical": "OTHER",
+      "basis": "residual_bucket"
+    }
+  },
+  "excluded": {
+    "SEXO_SUJETO_ASISTENCIA": {
+      "excluded_type": "SEXO",
+      "basis": "design_exclusion"
+    },
+    "FAMILIARES_SUJETO_ASISTENCIA": {
+      "excluded_type": "FAMILIARES",
+      "basis": "design_exclusion"
+    }
+  },
+  "unresolved": [
+    "CENTRO_SALUD"
+  ]
+}

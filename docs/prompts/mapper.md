@@ -101,9 +101,12 @@ One corpus, one mapping, an input of a few hundred tokens. The Mapper's `llm_cal
 
 ### 2.1 From the agent
 
-One JSON object. **Emit the JSON and nothing else. No code fence, no ``` line, no `json` language
-tag, no preamble, no closing remark.** The fenced block below is an example inside these
-instructions and the fence is how this document quotes it.
+One JSON object. **Emit the JSON and nothing else. No code fence, no triple-backtick line, no
+`json` language tag, no preamble, no closing remark.** The first character of the response is `{`
+and the last is `}`.
+
+**This document shows no example of that object.** The schema is described below in prose, and
+§2.4 says why that is the form the specification takes here.
 
 **The agent emits JSON and the orchestrator writes YAML.** `paths.armmapping` fixes the extension
 and that key is committed; it is not edited here. The divergence from `rule_author.md`, which has
@@ -112,23 +115,26 @@ multi-line patterns, and its schema is worth that parse surface. A mapping is on
 label→label table, and YAML from a model brings anchors, tags, implicit typing and duplicate keys
 for no gain. Serialising a validated object is the narrower path.
 
-The labels below are invented for this document and are not any corpus's labels — the same caveat
-`profiler.md` §1.3 attaches to its one annotation line.
+**Three keys, no others, all three present.**
 
-```json
-{
-  "map": {
-    "SOURCE_LABEL_A": {"canonical": "NAME", "basis": "canonical_gloss"},
-    "SOURCE_LABEL_B": {"canonical": "ID", "basis": "source_label_family"},
-    "SOURCE_LABEL_C": {"canonical": "LOCATION_AREA", "basis": "source_type_is_coarser"},
-    "SOURCE_LABEL_D": {"canonical": "OTHER", "basis": "residual_bucket"}
-  },
-  "excluded": {
-    "SOURCE_LABEL_E": {"excluded_type": "SEXO", "basis": "design_exclusion"}
-  },
-  "unresolved": ["SOURCE_LABEL_D"]
-}
-```
+- **`map` takes an object.** Each key is one source label, copied from the `type_inventory` list
+  in the input. Each value is an object with exactly two keys: `canonical`, one member of the
+  `phi_type` axis, and `basis`, one member of `mapping_basis`.
+- **`excluded` takes an object of the same outer shape but a different inner one.** Each key is
+  again a source label; each value is an object with exactly two keys: `excluded_type`, one
+  member of `excluded_types`, and `basis`. **`excluded` entries take `excluded_type` and never
+  `canonical`; `map` entries take `canonical` and never `excluded_type`.** That is the one place
+  in this schema where the two halves differ, and it is the mistake to avoid.
+- **`unresolved` takes a list of strings**, each a key that appears in `map` or in `excluded`. A
+  label named there still carries its full assignment; the list says the assignment is a guess.
+  An empty list is a claim: it says every pairing is known.
+
+Every source label in the input appears **exactly once** across `map` and `excluded`: a label in
+both is refused, and a label in neither is refused as `unmapped_source_type`. The permitted values
+of `phi_type`, `excluded_types` and `mapping_basis` are appended to this prompt from
+`config/naming.yaml` as it stands for the run, with their glosses, and are not listed in this
+file — so the specification cannot drift from the axes it describes. `unresolved` needs no such
+list: its admissible entries are the source labels the response itself assigned.
 
 **Every value is a member of a closed vocabulary declared in `config/naming.yaml`**, and the keys
 are labels copied from `type_inventory`. `canonical` draws from the `phi_type` axis,
@@ -183,35 +189,19 @@ same bytes.
 `paths.armmapping`. The orchestrator adds `corpus`, the profile hash, the `refused` list, the
 `disagreements` list (§4), and counts. It adds no mapping claim.
 
-```yaml
-corpus: es-meddocan
-porting: port-multi
-profile_sha256: "…"
-design_mapping_source: "DESIGN.md §9.0"
-mapping:
-  # the agent's object, validated, unchanged
-excluded:
-  # likewise
-refused:
-  - source_type: SOURCE_LABEL_F
-    reason: undeclared_value
-disagreements:
-  - source_type: SOURCE_LABEL_A
-    agent: ORGANISATION
-    design: LOCATION_AREA
-applied: design
-counts:
-  source_types: 22
-  mapped: 20
-  excluded: 2
-  unresolved: 1
-  refused: 1
-  by_refusal: {undeclared_value: 1}
-  disagreements: 1
-  compared_against_design: 22
-```
+Nine top-level keys, and the agent writes none of them. `corpus` and `porting`, the two axes that
+say which cell wrote the file. `profile_sha256`. `design_mapping_source`, naming the section of
+DESIGN the comparison was made against. `mapping` and `excluded`, holding the agent's two objects
+validated and unchanged. `refused`, a list whose entries carry a `source_type` and a `reason` from
+the table below and **not** the value that was refused. `disagreements`, a list whose entries carry
+a `source_type`, the `agent`'s canonical type and the `design`'s (§4). `applied`, one of `design`
+or `agent`. And `counts`, with `source_types`, `mapped`, `excluded`, `unresolved`, `refused`, a
+`by_refusal` breakdown keyed by reason, `disagreements`, and `compared_against_design`.
 
-**`applied: design` is a required field and its value is not the agent's to set.** §4 is what it
+A worked instance is not shown here for §2.4's reason; `docs/prompts/examples/` holds one for a
+reader, outside this file and outside the call.
+
+**`applied` is a required field and its value is not the agent's to set.** §4 is what it
 records. On a corpus DESIGN §9.0 does not cover the value is `agent`, and the field exists so that
 a reader of one file can tell which without knowing which corpora §9.0 lists.
 
@@ -256,6 +246,44 @@ stops. **It does not retry with a repaired object and it does not fall back to
 the label of the agent one — and here that fallback is especially tempting, because §4 means the
 human mapping is what loads anyway. It is still forbidden: §4 records a *disagreement between two
 mappings*, and an arm whose agent produced no mapping has nothing to disagree.
+
+### 2.4 Why this file contains no example, and no fenced block of any kind
+
+**This prompt is sent to the model verbatim.** `assemble_mapper_prompt` joins this template, the
+type-label frame, and one closing instruction; the template is not summarised, excerpted, or
+stripped on the way. So every block in this file reaches the agent, and a path this file merely
+names does not.
+
+**The first run of `port-multi` on `es-meddocan` never reached this call, because the Profiler's
+response wrapped its object in the fence that prompt used to quote its own example**
+(`docs/notes/arm-port-multi-es.md`). That was the second occurrence in this repository:
+`port-oneshot`'s first run wrapped its YAML the same way, and the fix then was one file's wording
+plus a sentence saying the fence was this document's quoting convention. The sentence was inherited
+by the four prompts written afterwards **together with the fenced block it failed to neutralise** —
+this file among them.
+
+So the convention is now the absence of the demonstration, for three reasons in order:
+
+1. **A demonstration that reaches the model reproduces the failure in a different form.** The
+   observed failure is *the demonstration was copied*. Changing the delimiter — indentation, a
+   different marker, a nested block — leaves a format in the prompt to be copied and changes only
+   which characters get copied with it. Indentation is the worst of those for a YAML artefact
+   specifically, because in YAML indentation *is* the format, so an indented example is more
+   copyable than a fenced one rather than less.
+2. **An example file is for people.** `docs/prompts/examples/` holds instances as validator
+   fixtures and as what a reviewer reads. They are not sent to any agent, so they do not determine
+   what a run does, and there is no argument from "the prompt names the path" — naming a path
+   transmits no bytes.
+3. **Therefore the example files are not in `WINDOW_FILES`.** The frozen window is the record of
+   *what decided this run* (DESIGN §5.5, §6.3). A file the model never saw is not in that
+   definition, and adding it would grow every freeze record with a hash that attests to nothing the
+   call could have read.
+
+**And the absence is checked rather than remembered.** `tests/test_prompt.py` refuses any markdown
+file under `docs/prompts/` that contains a fence line, with no per-file exemption, because a
+per-file exemption is precisely the path by which this defect was inherited. Two mutations in
+`tests/mutations/run.py` — one removing that check, one exempting a single file from it — keep the
+test load-bearing.
 
 ---
 

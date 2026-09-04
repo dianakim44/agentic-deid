@@ -1,0 +1,42 @@
+{
+  "iteration": 4,
+  "masked_from_iteration": 3,
+  "draw_index": 1,
+  "corpus": "es-meddocan",
+  "documents_audited": 1,
+  "documents_with_no_flags": 0,
+  "flags": [
+    {
+      "doc_id": "doc-example-0001",
+      "phi_type": "LOCATION_STREET",
+      "start": 75,
+      "end": 91,
+      "score": 0.7
+    },
+    {
+      "doc_id": "doc-example-0001",
+      "phi_type": "PROFESSION",
+      "start": 104,
+      "end": 112,
+      "score": 0.4
+    },
+    {
+      "doc_id": "doc-example-0001",
+      "phi_type": "NAME",
+      "start": 126,
+      "end": 142,
+      "score": 0.8
+    }
+  ],
+  "refused": [],
+  "counts": {
+    "flags": 3,
+    "refused": 0,
+    "by_phi_type": {
+      "LOCATION_STREET": 1,
+      "NAME": 1,
+      "PROFESSION": 1
+    },
+    "by_refusal": {}
+  }
+}

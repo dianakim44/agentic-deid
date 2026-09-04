@@ -86,33 +86,35 @@ view of each other and duplicate entries across them, and the duplicate would be
 
 ### 2.1 From the agent
 
-One JSON object. **Emit the JSON and nothing else. No code fence, no ``` line, no `json` language
-tag, no preamble, no closing remark.**
+One JSON object. **Emit the JSON and nothing else. No code fence, no triple-backtick line, no
+`json` language tag, no preamble, no closing remark.** The first character of the response is `{`
+and the last is `}`.
 
-The entries below are placeholders and are not proposed content — `LEXICON_ENTRY_*` is not a term
-any lexicon should contain.
+**This document shows no example of that object.** The schema is described below in prose, and §2.4
+says why that is the form the specification takes here.
 
-```json
-{
-  "lexicons": {
-    "es": {
-      "institutions": {
-        "basis": "general_knowledge_named_entities",
-        "entries": ["LEXICON_ENTRY_A", "LEXICON_ENTRY_B"]
-      },
-      "regions": {
-        "basis": "administrative_enumeration",
-        "entries": ["LEXICON_ENTRY_C"]
-      },
-      "departments": {
-        "basis": "morphological_class",
-        "entries": ["LEXICON_ENTRY_D"]
-      }
-    }
-  },
-  "unresolved": ["es/institutions"]
-}
-```
+**Two keys at the top level, `lexicons` and `unresolved`, and no others.** `lexicons` is nested
+three deep and the three levels are easy to confuse, so they are named one at a time:
+
+1. **`lexicons` takes an object whose keys are language codes** — members of the `lang` axis, one
+   per rule language of this corpus, all of them in this one response.
+2. **Each language's value is an object whose keys are lexicon file names** — members of the
+   `lexicon_name` vocabulary. Only the names you have content for: a name you would leave empty is
+   left out rather than written empty.
+3. **Each file name's value is an object with exactly two keys.** `basis`, one member of the
+   `lexicon_basis` vocabulary, saying what kind of knowledge the list is. And `entries`, a list of
+   strings — the terms themselves, one per element, no comment syntax, no `#`, no newline inside a
+   term.
+
+**`unresolved` takes a list of strings, and each string is a language code and a file name joined
+by a forward slash** — the language first, then `/`, then the name, matching the `lexicon:`
+reference form a rule file uses for the same pair. Every entry must name a pair that is present in
+`lexicons`; the file is still written and the list says the content is a guess. An empty list is a
+claim: it says every list you wrote is one you stand behind.
+
+The permitted languages, file names and bases are appended to this prompt from
+`config/naming.yaml` as it stands for the run, with their glosses, and are not listed in this file
+— so the specification cannot drift from the axes it describes.
 
 **Every key and every `basis` is a member of a closed vocabulary declared in
 `config/naming.yaml`.** Languages come from the `lang` axis, file names from `lexicon_name`, bases
@@ -146,19 +148,15 @@ character into a file whose reader treats it as structure.
 Alongside the directory, one `lexicon_manifest.json` at the arm root, carrying what the `.txt`
 files cannot:
 
-```json
-{
-  "corpus": "es-meddocan",
-  "porting": "port-multi",
-  "files": {
-    "es/institutions": {"basis": "general_knowledge_named_entities",
-                        "entries": 140, "refused": 3, "unresolved": true}
-  },
-  "refused": [{"file": "es/institutions", "reason": "entry_contains_newline"}],
-  "counts": {"files": 3, "entries": 291, "refused": 3,
-             "by_refusal": {"entry_contains_newline": 3}}
-}
-```
+Five keys, and the agent writes none of them. `corpus` and `porting`, the two axes that say which
+cell wrote it. `files`, an object keyed by the same `{lang}/{name}` pairs, each value carrying that
+file's `basis`, its `entries` **count**, its `refused` count, and an `unresolved` boolean. `refused`,
+a list whose entries carry a `file` and a `reason` from §2.3's table and **not** the rejected
+string. And `counts`, with `files`, `entries`, `refused`, and a `by_refusal` breakdown keyed by
+reason.
+
+A worked instance is not shown here for §2.4's reason; `docs/prompts/examples/` holds one for a
+reader, outside this file and outside the call.
 
 **The manifest carries no entry text**, only per-file counts and bases. A refusal records the file
 and the reason and **not the rejected string** — a rejected entry is a surface form of unknown
@@ -201,6 +199,50 @@ reads it.
 **No cap is set on entry count**, and the reason is §6.7.6's: there is no prior for how many
 institution names a lexicon should hold, and a cap chosen now would be a number with no argument
 behind it. `counts.entries` is reported instead, and precision is measured per rule.
+
+### 2.4 Why this file contains no example, and no fenced block of any kind
+
+**This prompt is sent to the model verbatim.** `assemble_lexicon_prompt` joins this template, the
+frame of languages, types, file names and bases, and one closing instruction; the template is not
+summarised, excerpted, or stripped on the way. So every block in this file reaches the agent, and a
+path this file merely names does not.
+
+**The first run of `port-multi` on `es-meddocan` never reached this call, because the Profiler's
+response wrapped its object in the fence that prompt used to quote its own example**
+(`docs/notes/arm-port-multi-es.md`). That was the second occurrence in this repository:
+`port-oneshot`'s first run wrapped its YAML the same way, and the fix then was one file's wording
+plus a sentence saying the fence was that document's quoting convention. **This file never even
+carried that sentence** — it inherited the fenced example without the mitigation, which is what a
+convention fixed in one file's prose rather than in a check comes to.
+
+So the convention is now the absence of the demonstration, for three reasons in order:
+
+1. **A demonstration that reaches the model reproduces the failure in a different form.** The
+   observed failure is *the demonstration was copied*. Changing the delimiter — indentation, a
+   different marker, a nested block — leaves a format in the prompt to be copied and changes only
+   which characters get copied with it. Indentation is the worst of those for a YAML artefact
+   specifically, because in YAML indentation *is* the format, so an indented example is more
+   copyable than a fenced one rather than less.
+2. **An example file is for people.** `docs/prompts/examples/` holds instances as validator
+   fixtures and as what a reviewer reads. They are not sent to any agent, so they do not determine
+   what a run does, and there is no argument from "the prompt names the path" — naming a path
+   transmits no bytes.
+3. **Therefore the example files are not in `WINDOW_FILES`.** The frozen window is the record of
+   *what decided this run* (DESIGN §5.5, §6.3). A file the model never saw is not in that
+   definition, and adding it would grow every freeze record with a hash that attests to nothing the
+   call could have read.
+
+**And the absence is checked rather than remembered.** `tests/test_prompt.py` refuses any markdown
+file under `docs/prompts/` that contains a fence line, with no per-file exemption, because a
+per-file exemption is precisely the path by which this defect was inherited. Two mutations in
+`tests/mutations/run.py` — one removing that check, one exempting a single file from it — keep the
+test load-bearing.
+
+**One extra caution for this prompt, because its example held content rather than shape.** The
+removed block used `LEXICON_ENTRY_A`-style placeholders and said in prose that they were not
+proposed content. A model that copied the demonstration here would have emitted placeholder terms
+into a real gazetteer, which is a worse failure than an unparseable response: it loads, matches
+nothing, and reports a lexicon with entries.
 
 ---
 
