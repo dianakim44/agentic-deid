@@ -1,0 +1,31 @@
+{
+  "corpus": "es-meddocan",
+  "detector": "R",
+  "supervision": "sup-free",
+  "porting": "port-multi",
+  "generated": "2026-09-04T01:08:03Z",
+  "revision": 1,
+  "files": [
+    "docs/prompts/rule_author.md",
+    "docs/prompts/auditor.md",
+    "config/sampling.yaml",
+    "docs/prompts/profiler.md",
+    "docs/prompts/mapper.md",
+    "docs/prompts/lexicon_builder.md"
+  ],
+  "prompt_sha256": "sha256:ddc48bdb0a0c286ab8194ba38f49e97b3cf95f6463e6e69c93d30915eef52cfa",
+  "auditor_sha256": "sha256:b7e983a4d8aacb4e5adb0faad9d290f3d51a55e9f85224a0ce8f8239c94428d5",
+  "sampling_sha256": "sha256:4c0e2cc725d357a1bdfa5c718d243c850ae52f5f236543bbac45b5d8e6ecb615",
+  "profiler_sha256": "sha256:5c84c7afedbe3bc94b6167a80508c323efdd27cc8162ad15677230bcc3d3acd2",
+  "mapper_sha256": "sha256:58fd151961e4f5b4d358aed2eed90aca1beca60e78481e82149705a44aab9200",
+  "lexicon_builder_sha256": "sha256:ce1cc75e420ebc8013b3977e46a89afac860b8592488810ea2eaf447580bb195",
+  "sections_shown": [
+    "1.1",
+    "1.2"
+  ],
+  "sections_empty": [
+    "1.3",
+    "1.4"
+  ],
+  "sampling_applied": false
+}

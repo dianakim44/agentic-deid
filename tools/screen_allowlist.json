@@ -78,6 +78,11 @@
       "why": "Korean prose recording the port-oneshot-nofence run on es-meddocan: the frozen window, the scoring (leak rate in both modes, P/R/F1, the complementarity decomposition and per-type leak), the cost and model-id fields, and the lifecycle record. Rule content is rule_id, layer and phi_type only — no pattern, no cue word, no term list — so nothing here reproduces what the rules match, and no corpus text, span or offset appears. The per-type tables are counts against gold, which is what results/**/metrics.json already publishes by path."
     },
     {
+      "path": "docs/notes/arm-port-multi-es.md",
+      "sniff": "Korean prose",
+      "why": "Korean prose recording the first port-multi run on es-meddocan: that the Profiler step was a format failure, the validator's own message, what is and is not on disk, the cost and model-id fields, the lifecycle record, and the finding that this is the second fence failure in the repository. No corpus text, span or offset appears. The response is not quoted — only its line count, the position the parser stopped at, and that the fence encloses every non-empty line, which is the same rule the validator message follows. The diagnostic section reports the validated profile as field values from closed naming.yaml vocabularies plus the count of type labels and of resolved cites; the one label list it names is the eight XML coarse categories, which DESIGN 9.0 already publishes."
+    },
+    {
       "path": "docs/notes/arm-port-loop-es.md",
       "sniff": "Korean prose",
       "why": "Korean prose recording the completed port-loop arm on es-meddocan: the frozen window, the eight-round trajectory with each round's step-or-decay verdict, the final round's scoring in both modes with the complementarity decomposition and per-type leak, the cost split into published and abandoned spend, the defect list, and the §4 comparison against the baseline. It quotes no rule content at all — not even a rule_id, since the arm's rule_id findings are argued in the acknowledged entries below by mechanism rather than by token — and no corpus text, span or offset appears. Every table is counts and rates against gold, which results/**/metrics.json already publishes by path, plus token and wall figures from the cost blocks and the call log."

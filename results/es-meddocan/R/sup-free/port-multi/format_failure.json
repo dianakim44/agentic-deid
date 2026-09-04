@@ -1,0 +1,66 @@
+{
+  "schema_version": 3,
+  "corpus": "es-meddocan",
+  "detector": "R",
+  "supervision": "sup-free",
+  "porting": "port-multi",
+  "split": "dev",
+  "model_id": "us.anthropic.claude-opus-4-5-20251101-v1:0",
+  "model_id_reported": "claude-opus-4-5-20251101",
+  "model_id_resolution": "dated",
+  "model_lifecycle": {
+    "model_arn": "arn:aws:bedrock:us-east-1::foundation-model/anthropic.claude-opus-4-5-20251101-v1:0",
+    "model_name": "Claude Opus 4.5",
+    "status": "ACTIVE",
+    "start_of_life_time": "2025-11-24T00:00:00+00:00"
+  },
+  "generated": "2026-09-04T01:08:13Z",
+  "rules_path": "results/es-meddocan/R/sup-free/port-multi/profile.json",
+  "error": "the profile response is not JSON (JSONDecodeError at position 0 of 1358 characters). §2.1 asks for one object and no fence; nothing is stripped here, because stripping is a repair with the failure count still reading zero. No part of the response is quoted in this message (CLAUDE.md); the response verbatim is in format_failure.json.",
+  "response": "```json\n{\n  \"annotation_encoding\": \"brat_standoff\",\n  \"text_location\": \"separate_file\",\n  \"offset_unit\": \"character\",\n  \"offset_base\": \"zero\",\n  \"offset_end\": \"exclusive\",\n  \"newline\": \"lf_only\",\n  \"bom\": \"counted_as_one_character\",\n  \"type_system_level\": \"flat\",\n  \"type_inventory\": [\"TERRITORIO\", \"FECHAS\", \"EDAD_SUJETO_ASISTENCIA\", \"NOMBRE_SUJETO_ASISTENCIA\", \"NOMBRE_PERSONAL_SANITARIO\", \"SEXO_SUJETO_ASISTENCIA\", \"CALLE\", \"PAIS\", \"ID_SUJETO_ASISTENCIA\", \"CORREO_ELECTRONICO\", \"ID_TITULACION_PERSONAL_SANITARIO\", \"ID_ASEGURAMIENTO\", \"HOSPITAL\", \"FAMILIARES_SUJETO_ASISTENCIA\", \"INSTITUCION\", \"ID_CONTACTO_ASISTENCIAL\", \"NUMERO_TELEFONO\", \"PROFESION\", \"NUMERO_FAX\", \"OTROS_SUJETO_ASISTENCIA\", \"CENTRO_SALUD\", \"ID_EMPLEO_PERSONAL_SANITARIO\"],\n  \"group_key\": \"document_id_stem\",\n  \"patient_key_available\": false,\n  \"cites\": {\n    \"annotation_encoding\": \"pairing.brat\",\n    \"text_location\": \"pairing.brat\",\n    \"offset_unit\": \"offsets.unit\",\n    \"offset_base\": \"offsets.base\",\n    \"offset_end\": \"offsets.end\",\n    \"newline\": \"encoding.conclusion\",\n    \"bom\": \"encoding.bom_offset_interaction.finding\",\n    \"type_system_level\": \"annotation_format.type_system_depth\",\n    \"type_inventory\": \"phi_types_brat_flat\",\n    \"group_key\": \"identifiers.stem_parse_rule\",\n    \"patient_key_available\": \"identifiers.patient_identifier_present\"\n  },\n  \"unresolved\": []\n}\n```",
+  "response_chars": 1358,
+  "response_sha256": "sha256:40d20e668e5d1d4faa702836a39f2d3cb1cfc4dec157450fea36a03534dfb717",
+  "prompt_reference": {
+    "block": "profiler",
+    "corpus": "es-meddocan",
+    "sections_filled": [
+      "1.1"
+    ],
+    "sections_empty": [],
+    "vocabularies_shown": [
+      "annotation_encoding",
+      "text_location",
+      "offset_unit",
+      "offset_base",
+      "offset_end",
+      "newline",
+      "bom",
+      "type_system_level",
+      "group_key"
+    ],
+    "inventory_filtered_sha256": "sha256:5b75d136666ef14d4f89401d44bd17dc22d5381bb6dc7ca04c6ba50d2d1b558f",
+    "inventory_blocks": 17,
+    "text_chars": 35605,
+    "text_sha256": "sha256:8caf2d763c14c4300657fe7132d88f0d34d3556415dbd80a742b8d88826f1f6a",
+    "window_files": {
+      "docs/prompts/rule_author.md": "sha256:ddc48bdb0a0c286ab8194ba38f49e97b3cf95f6463e6e69c93d30915eef52cfa",
+      "docs/prompts/auditor.md": "sha256:b7e983a4d8aacb4e5adb0faad9d290f3d51a55e9f85224a0ce8f8239c94428d5",
+      "config/sampling.yaml": "sha256:4c0e2cc725d357a1bdfa5c718d243c850ae52f5f236543bbac45b5d8e6ecb615",
+      "docs/prompts/profiler.md": "sha256:5c84c7afedbe3bc94b6167a80508c323efdd27cc8162ad15677230bcc3d3acd2",
+      "docs/prompts/mapper.md": "sha256:58fd151961e4f5b4d358aed2eed90aca1beca60e78481e82149705a44aab9200",
+      "docs/prompts/lexicon_builder.md": "sha256:ce1cc75e420ebc8013b3977e46a89afac860b8592488810ea2eaf447580bb195"
+    }
+  },
+  "cost": {
+    "llm_calls": 1,
+    "prompt_tokens": 11108,
+    "completion_tokens": 537,
+    "wall_seconds": 8.312
+  },
+  "prompt_sha256": "sha256:ddc48bdb0a0c286ab8194ba38f49e97b3cf95f6463e6e69c93d30915eef52cfa",
+  "auditor_sha256": "sha256:b7e983a4d8aacb4e5adb0faad9d290f3d51a55e9f85224a0ce8f8239c94428d5",
+  "sampling_sha256": "sha256:4c0e2cc725d357a1bdfa5c718d243c850ae52f5f236543bbac45b5d8e6ecb615",
+  "profiler_sha256": "sha256:5c84c7afedbe3bc94b6167a80508c323efdd27cc8162ad15677230bcc3d3acd2",
+  "mapper_sha256": "sha256:58fd151961e4f5b4d358aed2eed90aca1beca60e78481e82149705a44aab9200",
+  "lexicon_builder_sha256": "sha256:ce1cc75e420ebc8013b3977e46a89afac860b8592488810ea2eaf447580bb195"
+}
