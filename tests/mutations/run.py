@@ -5277,6 +5277,36 @@ MUTATIONS = [
         ),
         min_kills=1,
     ),
+    Mutation(
+        name="the_deletion_guard_reports_without_failing",
+        path=CONFTEST,
+        # The report still prints, in full, naming every deleted file. Only the exit status
+        # is dropped. On a green suite the two versions are indistinguishable, and on the run
+        # that matters the difference is between a red suite and a paragraph nobody reads —
+        # a `pytest -q` run prints hundreds of lines and this one arrives after the summary.
+        anchor='    session.exitstatus = 1\n',
+        replacement='',
+        breaks=(
+            "**Turns the results-deletion guard into a log line.** `pytest_sessionfinish` "
+            "still compares the listings and still prints the paths; the session exits 0, so "
+            "CI is green and every wrapper that reads a return code is satisfied.\n"
+            "\n"
+            "That is the defect this guard was written for, one level out. "
+            "`tests/test_run_fold.py` ran the `run_fold` CLI into the real results root and "
+            "removed the directory in a `finally` with `ignore_errors=True`; when "
+            "`port-multi` became a real arm the cleanup began deleting a committed "
+            "`window_freeze.json` and `format_failure.json` on every suite run, and the "
+            "reason nobody noticed for an unknown number of runs is precisely that nothing "
+            "went red. `agent_calls.jsonl` is the file with no second copy — deny-listed and "
+            "gitignored because §1.4 carries dev corpus text — and it is the file this "
+            "mutation lets the next such cleanup take.\n"
+            "\n"
+            "Caught by `test_the_deletion_guard_reports_a_deleted_arm_record`, which asserts "
+            "the exit status separately from the message. Asserting only the message is the "
+            "natural test to write and it passes against this mutation."
+        ),
+        min_kills=1,
+    ),
 ]
 
 COUNT_RE = re.compile(r"(\d+) (passed|failed|error|errors)")

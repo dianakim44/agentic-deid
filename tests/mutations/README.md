@@ -2413,7 +2413,7 @@ reproduced all six of the counts above exactly**, measured under a different tre
 full one say the selective numbers were not artefacts of the tree they were taken on; they say
 nothing about the other 170, which is why the run had to happen.
 
-### Two on the fence check, where a clean repository cannot tell them apart — 2026-09-04
+### Three where the correct answer is silence, and a clean repository cannot tell them apart — 2026-09-04
 
 The prompt templates are joined into the call verbatim, so a fenced block in one is a
 demonstration the response can copy, and it was copied twice: `port-oneshot`'s first run fenced
@@ -2423,16 +2423,23 @@ the four prompts written afterwards inherited both that sentence and the fenced 
 failed to neutralise (`docs/notes/arm-port-multi-es.md` §4). So the examples are gone from all
 six prompts and `prompt.fenced_prompt_lines()` is what keeps them gone.
 
-**Both mutations are here because the check's success is an absence, which is the hardest kind to
-test and the easiest kind to fake.** On the repository as committed the correct function returns
+The third mutation is not about fences at all, and it is in this section because it shares the
+property that makes the other two hard: `tests/conftest.py`'s results-deletion guard is also a
+check whose success is silence.
+
+**All three are here because the check's success is an absence, which is the hardest kind to test
+and the easiest kind to fake.** On the repository as committed the correct fence function returns
 `{}` — and so does a version that never records a hit, and so does a version that skips a file.
 The test anyone writes first reads the real templates and asserts an empty mapping, and it passes
-against all three.
+against all three. The deletion guard is the same trap one step further along: a suite run that
+deletes nothing produces no output whether the guard works, reports without failing, or was never
+wired to the hooks.
 
 | mutation | kills |
 | --- | --- |
-| `the_fence_check_finds_nothing` | *(pending the full run — see below)* |
+| `the_fence_check_finds_nothing` | *(pending the impact-scope run — see below)* |
 | `the_fence_check_exempts_one_file` | *(pending)* |
+| `the_deletion_guard_reports_without_failing` | *(pending)* |
 
 `the_fence_check_finds_nothing` reduces `fenced_prompt_lines()` to the answer it gives when it
 passes: the loop still walks every file and still knows CommonMark's rule, it just never records
@@ -2456,12 +2463,30 @@ the committed templates the exemption is invisible, since a shortened file list 
 compares the function's list against an independent `rglob` and checks a nested file in a tmp
 tree, so selection stays a property of the directory rather than an enumeration somebody edits.
 
-These two took `MUTATIONS` from 185 to 187. That is not a `TEST_FILES` membership change, so the
-recorded counts keep their denominator and nothing here invalidates them (CLAUDE.md, "When a full
-run is required" below). **The two cells above are empty because the run had not happened when the
-section was written, and an empty cell is the honest state** — the alternative is a number from a
-`--probe` run, which skips the green-baseline check and so measures against a baseline nobody
-verified. The run and its scope are recorded in `docs/notes/mutation-full-runs.md`.
+`the_deletion_guard_reports_without_failing` deletes one line — `session.exitstatus = 1` — from
+`pytest_sessionfinish`. The guard still walks `results/`, still computes the set difference, still
+prints every deleted path with the explanation of why `agent_calls.jsonl` cannot be recovered. It
+just exits clean. This is the failure the guard was written *against*, not a hypothetical one: the
+deletion it now watches for ran for an unknown number of green suite runs and the only reason it
+was ever found was a `git ls-files` comparison done by hand for an unrelated purpose. A guard whose
+finding does not change the exit status reproduces exactly that — the information is on the
+terminal, above 2247 dots and a green summary line, and nobody reads upward from green.
+`test_the_deletion_guard_reports_a_deleted_arm_record` asserts `exitstatus == 1` as a separate
+statement from the message assertions for this reason; folding the two into one assertion is how
+the mutation would survive.
+
+These three took `MUTATIONS` from 185 to 188. That is not a `TEST_FILES` membership change, so the
+recorded counts keep their denominator, and by the rule below an impact-scope run would have
+discharged them. **The run these cells wait on is a full one anyway, and the reason is arithmetic
+rather than rigour**: the impact scope here is about seventy mutations across six modules, which is
+roughly seven hours serially, while eight shards do all 188 in the 2.21 hours the last full run
+measured. Buying every count in the file for a third of the wall time of a partial one is not a
+trade worth thinking about twice.
+
+**The three cells above are empty because the run had not happened when the section was written,
+and an empty cell is the honest state** — the alternative is a number from a `--probe` run, which
+skips the green-baseline check and so measures against a baseline nobody verified. The run and its
+scope are recorded in `docs/notes/mutation-full-runs.md`.
 
 ## What the seal cost, and what carries the difference
 
@@ -2520,7 +2545,7 @@ applies to the code. Two safeguards follow from that:
   Three checks, described in the next section. Skipping them lets the harness count
   its own breakage as a kill.
 
-The maintenance cost is real but bounded: **205 anchors across 187 mutations**, each a
+The maintenance cost is real but bounded: **206 anchors across 188 mutations**, each a
 line or two, and a refactor that breaks one gets a `STALE` message naming the file.
 That is cheaper than the failure mode it prevents.
 
@@ -3088,6 +3113,69 @@ every absence check in the file at once. The sweep this suggests is a grep for `
 over `tests/`, and unlike the sixth member's rhetorical sweep it is mechanical enough to be
 worth writing as one; it is not written yet, and it is recorded here as work owed rather
 than done.
+
+### The eighth of the family, and a new variant: the suite deleted the artefact — 2026-09-04
+
+**Found 2026-09-04, by comparing `git ls-files | grep -i multi` against `ls` for an unrelated
+reason.** `results/es-meddocan/R/sup-free/port-multi/` was tracked and absent from the working
+tree. `git checkout --` brought back what git had. Every `pytest` run since `d692bd1`, an unknown
+number of them, had deleted a committed arm record and finished green.
+
+`tests/test_run_fold.py::test_the_cli_reports_the_leak_rate_and_not_f1` ran the `run_fold` CLI —
+which has no `--root` — into the real results root under `porting=port-multi`, and removed the
+directory afterwards in a `finally` with `ignore_errors=True`. The safety argument was written in
+the test and it was true when written: nothing else wrote that arm. **It expired the day
+`d692bd1` committed `window_freeze.json` and `format_failure.json` under exactly that path**, and
+nothing was watching the argument. A cleanup whose safety rests on a coordinate being unused is a
+cleanup that fails the first time somebody uses the coordinate, which in a repository where arms
+are the unit of work is a matter of when.
+
+**What was lost: `port-multi`'s `agent_calls.jsonl`. It is not recoverable.** The file is
+deny-listed and gitignored because §1.4 of a call carries dev corpus text, so the copy in the
+arm's directory was the only copy there has ever been. Nothing *unique* was lost, and only by
+luck: `format_failure.json` happens to duplicate the cost block, the response hash and all six
+window hashes. Luck is the right word for it — no design put those fields in two places, and the
+next arm to lose its call log may not have a second file that happens to hold the same facts.
+
+**The variant is what makes this worth a family entry.** Every member so far is a *check* that
+counted its own breakage as a success: a skip read as a pass, a collection error as thirty-seven
+kills, a deleted freeze record as an unopened window, an empty stdout as a clean one. The check
+was wrong and the artefact was fine. Here the artefacts were destroyed and no check was wrong —
+`test_the_cli_reports_the_leak_rate_and_not_f1` tested what it claimed to test and passed for the
+right reason, both before and after the damage began. **The silence came from the suite's side
+effects rather than from its assertions**, which is a region no assertion in the file was ever
+going to cover, because an assertion is about the thing under test and this was about the
+housekeeping around it.
+
+The generalisation, and it is a different axis from the seventh's: *a test's cleanup is the part
+of it nothing checks.* Assertions are read, reviewed, and mutated; a `finally` that removes a
+directory is read once, at writing, against the state of the repository on that day. Where the
+cleanup's target is outside the test's own tmp tree, its safety is a claim about the rest of the
+repository, and claims about the rest of the repository go stale without anyone editing the file
+they are written in.
+
+Closed the way the first kind is closed — by making the mechanism able to tell the cases apart,
+in three places rather than one, because each covers a different one of them:
+
+1. **The test borrows an arm that has not run** (`port-selfdesign`) and asserts the directory is
+   absent before it writes. That is the check that does not depend on the next author knowing
+   which arms exist.
+2. **`tests/conftest.py` snapshots every file under `results/` at `pytest_sessionstart` and
+   compares at `pytest_sessionfinish`**, naming anything that went missing and setting
+   `session.exitstatus = 1`. Scope is deletion only, and saying so is cheaper than a guard nobody
+   can bound.
+3. **A snapshot rather than `git ls-files`, and that is the whole point of the guard.** The two
+   recoverable files are tracked; the irreplaceable one is not. A guard that asked git would have
+   reported the two files that git could restore and said nothing about the one it could not. The
+   snapshot also needs no `.git`, so it works in the copied trees `run.py` builds.
+
+`the_deletion_guard_reports_without_failing` is the mutation, and it is the family's own signature
+turned on the guard: delete `session.exitstatus = 1` and the report still prints in full while the
+suite exits 0. On a run that deletes nothing the two versions are identical, and on the run that
+matters the difference is a paragraph arriving after a green summary line, which is a place nobody
+reads. `test_the_deletion_guard_reports_a_deleted_arm_record` therefore asserts the exit status as
+a separate statement from the message — folding them into one assertion is how the mutation would
+survive, and asserting only the message is the natural test to write.
 
 ### The two axes: doing too much, and taking too much away
 

@@ -62,6 +62,33 @@ in format_failure.json.
 
 호출 계수는 `profiler: 1  mapper: 0  lexicon_builder: 0` 이다.
 
+#### `agent_calls.jsonl` 은 더 이상 디스크에 없고 복구할 수 없다 (2026-09-04)
+
+위 표의 두 번째 행은 이 arm 이 돌았을 때의 상태다. 그 파일은 **지워졌고 되돌릴 수
+없다.** `tests/test_run_fold.py` 가 `run_fold` CLI 를 실제 results 루트에
+`porting=port-multi` 로 돌리고 `finally` 에서 그 디렉토리를 지웠다 — 그 정리의 안전
+근거는 "다른 무엇도 이 arm 을 쓰지 않는다" 였고, 이 arm 의 기록이 커밋된 날 만료되었다.
+`window_freeze.json` 과 `format_failure.json` 은 추적되므로 git 에서 복구했다.
+`agent_calls.jsonl` 은 deny 대상이고 gitignore 되어 있다 — §1.4 가 dev 코퍼스 텍스트를
+담기 때문이다 — 그래서 **arm 디렉토리의 사본이 존재한 유일한 사본이었다.**
+
+**살아 있는 것을 잃지는 않았다.** 이 arm 은 형식 실패로 끝났고 종료된 상태이며, 새
+실행은 새 arm 이므로(아래 §3) 이 파일이 앞으로 무엇을 위해 읽힐 일은 없었다. 잃은
+것은 기록의 완전성이다: 그 한 줄이 이 arm 의 **유일한 호출 기록**이었고,
+`role profiler` · `outcome called` · `iteration 0` 이라는 판정이 남아 있던 곳이었다.
+
+**고유하게 잃은 사실은 없고, 그것은 설계가 아니라 운이다.** `format_failure.json` 이
+같은 비용 블록과 응답 해시, 창 해시 여섯 개를 우연히 중복 보유한다. 어떤 규약도 그
+필드들을 두 파일에 두라고 하지 않았으므로, 다음에 호출 로그를 잃는 arm 에는 같은
+사실을 담은 두 번째 파일이 없을 수 있다. 위 표의 bytes 값과 그 한 줄의 내용은 이
+파일에 적힌 것이 전부이고, 이제 그것이 일차 출처다.
+
+재발 방지는 세 갈래로 넣었다 (`tests/mutations/README.md` §"The eighth of the family"):
+테스트가 돌지 않은 arm 을 쓰고 쓰기 전에 부재를 단언한다, `tests/conftest.py` 가
+`results/` 스냅샷을 세션 시작·종료에 비교하고 삭제가 있으면 종료 코드를 1 로 만든다,
+그리고 그 비교는 `git ls-files` 가 아니라 스냅샷이다 — git 에게 물어보는 가드는 복구
+가능한 두 파일을 보고 복구 불가능한 하나를 놓친다.
+
 ### 비용과 모델 식별
 
 | | |

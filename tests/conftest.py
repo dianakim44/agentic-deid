@@ -152,3 +152,64 @@ def unsplit_loader(corpus_present: str):
     from src.corpora.meddocan import MeddocanLoader
 
     return MeddocanLoader(use_split_file=False)
+
+
+# ─── the suite does not delete an arm's record ───────────────────────────────
+#
+# Hooks rather than a fixture, so `test_conftest.py`'s availability/construction
+# classification stays a statement about corpus fixtures — this is not one of those.
+#
+# **What happened.** `tests/test_run_fold.py` ran the `run_fold` CLI into the real results
+# root (the CLI has no `--root`) under `porting=port-multi`, on the stated grounds that
+# nothing else wrote that arm, and removed the directory in a `finally` with
+# `ignore_errors=True`. The grounds expired on 2026-09-04, when `port-multi` ran and
+# committed `window_freeze.json` and `format_failure.json` under exactly that path. From
+# then until it was found, every `pytest` run deleted an arm's committed record and said
+# nothing. That test now borrows an arm that has not run and asserts the directory is
+# absent before it writes; this is the check that does not depend on the next test author
+# knowing which arms exist.
+#
+# **Why a snapshot and not `git ls-files`.** The two files above are recoverable from git.
+# `agent_calls.jsonl` is not — it is deny-listed and gitignored because §1.4 carries dev
+# corpus text, so the copy in the arm's directory is the only copy there has ever been
+# (`tests/test_call_role.py`'s header states this as the reason its assertions read the
+# working tree). A guard that asked git would see the two recoverable files and miss the
+# irreplaceable one. Comparing the listing to itself needs no git, and it also works in the
+# copied trees `tests/mutations/run.py` builds, which have no `.git` at all.
+#
+# Deletion only. A test that *appends* to a record is a different failure and this is not
+# the check for it; naming what a check covers is cheaper than a check nobody can bound.
+
+#: Every file under `results/` at session start. Populated by the hook below, compared by
+#: the one after it. A module global rather than a fixture because both ends of the
+#: comparison are session events and neither belongs to a test.
+_RESULTS_AT_START: set[str] = set()
+
+
+def _results_files() -> set[str]:
+    """Paths under `results/`, relative to the repository root. Absent directory → empty."""
+    root = ROOT / "results"
+    if not root.is_dir():
+        return set()
+    return {str(path.relative_to(ROOT)) for path in root.rglob("*") if path.is_file()}
+
+
+def pytest_sessionstart(session):
+    _RESULTS_AT_START.clear()
+    _RESULTS_AT_START.update(_results_files())
+
+
+def pytest_sessionfinish(session, exitstatus):
+    missing = sorted(_RESULTS_AT_START - _results_files())
+    if not missing:
+        return
+    session.exitstatus = 1
+    print(
+        "\nTHE SUITE DELETED FILES UNDER results/ THAT EXISTED BEFORE IT RAN:\n"
+        + "".join(f"  {path}\n" for path in missing)
+        + "These are arm records. Some are committed and recoverable from git; "
+        "agent_calls.jsonl is neither, and the copy in the arm's directory is the only "
+        "one there has ever been. A test that needs a results directory writes into an "
+        "arm that has not run, asserts it is absent first, and removes only what it "
+        "created — see test_the_cli_reports_the_leak_rate_and_not_f1."
+    )

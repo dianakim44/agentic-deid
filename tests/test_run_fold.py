@@ -1755,16 +1755,42 @@ def test_the_cli_reports_the_leak_rate_and_not_f1(probe_file, corpus_present,
                                                   tmp_path):
     """Leak rate is the headline and F1 is not (CLAUDE.md).
 
-    Run into the real results root because the CLI has no `--root`; the arm used is
-    a `porting` value nothing else writes, and the directory is removed afterwards.
+    Run into the real results root because the CLI has no `--root`, which makes the *cleanup*
+    the dangerous part of this test rather than the assertions. The docstring used to end:
+    *the arm used is a `porting` value nothing else writes, and the directory is removed
+    afterwards.* Both clauses were true when they were written, and the first expired on
+    2026-09-04, when `port-multi` ran and committed `window_freeze.json` and
+    `format_failure.json` under exactly the path this test was deleting (`d692bd1`). From then
+    on every `pytest` run removed a real arm's committed record, in a `finally`, silently, and
+    `ignore_errors=True` guaranteed it stayed silent.
+
+    Those two files are recoverable from git. `agent_calls.jsonl` is not: it is deny-listed and
+    gitignored because §1.4 carries dev corpus text, so the copy in the arm's directory is the
+    only copy there has ever been (`tests/test_call_role.py`'s header states this as the reason
+    its assertions read the working tree). `port-multi` spent one call before it failed, and
+    whatever line that call wrote is gone. What survives is `format_failure.json`, which
+    happens to carry the same cost block, the same response hash and the same six window
+    hashes — DESIGN §6.3's second route doing exactly its job, and luck rather than a plan.
+
+    So the assumption is checked now instead of stated, in both directions. The arm is
+    `port-selfdesign`, the one declared `porting` value that has not run — and that clause is
+    the one that expires next, which is why the pre-condition is asserted rather than trusted:
+    if the directory is already there, this test fails and deletes nothing. The `finally`
+    removes what this test created, and the assertion above is what makes that sentence true.
     """
     import shutil
-    out_dir = ROOT / "results" / CORPUS / "R" / "sup-free" / "port-multi"
+    out_dir = ROOT / "results" / CORPUS / "R" / "sup-free" / "port-selfdesign"
+    assert not out_dir.exists(), (
+        f"{out_dir.relative_to(ROOT)} exists before this test ran. The arm this test borrows "
+        "has started, so the run below would write into a real arm's directory and the "
+        "cleanup would delete it. Move the test to an arm that has not run, or give the CLI "
+        "a --root — do not delete this directory to make the test pass."
+    )
     try:
         done = subprocess.run(
             [sys.executable, "-m", "src.eval.run_fold", "--corpus", CORPUS,
-             "--detector", "R", "--supervision", "sup-free", "--porting", "port-multi",
-             "--rules", str(probe_file)],
+             "--detector", "R", "--supervision", "sup-free",
+             "--porting", "port-selfdesign", "--rules", str(probe_file)],
             capture_output=True, text=True, cwd=ROOT, check=True)
         assert "leak rate" in done.stdout
         assert "headline" in done.stdout

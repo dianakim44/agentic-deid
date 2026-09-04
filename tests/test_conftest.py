@@ -319,6 +319,68 @@ def test_the_defective_form_would_be_caught():
     )
 
 
+# ─── rule 5: the suite does not delete an arm's record ───────────────────────
+#
+# Added 2026-09-04, after `tests/test_run_fold.py`'s cleanup spent an unknown number of
+# suite runs deleting `results/es-meddocan/R/sup-free/port-multi/`. The guard is two hooks
+# in conftest, and its correct answer is silence — the same shape as the fence check in
+# `src/llm/prompt.py`, and the same reason it needs a test that makes it speak. A test that
+# ran the guard over an untouched tree would pass against a guard that cannot report
+# anything at all.
+
+
+def _guard_over(monkeypatch, before, after):
+    """Drive both hooks with a stubbed listing, and return `(exitstatus, printed)`."""
+    import conftest as shared
+
+    listings = iter([before, after])
+    monkeypatch.setattr(shared, "_results_files", lambda: set(next(listings)))
+
+    class Session:
+        exitstatus = 0
+
+    session = Session()
+    shared.pytest_sessionstart(session)
+    shared.pytest_sessionfinish(session, 0)
+    return session
+
+
+def test_the_deletion_guard_reports_a_deleted_arm_record(monkeypatch, capsys):
+    """The positive control: a file present at the start and gone at the end is named."""
+    gone = "results/es-meddocan/R/sup-free/port-multi/window_freeze.json"
+    kept = "results/es-meddocan/R/sup-free/port-loop/window_freeze.json"
+    session = _guard_over(monkeypatch, {gone, kept}, {kept})
+    out = capsys.readouterr().out
+    assert session.exitstatus == 1, (
+        "the suite deleted a file under results/ and the session still exited clean. A "
+        "guard whose finding does not change the exit status is a log line."
+    )
+    assert gone in out, f"the report does not name the deleted file: {out!r}"
+    assert kept not in out, "the report names a file that is still there"
+
+
+def test_the_deletion_guard_is_silent_when_nothing_was_deleted(monkeypatch, capsys):
+    """The other half. A guard that fires on an unchanged tree gets switched off."""
+    same = {"results/es-meddocan/R/sup-free/port-loop/window_freeze.json"}
+    session = _guard_over(monkeypatch, same, same)
+    assert session.exitstatus == 0
+    assert capsys.readouterr().out == ""
+
+
+def test_a_file_written_during_the_session_is_not_a_deletion(monkeypatch, capsys):
+    """What the suite does constantly, and must not be reported.
+
+    `test_the_cli_reports_the_leak_rate_and_not_f1` writes an arm directory and removes it
+    again; a guard comparing sets in the wrong direction would call that a deletion, and
+    the wrong direction is the one that reads more naturally.
+    """
+    kept = "results/es-meddocan/R/sup-free/port-loop/window_freeze.json"
+    made = "results/es-meddocan/R/sup-free/port-selfdesign/metrics.json"
+    session = _guard_over(monkeypatch, {kept}, {kept, made})
+    assert session.exitstatus == 0
+    assert capsys.readouterr().out == ""
+
+
 def test_conftest_is_not_in_the_forbidden_set_by_accident():
     """The rules apply to `test_*.py`; conftest is exempt because it is the one place.
 
