@@ -81,10 +81,10 @@ and note types, with annotation-free supervision.
 ## 뮤테이션 게이트 — 전량 실행을 언제 요구하나
 
 킬 카운트는 `tests/mutations/run.py` 의 `TEST_FILES` 목록 **전체**에 대한 값이다.
-전량은 현재 188건이다. 마지막 실측은 **185건 전량에 대해 8샤드 2.21시간**이다
-(`tests/mutations/parallel.py`, `TEST_FILES` 29개 · 스위트 1982건 기준) — 건수와
-실측을 한 문장에 묶지 않는다. 뒤에 추가된 3건은 그 실측에 들어 있지 않다.
-직렬로는 약 15시간이고 도출값이며 실측이 아니다.
+전량은 현재 188건이다. 마지막 실측은 **188건 전량에 대해 8샤드 2.26시간**이다
+(`tests/mutations/parallel.py`, `TEST_FILES` 29개 · 스위트 1991건 기준) — 건수와
+실측을 한 문장에 묶지 않는다. 다음에 뮤테이션이 추가되면 그 건수는 이 실측에
+들어 있지 않다. 직렬로는 약 15시간이고 도출값이며 실측이 아니다.
 실측 시점은 `docs/notes/mutation-full-runs.md` 에만 있다.
 매 커밋에 낼 수 있는 비용이 아니므로, 매번 판단하지 않도록 기준을 여기 고정한다.
 근거와 비용 실측은 `tests/mutations/README.md` §"Running all of it".
@@ -115,6 +115,14 @@ and note types, with annotation-free supervision.
   단일 트리 · 전 샤드 완주 · 판정 합계 · 실행 중 트리 불변)으로 거절하고 INCOMPLETE 를
   남긴다. INCOMPLETE 항목은 지우지 않는다. **전량 실행 중에는 저장소를 편집하지 않는다** —
   다섯째 불변식이 잡고, 잡히면 두 시간이 날아간다.
+- **전량 실행은 `run_in_background: true` 로 띄운다. `nohup … &` 로 띄우지 않는다.**
+  포그라운드 호출 안의 `nohup … &` 는 즉시 반환하고 프로세스는 태스크 레지스트리
+  밖으로 나간다 — 태스크 ID 도 출력 파일도 없으므로 완료 알림이 발생할 수 없다.
+  2026-09-04 의 전량 실행이 그렇게 띄워져 3일간 완료를 아무도 몰랐다.
+  드라이버의 종료 신호 셋(종료 코드 · 로그 마지막 줄 · 기록 append)은 전부 정상
+  종료 후에만 생기므로, 중간에 죽은 실행은 잘린 로그 외에 아무것도 남기지 않는다.
+  경위와 미결 부채(상태 파일 + `tools/gate_status.py`)는
+  `tests/mutations/README.md` §"Launching it, and noticing that it ended".
 
 ## 코드 규약
 

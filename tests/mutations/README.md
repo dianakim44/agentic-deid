@@ -2360,10 +2360,23 @@ for. Measured individually against tree `82f101b925fcfbcc`, baseline 1804 passed
 | --- | --- |
 | `the_abandoned_gate_is_the_draw_count_alone` | 2 |
 | `the_abandoned_attempt_count_comes_from_the_log_alone` | 1 |
-| `the_audit_report_records_no_draw_number` | 36 |
+| `the_audit_report_records_no_draw_number` | 37 |
 | `the_next_draw_counts_the_draws_that_exist` | 2 |
 | `the_preserved_draw_is_written_to_the_canonical_path` | 4 |
 | `the_abandoned_block_uses_the_cost_block_names` | 20 |
+
+**`the_audit_report_records_no_draw_number` reads 37 as of the full run of 2026-09-04, and the
+thirty-seventh killer is not on this path.** The run reported it as the only count that moved, and a
+`--probe` for the names says what moved it:
+`tests/test_prompt.py::test_the_prompt_examples_are_current_and_pass_their_own_validators`, added
+three commits earlier for an unrelated reason. The
+committed `docs/prompts/examples/auditor_*` files are built by the real `_audit`, so any edit to
+`src/porting/audit.py` makes the generated example differ from the checked-in one and that test
+fails. It is incidental coverage of the cleanest kind — a staleness check noticing that a build
+input changed — and it is worth naming rather than banking, because **the audit path's own margin
+is still thirty-six.** The other thirty-six say the draw number is recorded; the thirty-seventh says
+a file derived from this module is out of date, which would be equally true of a mutation that
+improved it.
 
 **The first one is not invented.** It is the defect that shipped, restored verbatim: gating
 `_abandoned_spend` on `draws_before < 1` returns `None` for a round that wrote no draw directory,
@@ -2435,11 +2448,11 @@ against all three. The deletion guard is the same trap one step further along: a
 deletes nothing produces no output whether the guard works, reports without failing, or was never
 wired to the hooks.
 
-| mutation | kills |
-| --- | --- |
-| `the_fence_check_finds_nothing` | *(pending the impact-scope run — see below)* |
-| `the_fence_check_exempts_one_file` | *(pending)* |
-| `the_deletion_guard_reports_without_failing` | *(pending)* |
+| mutation | kills | min_kills |
+| --- | --- | --- |
+| `the_fence_check_finds_nothing` | 1 | 1 |
+| `the_fence_check_exempts_one_file` | 1 | 1 |
+| `the_deletion_guard_reports_without_failing` | 1 | 1 |
 
 `the_fence_check_finds_nothing` reduces `fenced_prompt_lines()` to the answer it gives when it
 passes: the loop still walks every file and still knows CommonMark's rule, it just never records
@@ -2477,16 +2490,35 @@ the mutation would survive.
 
 These three took `MUTATIONS` from 185 to 188. That is not a `TEST_FILES` membership change, so the
 recorded counts keep their denominator, and by the rule below an impact-scope run would have
-discharged them. **The run these cells wait on is a full one anyway, and the reason is arithmetic
-rather than rigour**: the impact scope here is about seventy mutations across six modules, which is
-roughly seven hours serially, while eight shards do all 188 in the 2.21 hours the last full run
-measured. Buying every count in the file for a third of the wall time of a partial one is not a
-trade worth thinking about twice.
+discharged them. **The run these cells waited on was a full one anyway, and the reason was
+arithmetic rather than rigour**: the impact scope here is about seventy mutations across six
+modules, which is roughly seven hours serially, while eight shards do all 188 in the 2.21 hours the
+then-last full run measured. Buying every count in the file for a third of the wall time of a
+partial one is not a trade worth thinking about twice.
 
-**The three cells above are empty because the run had not happened when the section was written,
-and an empty cell is the honest state** — the alternative is a number from a `--probe` run, which
-skips the green-baseline check and so measures against a baseline nobody verified. The run and its
-scope are recorded in `docs/notes/mutation-full-runs.md`.
+**The cells were empty until 2026-09-04 because the run had not happened, and an empty cell was the
+honest state** — the alternative was a number from a `--probe` run, which skips the green-baseline
+check and so measures against a baseline nobody verified. The full run of 2026-09-04 filled them
+against 188 mutations at a 1991-test baseline, commit `6631b83`, tree clean, all 188 caught; it is
+recorded in `docs/notes/mutation-full-runs.md`.
+
+**All three came back 1, and that number is this section's own thesis measured.** A check whose
+success is an absence is distinguished by nothing except its own positive control. The other 1990
+tests in the baseline see exactly what they would see if the code were correct — the same empty
+mapping from `fenced_prompt_lines()`, the same clean exit from a suite that deleted nothing — so
+none of them can be a witness, and the kill count of such a mutation is not a coverage figure but a
+count of the controls written on purpose. Here that count is one each, and `min_kills` says the
+same thing at anchor granularity: no anchor has a second killer either. Compare a mutation in a
+path whose behaviour is visible — `type_in_both_lists` at 187, or
+`the_reply_text_is_taken_from_the_first_block` at 121 — where incidental coverage does the work.
+There is none of that here, by construction rather than by neglect.
+
+The consequence is worth stating rather than leaving to be inferred: **there is no second witness,
+so weakening or deleting that one test returns the mutation to surviving silently.** That is where
+the 1 is legible and a padded number would not be. It is also why the fix for a 1 is never another
+test that reads the committed templates — such a test returns `{}` too and would raise nothing. The
+only way to add a killer is to add another control: a different fence in a different tmp tree, a
+different deletion under the guard.
 
 ## What the seal cost, and what carries the difference
 
@@ -3446,6 +3478,7 @@ not a rule; the reasoning is here, with the measurements it rests on.
 | 181 mutations, 8 shards | **2.05 h** | measured, 2026-08-28 |
 | 185 mutations, 8 shards | **2.20 h** | measured, 2026-09-02, suite 1945 |
 | 185 mutations, 8 shards | **2.21 h** | measured, 2026-09-03, suite 1982 |
+| 188 mutations, 8 shards | **2.26 h** | measured, 2026-09-04, suite 1991 |
 
 The three serial rows are derivations and are marked as such; nobody has spent a serial run to
 check any of them. The first two disagree by more than the mutation count explains — 170 → 179 is
@@ -3514,6 +3547,17 @@ cost about what the model says it costs and certainly not what a per-mutation mo
 which is nothing. No serial row was added for it — 8 × 2.21 h ÷ 1.16 = 15.2 h, unchanged from the
 row above at this precision, and a derivation restated from a figure that moved by less than the
 noise reads as a new measurement.
+
+**The 2026-09-04 run is the seventh data point and it is the first where both inputs moved by about
+the same little: 2.26 h over 188, or 43.3 s each, against 43.0 s at 185.** Mutations 185 → 188 is
+1.016, the suite 1982 → 1991 is 1.005, and the two multiply to 1.021 against a total wall clock that
+grew 1.023. The agreement is close enough to be pleasing and small enough to mean nothing on its
+own — a predicted 2.1% cannot be told from a measured 2.3% by a clock with a 2% noise floor. **So
+this step neither confirms nor contradicts the denominator model; it is consistent with it and that
+is all.** The three counts it produced are in the section above. No serial row was added: 8 × 2.26 h
+÷ 1.16 = 15.6 h against the 15.2 h above, which is a 2.6% move by a derivation whose inputs moved
+inside the noise, and restating it would read as a new measurement of something nobody measured.
+"About fifteen hours serially" is still the figure, and it is still a derivation.
 
 One thing that reads as a reversal and is not. The serial derivation for 185 comes out at ~15.2 h,
 which is the number the correction below rejected — but not the same number. The rejected fifteen
@@ -3679,6 +3723,48 @@ with its detail elsewhere — and it is the file that is in context when the com
 made. A rule that has to be looked up is consulted by someone already thinking about
 mutations, which is precisely not the state of the person who just added a file to
 `TEST_FILES`.
+
+### Launching it, and noticing that it ended — 2026-09-07
+
+The 2026-09-04 run finished at 18:00 and was read three days later. Nothing was lost, because it
+finished: the record was appended, the counts were written, and the log's last line said `full run,
+all 188 caught`. That is exactly why it is worth writing down — the same three days on a run that
+*died* at shard three would have cost the whole 2.26 h, and the harness cannot currently tell those
+two mornings apart.
+
+**How to launch it.** With the agent harness's own background mechanism (`run_in_background: true`),
+never as `nohup … &` inside a foreground call. The two look equivalent and are not: the second
+returns immediately with exit 0 and leaves the run detached from anything that could report on it,
+so no task ID exists, no output file is opened, and no completion notification is possible. The
+imperative form is in `CLAUDE.md` beside the trigger, for the reason the subsection above gives
+about where imperatives live.
+
+**The debt: `DIED` is not representable.** All three of the run's terminal signals — the exit code,
+the log's last line, and the append to `docs/notes/mutation-full-runs.md` plus its sidecar — are
+produced *after* `main()` reaches its end. The five invariants have the same shape: they are checked
+in `check()`, so a driver that is killed or crashes before that point writes no `INCOMPLETE` entry
+either, leaving a truncated log and nothing else. Three states therefore share one appearance on
+disk: still running, died partway, finished and unread.
+
+The fix, deferred deliberately: `parallel.py` writes a state file at start (`state: running`, pid,
+commit, shard and mutation counts, log path, start time), rewrites it at the end with the verdict
+and the wall clock, and marks `state: died` from a `finally` block; a one-line reader —
+`tools/gate_status.py` — turns it into `running` / `finished` / **`DIED`**, the last being the case
+that has no representation today. **The state file must live outside the repository** (default under
+`$TMPDIR`, overridable with `--state`): written inside it, a file created at start would move the
+tree during the run and break the fifth invariant, which is the one thing the driver checks that
+this file must not disturb. It is a liveness signal and not a record — the record stays
+`docs/notes/mutation-full-runs.md`, alone, on the same grounds as the paragraph above about dates in
+two places.
+
+**It has to land after the documentation work in front of it and before the next long run.** What is
+queued now is `config/naming.yaml`, `DESIGN.md` and the §6.7.6 corrections — documents and settings,
+none of which owes a full run — so building the state file now would leave it sitting unexercised
+until the first thing that needs it, which is the full run the one-call-per-role gate will owe once
+it touches `src/`. Landing it immediately before that run, or before the new `porting` arm is
+launched, would make its first use the live one, and a liveness mechanism debuting on the thing whose
+liveness matters is the arrangement that has no fallback. So: after the paperwork, with a `--smoke`
+run of its own, and not on the morning it is needed.
 
 ### The first full run — 2026-08-20
 

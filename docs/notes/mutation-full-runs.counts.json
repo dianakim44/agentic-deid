@@ -1,6 +1,6 @@
 {
- "baseline_outcomes": 1982,
- "commit": "de526528b932bf0bfa4dd98bf052974ceb2a6e65",
+ "baseline_outcomes": 1991,
+ "commit": "6631b83b8105bb8e5e8439916f3b1ef6ecc5360a",
  "counts": {
   "a_ceiling_stop_is_recorded_as_converged": 4,
   "a_checksum_accepts_every_match": 1,
@@ -131,7 +131,7 @@
   "the_audit_report_gets_a_second_path_key": 1,
   "the_audit_report_is_allowed_instead_of_denied": 4,
   "the_audit_report_is_read_as_the_previous_rounds_file": 75,
-  "the_audit_report_records_no_draw_number": 36,
+  "the_audit_report_records_no_draw_number": 37,
   "the_baseline_draws_error_spans": 2,
   "the_cache_boundary_crosses_onto_the_masked_document": 2,
   "the_call_is_logged_after_the_response_is_judged": 8,
@@ -141,10 +141,13 @@
   "the_client_hardcodes_botocores_default_attempts": 2,
   "the_conftest_suite_glob_points_one_level_deep": 5,
   "the_declared_rule_file_language_is_trusted": 2,
+  "the_deletion_guard_reports_without_failing": 1,
   "the_entry_point_calls_its_own_copy_of_main": 1,
   "the_export_index_is_the_in_scope_position": 2,
   "the_export_reads_the_missing_index_as_zero": 1,
   "the_failure_record_paraphrases_the_validator": 3,
+  "the_fence_check_exempts_one_file": 1,
+  "the_fence_check_finds_nothing": 1,
   "the_final_rounds_duplicate_comes_from_a_second_scoring": 1,
   "the_folds_seconds_go_to_the_round_and_not_the_arm": 87,
   "the_freeze_record_claims_the_sampling_parameters_applied": 5,
@@ -188,7 +191,7 @@
   "utf8_sig": 157,
   "zero_minutes_read_as_not_started": 1
  },
- "date": "2026-09-03",
+ "date": "2026-09-04",
  "dirty": false,
  "test_files": [
   "tests/test_meddocan_loader.py",
