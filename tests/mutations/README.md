@@ -75,6 +75,13 @@ sidecar — together with one cell that had drifted since the marking and so was
 changed; all 28 rose. The mechanism stays documented because the next mutation added between
 full runs re-opens it.
 
+The full run of **2026-09-17** (`2eff35967e1a`, 192 of 192 caught) did the same thing on a
+much smaller scale: three cells disagreed with its sidecar and all three were low
+(`familiares_as_other` 29 → 33, `type_in_both_lists` 187 → 191,
+`the_reply_text_is_taken_from_the_first_block` 121 → 127). They are rewritten here from that
+run, not marked, because the run measured them. The other 185 comparable cells came back
+unchanged.
+
 `tests/test_mutation_harness.py::test_a_readme_count_that_contradicts_the_last_full_run_is_marked`
 holds both halves of that convention — a stale cell without a † fails, and so does a † on
 a cell that now agrees with the sidecar. So the markers cannot outlive the drift they
@@ -92,8 +99,8 @@ in `docs/notes/mutation-full-runs.md` alongside what that run did **not** measur
 | `no_bom_shift` | offsets are not decremented by the BOM length | same one-character error, reached from the other direction | **157** |
 | `assert_offsets_noop` | `Document.assert_offsets` returns immediately | the §9.7 assertion stops asserting; counts are unaffected, so only tests that slice spans themselves can notice | **3** |
 | `drop_excluded` | `load()` filters out `excluded` spans | §9.1 spans discarded instead of flagged; the canonical count stays a correct 20,538 while the reported exclusion volume becomes unmeasurable | **13** |
-| `familiares_as_other` | `FAMILIARES_SUJETO_ASISTENCIA` moves from `EXCLUDED_TYPES` into `TYPE_MAP` as `OTHER` | an excluded type is scored; every span still loads and the total still reconciles to 22,795, so the corruption is entirely in *which* spans count | **29** |
-| `type_in_both_lists` | the same type is added to `TYPE_MAP` while left in `EXCLUDED_TYPES` | `_check_type_map` must reject it at construction. See "What this found", below | **187** |
+| `familiares_as_other` | `FAMILIARES_SUJETO_ASISTENCIA` moves from `EXCLUDED_TYPES` into `TYPE_MAP` as `OTHER` | an excluded type is scored; every span still loads and the total still reconciles to 22,795, so the corruption is entirely in *which* spans count | **33** |
+| `type_in_both_lists` | the same type is added to `TYPE_MAP` while left in `EXCLUDED_TYPES` | `_check_type_map` must reject it at construction. See "What this found", below | **191** |
 | `missing_test_fold` | `SPLIT_DIRS` loses its `test` entry | before the seal: 750 documents loaded instead of 1,000. Now 750 is correct, so what remains visible is that an *authorised* sealed read would return no sealed documents while the log records a completed evaluation | **2** |
 | `bucket_unknown_types` | `classify()` returns `("OTHER", False)` instead of raising | an unmapped type is scored as a residual bucket. Invisible on today's corpus and waiting for the day a re-release adds a type | **1** |
 
@@ -851,7 +858,7 @@ no enforcement but a field in a log.
 | `absent_token_counts_default_to_zero` | `usage.get("inputTokens")` gains a default of `0` | a partial `usage` block becomes a cost block asserting the call consumed nothing, in the same column as measured counts. CLAUDE.md requires cost beside quality so a gain bought at twice the price is legible; a zero does not weaken that comparison but strengthens it wrongly — the arm that lost a field looks free. The two-argument `.get` is the natural edit, removing an exception from a path nobody has seen fire | **2** |
 | `a_mismatched_model_is_recorded_rather_than_refused` | `_resolution` returns `check_model_resolution(MISMATCH)` where it raises | the mutation that looks like an improvement: it uses the declared vocabulary, loses no information, and puts the disagreement in `metrics.json` where a reader could find it. Recording is strictly more data than refusing — and still wrong, because a `mismatch` row means nobody can say which model produced the artefact, so it is unusable for the one purpose it exists for and writing it down does not make it usable (§10 A2). naming.yaml declares the value so the refusal can name it; declaring is not permission to emit | **3** |
 | `the_client_hardcodes_botocores_default_attempts` | `Config(retries={"max_attempts": 3})` instead of `MAX_ATTEMPTS` | one `invoke()` becomes up to three calls. `MAX_ATTEMPTS = 1`, its comment, and the module docstring's claim that the transport is pinned all stay exactly as they are. The damage is invisible and lands in the cost column: `Response.cost()` reports `llm_calls: 1` because the type is one call, so a throttled run bills three times and reports once — undoing §10 A2's zero-retry symmetry underneath it, in the direction where the throttled arm looks cheap | **2** |
-| `the_reply_text_is_taken_from_the_first_block` | `_text` reads `blocks[:1]` instead of every text block | reverts the client to the shape the response *looks* like it has. Not hypothetical — it is what was written first and it failed on the first real call: this model returns `reasoningContent` and *then* `text`, so a good reply is reported as having none. Kept as a mutation because the fix is invisible in a fixture written from the API docs, which is why `test_bedrock.py`'s fixtures put a reasoning block first by default | **121** |
+| `the_reply_text_is_taken_from_the_first_block` | `_text` reads `blocks[:1]` instead of every text block | reverts the client to the shape the response *looks* like it has. Not hypothetical — it is what was written first and it failed on the first real call: this model returns `reasoningContent` and *then* `text`, so a good reply is reported as having none. Kept as a mutation because the fix is invisible in a fixture written from the API docs, which is why `test_bedrock.py`'s fixtures put a reasoning block first by default | **127** |
 | `the_logging_check_reports_an_unreadable_setting_as_clean` | `check_region` returns `(region, CLEAN)` where it raises on `ClientError` | an IAM denial becomes a clean bill of health, the tool appends a dated record for a region it could not read, the client's gate opens on it, and `compliance.md` — cited by the paper's ethics section — carries a measurement nobody made. The worst failure in the pair, because it manufactures evidence rather than losing it, and the plausible edit: `AccessDeniedException` in an unused region reads as noise, and `cloudtrail:DescribeTrails` already returns exactly that for this principal | **4** |
 | `conftest_availability_from_a_load` | the shared availability fixture goes back to deciding availability by loading the corpus | the defect that shipped four times, reverted. Changes nothing until a real loader bug arrives, and then hides it: measured alongside `type_in_both_lists`, **93 tests skip and 78 non-passing outcomes become 3**, reported as a green suite | **1** |
 | `test_file_shadows_the_shared_fixture` | one test file defines its own `corpus_present`, in the defective form | the propagation rather than the defect: the local definition wins over conftest's silently, and only that file's tests are affected — which is how three files carried it unnoticed | **2** |
@@ -2601,13 +2608,20 @@ each, and in both cases the killer is a test written for the mutation and for no
 contributes nothing here.
 
 **These four took `MUTATIONS` from 188 to 192 and added `tests/test_envelope.py` to
-`TEST_FILES`.** That is a membership change, so it is not a stale-count situation but a change of
-denominator for all 192, and by the rule below a full run is required — impact scope cannot
-discharge it. The counts in the table above were measured selectively at a green 2052-test
-baseline, tree `231896ff479e8dcb`, and they are the four new mutations' own numbers on the new
-suite; every *other* count in this file is now about a smaller suite until the full run lands.
-`docs/notes/mutation-full-runs.md` is where the state of that run is recorded, and it is the only
-place a date for it appears.
+`TEST_FILES`.** That is a membership change, so it was not a stale-count situation but a change of
+denominator for all 192, and by the rule below a full run was required — impact scope cannot
+discharge it. **That run happened the same day and all 192 were caught**, at a 2052-test baseline
+on eight shards; the four counts above were first measured selectively at tree `231896ff479e8dcb`
+and the full run reproduced all four exactly. The date, the wall clock and the deltas are in
+`docs/notes/mutation-full-runs.md`, which is the only place a date for a full run appears.
+
+**185 of the 188 pre-existing counts came back unchanged, and that is worth reading rather than
+skipping.** Adding 61 tests to the suite bought no incidental coverage of anything already
+mutated: `tests/test_envelope.py` exercises `src/llm/envelope.py` and the three call sites' *shape*,
+and nothing else in `src/` is reached by a path those tests take that was not already reached. The
+three that rose belong to the previous commit and are recorded there. So the suite grew and no
+coverage claim moved with it — the outcome to expect from a file written against one new module,
+and not one to assume without the run.
 
 ## What the seal cost, and what carries the difference
 

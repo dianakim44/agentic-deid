@@ -1,6 +1,6 @@
 {
- "baseline_outcomes": 1991,
- "commit": "6631b83b8105bb8e5e8439916f3b1ef6ecc5360a",
+ "baseline_outcomes": 2052,
+ "commit": "2eff35967e1a3f56697bdaeac7f1c01ae8c5fe02",
  "counts": {
   "a_ceiling_stop_is_recorded_as_converged": 4,
   "a_checksum_accepts_every_match": 1,
@@ -52,7 +52,7 @@
   "detect_fold_drops_overlaps": 3,
   "drift_is_checked_against_todays_window_not_the_recorded_one": 3,
   "drop_excluded": 13,
-  "familiares_as_other": 29,
+  "familiares_as_other": 33,
   "filled_prompt_exposes_its_text": 2,
   "filled_prompt_paths_allowed": 4,
   "fold_from_directory_not_file": 2,
@@ -173,25 +173,29 @@
   "the_preserved_draw_is_written_to_the_canonical_path": 4,
   "the_probe_error_carries_the_exception_message": 3,
   "the_provenance_fields_are_optional_again": 5,
+  "the_record_describes_the_bytes_that_parsed": 2,
   "the_recorded_files_list_is_ignored_in_favour_of_the_fields_present": 1,
-  "the_reply_text_is_taken_from_the_first_block": 121,
+  "the_reply_text_is_taken_from_the_first_block": 127,
   "the_report_reads_its_own_round_as_the_masked_one": 1,
   "the_role_is_appended_at_the_end_of_the_line": 2,
   "the_round_s_files_are_written_by_every_arm": 3,
   "the_rule_authors_prompt_is_cached_too": 2,
   "the_score_block_carries_the_run_and_cost_blocks_too": 1,
+  "the_strip_exempts_the_role_that_never_fenced": 1,
+  "the_strip_finds_the_fence_anywhere_in_the_response": 2,
+  "the_strip_peels_fences_until_it_parses": 1,
   "the_suite_glob_points_one_level_deep": 5,
   "the_tree_state_is_sampled_after_the_run_wrote_to_the_tree": 1,
   "the_two_arm_spellings_are_merged_instead_of_refused": 1,
   "the_writer_adds_the_rounds_up_itself": 11,
   "the_writer_calls_the_stopping_rule_itself": 1,
   "top_level_leak_allowed": 1,
-  "type_in_both_lists": 187,
+  "type_in_both_lists": 191,
   "unsealed_load_filters_instead_of_not_reaching": 160,
   "utf8_sig": 157,
   "zero_minutes_read_as_not_started": 1
  },
- "date": "2026-09-04",
+ "date": "2026-09-17",
  "dirty": false,
  "test_files": [
   "tests/test_meddocan_loader.py",
@@ -222,6 +226,7 @@
   "tests/test_window_widening.py",
   "tests/test_call_role.py",
   "tests/test_loop.py",
-  "tests/test_multi.py"
+  "tests/test_multi.py",
+  "tests/test_envelope.py"
  ]
 }
