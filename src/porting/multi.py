@@ -24,6 +24,19 @@ and no single guard covers them:
    ("the chain is on disk, not in a process"), so an in-memory freeze held by a driver would
    attest to nothing beyond the round that took it.
 
+**A fourth guard, for the other claim.** "Once each" is not the same claim as "the artefacts are
+inputs", and none of the three guards above is where it lives: all three fire on the *artefact*,
+which is to say after the response has been paid for and — because `_call` appends its log line
+before the response is judged — after the log has recorded `{role}: 2`. That order leaves the
+worst available state: the spend is gone, the count `check_ready_for_round()` requires to be 1 is
+permanently 2, and the artefact the rounds read is still the first one. Only the Profiler's path
+had anything in front of the call, and by coincidence rather than by design: `freeze_window()`
+refuses once *any* line is in the log, and it is on that path alone — the Mapper and the
+LexiconBuilder do not freeze anything, so on those two nothing whatsoever stood between a re-run
+and the spend. So `check_role_unspent()` asks the question **before** the call, on all three roles
+and from two sources, and it is asked in `_call` because that is the one place every authoring
+call passes through.
+
 The three failure semantics are `artefacts`'s and this module carries them out; the module
 docstring there is the statement of them. In one line each: a refused **profile** stops the arm
 because it configures loading; a refused **mapping** stops the arm on *every* corpus including
@@ -81,12 +94,31 @@ MAPPER = "mapper"
 LEXICON_BUILDER = "lexicon_builder"
 ROLE_ORDER: tuple[str, ...] = (PROFILER, MAPPER, LEXICON_BUILDER)
 
+#: The file each role's one call writes, as the path function rather than the path — the axes
+#: belong to the caller. Read only by `check_role_unspent()`, which needs "has this role written"
+#: as well as "has this role called": either question alone is answered by deleting one file.
+#: The three keys are `ROLE_ORDER`'s and a role missing from here would be a role the gate could
+#: not ask about, which the guard below refuses.
+ROLE_ARTEFACT_PATH = {
+    PROFILER: artefacts.profile_path,
+    MAPPER: artefacts.mapping_path,
+    LEXICON_BUILDER: artefacts.manifest_path,
+}
+
 if set(ROLE_ORDER) != set(OUT_OF_LOOP_ROLES):        # pragma: no cover - import-time guard
     raise ImportError(
         f"src/porting/multi.py calls {sorted(ROLE_ORDER)} out of loop and "
         f"orchestrate.OUT_OF_LOOP_ROLES admits {sorted(OUT_OF_LOOP_ROLES)}. The two lists are "
         "one arm's structure written twice; a role admitted at AUTHORING_ITERATION that this "
         "module never calls is a call the log allows and the arm never makes."
+    )
+
+if set(ROLE_ARTEFACT_PATH) != set(ROLE_ORDER):       # pragma: no cover - import-time guard
+    raise ImportError(
+        f"src/porting/multi.py calls {sorted(ROLE_ORDER)} and maps "
+        f"{sorted(ROLE_ARTEFACT_PATH)} to artefact paths. A role with no path here is a role "
+        "`check_role_unspent()` cannot ask its second question about, and the source it would "
+        "then rest on alone — the call log — is the one a deleted file satisfies."
     )
 
 #: The freeze record's schema. Bumped when a field's meaning changes, per the convention
@@ -102,6 +134,101 @@ MAPPING_KEY = "mapping"
 MANIFEST_KEY = "lexicon_manifest"
 
 
+# ─── the gate: each role's one call, asked before the spend ──────────────────
+
+
+def _role_artefact(role: str, *, corpus: str, detector: str, supervision: str, porting: str,
+                   root: Path | None = None) -> Path | None:
+    """The file that shows `role` has already written, or `None`. See `check_role_unspent()`.
+
+    The LexiconBuilder has two answers because its one call writes the term lists *and then* the
+    manifest (`artefacts.write_lexicons`), so a stop between the two leaves a collection with no
+    manifest — and a gate that looked only at the manifest would wave that arm through into a
+    second call whose first `_refuse_existing` is a term list it already wrote. The first term
+    list found is returned in that case, because the message names one path and the collection
+    root is the thing a reader would then look at.
+    """
+    kwargs = dict(corpus=corpus, detector=detector, supervision=supervision, porting=porting,
+                  root=root)
+    path = ROLE_ARTEFACT_PATH[role](**kwargs)
+    if path.exists():
+        return path
+    if role == LEXICON_BUILDER:
+        collection = lexicon_collection(**kwargs)
+        if collection.is_dir():
+            for term_list in sorted(collection.glob("*/*.txt")):
+                return term_list
+    return None
+
+
+def check_role_unspent(role: str, *, corpus: str, detector: str, supervision: str,
+                       porting: str = PORTING, root: Path | None = None) -> str | None:
+    """`None` when `role` may still make its one call on this arm; a problem string when not.
+
+    **This is where "once each" stops being a line of the printed plan.** `tools/run_multi.py`
+    has always printed the three counts with "each must end at 1" beside them, and until this
+    existed nothing enforced it: the refusal came from `artefacts._refuse_existing`, after the
+    response was paid for and after `_call` had appended `{role}: 2` to the log. See the module
+    docstring for why that order is the worst one available.
+
+    Two sources, and neither alone would do — for `orchestrate.called_where()`'s reason, that a
+    guard whose condition is the presence of one file is satisfied by removing it:
+
+    1. **The call log** (`orchestrate.roles_called()`), which is the count `check_ready_for_round()`
+       reads. Authoritative when it is there, and it is deny-listed and never committed.
+    2. **The artefact the role wrote** (`_role_artefact()`). A log deleted or lost reads as *not
+       called*; the file on disk does not.
+
+    **What neither source sees, stated rather than implied.** A call whose response never reached
+    an artefact — a format failure, where `_failed()` writes `format_failure.json` and no
+    profile — and whose log has since been deleted reads here as *unspent*. That is not
+    hypothetical: it is `port-multi/es-meddocan`'s state today (a committed `format_failure.json`,
+    no `agent_calls.jsonl`, no `profile.json`), and it is the same hole `called_where()` names for
+    itself. On the Profiler's path the refusal still comes, one line later, from `freeze_window()`
+    — its `called_where()` reads committed artefacts as well as the log. That check is arm-wide
+    rather than per role, which is why it is not made a third source here: "this arm has called"
+    would refuse a Mapper on an arm where only the Profiler had.
+
+    A string rather than an exception, matching `check_ready_for_round()` and `run_arm._check_axes`:
+    the driver prints these together as a pre-flight, and `_refuse_spent_role()` is what turns one
+    into a stop at the moment of the spend.
+
+    `root` reaches `_role_artefact()` only. `roles_called()` resolves the log under
+    `orchestrate.ROOT`, which is what every other reader of that file does.
+    """
+    counts = roles_called(corpus, detector, supervision, porting)
+    spent = counts.get(role, 0)
+    written = _role_artefact(role, corpus=corpus, detector=detector, supervision=supervision,
+                             porting=porting, root=root)
+    if not spent and written is None:
+        return None
+
+    evidence = []
+    if spent:
+        evidence.append(f"{spent} line(s) in the call log")
+    if written is not None:
+        evidence.append(f"the artefact at {written}")
+    return (
+        f"{corpus}/{detector}/{supervision}/{porting}: {role} has already made its one call on "
+        f"this arm ({' and '.join(evidence)}), so this call is refused before it is paid for. "
+        "DESIGN §6.7.1 makes this rung a call *order* — the three run once each before round 1 "
+        "and every later round reads what they wrote — so a second call would author a second "
+        "artefact that no round reads, and would leave the log at a count "
+        "`check_ready_for_round()` refuses for the rest of the arm. If the arm is genuinely "
+        "being started over, the arm's results directory is what to remove, not the call line "
+        "and not the artefact."
+    )
+
+
+def _refuse_spent_role(role: str, *, corpus: str, detector: str, supervision: str,
+                       porting: str) -> None:
+    """Raise `check_role_unspent()`'s problem, or return. Called before anything is spent."""
+    problem = check_role_unspent(role, corpus=corpus, detector=detector,
+                                 supervision=supervision, porting=porting)
+    if problem:
+        raise ArtefactError(problem)
+
+
 # ─── the three authoring calls ───────────────────────────────────────────────
 
 
@@ -115,12 +242,19 @@ def _call(role: str, prompt, *, corpus: str, detector: str, supervision: str, po
     response is judged, because the line is what fixes the window and at that moment the only
     thing known about the response is that it arrived.
 
+    **`_refuse_spent_role()` first, before the lifecycle probe and before the prompt is
+    referenced.** Here rather than in the three callers because this is the one function all of
+    them go through: a fourth authoring role added later gets the gate by construction, and a
+    gate that had to be remembered at three call sites is a gate the fourth one is missing.
+
     `role` and `AUTHORING_ITERATION` are passed together and `call_line` checks them against
     each other, which is what makes "out of loop" a property of the log rather than of this
     module (DESIGN §6.7.1). `sample_reference` is left at its null default: none of these three
     agents is shown a drawn sample, and that is the arm's structure rather than an unfilled
     argument — the same reading `auditor.md` §5's null carries.
     """
+    _refuse_spent_role(role, corpus=corpus, detector=detector, supervision=supervision,
+                       porting=porting)
     reference = prompt.reference()
     lifecycle = model_lifecycle(model_id, client=control_client)
     kwargs = {} if max_tokens is None else {"max_tokens": max_tokens}
@@ -211,7 +345,15 @@ def author_profile(*, corpus: str, model_id: str, detector: str = DETECTOR,
     Mapper's input. **A refusal stops the arm**: this artefact fixes the encoding, the offset
     convention and the group key, so a profile short a field is a corpus that cannot be loaded,
     and a wrong field is a corpus loaded wrongly and scored anyway.
+
+    **The gate is asked here as well as in `_call()`, and the reason is the line below it.** The
+    freeze is a *write*: on a second run it would tick `revision` and hash today's files, which
+    is the failure `docs/notes/window-freeze-history.md` exists to record. `freeze_window()`
+    refuses that itself once a call line is in the log — but only while the log is there, and the
+    gate's second source is the artefact.
     """
+    _refuse_spent_role(PROFILER, corpus=corpus, detector=detector, supervision=supervision,
+                       porting=porting)
     freeze_window(corpus, detector, supervision, porting, sections=ONESHOT_SECTIONS)
 
     raw = artefacts.read_inventory(corpus)
@@ -561,7 +703,11 @@ def check_ready_for_round(iteration: int, *, corpus: str, detector: str, supervi
        *produced*, and a hand-written `mapping.yaml` would satisfy a check that looked at files.
        Exactly once and not at least once: `AUTHORING_ITERATION`'s guarantee is one per arm, and
        a second Profiler call means two profiles were authored and one of them is what the rounds
-       have been reading.
+       have been reading. **`check_role_unspent()` is what keeps this from being the place a
+       doubled call is first noticed** — it refuses the second call before it is made, so a count
+       of 2 arriving here means the log was reassembled by hand. Both checks stay: this one is
+       what a reader of `results/` can run afterwards, and that is a different question from what
+       a driver refused at the time.
     2. **The freeze exists**, so the inputs are attested (`freeze_artefacts()`).
     3. **Nothing has drifted** since it. This is the part no path rule and no `_refuse_existing`
        can cover, because an edit is not an overwrite — see the module docstring.

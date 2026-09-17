@@ -10,8 +10,9 @@ artefacts are hashed once. Rounds 1..N are `tools/run_loop.py --porting port-mul
 dependency — the Mapper's §1.1 input is the Profiler's type inventory — so running the three
 together is the shape that needs no intermediate file to be read back. But a stop in the middle
 is a real state: the Profiler's artefact is written and its call is spent, and re-running the
-sequence from the top would refuse at `write_profile` rather than continue. So each step can be
-run alone, and `--step mapping` reads `profile.json` for the object the previous step passed in
+sequence from the top is refused rather than continued — by the authoring gate, before the second
+Profiler call is paid for, which is `multi.check_role_unspent()`'s whole subject. So each step can
+be run alone, and `--step mapping` reads `profile.json` for the object the previous step passed in
 memory (`multi.read_profile()`).
 
 **Each step is a separate spend and the driver stops at the first stop.** A refused profile or
@@ -22,14 +23,15 @@ reason is there: a thin gazetteer's cost lands in the leak rate this experiment 
 wrong offset convention's cost lands nowhere.
 
 **`--dry-run` performs every check, prints the plan, and calls nothing.** Three calls is a small
-spend next to a round's 1 + N, but the freeze is once per arm and `write_profile` refuses a
-second write, so a mistyped axis here mints a cell that cannot be re-authored — which is the
+spend next to a round's 1 + N, but the freeze is once per arm and the authoring gate refuses a
+second call, so a mistyped axis here mints a cell that cannot be re-authored — which is the
 same reason `tools/run_arm.py` has the flag.
 
 **It duplicates no gate.** The logging gate and the axis refusals are `tools/run_arm.py`'s and
 are imported from it by path, exactly as `tools/run_loop.py` does it and for the reason that
 file gives: a second copy of "a mistyped axis mints a cell" is the copy that will not learn
-what the first one learns.
+what the first one learns. The authoring gate is the same arrangement one module over: it binds
+in `multi._refuse_spent_role()`, inside the call, and is asked here only so that it prints.
 
 **No model id is spelled here**, in the code or in the examples (DESIGN §10 A2): an id written
 in an example is the id that gets pasted and recorded, chosen by whoever last edited this file.
@@ -68,6 +70,20 @@ from src.sample import WINDOW_HASH_FIELDS, window_hashes              # noqa: E4
 STEPS = ("profile", "mapping", "lexicons", "freeze")
 ALL = "all"
 
+#: The role each calling step spends. `freeze` is not here because it calls nothing, and that
+#: absence is what `calls` in the plan counts and what the authoring gate below iterates — so
+#: "which steps cost money" is one mapping rather than a literal repeated at each site.
+STEP_ROLE = {"profile": multi.PROFILER, "mapping": multi.MAPPER,
+             "lexicons": multi.LEXICON_BUILDER}
+FREEZE = "freeze"
+
+if set(STEP_ROLE) | {FREEZE} != set(STEPS):           # pragma: no cover - import-time guard
+    raise ImportError(
+        f"tools/run_multi.py runs {list(STEPS)} and maps {sorted(STEP_ROLE)} to roles. A step "
+        f"that spends a call and is not in STEP_ROLE is a step the authoring gate does not check "
+        "and the plan counts as free."
+    )
+
 #: The `paths` keys this driver writes, for the plan. Arm-scoped every one of them: the three
 #: artefacts carry no `{iteration}` because the rung is defined by their being inputs the loop
 #: does not produce (`config/naming.yaml` armprofile), and the freeze record is one per arm for
@@ -88,6 +104,32 @@ def _run_arm_tool():
     return module
 
 
+def _steps(args) -> tuple[str, ...]:
+    """The steps this invocation runs. `--step all` is every one of them, in order."""
+    return STEPS if args.step == ALL else (args.step,)
+
+
+def _authoring_state(args, steps) -> tuple[bool, str]:
+    """`(ok, message)` on whether the roles these steps spend may still call.
+
+    Shaped like `run_arm._logging_state()` so the two gates print as one pre-flight, and asked
+    of `src.porting.multi` rather than reimplemented here for the reason the module docstring
+    gives about the logging gate: a second copy of a refusal is the copy that goes stale. The
+    refusal that binds is `multi._refuse_spent_role()`, inside the authoring call; this is the
+    same question asked early enough to be printed, which is what `--dry-run` is for.
+    """
+    axes = dict(corpus=args.corpus, detector=args.detector, supervision=args.supervision,
+                porting=args.porting)
+    problems = [problem for step in steps
+                if step in STEP_ROLE
+                and (problem := multi.check_role_unspent(STEP_ROLE[step], **axes, root=ROOT))]
+    if problems:
+        return False, "\n".join(problems)
+    spends = [STEP_ROLE[step] for step in steps if step in STEP_ROLE]
+    return True, (f"{', '.join(spends)} — none of them has called on this arm" if spends
+                  else f"{FREEZE} spends nothing, so there is no call to refuse")
+
+
 def _plan(args) -> list[str]:
     """The lines printed before anything is called. Read this, then run without --dry-run.
 
@@ -102,10 +144,10 @@ def _plan(args) -> list[str]:
                   "supervision": args.supervision, "porting": args.porting,
                   "lang": rule_langs(args.corpus)[0]}
     commit, tree = sealed_log.tree_state()
-    steps = STEPS if args.step == ALL else (args.step,)
+    steps = _steps(args)
     counts = orchestrate.roles_called(args.corpus, args.detector, args.supervision,
                                       args.porting)
-    calls = sum(1 for step in steps if step != "freeze")
+    calls = sum(1 for step in steps if step in STEP_ROLE)
 
     lines = [
         f"corpus       {args.corpus}",
@@ -121,7 +163,7 @@ def _plan(args) -> list[str]:
         f"calls        {calls}   (one per authoring step; `freeze` calls nothing)",
         "authoring    " + "  ".join(f"{role}: {counts.get(role, 0)}"
                                     for role in multi.ROLE_ORDER)
-        + "   (already spent on this arm; each must end at 1)",
+        + "   (already spent on this arm; the authoring gate below refuses a second)",
         f"inventory    {path_template('inventory').format(corpus=args.corpus)}   "
         "(the Profiler's input — measured, not authored)",
     ]
@@ -211,18 +253,23 @@ def main(argv: list[str] | None = None) -> int:
 
     ok, message = tool._logging_state()
     print(f"logging gate  {'ok' if ok else 'BLOCKED'}: {message}")
+    steps = _steps(args)
+    unspent, spend_message = _authoring_state(args, steps)
+    print(f"authoring gate  {'ok' if unspent else 'BLOCKED'}: {spend_message}")
+    ok = ok and unspent
 
     if args.dry_run:
         print()
         print("--dry-run: nothing was called, written or frozen."
               if ok else
-              "--dry-run: nothing was called, written or frozen — and the gate above would "
+              "--dry-run: nothing was called, written or frozen — and a gate above would "
               "refuse the calls.")
         return 0 if ok else 2
     if not ok:
-        # Refused here as well as in the client, for `tools/run_loop.py`'s reason: the client's
-        # refusal is the guarantee and this one puts the reason before the first call rather
-        # than inside a traceback (docs/notes/compliance.md §1, §3).
+        # Both gates are refused here as well as where they bind, for `tools/run_loop.py`'s
+        # reason: the binding refusal is the guarantee — the client's for logging
+        # (docs/notes/compliance.md §1, §3), `multi._refuse_spent_role()`'s for a spent role —
+        # and this one puts the reason before the first call rather than inside a traceback.
         return 2
 
     print()
@@ -230,7 +277,6 @@ def main(argv: list[str] | None = None) -> int:
                 porting=args.porting)
     common = dict(**axes, model_id=args.model_id, split=args.split,
                   max_tokens=args.max_tokens)
-    steps = STEPS if args.step == ALL else (args.step,)
     profile = None
     try:
         for step in steps:

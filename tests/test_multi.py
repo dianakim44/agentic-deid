@@ -533,6 +533,155 @@ def test_the_loop_is_not_imported_by_the_authoring_driver_the_other_way(tree):
     }
 
 
+# ─── the fourth guard: one call each, refused before the spend ───────────────
+
+
+def _second_calls(tree, profile):
+    """The three authoring calls again, on a runtime that has no response to give.
+
+    `Sequence()` with no texts raises on `converse`, so a call that reaches the client fails the
+    test by itself — which is the assertion these tests are about. The runtime is returned so the
+    caller can also assert on `calls`, because "raised" and "raised before the call" are two
+    different passes and only the second one is the gate.
+    """
+    runtime = Sequence()
+    common = dict(**ARM, model_id=MODEL, client=runtime, control_client=FakeControl())
+    return runtime, (
+        lambda: multi.author_profile(**common),
+        lambda: multi.author_mapping(profile=profile, **common),
+        lambda: multi.author_lexicons(**common),
+    )
+
+
+def test_a_second_call_to_each_role_is_refused_before_it_is_paid_for(tree):
+    """Guard 4, and it is the one that was a printed line rather than a check.
+
+    `_refuse_existing` fires on the *artefact*, i.e. after the response is paid for and after
+    `_call` has appended `{role}: 2` — so the arm was left with the spend gone, the count
+    `check_ready_for_round()` requires to be 1 permanently at 2, and the first artefact still the
+    one the rounds read. All three roles, because only the Profiler's path went near
+    `freeze_window()` and the other two had nothing at all in front of the spend.
+    """
+    out, _ = _author_all(tree)
+    before = orchestrate.roles_called(*ARM.values())
+    runtime, calls = _second_calls(tree, out[0]["profile"])
+    for call in calls:
+        with pytest.raises(ArtefactError, match="has already made its one call"):
+            call()
+    assert runtime.calls == []
+    assert orchestrate.roles_called(*ARM.values()) == before == {
+        multi.PROFILER: 1, multi.MAPPER: 1, multi.LEXICON_BUILDER: 1}
+
+
+def test_a_deleted_call_log_does_not_reopen_the_three_calls(tree):
+    """The second source. A guard resting on the log alone is satisfied by removing the log.
+
+    Which is not hypothetical here: `paths.agentlog` is deny-listed and never committed, so
+    `called_where()` already has to reason about an arm whose log is gone. The artefact on disk is
+    what still says the call was made, and the message names it.
+    """
+    out, _ = _author_all(tree)
+    orchestrate.log_path(*ARM.values()).unlink()
+    assert orchestrate.roles_called(*ARM.values()) == {}
+
+    runtime, calls = _second_calls(tree, out[0]["profile"])
+    for role, call in zip(multi.ROLE_ORDER, calls):
+        with pytest.raises(ArtefactError) as raised:
+            call()
+        assert "the artefact at" in str(raised.value)
+        assert "line(s) in the call log" not in str(raised.value)
+        assert multi.check_role_unspent(role, **ARM, root=tree) is not None
+    assert runtime.calls == []
+
+
+def test_the_refused_profiler_does_not_touch_the_window_record(tree):
+    """Which is why the gate is asked in `author_profile` and not only in `_call`.
+
+    The freeze is a write: reached on a re-run it would tick `revision` and hash today's files,
+    the failure `docs/notes/window-freeze-history.md` exists to record. With the log deleted,
+    `freeze_window()`'s own refusal does not fire — it reads the log — so this asserts the record
+    is untouched rather than that some refusal happened.
+    """
+    _author_all(tree)
+    path = orchestrate.freeze_path(*ARM.values())
+    was = path.read_text(encoding="utf-8")
+    orchestrate.log_path(*ARM.values()).unlink()
+
+    runtime, calls = _second_calls(tree, multi.read_profile(**ARM))
+    with pytest.raises(ArtefactError, match="has already made its one call"):
+        calls[0]()
+    assert path.read_text(encoding="utf-8") == was
+    assert json.loads(was)["revision"] == 1
+    assert runtime.calls == []
+
+
+def test_a_term_list_without_a_manifest_is_still_a_spent_lexicon_call(tree):
+    """The LexiconBuilder's call writes the lists and *then* the manifest.
+
+    So a stop between the two leaves a collection with no manifest, and a gate that asked only
+    about the manifest would wave that arm into a second call whose first `_refuse_existing` is a
+    term list it wrote itself — after the spend, which is the order this guard exists to fix.
+    """
+    _author_all(tree)
+    artefacts.manifest_path(**ARM).unlink()
+    orchestrate.log_path(*ARM.values()).unlink()
+
+    problem = multi.check_role_unspent(multi.LEXICON_BUILDER, **ARM, root=tree)
+    assert problem and ".txt" in problem
+    runtime, calls = _second_calls(tree, multi.read_profile(**ARM))
+    with pytest.raises(ArtefactError, match="has already made its one call"):
+        calls[2]()
+    assert runtime.calls == []
+
+
+def test_a_failed_call_is_spent_on_the_log_alone_and_the_hole_that_leaves(tree):
+    """Both halves, because the second one is a limitation and not a bug to be found later.
+
+    A format failure writes no artefact, so the log is the only source that sees that spend —
+    asserted first. Delete the log and the gate goes quiet: that is `port-multi/es-meddocan`'s
+    state today (a committed `format_failure.json`, no `agent_calls.jsonl`, no `profile.json`),
+    and on the Profiler's path what still refuses is `freeze_window()`, whose `called_where()`
+    reads committed artefacts as well. Not asserted here: a `tmp_path` tree has no git history for
+    that branch to read, which is `tests/test_orchestrate.py`'s subject and not this file's.
+    """
+    out, _ = _author_all(tree, profile="not an object at all")
+    assert out[0]["outcome"] == FORMAT_FAILURE
+    assert not artefacts.profile_path(**ARM).exists()
+
+    problem = multi.check_role_unspent(multi.PROFILER, **ARM, root=tree)
+    assert problem and "1 line(s) in the call log" in problem
+    assert "the artefact at" not in problem
+
+    orchestrate.log_path(*ARM.values()).unlink()
+    assert multi.check_role_unspent(multi.PROFILER, **ARM, root=tree) is None
+
+
+def test_the_gate_is_silent_on_an_arm_that_has_not_called(tree):
+    """`None` per role before anything, so the driver's pre-flight prints `ok` rather than a
+    problem — and so the happy path in this file is not passing because of a gate that is off."""
+    for role in multi.ROLE_ORDER:
+        assert multi.check_role_unspent(role, **ARM, root=tree) is None
+
+
+def test_the_refusal_names_paths_and_counts_and_no_artefact_content(tree):
+    """CLAUDE.md, and this string reaches the terminal that ran the step.
+
+    A path under `results/` is a cell of the experiment and publishable; what is inside an
+    agent-authored lexicon is not (`_refuse_existing`'s docstring, and `paths.armlexicon`'s deny
+    classification). The gate reads the artefacts' *existence* and never their bytes, and the
+    assertion is that no term from the fixture reaches the message.
+    """
+    _author_all(tree)
+    terms = [term for lang in LEXICONS["lexicons"].values()
+             for spec in lang.values() for term in spec["entries"]]
+    assert terms
+    for role in multi.ROLE_ORDER:
+        problem = multi.check_role_unspent(role, **ARM, root=tree)
+        assert problem
+        for term in terms:
+            assert term not in problem
+
+
 # ─── what the round driver is handed ────────────────────────────────────────
 
 
