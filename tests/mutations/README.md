@@ -3453,6 +3453,69 @@ guard better covered" — was available, cheap to believe, and wrong.
 19-mutation run is not a full run and recording it as one would put a partial measurement where
 the next comparison's baseline lives. The numbers from this run live in this section only.
 
+### The impact-scope run of 2026-09-17, and a count that moved for no reason at all
+
+**What ran.** 24 of 188, all caught, 0 STALE, 0 BROKEN, 0 survivors. Commit `b9b4bcf`, tree
+clean, one fingerprint `7aab4de614e893dc…` and baseline 1998 across all four processes — 1991
+plus the seven tests the commit adds.
+
+**Scope was derived, and the derivation was measured rather than eyeballed.** The commit under
+test is the fourth guard on the authoring calls (`check_role_unspent()`): one module,
+`src/porting/multi.py`, plus `tools/run_multi.py` and seven tests appended to
+`tests/test_multi.py`, which is already in `TEST_FILES`. **No mutation targets any of the three
+files** — `src/porting/multi.py`, `src/porting/artefacts.py` and `tools/run_multi.py` are absent
+from every `Mutation.path` — so nothing the commit changed has a mutation of its own, and what
+could move is what the *new tests* now execute. That was taken with a line tracer over exactly
+those seven tests, and each mutation's anchor mapped to the line numbers it occupies in its
+target file: 24 mutations have an anchor line the new tests run, across `src/orchestrate.py` (6),
+`src/llm/bedrock.py` (5), `src/eval/scorer.py` (3), `src/corpora/meddocan.py` (3) and seven
+files with one each. Reach, not filename overlap — and reach measured, because the alternative
+here is guessing which of `src/`'s modules an authoring call touches on the way to a fake client.
+
+**The other 164 are deferred to the next full run, not exempt.** Their recorded counts stand as
+the 2026-09-04 measurement, and no expectation is written for them here: the suite they were
+measured under is not the suite that exists now, so there is nothing an expectation could be
+compared against.
+
+**Twenty of the 24 came back byte-identical to the sidecar. Three rose, and each rise is
+attributed by probe rather than by argument** (`--probe`, one tree each, ids read off the run):
+
+| rise | was | now | attribution |
+|---|---|---|---|
+| `the_reply_text_is_taken_from_the_first_block` | 121 | 127 | the six new tests that make a call — every test whose arm reads a reply |
+| `type_in_both_lists` | 187 | 191 | the four new tests that build the corpus fixture, where the vocabulary check runs |
+| `familiares_as_other` | 29 | 33 | the same four, for the same reason one file over |
+
+Each probe's failing-id list contains exactly the new tests the arithmetic predicts and no
+other name that was not already there, which is the difference between attributing a rise and
+noticing one.
+
+**The fourth mover did not survive its own attribution, and that is the entry worth keeping.**
+`the_role_is_appended_at_the_end_of_the_line` measured **3** in the run and **2** on both
+re-measurements — `--probe` lists two ids, `tests/test_call_role.py::test_the_role_sits_beside_the_iteration`
+and `::test_the_field_order_the_frozen_line_has_survives_a_filled_reference`, and a serial
+re-run through `make_tree` / `apply` / `run_suite` reports `2 failed, 1996 passed` with
+`outcomes` 1998. The sidecar's value is 2. **So the 3 is not a measurement of anything and is
+not recorded as one**; no new test is among the killers, and none was expected to be — the
+mutation moves a field's position in the call line and the new tests never read that order.
+
+What produced it is the arrangement: four measuring processes on one machine, launched by hand
+because `--shard` and an explicit name list are mutually exclusive by design. Each process takes
+its baseline first, when the machine is nearly idle, and runs its mutations later under
+four-way load, so a load-sensitive test can fail in a mutation run and pass in the baseline it
+is compared against — which arrives as a kill. **No invariant covers this.** The fingerprint is
+about the tree, `outcomes` is about how many tests reported, and both were identical; nothing in
+`check()` asks whether the tests that failed are the same tests twice. `parallel.py` runs eight
+shards on one machine and has the same exposure, one shard's baseline against another shard's
+load, so this is not an artefact of doing it by hand — doing it by hand is only how it was seen.
+The practical rule it leaves: **a count that rose and cannot be attributed to a named test is
+re-measured before it is written down, not written down with a caveat.** Which is the 2026-08-26
+entry's rule met from the other side — that one found a real rise with a cause predating the
+commit; this one found a rise with no cause at all.
+
+**`docs/notes/mutation-full-runs.md` and its sidecar are untouched**, for the reason the
+paragraph above them gives.
+
 ## Running all of it: eight shards, five invariants, and when the gate is owed a full run
 
 Everything above is a per-mutation argument. This section is about the run — what it costs,

@@ -28,6 +28,46 @@ CLAUDE.md's rule that re-anchored mutations are re-measured **regardless of whet
 scope** is what this section serves: an anchor edit is a change to the mutation itself, so its old
 count describes a different experiment, and that fact is invisible from the count alone.
 
+### Three counts a scope run moved — opened 2026-09-17 by the authoring-gate commit
+
+**`tests/test_multi.py` gained seven tests for the fourth guard on the authoring calls
+(`check_role_unspent()`, commit `4f9c88e`).** `TEST_FILES` membership is unchanged — the file has
+been a member since the 2026-09-03 run — so the denominator holds and CLAUDE.md calls for an
+impact-scope run. No mutation targets any file the commit changed (`src/porting/multi.py`,
+`tools/run_multi.py`), so what could move is what the seven new tests execute, taken with a line
+tracer over exactly those tests and mapped onto each mutation's anchor lines:
+`tests/mutations/README.md` §"The impact-scope run of 2026-09-17" carries the derivation.
+
+*Measured 2026-09-17 by scope run, 24 of 188 mutations, baseline **1998** tests (1991 + the seven),
+tree `7aab4de614e893dc…`, commit `b9b4bcf` with a clean tree. All 24 caught, 0 STALE, 0 BROKEN.*
+
+**Three counts now disagree with the 2026-09-04 sidecar and are owed to the next full run, which
+is the only place they become comparable to the other 185:**
+
+| mutation | full run of 2026-09-04 | scope run of 2026-09-17 |
+|---|---|---|
+| `the_reply_text_is_taken_from_the_first_block` | 121 | **127** |
+| `type_in_both_lists` | 187 | **191** |
+| `familiares_as_other` | 29 | **33** |
+
+These are the same three mutations the 2026-09-03 entry recorded rising when
+`tests/test_multi.py` was added, and they rose for the same reason at a smaller scale —
+the MEDDOCAN type map its fixture is built from and the reply-extraction path its stub runtime
+answers into. Six of the seven new tests make a call and four build the corpus fixture, and the
+rises are +6, +4 and +4. Each was attributed by `--probe` before being written here, not inferred
+from the arithmetic agreeing.
+
+**Twenty of the 24 came back byte-identical.** The remaining one is not a fourth entry in the
+table: `the_role_is_appended_at_the_end_of_the_line` read 3 in the run and 2 on two separate
+re-measurements, so the 3 is not a measurement and nothing about that mutation is owed. What
+produced it — one process's idle baseline compared against another process's loaded mutation run,
+which no invariant covers — is in the README section named above, because it is a fact about the
+run arrangement and not about this mutation.
+
+**No expectation is recorded for the 164 out of scope**, per CLAUDE.md: there is no comparable
+value until they are measured. `mutation-full-runs.counts.json` is untouched — a scope run cannot
+restate the full run's denominator, which is this section's rule.
+
 ### Nothing outstanding — settled by the full run of 2026-09-03, the day after it was opened
 
 **185 of 185 caught, nothing survived, at commit `de526528b932` with a clean tree, 2.21 h on
