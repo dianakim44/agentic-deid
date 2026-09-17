@@ -4,6 +4,17 @@
     python3 tools/probe_prompt_format.py --model-id us.anthropic.claude-opus-4-5-20251101-v1:0
     python3 tools/probe_prompt_format.py --model-id ... --dry-run   # print the plan, call nothing
     python3 tools/probe_prompt_format.py --model-id ... --only auditor
+    python3 tools/probe_prompt_format.py --model-id ... --draws 20 --json /tmp/probe.json
+
+**Two questions, and the second one arrived on 2026-09-17.** The first is the verdict question
+this file was written for: does a de-fenced prompt produce a loadable artefact *at all* — a
+pass/fail asked once, before the trade is committed. The second is a **rate**: `port-multi`'s
+Profiler and `port-multi-noexample`'s Mapper both died at a fence, on two different roles and two
+different prompt revisions, so what the fence rate of each envelope *is* became the thing worth
+knowing before any prompt is edited again. A rate needs an N declared in advance and it needs the
+five prompts measured the same way, which is what the three authoring probes and `--draws` are
+for. The distinction matters for one reason and it is recorded in `RETRY_POLICY` clause 4: the
+draw cap that is right for a verdict is not the one that is right for a rate.
 
 **Why this exists.** `rule_author.md` and `auditor.md` each carried a fenced example of the
 artefact they ask for, and both have a *measured pass record*: eight loadable
@@ -55,19 +66,25 @@ import argparse
 import datetime as _dt
 import hashlib
 import json
+import re
 import sys
 import tempfile
 import time
 from pathlib import Path
 
+import yaml
+
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from src.corpora.base import Document, Span                      # noqa: E402
+from src.corpora.base import Document, Span, rule_langs          # noqa: E402
 from src.llm.prompt import (                                     # noqa: E402
-    assemble_audit_prompt, assemble_task_prompt, mask_document,
+    assemble_audit_prompt, assemble_lexicon_prompt, assemble_mapper_prompt,
+    assemble_profiler_prompt, assemble_task_prompt, mask_document,
 )
+from src.porting import artefacts                                # noqa: E402
 from src.porting.audit import parse_response                     # noqa: E402
+from src.porting.multi import read_profile                       # noqa: E402
 from src.rules import load_rules                                 # noqa: E402
 
 #: Where the measurement is appended. A probe whose result lives in a terminal is not a
@@ -114,20 +131,32 @@ CORPUS, LANG = "es-meddocan", "es"
 #:    distribution. Choosing a second draw after seeing the first fail is not, whatever it is
 #:    called, so `--draws` may not be raised in response to a result: the run is repeated from
 #:    the start under the new N and both runs are recorded.
-#: 4. **The cap is 3 per prompt.** Beyond that a probe is a search. Three is enough to tell a
-#:    reproducible format failure from a single bad draw, which is the only question a larger N
-#:    would answer here, and it is small enough that the temptation in 3 has a visible ceiling.
+#: 4. **The cap is per question, and there are two.** Three was the cap while the only question
+#:    was a verdict — "is this prompt categorically broken" — because three tells a reproducible
+#:    format failure from a single bad draw and nothing larger answers that question. It does not
+#:    answer a *rate*: 0 of 3 is consistent with a fence rate of 40%, so a cap of 3 would have
+#:    made the fence rate of an envelope unmeasurable, and two arms have now died on it. So the
+#:    cap is **20**, and what keeps 20 from being a search is clause 3, unchanged: N is declared
+#:    before the first call and may not be raised in response to a result. A rate measurement
+#:    also has no "did it work" to be tempted by — every draw is reported, a fence is a datum
+#:    rather than a setback, and the number that comes out is the answer whatever it is.
+#:
+#:    **Raised 2026-09-17, for that reason, and the amendment is recorded rather than silent**:
+#:    the sentence "the only question a larger N would answer here" stopped being true when the
+#:    question changed. 20 is chosen in the note that run appends, not here, because the argument
+#:    for a particular N belongs beside the numbers it produced.
 #:
 #: **What n = 1 can and cannot support** is then stated in the note rather than left to a reader:
 #: a pass at n = 1 is *weaker* evidence than the record it replaces, since the fenced
 #: `rule_author.md` has 0/5 format failures in `call-variance.md` plus eight arm artefacts. A
 #: single pass does not establish parity. It establishes that the de-fenced prompt is not
 #: *categorically* broken, which is the question that blocks the commit.
-RETRY_POLICY = "one call per prompt; no retry on a format failure; declared draws capped at 3"
+RETRY_POLICY = ("no retry on a format failure; draws declared before the first call and capped "
+                "at 20 (3 was the cap while the question was a verdict rather than a rate)")
 
 #: `--draws`' ceiling, from `RETRY_POLICY` clause 4. Enforced in `main()` rather than left to the
 #: docstring, because a bound that is only documented is a bound the next caller raises.
-MAX_DRAWS = 3
+MAX_DRAWS = 20
 
 #: The invented document the Auditor probe masks. **Not corpus text**: every line is written
 #: here, and the identifiers in it are invented — the caveat `rule_author.md` §8.1 attaches to
@@ -264,21 +293,215 @@ def _verdict_auditor(text: str, masked) -> dict:
     }
 
 
-#: The two probes. `build` returns `(FilledPrompt, extra)` and `verdict` takes
+# ─── the three authoring prompts, added 2026-09-17 for the rate question ─────
+#
+# The envelopes `port-multi` and `port-multi-noexample` spent their calls on. Each is built by
+# the function the arm calls, so what is measured is the arm's prompt and not a reconstruction
+# of it: a run's note carries each row's `prompt_sha256`, which is checkable against the
+# `prompt_reference.text_sha256` in the arm's own `agent_calls.jsonl` or `format_failure.json`.
+#
+# **None of these carries corpus text.** The Profiler's input is the filtered inventory
+# (`filter_inventory`, profiler.md §1.2), the Mapper's is two label lists, and the
+# LexiconBuilder's input contains nothing from the corpus at all (`assemble_lexicon_prompt`'s
+# docstring says so and DESIGN §4 is why). The Mapper's prompt needs a profile, and the one it
+# is given is the arm's committed `profile.json` — read, never written.
+
+
+def _profiler_prompt():
+    """The Profiler's call, with the inventory filtered exactly as `author_profile()` filters it.
+
+    Returns the filtered inventory as the extra, because `validate_profile()` needs it and a
+    second `filter_inventory()` at verdict time would be a second chance for the two to differ.
+    """
+    inventory = artefacts.filter_inventory(artefacts.read_inventory(CORPUS))
+    return assemble_profiler_prompt(corpus=CORPUS, inventory=inventory), inventory
+
+
+def _mapper_prompt():
+    """The Mapper's call, over `port-multi-noexample`'s profile. Read-only, and no arm is touched.
+
+    The extra is the profile's `type_inventory`, which is what `validate_mapping()` takes — the
+    same value `author_mapping()` passes it.
+    """
+    profile = read_profile(corpus=CORPUS, detector="R", supervision="sup-free",
+                           porting="port-multi-noexample", root=ROOT)
+    return (assemble_mapper_prompt(corpus=CORPUS, profile=profile),
+            profile[artefacts.PROFILE_LABEL_FIELD])
+
+
+def _lexicon_prompt():
+    """The LexiconBuilder's call. `langs` is `rule_langs(corpus)`, which the assembler re-checks."""
+    langs = rule_langs(CORPUS)
+    return assemble_lexicon_prompt(corpus=CORPUS, langs=langs), langs
+
+
+def _verdict_profiler(text: str, inventory) -> dict:
+    """Does a validating profile come out? `parse_object` then `validate_profile`, unrepaired."""
+    try:
+        obj = artefacts.parse_object(text, what="profile")
+        profile, refused = artefacts.validate_profile(obj, inventory=inventory)
+    except Exception as exc:                          # the verdict, not an error to propagate
+        return {"outcome": "format_failure", "error_type": type(exc).__name__,
+                "fields": None, "refused": None}
+    return {"outcome": "validated" if not refused else "refused",
+            "error_type": None, "fields": len(profile), "refused": len(refused),
+            "unresolved": len(profile.get("unresolved") or []),
+            "by_refusal": _tally(r.get("reason") for r in refused)}
+
+
+def _verdict_mapper(text: str, type_inventory) -> dict:
+    """Does a validating mapping come out, and what does it say against §9.0?
+
+    The §9.0 comparison is included because it costs nothing once the object is in hand and it
+    is the only thing that distinguishes "the envelope leaks fences" from "the envelope leaks
+    fences *and* the content underneath varies". **It is not an M-row value**: M2 and M3 are
+    filled from an arm's `mapping.yaml` (DESIGN §6.7.6) and a probe writes none.
+    """
+    try:
+        obj = artefacts.parse_object(text, what="mapping")
+        kept_map, kept_excluded, refused = artefacts.validate_mapping(
+            obj, type_inventory=type_inventory)
+    except Exception as exc:
+        return {"outcome": "format_failure", "error_type": type(exc).__name__,
+                "mapped": None, "refused": None}
+    disagreements, compared, applied = artefacts.compare_with_design(
+        CORPUS, kept_map, kept_excluded, type_inventory=type_inventory)
+    return {"outcome": "validated" if not refused else "refused", "error_type": None,
+            "mapped": len(kept_map), "excluded": len(kept_excluded), "refused": len(refused),
+            "by_refusal": _tally(r.get("reason") for r in refused),
+            "unresolved": len(artefacts.kept_unresolved(
+                obj, set(kept_map) | set(kept_excluded))),
+            "disagreements": len(disagreements), "compared": compared, "applied": applied,
+            "disagreeing_types": sorted(d["source_type"] for d in disagreements),
+            "by_basis": _tally(
+                e.get("basis") for e in list(kept_map.values()) + list(kept_excluded.values()))}
+
+
+def _verdict_lexicon(text: str, langs) -> dict:
+    """Does a validating lexicon set come out? Counts only — **no term is recorded**.
+
+    `validate_lexicon` drops refused entries and continues, so `refused` here is a count of
+    entries and not a verdict on the response; the outcome is about the format.
+    """
+    try:
+        obj = artefacts.parse_object(text, what="lexicon")
+        kept, refused = artefacts.validate_lexicon(obj, langs=list(langs))
+    except Exception as exc:
+        return {"outcome": "format_failure", "error_type": type(exc).__name__,
+                "files": None, "terms": None}
+    files = {f"{lang}/{name}": len(terms)
+             for lang, block in sorted(kept.items())
+             for name, terms in sorted(block.items())}
+    return {"outcome": "validated", "error_type": None, "files": len(files),
+            "terms": sum(files.values()), "terms_by_file": files,
+            "refused": len(refused), "by_refusal": _tally(r.get("reason") for r in refused)}
+
+
+def _tally(values) -> dict:
+    out: dict[str, int] = {}
+    for value in values:
+        if value is not None:
+            out[value] = out.get(value, 0) + 1
+    return dict(sorted(out.items()))
+
+
+# ─── the fence, and what a fenced draw looks like underneath ─────────────────
+#
+# **The outcome above is read off the response as it arrived.** These two functions do strip a
+# fence, and the separation is the point: `outcome` comes from the unrepaired text through the
+# real loader, so a fenced draw is a `format_failure` and nothing launders it, while `body_*`
+# and `shape_*` are diagnostics that exist only to answer whether the fenced draws differ from
+# the clean ones in length, depth or field count. A diagnostic never becomes an outcome, and
+# DESIGN §10 A2 is about what an arm may do with a response, not about what a probe may measure.
+
+_FENCE_OPEN = re.compile(r"^```([A-Za-z0-9_+-]*)\s*$", re.M)
+
+
+def _fence_scan(text: str) -> dict:
+    """Whether the response is fenced, how many fence lines it has, and the language tag.
+
+    The tag is recorded because "```" and "```json" are different imitations — one is a code
+    block and the other names the artefact's format — and a rate that merged them would lose the
+    only clue about what is being imitated. A tag is a language name, never corpus text.
+    """
+    tags = _FENCE_OPEN.findall(text)
+    return {"fenced": text.lstrip().startswith("```"),
+            "fence_lines": len(tags),
+            "fence_tag": (tags[0] or "(none)") if tags else None}
+
+
+def _shape(text: str, loader) -> dict:
+    """The structure under any fence: chars, depth, key counts. Counts only, no values."""
+    body = text.strip()
+    body = _FENCE_OPEN.sub("", body).strip() if body.startswith("```") else body
+    try:
+        parsed = loader(body)
+    except Exception as exc:
+        return {"body_chars": len(body), "body_loads": False,
+                "body_error": type(exc).__name__, "depth": None, "top_keys": None,
+                "total_keys": None, "list_items": None}
+    depth, keys, items = _walk(parsed)
+    return {"body_chars": len(body), "body_loads": True, "body_error": None, "depth": depth,
+            "top_keys": len(parsed) if isinstance(parsed, (dict, list)) else 0,
+            "total_keys": keys, "list_items": items}
+
+
+def _walk(node, level: int = 1) -> tuple[int, int, int]:
+    """`(max depth, dict keys, list items)` over a loaded object. Values are never read."""
+    if isinstance(node, dict):
+        depth, keys, items = level, len(node), 0
+        for value in node.values():
+            d, k, i = _walk(value, level + 1)
+            depth, keys, items = max(depth, d), keys + k, items + i
+        return depth, keys, items
+    if isinstance(node, list):
+        depth, keys, items = level, 0, len(node)
+        for value in node:
+            d, k, i = _walk(value, level + 1)
+            depth, keys, items = max(depth, d), keys + k, items + i
+        return depth, keys, items
+    return level - 1, 0, 0
+
+
+#: The five probes. `build` returns `(FilledPrompt, extra)` and `verdict` takes
 #: `(response_text, extra)`, so the Auditor's geometry travels from one to the other without a
-#: global and without being rebuilt.
+#: global and without being rebuilt. `shape` is the loader the diagnostics use — the artefact's
+#: own format, which is YAML for exactly one of the five.
 PROBES = {
     "rule_author": {
         "prompt": "docs/prompts/rule_author.md",
         "question": "does a loadable rules/es.yaml come out?",
         "build": lambda: (_rule_author_prompt(), None),
         "verdict": lambda text, extra: _verdict_rule_author(text),
+        "shape": yaml.safe_load,
     },
     "auditor": {
         "prompt": "docs/prompts/auditor.md",
         "question": "does parseable flag JSON come out?",
         "build": _auditor_prompt,
         "verdict": _verdict_auditor,
+        "shape": json.loads,
+    },
+    "profiler": {
+        "prompt": "docs/prompts/profiler.md",
+        "question": "does a validating profile.json come out?",
+        "build": _profiler_prompt,
+        "verdict": _verdict_profiler,
+        "shape": json.loads,
+    },
+    "mapper": {
+        "prompt": "docs/prompts/mapper.md",
+        "question": "does a validating mapping come out?",
+        "build": _mapper_prompt,
+        "verdict": _verdict_mapper,
+        "shape": json.loads,
+    },
+    "lexicon_builder": {
+        "prompt": "docs/prompts/lexicon_builder.md",
+        "question": "does a validating lexicon set come out?",
+        "build": _lexicon_prompt,
+        "verdict": _verdict_lexicon,
+        "shape": json.loads,
     },
 }
 
@@ -315,7 +538,19 @@ def run_draw(name: str, draw: int, *, model_id: str, region: str | None, max_tok
     reference = prompt.reference()
 
     started = time.monotonic()
-    response = bedrock.invoke(prompt, model_id=model_id, region=region, max_tokens=max_tokens)
+    try:
+        response = bedrock.invoke(prompt, model_id=model_id, region=region,
+                                  max_tokens=max_tokens)
+    except Exception as exc:
+        # `RETRY_POLICY` clause 2: a transport failure is not an observation. It is recorded and
+        # the run continues, because a run of 100 draws that lost the other 99 to one throttle
+        # would be a measurement nobody can take. The row is marked so it cannot be counted as a
+        # draw — `_observations()` filters on it — and it is not retried inside this file.
+        return {"probe": name, "draw": draw, "outcome": "transport_error",
+                "error_type": type(exc).__name__,
+                "prompt_chars": reference["text_chars"],
+                "prompt_sha256": reference["text_sha256"],
+                "wall_seconds": round(time.monotonic() - started, 3)}
     elapsed = time.monotonic() - started
 
     row = {
@@ -331,6 +566,8 @@ def run_draw(name: str, draw: int, *, model_id: str, region: str | None, max_tok
         "stop_reason": response.stop_reason,
         "model_id_reported": response.model_id_reported,
     }
+    row.update(_fence_scan(response.text))
+    row.update(_shape(response.text, spec["shape"]))
     if response.stop_reason == "max_tokens":
         # Clause 2 of `RETRY_POLICY`: the model answered and the answer was cut off. That is a
         # failure of this draw and not a transport error, so it is not re-run — and it is named
@@ -355,30 +592,35 @@ def render(rows: list[dict], *, model_id: str, date: str, reason: str) -> str:
     changed, beside a `prompt_sha256` equal to the previous run's, is a claim the record itself
     refutes.
     """
+    probes = list(dict.fromkeys(r["probe"] for r in rows))
     out = [
         "",
-        f"## 예시를 제거한 `rule_author.md` · `auditor.md` — 형식 프로브 ({date})",
+        f"## 펜스 발생률 — {' · '.join(f'`{p}`' for p in probes)} ({date})",
         "",
         f"**이 실행의 이유:** {reason}",
         "",
         f"`tools/probe_prompt_format.py`, `{model_id}`, {CORPUS} / {LANG}. "
         f"정책: {RETRY_POLICY}. 코퍼스 텍스트 없음 — RuleAuthor 는 회차 1 프롬프트라 "
-        "§§1.3–1.4 가 비어 있고, Auditor 는 이 파일에서 만든 문서를 마스킹한다.",
+        "§§1.3–1.4 가 비어 있고, Auditor 는 이 파일에서 만든 문서를 마스킹하며, 저술 세 프롬프트는 "
+        "필터된 인벤토리·라벨 두 목록·아무 코퍼스 입력도 없는 목록을 받는다.",
         "",
-        "| probe | draw | outcome | detail | completion tokens | wall s | prompt | response |",
-        "|---|---|---|---|---|---|---|---|",
+    ]
+    out += _rate_table(rows)
+    out += _shape_table(rows)
+    out += [
+        "",
+        "| probe | draw | outcome | fence | detail | completion | wall s | prompt | response |",
+        "|---|---|---|---|---|---|---|---|---|",
     ]
     for row in rows:
-        if row["probe"] == "rule_author":
-            detail = (f"rules={row['rules']}, layers={row['layers']}"
-                      if row.get("rules") is not None else f"`{row.get('error_type')}`")
-        else:
-            detail = (f"flags={row.get('flags')}, refused={row.get('refused')}"
-                      if row.get("flags") is not None else f"`{row.get('error_type')}`")
+        fence = ("**펜스**" if row.get("fenced") else "—")
+        if row.get("fence_tag"):
+            fence += f" `{row['fence_tag']}`"
         out.append(
-            f"| {row['probe']} | {row['draw']} | **{row['outcome']}** | {detail} "
-            f"| {row['completion_tokens']} | {row['wall_seconds']} "
-            f"| {row['prompt_sha256'][7:19]} | {row['response_sha256'][7:19]} |"
+            f"| {row['probe']} | {row['draw']} | **{row['outcome']}** | {fence} "
+            f"| {_detail(row)} | {row.get('completion_tokens')} | {row.get('wall_seconds')} "
+            f"| {(row.get('prompt_sha256') or '')[7:19]} "
+            f"| {(row.get('response_sha256') or '')[7:19]} |"
         )
     out += [
         "",
@@ -390,6 +632,87 @@ def render(rows: list[dict], *, model_id: str, date: str, reason: str) -> str:
         "",
     ]
     return "\n".join(out)
+
+
+def _observations(rows: list[dict]) -> list[dict]:
+    """The rows that are draws. A `transport_error` is not one — `RETRY_POLICY` clause 2."""
+    return [r for r in rows if r["outcome"] != "transport_error"]
+
+
+def _detail(row: dict) -> str:
+    """One cell per probe, counts only."""
+    if row["outcome"] == "transport_error":
+        return f"`{row.get('error_type')}`"
+    if row.get("error_type") and row["outcome"] in ("format_failure", "truncated"):
+        return f"`{row['error_type']}`"
+    if row["probe"] == "rule_author":
+        return f"rules={row.get('rules')}, layers={row.get('layers')}"
+    if row["probe"] == "auditor":
+        return f"flags={row.get('flags')}, refused={row.get('refused')}"
+    if row["probe"] == "profiler":
+        return (f"fields={row.get('fields')}, refused={row.get('refused')}, "
+                f"unresolved={row.get('unresolved')}")
+    if row["probe"] == "mapper":
+        return (f"map={row.get('mapped')}, excl={row.get('excluded')}, "
+                f"refused={row.get('refused')}, §9.0 불일치={row.get('disagreements')}")
+    return (f"files={row.get('files')}, terms={row.get('terms')}, "
+            f"refused={row.get('refused')}")
+
+
+def _rate_table(rows: list[dict]) -> list[str]:
+    """Fence rate per probe — the headline, and the reason this file grew a `--draws` of 20.
+
+    `n` counts observations, so a probe whose draws included a transport error reports the N it
+    actually got rather than the N it was asked for. `format_failure` is reported beside the
+    fence rate because they are not the same number: a fence is one way to fail the format and
+    a probe that conflated them could not say whether an edit to the fence sentence would help.
+    """
+    out = ["| probe | n | 펜스 | 펜스율 | format_failure | 전송 실패 | 응답 문자수 중앙값 |",
+           "|---|---|---|---|---|---|---|"]
+    for name in dict.fromkeys(r["probe"] for r in rows):
+        mine = [r for r in rows if r["probe"] == name]
+        seen = _observations(mine)
+        fenced = [r for r in seen if r.get("fenced")]
+        failed = [r for r in seen if r["outcome"] in ("format_failure", "truncated")]
+        chars = sorted(r.get("response_chars") or 0 for r in seen)
+        median = chars[len(chars) // 2] if chars else 0
+        rate = f"{100 * len(fenced) / len(seen):.0f}%" if seen else "—"
+        out.append(f"| {name} | {len(seen)} | {len(fenced)} | **{rate}** | {len(failed)} "
+                   f"| {len(mine) - len(seen)} | {median} |")
+    return out
+
+
+def _shape_table(rows: list[dict]) -> list[str]:
+    """Fenced draws against clean ones, on the four things a correlate could live in.
+
+    Empty when no probe produced both kinds — a table of one column invites a comparison that
+    was not made. The medians are over the *body* (any fence stripped), which is the only way
+    the two groups are comparable at all: a fenced response is longer by the fence.
+    """
+    seen = _observations(rows)
+    groups = {True: [r for r in seen if r.get("fenced")],
+              False: [r for r in seen if not r.get("fenced")]}
+    if not groups[True] or not groups[False]:
+        return []
+    out = ["", "펜스가 난 draw 와 안 난 draw (모든 probe 합산, 본문 기준 중앙값):", "",
+           "| | n | body 문자수 | 깊이 | dict 키 수 | 리스트 항목 수 | completion 토큰 |",
+           "|---|---|---|---|---|---|---|"]
+    for fenced, label in ((True, "펜스"), (False, "펜스 없음")):
+        mine = groups[fenced]
+        out.append(f"| {label} | {len(mine)} | " + " | ".join(
+            _median(mine, key) for key in
+            ("body_chars", "depth", "total_keys", "list_items", "completion_tokens")) + " |")
+    out.append("")
+    out.append("probe 별로도 갈라 보려면 아래 draw 기록을 읽어라 — 합산 표는 역할 간 차이를 "
+               "역할 내 차이로 보이게 할 수 있다.")
+    return out
+
+
+def _median(rows: list[dict], key: str) -> str:
+    values = sorted(r[key] for r in rows if r.get(key) is not None)
+    if not values:
+        return "—"
+    return str(values[len(values) // 2])
 
 
 def append_to_note(block: str, note: Path) -> None:
@@ -405,8 +728,12 @@ def main(argv: list[str] | None = None) -> int:
                     "Blocks nothing.")
     parser.add_argument("--model-id", required=True,
                         help="the Bedrock id to call; no default, for invoke()'s reason")
-    parser.add_argument("--only", choices=sorted(PROBES), default=None,
-                        help="run one probe instead of both")
+    parser.add_argument("--only", choices=sorted(PROBES), nargs="+", default=None,
+                        help="run these probes instead of all five")
+    parser.add_argument("--json", dest="json_path", default=None,
+                        help="write the rows to this path after every draw, so a run of a "
+                             "hundred draws that dies at ninety keeps the ninety. The note is "
+                             "still appended at the end, and only on a run that finished.")
     parser.add_argument("--draws", type=int, default=1,
                         help=f"calls per prompt, declared before the run and capped at "
                              f"{MAX_DRAWS} (default 1). Raising this after seeing a result is "
@@ -428,7 +755,7 @@ def main(argv: list[str] | None = None) -> int:
               file=sys.stderr)
         return 2
 
-    names = [args.only] if args.only else sorted(PROBES)
+    names = list(dict.fromkeys(args.only)) if args.only else list(PROBES)
 
     for name in names:
         prompt, _ = PROBES[name]["build"]()
@@ -449,15 +776,21 @@ def main(argv: list[str] | None = None) -> int:
             row = run_draw(name, draw, model_id=args.model_id, region=args.region,
                            max_tokens=args.max_tokens)
             rows.append(row)
-            print(f"{name:12} draw {draw}  {row['outcome']:15} "
+            if args.json_path:
+                Path(args.json_path).write_text(
+                    json.dumps(rows, ensure_ascii=False, indent=1), encoding="utf-8")
+            print(f"{name:16} draw {draw:>3}  {row['outcome']:15} "
+                  f"{'fenced ' + (row.get('fence_tag') or '') if row.get('fenced') else '':12} "
                   f"{row.get('error_type') or ''}")
 
     block = render(rows, model_id=args.model_id, date=today(), reason=args.reason)
     append_to_note(block, ROOT / NOTE)
     print(f"\nappended to {NOTE}")
     # The exit code reports the measurement. Nothing consults it, but a probe that returned 0 on
-    # a format failure would be one more thing reading green when it is not.
-    return 0 if all(r["outcome"] in ("loaded", "parsed") for r in rows) else 1
+    # a format failure would be one more thing reading green when it is not. A rate run is
+    # expected to be non-zero as soon as one draw fences, which is the point of running it.
+    return 0 if all(r["outcome"] in ("loaded", "parsed", "validated")
+                    for r in _observations(rows)) else 1
 
 
 if __name__ == "__main__":

@@ -126,6 +126,11 @@
       "path": "tools/release_screen.py",
       "sniff": "clinical note header",
       "why": "This is the file that searches for that header, and its own docstring and CLINICAL_HEADER pattern quote it. Self-match, present since the first version."
+    },
+    {
+      "path": "tools/probe_prompt_format.py",
+      "sniff": "Korean prose",
+      "why": "The Korean is the note this tool writes: render() composes docs/notes/prompt-format-probe.md's headings, its rate and shape tables and the caption warning that a pooled fenced-versus-clean table can make a between-role difference look like a within-role correlate. Same false positive as tools/probe_call_variance.py's, one probe over — a tool whose output is Korean prose holds Korean prose as literals. It appeared only after the 2026-09-17 rate run added those tables; the earlier revision's Korean was under the sniffer's run threshold. It builds its prompts with the same assemble_* functions the arms use, sends a committed prompt template plus a filtered inventory and two label lists, and records outcome names, counts, token figures, wall seconds and hashes — no span, offset, matcher, prompt text or response text is printed, logged or written."
     }
   ],
   "acknowledged": [
