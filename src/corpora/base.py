@@ -275,6 +275,55 @@ def check_model_resolution(value: str) -> str:
     return value
 
 
+def response_envelopes() -> dict[str, str]:
+    """What a model's response was wrapped in, from `config/naming.yaml`. DESIGN §6.8.
+
+    Three values — `bare`, `fenced_once`, `refused` — and the third is what keeps the other
+    two honest: a response nothing could read is a format failure, and it has no parsed
+    bytes to record. The vocabulary exists because the fence became *acceptable* on
+    2026-09-17 and had to stay *observable*. An accepted fence recorded as `bare` would make
+    the per-role fence rates §6.9 measured (0%, 65%, 95%) unmeasurable on every arm after
+    the policy, which is the one thing the acceptance must not cost.
+
+    A **closed** vocabulary and not an axis, for `model_id_resolution`'s reason: it does not
+    name a cell of the experiment, it names the kind of envelope observed on one call. Which
+    value attaches to which response is `src/llm/envelope.py`'s single decision, and keeping
+    that here would put the policy in the module every caller reads for vocabulary.
+    """
+    value = naming().get("response_envelope")
+    if not isinstance(value, dict) or not value:
+        raise CorpusError(
+            "config/naming.yaml has no `response_envelope` mapping. It is the closed "
+            "vocabulary for what a response was wrapped in, it lands in the call log, in "
+            "format_failure.json and in the three authoring artefacts, and CLAUDE.md keeps "
+            "such values out of the modules."
+        )
+    bad = [key for key in value if not isinstance(key, str) or not key]
+    if bad:
+        raise CorpusError(
+            f"config/naming.yaml `response_envelope` has {len(bad)} non-string or "
+            "empty key(s). Each key is a value written to a record."
+        )
+    return dict(value)
+
+
+def check_response_envelope(value: str) -> str:
+    """Return `value` if it is a declared envelope kind; raise otherwise.
+
+    A checked accessor for `check_termination_reason`'s reason, and the stakes are the same
+    shape: the vocabulary's whole content is a distinction DESIGN §6.8 forbids collapsing —
+    a caller free to write `"ok"` for both a bare response and an unwrapped one would have
+    made the acceptance invisible in the record that is supposed to show it.
+    """
+    kinds = response_envelopes()
+    if value not in kinds:
+        raise CorpusError(
+            f"{value!r} is not a response envelope kind in config/naming.yaml "
+            f"(have: {sorted(kinds)}). Add it there before a module writes it."
+        )
+    return value
+
+
 def termination_reasons() -> dict[str, str]:
     """The ways an iterating arm can stop, from `config/naming.yaml`.
 

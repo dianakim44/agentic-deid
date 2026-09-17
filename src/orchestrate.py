@@ -43,14 +43,30 @@ reference as explicitly absent** — the key is written with a null value rather
 out, for `model_id_absent`'s reason: a field some arms omit cannot be read across arms, and
 this arm's absence of a sample is the arm's definition rather than a gap.
 
+One thing does now happen between the transport and the log, and it is named because the
+paragraph above would otherwise be false: `envelope.unwrap()` classifies the bytes, because
+the line records what was *read* as well as what arrived (DESIGN §6.8) and that cannot be
+known without attempting a parse. It is a bounded, non-raising classification and not the
+judgement — `load_rules` still runs after the line is on disk, and `unwrap()` returns
+`refused` where it might have raised, so no path here can lose the line for a call that was
+made and paid for.
+
 **Zero format-compliance retries, so a failure is written down rather than retried**
 (DESIGN §10 A2). What comes back is written to the arm's rule file and loaded through
 `src/rules.py`; if it does not load, `metrics.json` is not written — zeros there would read
 as a rule set that ran and caught nothing — and `paths.formatfailure` gets the model ids,
 the raw response and the validator's own message instead. **The cost block is written in
-both branches**, because the call was made and paid for either way. Nothing repairs the
-response on the way in: no fence-stripping, no key-fixing. A repair step is where a retry
-budget hides when the retry count is zero.
+both branches**, because the call was made and paid for either way.
+
+**One outer code fence comes off, and that is the whole of what is repaired** (DESIGN §6.8,
+pre-registered 2026-09-17). No key-fixing, no whitespace normalisation, no second attempt:
+a repair step is where a retry budget hides when the retry count is zero, and the three
+properties that keep this from being one are enforced in `src/llm/envelope.py` rather than
+promised here — the strip is one shape and fails if the payload does not parse, the record
+carries the received bytes beside the parsed ones, and it is the same function on every
+role's response. The measurement it rests on is `docs/notes/prompt-format-probe.md`: on the
+prompt that killed an arm, the fenced and unfenced responses were body-byte-identical, so
+failing one for the fence was failing it for a property of the envelope.
 
 **`model_id` is a parameter from the top and this file spells none.** DESIGN §10 A2's
 comparison is one arm on two model families, so the id is an argument at every level down to
@@ -89,6 +105,11 @@ from .eval.run_fold import DEFAULT_SPLIT, run_fold
 from .eval.scorer import check_run
 from .eval import sealed_log
 from .llm.bedrock import invoke, model_lifecycle
+# The one unwrapper, DESIGN §6.8. Imported here because this module owns the call log's
+# shape: `RECORD_FIELDS` is the exact key set `call_line()` requires, so a driver that
+# assembled the six byte fields by hand — the role exemption §6.8 forbids — is refused at
+# the writer rather than caught by review.
+from .llm.envelope import RECORD_FIELDS, parses_yaml, unwrap
 from .llm.prompt import assemble_task_prompt
 # `_relative` rather than a third spelling of the same reduction. `src/rules.py` decides
 # what a rule file's location looks like in a published record — repo-relative where it
@@ -239,7 +260,14 @@ NULLABLE_MODEL = ("model_id_reported",)
 #: the bump at 2 was justified by. No such file exists in `results/` today, so nothing is
 #: unreadable in practice — the defect is in the discipline, not in the data, and the reason to
 #: write it down is that the discipline is what the next optional block depends on.
-FAILURE_SCHEMA = 3
+#: 4 adds the envelope block — `envelope`, `fence_lines`, `parsed_chars`, `parsed_sha256`
+#: (2026-09-17, DESIGN §6.8). Required and not optional, so this bump is the readable kind: a
+#: record at 3 measured nothing about the wrapper and a record at 4 always does, and the two
+#: existing `format_failure.json` files in `results/` are at 3 for that reason rather than
+#: because their responses were bare. Both were in fact fenced — `port-multi` and
+#: `port-multi-noexample` would have passed under §6.8 — which is exactly why the version has to
+#: distinguish them from a future `refused`.
+FAILURE_SCHEMA = 4
 
 
 class OrchestrateError(CorpusError):
@@ -646,8 +674,47 @@ def window_drift(corpus: str, detector: str, supervision: str,
 # ─── the call log ───────────────────────────────────────────────────────────
 
 
+def _check_envelope(envelope: dict, *, where: str) -> None:
+    """Refuse anything but the whole six-field block. Both records go through this.
+
+    One checker for `call_line()` and `_write_failure()`, because the fields are one block and
+    two validators would be two definitions of it — the pattern `caching`'s single validator in
+    `scorer.write_metrics` follows, in the direction that shares rather than the one that
+    duplicates.
+
+    Equality with `RECORD_FIELDS` and not containment, and required at both writers rather than
+    defaulted at either. A subset is how a role gets exempted without anyone writing a branch:
+    the driver that filled four fields and left `envelope` out would produce a line that looks
+    complete and says nothing about the wrapper (DESIGN §6.8). The message names the missing and
+    the extra keys separately, because the two mistakes have different fixes — a stale caller
+    versus a caller building the block by hand instead of calling `Envelope.record()`.
+
+    `where` is the `paths` key of the record being written. Key names and a path key only; no
+    value from the block is quoted, since `parsed_sha256` is a hash of model output and this
+    message reaches a terminal (CLAUDE.md).
+    """
+    if not isinstance(envelope, dict):
+        raise OrchestrateError(
+            f"{where}: envelope must be a mapping, not {type(envelope).__name__}. It is "
+            "`llm.envelope.Envelope.record()`'s output (DESIGN §6.8)."
+        )
+    missing = [key for key in RECORD_FIELDS if key not in envelope]
+    extra = sorted(set(envelope) - set(RECORD_FIELDS))
+    if missing or extra:
+        raise OrchestrateError(
+            f"{where}: envelope must carry exactly {list(RECORD_FIELDS)} "
+            f"(missing: {missing}, unexpected: {extra}). Every response goes through "
+            "`envelope.unwrap()`, so there is no caller for whom part of this block is the "
+            "honest record — and the record has to say what arrived *and* what was read, or "
+            "an accepted fence cannot be told from a bare response and §6.9's per-role rates "
+            "(0% / 65% / 95% on 2026-09-17) stop being measurable on every later arm. A "
+            "caller assembling a subset is the per-role exemption §6.8 forbids, written as an "
+            "omission rather than as a branch."
+        )
+
+
 def call_line(iteration: int, *, prompt_reference: dict, model: dict,
-              response_chars: int, response_sha256: str, outcome: str,
+              envelope: dict, outcome: str,
               cost: dict, model_lifecycle: dict | None = None,
               role: str = RULE_AUTHOR, sample_reference: dict | None = None) -> dict:
     """One `agent_calls.jsonl` line: what was sent, what answered, what it cost.
@@ -700,6 +767,31 @@ def call_line(iteration: int, *, prompt_reference: dict, model: dict,
     raw response does reach disk on a format failure, at `paths.formatfailure`, which is a
     path the screener allows and sniffs; this log is deny-listed and never committed, so a
     response here would be a copy in the one place no review reaches.
+
+    **`envelope` is required, is the whole six-field block, and replaces the two byte fields
+    this function used to compute** (DESIGN §6.8, pre-registered 2026-09-17). It is
+    `envelope.Envelope.record()`'s output and nothing else: `response_chars` and
+    `response_sha256` over the bytes that *arrived*, plus `envelope` / `fence_lines` /
+    `parsed_chars` / `parsed_sha256` over the bytes that were *read*. A line that carried only
+    the first pair would say a fenced response and a bare one were the same call, and §6.9's
+    per-role fence rates — measured at 0% / 65% / 95% on one day's draws — would stop being
+    measurable the moment the policy started accepting fences.
+
+    **Required rather than defaulted, and validated as an exact key set.** Every other
+    optional field on this line is optional because its absence is true of some caller;
+    this one has no such caller, because every response passed through `unwrap()`. A default
+    would let a driver log a call without saying what it read, and a *subset* would let one
+    fill four fields and skip `envelope` — either is the per-role exemption §6.8 rules out,
+    written as an omission instead of as a branch. So the check is equality with
+    `envelope.RECORD_FIELDS` and not a containment test, and the refusal names the missing
+    and the extra keys separately.
+
+    The block is spread into the line in `RECORD_FIELDS` order rather than in the order the
+    caller's dict happens to have, so two drivers building the same call produce byte-identical
+    lines. `response_chars` and `response_sha256` keep their names and their position, which is
+    what lets a reader compare a line written today against `port-oneshot`'s frozen ones: the
+    old lines are a prefix of the new shape rather than a different one, and the four new keys
+    are absent there because they were never measured, not because the response was bare.
 
     **`sample_reference` is written as null rather than omitted.** This arm's §1.4 block is
     empty, so there is no drawn sample to point at — and the honest record of that is an
@@ -778,6 +870,7 @@ def call_line(iteration: int, *, prompt_reference: dict, model: dict,
             "vocabulary, not an axis: it describes what happened to one call rather than "
             "naming a cell of the experiment."
         )
+    _check_envelope(envelope, where=LOG_KEY)
     carries_text = sorted(set(sample_reference or ()) & TEXT_KEYS)
     if carries_text:
         raise OrchestrateError(
@@ -803,8 +896,10 @@ def call_line(iteration: int, *, prompt_reference: dict, model: dict,
         # iteration 2; every other caller leaves it, and gets the byte this line used to
         # hardcode. Copied rather than kept, like `prompt_reference` above.
         "sample_reference": dict(sample_reference) if sample_reference else None,
-        "response_chars": response_chars,
-        "response_sha256": response_sha256,
+        # The six byte fields, in `RECORD_FIELDS` order and not the caller's — two drivers
+        # logging the same call write the same line. The first two keep the names and the
+        # position the frozen arms' lines use (see the docstring).
+        **{key: envelope[key] for key in RECORD_FIELDS},
         "cost": dict(cost),
         "generated": _now(),
         **window_hashes(),
@@ -898,6 +993,13 @@ def _digest(text: str) -> str:
     algorithm each meant. Re-derived rather than imported for one line, since importing a
     private name across modules is worth it for `_relative`'s judgement about published
     paths and not for two calls to `hashlib`.
+
+    **This module stopped calling it on 2026-09-17 and it is kept rather than moved.** Response
+    hashes now come out of `llm.envelope.Envelope.record()`, which has to spell the same form for
+    the same reason and cannot import this one — `orchestrate` imports `envelope`, not the other
+    way round (DESIGN §6.8). The remaining callers are `porting/multi.py`'s artefact and lexicon
+    digests, which hash files rather than responses; a third spelling of `sha256:` is what
+    deleting this would produce there.
     """
     return "sha256:" + hashlib.sha256(text.encode("utf-8")).hexdigest()
 
@@ -957,17 +1059,27 @@ def _run_block(corpus: str, detector: str, supervision: str, porting: str,
 
 def _write_rules(text: str, *, corpus: str, detector: str, supervision: str,
                  porting: str, lang: str, iteration: int) -> Path:
-    """Write the model's output to the arm's rule file, verbatim.
+    """Write what the caller decided to parse to the arm's rule file, byte for byte.
 
     `paths.armrules` and never `rules/{lang}.yaml` (DESIGN §5.3): the committed file is the
     format example and the bootstrap state, and two arms writing one path means the second to
     run overwrites the first's input while leaving a plausible `metrics.json` behind.
 
-    **Verbatim, and that is the whole of it.** No fence stripping, no trailing-newline
-    repair, no YAML round-trip. DESIGN §10 A2 fixes format retries at zero because a format
-    failure is a result the appendix reports, and a normalisation step is a retry with the
-    count still reading zero — it is the same edit ("make the obvious fix and validate
-    again") with nothing in the record to show it happened.
+    **This function decides nothing about the bytes and edits none of them.** No
+    trailing-newline repair, no YAML round-trip, no key-fixing. DESIGN §10 A2 fixes format
+    retries at zero because a format failure is a result the appendix reports, and a
+    normalisation step is a retry with the count still reading zero — the same edit ("make the
+    obvious fix and validate again") with nothing in the record to show it happened.
+
+    **The one exception is an outer code fence, and it has already happened before the text
+    gets here** (DESIGN §6.8, pre-registered 2026-09-17). The caller passes
+    `envelope.unwrap(...).payload`, which differs from the received bytes only when there was
+    exactly one outer fence *and* what was inside parsed as a mapping. The strip is upstream on
+    purpose: it happens once, in one function, on every role's response, and the record written
+    beside this file says both what arrived and what was written here. A version of that logic
+    inside this writer would be a second implementation reachable by one arm — which is the
+    shape §6.8's uniformity clause exists to prevent — and it would also put the decision in a
+    function whose record-keeping is somebody else's.
     """
     # `root=ROOT` rather than letting `arm_rules_path` default to its own module's: this
     # module has one root, `_arm_path()` builds every other path from it, and a writer that
@@ -983,7 +1095,7 @@ def _write_rules(text: str, *, corpus: str, detector: str, supervision: str,
 
 
 def _write_failure(*, corpus: str, detector: str, supervision: str, porting: str,
-                   split: str, model: dict, response: str, error: str,
+                   split: str, model: dict, response: str, envelope: dict, error: str,
                    rules_path: Path, cost: dict, prompt_reference: dict,
                    model_lifecycle: dict | None = None,
                    caching: dict | None = None,
@@ -1020,6 +1132,20 @@ def _write_failure(*, corpus: str, detector: str, supervision: str, porting: str
     one arm whose cost is least interpretable is the one arm missing the number that interprets
     it. Absence means the round was not cached, which is the same convention `metrics.json` uses.
 
+    **`envelope` is required here for that same reason a fourth time** (DESIGN §6.8). A
+    failing arm's whole record is this file, so the block that says what arrived and what was
+    read has to be in it — and on this path it is the block that distinguishes the two ways an
+    arm can fail. `envelope: "refused"` with a null `parsed_sha256` says the bytes never
+    parsed; `envelope: "fenced_once"` with an `error` says a fence came off and the object
+    inside was a valid document that the rule schema rejected, which is `rule_author`'s
+    `RuleError` risk (§6.9) and not a format-compliance failure at all. Without the field those
+    two records are the same file, and the second is the one the paper has to be able to count.
+
+    The two byte fields are read out of that block rather than recomputed from `response`. One
+    subject, one measurement: a file that hashed the text here while the call log hashed what
+    `unwrap()` saw would have two hashes for one response and no way to say which the reader
+    should trust.
+
     `abandoned_spend` is here for the same reason a third time (schema 3, `scorer.SCHEMA_VERSION`
     9), and the case for it is stronger than for either of the others: a round that was abandoned
     twice on transport and *then* returned a malformed rule file is the single most expensive
@@ -1027,6 +1153,7 @@ def _write_failure(*, corpus: str, detector: str, supervision: str, porting: str
     the block lived only in `metrics.json`, the arm that spent the most and published the least
     would be the arm with no record of what it spent. Absent means not recorded, per schema 9.
     """
+    _check_envelope(envelope, where=FAILURE_KEY)
     path = failure_path(corpus, detector, supervision, porting)
     path.parent.mkdir(parents=True, exist_ok=True)
     record = {
@@ -1049,8 +1176,10 @@ def _write_failure(*, corpus: str, detector: str, supervision: str, porting: str
         # Verbatim, per §10 A2. `str(exc)` and nothing more.
         "error": error,
         "response": response,
-        "response_chars": len(response),
-        "response_sha256": _digest(response),
+        # Out of the envelope block, not recomputed from `response` — see the docstring. The
+        # same six fields the call log's line carries, in the same order, so the two records of
+        # one call can be compared key by key.
+        **{key: envelope[key] for key in RECORD_FIELDS},
         "prompt_reference": dict(prompt_reference),
         "cost": dict(cost),
         # Beside the cost block it interprets, and absent when the round was not cached — the
@@ -1155,18 +1284,26 @@ def run_arm(*, corpus: str, lang: str, model_id: str,
     cost = response.cost()
     model = response.model_record()
 
-    # Before the response is judged. The `text` never enters the line — a length and a
-    # hash do (`call_line`).
+    # One outer fence off if there is exactly one and what is inside is a YAML mapping;
+    # otherwise the received bytes, unchanged, on their way to a validator that will refuse
+    # them (DESIGN §6.8). This runs before the log line because the line records what was read
+    # as well as what arrived, and it cannot raise — see the module docstring on the ordering.
+    wrapper = unwrap(response.text, parses=parses_yaml)
+
+    # Before the response is judged. The `text` never enters the line — two lengths and two
+    # hashes do (`call_line`).
     append_call(
         call_line(ITERATION, prompt_reference=reference, model=model,
-                  response_chars=len(response.text),
-                  response_sha256=_digest(response.text),
+                  envelope=wrapper.record(),
                   outcome=CALLED, cost=cost, model_lifecycle=lifecycle),
         corpus, detector, supervision, porting,
     )
 
     run = _run_block(corpus, detector, supervision, porting, split, model)
-    rules_file = _write_rules(response.text, corpus=corpus, detector=detector,
+    # The payload and not `response.text`: on `bare` and on `refused` they are the same
+    # string, and on `fenced_once` this is the strip taking effect exactly once, at the one
+    # place the file is written. The failure record below still carries the received bytes.
+    rules_file = _write_rules(wrapper.payload, corpus=corpus, detector=detector,
                               supervision=supervision, porting=porting, lang=lang,
                               iteration=ITERATION)
     try:
@@ -1174,8 +1311,8 @@ def run_arm(*, corpus: str, lang: str, model_id: str,
     except RuleError as exc:
         failure = _write_failure(
             corpus=corpus, detector=detector, supervision=supervision, porting=porting,
-            split=split, model=model, response=response.text, error=str(exc),
-            rules_path=rules_file, cost=cost, prompt_reference=reference,
+            split=split, model=model, response=response.text, envelope=wrapper.record(),
+            error=str(exc), rules_path=rules_file, cost=cost, prompt_reference=reference,
             model_lifecycle=lifecycle,
         )
         return {

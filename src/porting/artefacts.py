@@ -164,10 +164,23 @@ def parse_object(text: str, *, what: str) -> dict:
 
     All three prompts say the same thing in §2.1 — "Emit the JSON and nothing else. No code
     fence, no ``` line, no `json` language tag, no preamble, no closing remark" — so all three
-    parse through one function, and **it strips nothing**. A fence-stripping step is a repair
-    with the format-failure count still reading zero (DESIGN §10 A2), which is the judgement
-    `orchestrate` already made for `rules/{lang}.yaml`; the three prompts are explicit enough
-    that a fence is a response that did not follow them.
+    parse through one function, and **it still strips nothing**.
+
+    That sentence used to be the whole policy and is now half of it. As of 2026-09-17 one outer
+    fence comes off *before* this function is reached, in `llm.envelope.unwrap()`, and only when
+    what is inside parses (DESIGN §6.8, pre-registered on the measurement in
+    `docs/notes/prompt-format-probe.md`: at these prompts the fenced and unfenced responses were
+    body-byte-identical, so the fence carried no information about the content). What has not
+    changed is this function's job — it is handed bytes and it either loads one object out of
+    them or refuses. Keeping the strip out of here is the arrangement, not an oversight: one
+    implementation reached by every role, and a validator that cannot be talked into a second
+    repair because it has no notion of a wrapper at all.
+
+    So a fence still reaches this function in exactly one case — `unwrap()` returned `refused`,
+    which means the fence was nested, one-sided, surrounded by other text, or wrapped something
+    that does not parse — and in that case the response is a format failure and this raises on
+    the bytes that arrived. A repair beyond that is still what DESIGN §10 A2 forbids: a step
+    that makes a failure disappear with the retry count reading zero.
 
     **The message quotes no part of the response.** It reports the length and the type it got.
     A response that is prose rather than JSON is a response whose first hundred characters
@@ -181,10 +194,12 @@ def parse_object(text: str, *, what: str) -> dict:
         raise ArtefactError(
             f"the {what} response is not JSON ({type(exc).__name__} at position "
             f"{getattr(exc, 'pos', -1)} of {len(text) if isinstance(text, str) else 0} "
-            f"characters). §2.1 asks for one object and no fence; nothing is stripped here, "
-            "because stripping is a repair with the failure count still reading zero. No part "
-            "of the response is quoted in this message (CLAUDE.md); the response verbatim is "
-            "in format_failure.json."
+            f"characters). §2.1 asks for one object and no fence. Nothing is stripped here: one "
+            "outer fence around a parseable object is taken off upstream by envelope.unwrap() "
+            "and recorded as `fenced_once` (DESIGN §6.8), so these bytes are either unfenced "
+            "and unparseable or fenced in a shape §6.8 leaves as a failure — the call log's "
+            "`envelope` field says which. No part of the response is quoted in this message "
+            "(CLAUDE.md); the response verbatim is in format_failure.json."
         ) from exc
     if not isinstance(parsed, dict):
         raise ArtefactError(

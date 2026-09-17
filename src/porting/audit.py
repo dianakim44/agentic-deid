@@ -399,6 +399,15 @@ def parse_response(text: str, *, doc_id: str, lines: Sequence[MaskedLine]) -> Do
     reason: a response this module quietly repaired would make the format instruction
     advisory, and the arm would stop being able to report a format failure as one.
 
+    **One outer fence does come off before this is called, and not here** (DESIGN §6.8,
+    pre-registered 2026-09-17). `loop.py` passes `envelope.unwrap(...).payload`, which differs
+    from what arrived only when there was exactly one outer fence and a JSON object inside it.
+    This function is unchanged by that and deliberately unaware of it: the policy is one
+    function on every role's response — the Auditor's included, though its measured fence rate
+    was 0/20 (§6.9) — and a second implementation here would be the per-role variant §6.8
+    forbids. What still reaches this as a fence is a fence §6.8 refuses to strip, and a
+    `malformed` refusal is the right answer to it.
+
     The response text is not quoted in any exception or refusal. It contains the agent's
     own words about a masked document, and a `json.JSONDecodeError` re-raised with its
     context would carry a slice of that response into a log (CLAUDE.md).

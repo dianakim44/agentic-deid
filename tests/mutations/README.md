@@ -2520,6 +2520,95 @@ test that reads the committed templates — such a test returns `{}` too and wou
 only way to add a killer is to add another control: a different fence in a different tmp tree, a
 different deletion under the guard.
 
+### Four against a policy that was pre-registered rather than reasoned — 2026-09-17
+
+DESIGN §6.8 moved one boundary: a valid object inside exactly one outer code fence stopped being
+a format failure. Three arms had already died on the other side of it. The whole implementation is
+`src/llm/envelope.py`, and what makes it defensible is not the code but the shape of the code —
+narrow, uniform, and recorded on both sides. **Each of these four mutations keeps the code working
+and removes one of those three properties**, which is why none of them can be found by asking
+whether responses are still accepted.
+
+| mutation | kills | min_kills |
+| --- | --- | --- |
+| `the_strip_peels_fences_until_it_parses` | 1 | 1 |
+| `the_strip_finds_the_fence_anywhere_in_the_response` | 2 | 2 |
+| `the_strip_exempts_the_role_that_never_fenced` | 1 | 1 |
+| `the_record_describes_the_bytes_that_parsed` | 2 | 2 |
+
+**All four are supersets or silences, never regressions.** Every response this repository has
+measured — 100 probe draws and three committed `format_failure.json` records — comes out of all
+four mutated versions with the same verdict it gets from the real one. That is the family
+signature here: a mutation to a *pre-registered scope* cannot be caught by any test that asks what
+the policy does to the inputs anyone has seen, because widening a scope changes only the inputs
+nobody has seen yet.
+
+`the_strip_peels_fences_until_it_parses` replaces one strip with a loop whose exit condition is
+"it parsed". A doubly fenced response is unwrapped twice. Nothing measured changes, and the
+mutated policy accepts a strict superset — which is exactly why it is the change a reviewer
+proposes as a simplification. What it removes is the argument: §6.8 rests on a measurement about
+**one** fence (the Mapper's twenty draws are two responses differing by two fence lines and
+nothing else), there is no measurement of a nested one, and a step that peels until the result
+parses has stopped correcting for a wrapper and started searching for an input that works — §10
+A2's shape, reached with no retry and no second call. Caught by
+`test_the_five_shapes_that_stay_failures[nested]`, the one case whose refusal depends on the strip
+being applied exactly once. Its four sibling cases pass against the mutation.
+
+`the_strip_finds_the_fence_anywhere_in_the_response` scans for the outermost fence lines instead
+of requiring them first and last, so a preamble above the object and a closing remark below it are
+both discarded. This is the widening with a genuine complaint behind it: a model that writes "Here
+is the mapping:" above a well-formed object has produced a well-formed object. It costs the one
+property that makes the scope defensible — a fence around the whole response is a wrapper, while a
+fence with prose outside it is a response that departed from §2.1 in a way **nobody has measured**,
+and the discarded sentence is discarded silently, so `parsed_chars` records the survivor and
+nothing records the loss. Caught by two cases, `[preamble_outside_the_fence]` and
+`[remark_after_the_fence]`, both of which assert the refusal *and* that the payload was left equal
+to the received bytes — the half a laxer test drops.
+
+`the_strip_exempts_the_role_that_never_fenced` is the only one that does not touch the policy. It
+edits one call site in `src/porting/multi.py` so the Profiler's validator reads `response.text`,
+justified by the Profiler's measured 0 of 20. **That module still imports `unwrap`, still calls
+it, strips no backtick of its own, and still logs a complete six-field envelope block** — the
+record even says `fenced_once` while the validator is reading the fence. Every behavioural test of
+`unwrap` passes, and so does every structural check that asks whether a module uses the
+unwrapper. It is `the_fence_check_exempts_one_file` one layer along, and the same reasoning: the
+role with the best measurement is exempted, and 0/20 has a rule-of-three ceiling of 15% — that
+role's rate is not zero, it is unmeasured below 15%. Caught by
+`test_no_validator_is_handed_the_bytes_that_arrived[src/porting/multi.py]`, which exists for this
+mutation and no other: it asserts that `response.text` reaches only `unwrap()` and a failure
+record's `response=` field, so an exemption written as a call site is a property of the call graph
+rather than of any output.
+
+`the_record_describes_the_bytes_that_parsed` keeps the strip and loses the evidence for it. One
+expression changes and `response_chars` / `response_sha256` — same names, same positions, same
+types, same closed-key validation at both writers — begin describing the payload. On a `bare`
+response nothing changes at all; on an accepted fence the record silently claims the model sent
+what the validator read. **This is the only one of the four whose damage is unrecoverable.** The
+response is stored nowhere else: `agent_calls.jsonl` carries a length and a hash by design,
+because it is deny-listed and may not carry model output. So a mutated run produces a log in which
+no accepted fence is distinguishable from a bare one, and §6.9's per-role rates (0% / 65% / 95%)
+become unextendable and uncontradictable on every future arm. Caught by
+`test_the_record_carries_both_sides`, which computes both digests independently and asserts they
+differ, and by `test_todays_writer_would_have_recorded_the_fence`, which checks the received hash
+against `port-multi-noexample`'s committed `response_sha256`. A test that asserted only that the
+six keys are present passes against it.
+
+**Two of the four counts are 2 and two are 1, and the pattern is the section's thesis.** The
+mutations that break a *behaviour* pick up a second witness from the parametrized refusal cases;
+the two that break a *shape* — the role exemption and the record's subject — have exactly one
+each, and in both cases the killer is a test written for the mutation and for nothing else. The
+2052-test baseline sees what it would see if the code were correct, so incidental coverage
+contributes nothing here.
+
+**These four took `MUTATIONS` from 188 to 192 and added `tests/test_envelope.py` to
+`TEST_FILES`.** That is a membership change, so it is not a stale-count situation but a change of
+denominator for all 192, and by the rule below a full run is required — impact scope cannot
+discharge it. The counts in the table above were measured selectively at a green 2052-test
+baseline, tree `231896ff479e8dcb`, and they are the four new mutations' own numbers on the new
+suite; every *other* count in this file is now about a smaller suite until the full run lands.
+`docs/notes/mutation-full-runs.md` is where the state of that run is recorded, and it is the only
+place a date for it appears.
+
 ## What the seal cost, and what carries the difference
 
 Sealing 250 documents removed checks that cannot be replaced, and pretending

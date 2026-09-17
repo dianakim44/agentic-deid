@@ -65,6 +65,9 @@ import json
 from pathlib import Path
 
 from ..llm.bedrock import invoke, model_lifecycle
+# The one unwrapper and the JSON probe, DESIGN §6.8. `_call()` is the only caller in this
+# module, which is the point — see its docstring on where the uniformity is enforced.
+from ..llm.envelope import parses_json, unwrap
 from ..llm.prompt import (
     assemble_lexicon_prompt, assemble_mapper_prompt, assemble_profiler_prompt,
 )
@@ -234,13 +237,30 @@ def _refuse_spent_role(role: str, *, corpus: str, detector: str, supervision: st
 
 def _call(role: str, prompt, *, corpus: str, detector: str, supervision: str, porting: str,
           model_id: str, client, control_client, max_tokens: int | None):
-    """Probe, call once, log the line. Returns `(response, model, cost, lifecycle, reference)`.
+    """Probe, call once, classify the envelope, log the line.
+
+    Returns `(response, wrapper, model, cost, lifecycle, reference)`, where `wrapper` is the
+    `Envelope` — `wrapper.payload` is what the caller parses and `wrapper.record()` is what any
+    record of this call carries.
 
     The order is `run_arm()`'s and each position is load-bearing there for reasons that hold
     here unchanged: the lifecycle probe goes **before** the call so that anything surprising it
     does happens while the arm can still be re-run, and the log line is appended **before** the
     response is judged, because the line is what fixes the window and at that moment the only
     thing known about the response is that it arrived.
+
+    **The unwrap is here, in the one function all three authoring roles go through** (DESIGN
+    §6.8, pre-registered 2026-09-17). That placement is the uniformity clause rather than a
+    convenience: this rung is where the defect it fixes was inherited from, because three
+    prompts asked for a bare object in the same words and the fence rate at them was measured at
+    0% / 65% / 95% (§6.9) — so a policy applied per author would have been applied at whichever
+    author had just failed. A fourth authoring role gets it by construction, like
+    `_refuse_spent_role()` above.
+
+    `parses_json` and not `parses_yaml`, because all three of these prompts ask for a JSON
+    object; the rule file is the one YAML response and its unwrap is in `orchestrate.run_arm`
+    and `loop`. The probe is a parameter of `unwrap()` for exactly this reason — the difference
+    between the roles is the language of the payload, and nothing else about the policy.
 
     **`_refuse_spent_role()` first, before the lifecycle probe and before the prompt is
     referenced.** Here rather than in the three callers because this is the one function all of
@@ -261,14 +281,14 @@ def _call(role: str, prompt, *, corpus: str, detector: str, supervision: str, po
     response = invoke(prompt, model_id=model_id, client=client, **kwargs)
     cost = response.cost()
     model = response.model_record()
+    wrapper = unwrap(response.text, parses=parses_json)
     append_call(
         call_line(AUTHORING_ITERATION, prompt_reference=reference, model=model,
-                  response_chars=len(response.text),
-                  response_sha256=_digest(response.text),
+                  envelope=wrapper.record(),
                   outcome=CALLED, cost=cost, model_lifecycle=lifecycle, role=role),
         corpus, detector, supervision, porting,
     )
-    return response, model, cost, lifecycle, reference
+    return response, wrapper, model, cost, lifecycle, reference
 
 
 def _stop_message(what: str, counts: dict, path: Path) -> str:
@@ -295,9 +315,10 @@ def _stop_message(what: str, counts: dict, path: Path) -> str:
     )
 
 
-def _failed(*, what: str, error: str, artefact: Path, written: bool, response, model, cost,
-            lifecycle, reference: dict, corpus: str, detector: str, supervision: str,
-            porting: str, split: str, role: str, counts: dict | None = None) -> dict:
+def _failed(*, what: str, error: str, artefact: Path, written: bool, response, envelope: dict,
+            model, cost, lifecycle, reference: dict, corpus: str, detector: str,
+            supervision: str, porting: str, split: str, role: str,
+            counts: dict | None = None) -> dict:
     """Write `format_failure.json` and return the step result. See the module docstring.
 
     **`written=False` is the one case in this repository where `rules_path` names a path that
@@ -311,10 +332,19 @@ def _failed(*, what: str, error: str, artefact: Path, written: bool, response, m
     The response itself is in this record's own `response` field, which is where §10 A2 puts it.
     The step result's `path` is `None` in this case, so a caller can tell the two apart without
     reading the file.
+
+    **`envelope` is passed through rather than recomputed** (DESIGN §6.8). It is `_call()`'s
+    `wrapper.record()`, carried in each author's `common` dict, and the reason it travels instead
+    of being derived here is that this function cannot derive it: `unwrap()` decided what was
+    parsed, and a second classification at the writer could disagree with the line already in the
+    call log. On this rung the block also separates the two stops that reach this function —
+    `refused` for a response that never parsed, `bare` or `fenced_once` with a `_stop_message()`
+    for one that parsed and then failed validation. Those are different findings and the record
+    now distinguishes them.
     """
     failure = _write_failure(
         corpus=corpus, detector=detector, supervision=supervision, porting=porting,
-        split=split, model=model, response=response.text, error=error,
+        split=split, model=model, response=response.text, envelope=envelope, error=error,
         rules_path=artefact, cost=cost, prompt_reference=reference,
         model_lifecycle=lifecycle,
     )
@@ -359,18 +389,18 @@ def author_profile(*, corpus: str, model_id: str, detector: str = DETECTOR,
     raw = artefacts.read_inventory(corpus)
     inventory = artefacts.filter_inventory(raw)
     prompt = assemble_profiler_prompt(corpus=corpus, inventory=inventory)
-    response, model, cost, lifecycle, reference = _call(
+    response, wrapper, model, cost, lifecycle, reference = _call(
         PROFILER, prompt, corpus=corpus, detector=detector, supervision=supervision,
         porting=porting, model_id=model_id, client=client, control_client=control_client,
         max_tokens=max_tokens)
 
     would_be = artefacts.profile_path(corpus=corpus, detector=detector,
                                       supervision=supervision, porting=porting)
-    common = dict(response=response, model=model, cost=cost, lifecycle=lifecycle,
-                  reference=reference, corpus=corpus, detector=detector,
+    common = dict(response=response, envelope=wrapper.record(), model=model, cost=cost,
+                  lifecycle=lifecycle, reference=reference, corpus=corpus, detector=detector,
                   supervision=supervision, porting=porting, split=split, role=PROFILER)
     try:
-        obj = artefacts.parse_object(response.text, what="profile")
+        obj = artefacts.parse_object(wrapper.payload, what="profile")
         profile, refused = artefacts.validate_profile(obj, inventory=inventory)
     except ArtefactError as exc:
         return _failed(what="profile", error=str(exc), artefact=would_be, written=False,
@@ -420,18 +450,18 @@ def author_mapping(*, corpus: str, profile: dict, model_id: str, detector: str =
     """
     type_inventory = profile[artefacts.PROFILE_LABEL_FIELD]
     prompt = assemble_mapper_prompt(corpus=corpus, profile=profile)
-    response, model, cost, lifecycle, reference = _call(
+    response, wrapper, model, cost, lifecycle, reference = _call(
         MAPPER, prompt, corpus=corpus, detector=detector, supervision=supervision,
         porting=porting, model_id=model_id, client=client, control_client=control_client,
         max_tokens=max_tokens)
 
     would_be = artefacts.mapping_path(corpus=corpus, detector=detector,
                                       supervision=supervision, porting=porting)
-    common = dict(response=response, model=model, cost=cost, lifecycle=lifecycle,
-                  reference=reference, corpus=corpus, detector=detector,
+    common = dict(response=response, envelope=wrapper.record(), model=model, cost=cost,
+                  lifecycle=lifecycle, reference=reference, corpus=corpus, detector=detector,
                   supervision=supervision, porting=porting, split=split, role=MAPPER)
     try:
-        obj = artefacts.parse_object(response.text, what="mapping")
+        obj = artefacts.parse_object(wrapper.payload, what="mapping")
         kept_map, kept_excluded, refused = artefacts.validate_mapping(
             obj, type_inventory=type_inventory)
     except ArtefactError as exc:
@@ -486,19 +516,19 @@ def author_lexicons(*, corpus: str, model_id: str, detector: str = DETECTOR,
     langs = list(rule_langs(corpus))
     artefacts.check_lexicon_names()
     prompt = assemble_lexicon_prompt(corpus=corpus, langs=langs)
-    response, model, cost, lifecycle, reference = _call(
+    response, wrapper, model, cost, lifecycle, reference = _call(
         LEXICON_BUILDER, prompt, corpus=corpus, detector=detector, supervision=supervision,
         porting=porting, model_id=model_id, client=client, control_client=control_client,
         max_tokens=max_tokens)
 
     would_be = artefacts.manifest_path(corpus=corpus, detector=detector,
                                        supervision=supervision, porting=porting)
-    common = dict(response=response, model=model, cost=cost, lifecycle=lifecycle,
-                  reference=reference, corpus=corpus, detector=detector,
+    common = dict(response=response, envelope=wrapper.record(), model=model, cost=cost,
+                  lifecycle=lifecycle, reference=reference, corpus=corpus, detector=detector,
                   supervision=supervision, porting=porting, split=split,
                   role=LEXICON_BUILDER)
     try:
-        obj = artefacts.parse_object(response.text, what="lexicon")
+        obj = artefacts.parse_object(wrapper.payload, what="lexicon")
         kept, refused = artefacts.validate_lexicon(obj, langs=langs)
     except ArtefactError as exc:
         # The only stop this agent has, and it is not a refusal: `validate_lexicon` raises when

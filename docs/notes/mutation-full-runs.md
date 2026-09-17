@@ -28,6 +28,42 @@ CLAUDE.md's rule that re-anchored mutations are re-measured **regardless of whet
 scope** is what this section serves: an anchor edit is a change to the mutation itself, so its old
 count describes a different experiment, and that fact is invisible from the count alone.
 
+### Every count in the file — opened 2026-09-17 by the strip-policy commit (DESIGN §6.8)
+
+**`TEST_FILES` gained `tests/test_envelope.py` and `MUTATIONS` went from 188 to 192.** That is a
+membership change, so this entry is not a list of moved counts: it is all of them. Each recorded
+count is a fraction of the `TEST_FILES` list, and the list is now 30 files and a 2052-test
+baseline where the 2026-09-04 sidecar recorded 29 and 1991. Nothing in the record below is
+comparable to the current suite until the next full run, and CLAUDE.md says so explicitly —
+impact scope cannot discharge a change to the denominator of all 192 counts.
+`test_the_full_run_covered_the_current_test_files` fails until it does, which is where this entry
+is enforced rather than remembered.
+
+**What is owed, in three parts:**
+
+1. **All 188 pre-existing counts**, against the new 2052-test baseline. No expectation is recorded
+   for any of them, per CLAUDE.md: adding a test file can only leave a count where it was or raise
+   it, and "can only rise" is not a comparable value.
+2. **`the_failure_record_paraphrases_the_validator`, re-anchored** — the anchor grew
+   `envelope=wrapper.record(),` and `error=str(exc)` moved to its own line, so the anchor is a
+   different two lines of a different function signature. Owed regardless of scope, per CLAUDE.md's
+   rule that an anchor edit is a change to the mutation and not to its surroundings. Its 2026-09-04
+   count is 3.
+3. **The four new mutations' counts confirmed under the full run's arrangement.** Measured
+   selectively at a green 2052-test baseline, tree `231896ff479e8dcb`, all four caught:
+   `the_strip_peels_fences_until_it_parses` 1, `the_strip_finds_the_fence_anywhere_in_the_response`
+   2, `the_strip_exempts_the_role_that_never_fenced` 1, `the_record_describes_the_bytes_that_parsed`
+   2. Those are measurements and they are the values in `tests/mutations/README.md`; what the full
+   run adds is that they were taken with the same shard arrangement as everything else, which is
+   what `the_role_is_appended_at_the_end_of_the_line` (previous entry) is the standing reason to
+   want.
+
+**The three counts the previous entry owes are still owed** and are not restated here. One run
+settles both entries; they are kept separate because they were opened by different commits for
+different reasons, and merging them would lose which change is answerable for which number.
+
+*`mutation-full-runs.counts.json` is untouched, as always outside a full run.*
+
 ### Three counts a scope run moved — opened 2026-09-17 by the authoring-gate commit
 
 **`tests/test_multi.py` gained seven tests for the fourth guard on the authoring calls

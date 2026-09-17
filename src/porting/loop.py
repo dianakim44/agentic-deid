@@ -133,12 +133,16 @@ from ..corpora.base import rule_langs
 from ..eval.run_fold import DEFAULT_SPLIT, load_fold, read_errors, read_spans, run_fold
 from ..eval.scorer import iter_metrics_path, sum_caching, sum_costs
 from ..llm.bedrock import invoke, model_lifecycle
+# The one unwrapper, DESIGN §6.8, with both probes: this module holds two of the five response
+# paths and they differ only in the language of the payload — YAML for the rule file, JSON for
+# the audit. Two probes and one policy is the arrangement the uniformity clause asks for.
+from ..llm.envelope import parses_json, parses_yaml, unwrap
 from ..llm.prompt import (
     assemble_audit_prompt, assemble_iteration_prompt, assemble_task_prompt, mask_document,
 )
 from ..orchestrate import (
     CALLED, FORMAT_FAILURE, ONESHOT_SECTIONS, RULE_AUTHOR, SCORED, OrchestrateError,
-    _digest, _run_block, _write_failure, _write_rules, append_call, arm_has_called,
+    _run_block, _write_failure, _write_rules, append_call, arm_has_called,
     call_line, freeze_path, freeze_window, read_calls, window_drift,
 )
 from ..rules import RuleError, arm_rules_path, load_rules
@@ -436,21 +440,28 @@ def run_iteration_1(*, corpus: str, lang: str, model_id: str,
     cost = response.cost()
     model = response.model_record()
 
+    # One outer fence off if there is exactly one and a YAML mapping is inside; otherwise the
+    # received bytes unchanged, on their way to a loader that will refuse them (DESIGN §6.8).
+    # Before the log line, because the line records what was read as well as what arrived, and
+    # it cannot raise — `orchestrate`'s module docstring argues the ordering.
+    wrapper = unwrap(response.text, parses=parses_yaml)
+
     # Before the response is judged (the module docstring's step 4). `iteration`, `role` and
     # `sample_reference` are all passed rather than defaulted — see the docstring; the values
     # coincide with `call_line()`'s defaults in round 1 and stop coinciding in round 2, which
     # is why the coincidence is not relied on.
     append_call(
         call_line(ITERATION, prompt_reference=reference, model=model,
-                  response_chars=len(response.text),
-                  response_sha256=_digest(response.text),
+                  envelope=wrapper.record(),
                   outcome=CALLED, cost=cost, model_lifecycle=lifecycle,
                   role=RULE_AUTHOR, sample_reference=None),
         corpus, detector, supervision, porting,
     )
 
     run = _run_block(corpus, detector, supervision, porting, split, model)
-    rules_file = _write_rules(response.text, corpus=corpus, detector=detector,
+    # The payload, which is the received bytes on every kind but `fenced_once` — the strip
+    # happens once, here, at the write (§6.8). The failure record below carries what arrived.
+    rules_file = _write_rules(wrapper.payload, corpus=corpus, detector=detector,
                               supervision=supervision, porting=porting, lang=lang,
                               iteration=ITERATION)
     try:
@@ -458,8 +469,8 @@ def run_iteration_1(*, corpus: str, lang: str, model_id: str,
     except RuleError as exc:
         failure = _write_failure(
             corpus=corpus, detector=detector, supervision=supervision, porting=porting,
-            split=split, model=model, response=response.text, error=str(exc),
-            rules_path=rules_file, cost=cost, prompt_reference=reference,
+            split=split, model=model, response=response.text, envelope=wrapper.record(),
+            error=str(exc), rules_path=rules_file, cost=cost, prompt_reference=reference,
             model_lifecycle=lifecycle,
         )
         return {
@@ -667,17 +678,23 @@ def _audit_fold(documents, predictions, *, corpus: str, iteration: int, model_id
         response = invoke(prompt, model_id=model_id, client=client, cache=True, **kwargs)
         costs.append(response.cost())
         caching.append(response.caching())
+        # The Auditor's response is a JSON object like the three authoring roles', and it goes
+        # through the same unwrapper for the reason §6.8 gives: uniform across roles, because a
+        # policy that exempted one is the shape this defect was inherited through. The measured
+        # fence rate at this prompt was 0/20 (§6.9), which is why it is worth saying that the
+        # policy is here anyway — an exemption justified by a rate is an exemption that has to
+        # be revisited every time the model changes, and nobody revisits it.
+        wrapper = unwrap(response.text, parses=parses_json)
         append_call(
             call_line(iteration, prompt_reference=prompt.reference(),
                       model=response.model_record(),
-                      response_chars=len(response.text),
-                      response_sha256=_digest(response.text),
+                      envelope=wrapper.record(),
                       outcome=CALLED, cost=response.cost(), model_lifecycle=lifecycle,
                       role=AUDITOR, sample_reference=None),
             corpus, detector, supervision, porting,
         )
         audits.append(audit.parse_response(
-            response.text, doc_id=masked.doc_id, lines=masked.lines))
+            wrapper.payload, doc_id=masked.doc_id, lines=masked.lines))
 
     # `masked_from_iteration` is stated, not derived from a directory listing (DESIGN §5.5).
     # `audit.report()` checks the pair agrees with itself, which an off-by-one driver satisfies
@@ -1004,17 +1021,19 @@ def run_iteration(iteration: int, *, corpus: str, lang: str, model_id: str,
     # is `render_window()`'s reference, nested inside the prompt's, which is what says which
     # spans this call was shown. The cost on the line is the RuleAuthor's own call and not the
     # round's total: a log line prices the call it records.
+    # As in round 1, and the same function: one outer fence, only if the payload parses (§6.8).
+    wrapper = unwrap(response.text, parses=parses_yaml)
+
     append_call(
         call_line(iteration, prompt_reference=reference, model=model,
-                  response_chars=len(response.text),
-                  response_sha256=_digest(response.text),
+                  envelope=wrapper.record(),
                   outcome=CALLED, cost=response.cost(), model_lifecycle=lifecycle,
                   role=RULE_AUTHOR, sample_reference=reference["error_spans"]),
         corpus, detector, supervision, porting,
     )
 
     run = _run_block(corpus, detector, supervision, porting, split, model)
-    rules_file = _write_rules(response.text, corpus=corpus, detector=detector,
+    rules_file = _write_rules(wrapper.payload, corpus=corpus, detector=detector,
                               supervision=supervision, porting=porting, lang=lang,
                               iteration=iteration)
     try:
@@ -1022,8 +1041,8 @@ def run_iteration(iteration: int, *, corpus: str, lang: str, model_id: str,
     except RuleError as exc:
         failure = _write_failure(
             corpus=corpus, detector=detector, supervision=supervision, porting=porting,
-            split=split, model=model, response=response.text, error=str(exc),
-            rules_path=rules_file, cost=cost, prompt_reference=reference,
+            split=split, model=model, response=response.text, envelope=wrapper.record(),
+            error=str(exc), rules_path=rules_file, cost=cost, prompt_reference=reference,
             model_lifecycle=lifecycle, caching=caching, abandoned_spend=abandoned,
         )
         return {

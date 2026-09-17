@@ -98,11 +98,29 @@ rules:
     terms: ["Hospital"]
 """
 
-#: What a model returns when it answers in prose, or fences its YAML, or stops mid-file.
-#: Chosen to fail in the *parser* rather than in the schema, because that is the failure
-#: `yaml.safe_load` used to raise as itself — out of the failure branch and into a
-#: traceback (`src/rules.py`, the `YAMLError` clause).
+#: What a model returns when it answers in prose, or stops mid-file. Chosen to fail in the
+#: *parser* rather than in the schema, because that is the failure `yaml.safe_load` used to raise
+#: as itself — out of the failure branch and into a traceback (`src/rules.py`, the `YAMLError`
+#: clause).
+#:
+#: **It opens a fence and never closes it, and that is now load-bearing** (DESIGN §6.8,
+#: 2026-09-17). A fence around a document that parses is accepted; a one-sided fence is one of
+#: the five shapes §6.8 leaves as a format failure, so this constant still fails and now fails
+#: for a stated reason rather than for being fenced at all. `FENCED_RULES` below is the case that
+#: changed.
 UNPARSEABLE = "```yaml\nversion: 1\nlang: es\nrules: [\n"
+
+#: `GOOD_RULES` inside exactly one outer fence, with the language tag a model actually emits.
+#: The response the Mapper's twenty draws differed by (`docs/notes/prompt-format-probe.md`) and
+#: the response that killed `port-multi-noexample`, in this arm's language.
+FENCED_RULES = "```yaml\n" + GOOD_RULES.strip() + "\n```"
+
+#: The six-field block `call_line()` and `_write_failure()` require (DESIGN §6.8). Written out
+#: rather than produced by `unwrap()`, because these two writers are being tested and not the
+#: policy — `tests/test_envelope.py` covers the classifier, and a test of the writer that got its
+#: input from the classifier would pass on two functions agreeing with each other.
+AN_ENVELOPE = {"response_chars": 0, "response_sha256": "sha256:0", "envelope": "bare",
+               "fence_lines": 0, "parsed_chars": 0, "parsed_sha256": "sha256:0"}
 
 #: Schema-valid YAML that is not a rule file. Fails in `load_rules`' own checks rather than
 #: in the parser, so the two failure kinds are both covered by name.
@@ -998,8 +1016,8 @@ def test_an_unknown_outcome_is_refused_by_the_log_line(arm):
     of naming a cell of the experiment — but closed all the same, because a field filled
     with anything once is a field nothing can aggregate."""
     with pytest.raises(OrchestrateError) as e:
-        call_line(1, prompt_reference={}, model={}, response_chars=0,
-                  response_sha256="sha256:0", outcome="ok", cost={})
+        call_line(1, prompt_reference={}, model={},
+                  envelope=AN_ENVELOPE, outcome="ok", cost={})
     assert "not a call outcome" in str(e.value)
 
 
@@ -1413,7 +1431,8 @@ def test_the_failure_record_can_carry_the_abandoned_block(arm):
         corpus="es-meddocan", detector="R", supervision="sup-free", porting="port-loop",
         split="dev", model={"model_id": MODEL, "model_id_reported": None,
                             "model_id_resolution": "alias-unresolved"},
-        response=UNPARSEABLE, error="did not load", rules_path=arm / "x.yaml",
+        response=UNPARSEABLE, envelope=AN_ENVELOPE, error="did not load",
+        rules_path=arm / "x.yaml",
         cost={"llm_calls": 1, "prompt_tokens": 1, "completion_tokens": 1, "wall_seconds": 1.0},
         prompt_reference={"sections_filled": ["1.1", "1.2"]},
         abandoned_spend={"attempts_abandoned": 2, "calls_abandoned": 500,
@@ -1422,7 +1441,7 @@ def test_the_failure_record_can_carry_the_abandoned_block(arm):
     )
     record = failure_record("es-meddocan", "R", "sup-free", "port-loop")
     assert record["abandoned_spend"]["attempts_abandoned"] == 2
-    assert record["schema_version"] == 3
+    assert record["schema_version"] == orchestrate.FAILURE_SCHEMA == 4
     assert "abandoned_spend" not in record["cost"]
 
 
@@ -1432,4 +1451,4 @@ def test_a_failure_with_nothing_abandoned_writes_no_block(arm):
     run_arm(**ARM_KW, model_id=MODEL, client=an_answer(UNPARSEABLE))
     record = failure_record()
     assert "abandoned_spend" not in record
-    assert record["schema_version"] == 3
+    assert record["schema_version"] == orchestrate.FAILURE_SCHEMA == 4

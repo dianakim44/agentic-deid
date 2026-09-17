@@ -36,6 +36,13 @@ narrow rather than a hole.
 Neither is a crash. A frozen line that acquired `role` would be well-formed JSONL carrying
 the correct value, and the only thing wrong with it would be that nothing observed it.
 
+**The file now covers four additions and the fourth closed route 2 off.** `role` (2026-08-13),
+`sample_reference` becoming a parameter (2026-08-13), the role/iteration pair (2026-09-01), and
+the envelope block (2026-09-17, DESIGN §6.8) — which is *required*, because every value a default
+could have held would be a claim about a response nobody measured. So the drivers were edited and
+route 1 is the only protection left for the frozen lines; the section at the end of this file is
+where that is argued and tested.
+
     python3 -m pytest tests/test_call_role.py -q
 """
 from __future__ import annotations
@@ -72,6 +79,17 @@ FROZEN_KEYS = [
 ]
 
 ARM = ("es-meddocan", "R", "sup-free")
+
+
+#: The six-field envelope block `call_line()` has required since 2026-09-17 (DESIGN §6.8), as a
+#: helper because it is required and every call in this file has to supply one. A bare response
+#: whose received and parsed bytes are the same, which is what every call in this file is about —
+#: the policy's own cases are `tests/test_envelope.py`'s, and what is being tested here is the
+#: record's shape and the frozen lines' immunity to it.
+def an_envelope(**kw) -> dict:
+    """A full block, overridable field by field. Never a subset: `call_line()` refuses those."""
+    return dict({"response_chars": 1, "response_sha256": "sha256:aa", "envelope": "bare",
+                 "fence_lines": 0, "parsed_chars": 1, "parsed_sha256": "sha256:aa"}, **kw)
 
 
 def frozen_lines(porting: str) -> list[dict]:
@@ -191,14 +209,15 @@ def test_a_second_line_leaves_the_first_one_byte_identical(redirected):
     re-serialising a line that was already written — same content, different key order or
     separators — and a dict comparison would call that unchanged.
     """
-    first = call_line(2, prompt_reference={}, model={"model_id": "m"}, response_chars=1,
-                      response_sha256="sha256:aa", outcome="called", cost={})
+    first = call_line(2, prompt_reference={}, model={"model_id": "m"},
+                      envelope=an_envelope(), outcome="called", cost={})
     path = append_call(first, *ARM, "port-loop")
     before = path.read_bytes()
 
-    second = call_line(2, prompt_reference={}, model={"model_id": "m"}, response_chars=2,
-                       response_sha256="sha256:bb", outcome="called", cost={},
-                       role="auditor")
+    second = call_line(2, prompt_reference={}, model={"model_id": "m"},
+                       envelope=an_envelope(response_chars=2, response_sha256="sha256:bb",
+                                            parsed_chars=2, parsed_sha256="sha256:bb"),
+                       outcome="called", cost={}, role="auditor")
     append_call(second, *ARM, "port-loop")
 
     after = path.read_bytes()
@@ -220,8 +239,8 @@ def test_the_two_roles_lines_are_told_apart_only_by_the_field():
     total computed without this field would have to guess. `sample_reference` is not the
     answer: it is null on both here, and will be null on the Auditor's line in every round.
     """
-    kw = dict(prompt_reference={}, model={"model_id": "m"}, response_chars=1,
-              response_sha256="sha256:aa", outcome="called", cost={})
+    kw = dict(prompt_reference={}, model={"model_id": "m"}, envelope=an_envelope(),
+              outcome="called", cost={})
     author = call_line(2, **kw)
     auditor = call_line(2, **kw, role="auditor")
     differing = [k for k in author if author[k] != auditor[k]]
@@ -236,8 +255,9 @@ def test_the_two_roles_lines_are_told_apart_only_by_the_field():
 
 def a_line(**kw) -> dict:
     base = dict(prompt_reference={"sha256": "sha256:aa"}, model={"model_id": "m"},
-                response_chars=0, response_sha256="sha256:bb", outcome="called",
-                cost={"input_tokens": 0})
+                envelope=an_envelope(response_chars=0, response_sha256="sha256:bb",
+                                     parsed_chars=0, parsed_sha256="sha256:bb"),
+                outcome="called", cost={"input_tokens": 0})
     return call_line(1, **{**base, **kw})
 
 
@@ -308,16 +328,15 @@ def test_no_round_number_at_all_admits_an_out_of_loop_role(iteration):
     for role in sorted(orchestrate.OUT_OF_LOOP_ROLES):
         with pytest.raises(OrchestrateError):
             call_line(iteration, role=role, prompt_reference={}, model={"model_id": "m"},
-                      response_chars=0, response_sha256="sha256:aa", outcome="called",
-                      cost={})
+                      envelope=an_envelope(), outcome="called", cost={})
 
 
 def test_an_out_of_loop_role_is_accepted_at_iteration_zero():
     """The three roles the rule exists for, at the one number it permits them."""
     for role in sorted(orchestrate.OUT_OF_LOOP_ROLES):
         line = call_line(orchestrate.AUTHORING_ITERATION, role=role, prompt_reference={},
-                         model={"model_id": "m"}, response_chars=0,
-                         response_sha256="sha256:aa", outcome="called", cost={})
+                         model={"model_id": "m"}, envelope=an_envelope(),
+                         outcome="called", cost={})
         assert (line["iteration"], line["role"]) == (0, role)
 
 
@@ -332,7 +351,7 @@ def test_a_loop_role_is_refused_at_iteration_zero(role):
     """
     with pytest.raises(OrchestrateError, match="rounds are 1-based"):
         call_line(0, role=role, prompt_reference={}, model={"model_id": "m"},
-                  response_chars=0, response_sha256="sha256:aa", outcome="called", cost={})
+                  envelope=an_envelope(), outcome="called", cost={})
 
 
 def test_the_two_halves_partition_the_vocabulary():
@@ -358,8 +377,7 @@ def test_the_iteration_refusal_fires_before_the_outcome_refusal():
     """
     with pytest.raises(OrchestrateError, match="out-of-loop agents write iteration"):
         call_line(3, role="profiler", prompt_reference={}, model={"model_id": "m"},
-                  response_chars=0, response_sha256="sha256:aa",
-                  outcome="not_an_outcome", cost={})
+                  envelope=an_envelope(), outcome="not_an_outcome", cost={})
 
 
 def test_the_refusals_name_no_corpus_text():
@@ -367,8 +385,8 @@ def test_the_refusals_name_no_corpus_text():
     for kwargs in ({"iteration": 3, "role": "profiler"}, {"iteration": 0, "role": "auditor"}):
         with pytest.raises(OrchestrateError) as excinfo:
             call_line(kwargs["iteration"], role=kwargs["role"], prompt_reference={},
-                      model={"model_id": "m"}, response_chars=0,
-                      response_sha256="sha256:aa", outcome="called", cost={})
+                      model={"model_id": "m"}, envelope=an_envelope(), outcome="called",
+                      cost={})
         assert "DESIGN §6.7.1" in str(excinfo.value)
 
 
@@ -421,8 +439,17 @@ def test_the_frozen_arms_lines_all_sit_at_round_numbers():
 #: `test_no_frozen_record_acquired_a_port_multi_hash` and the byte-identity assertions in
 #: `tests/test_window_widening.py`. The distinction is the whole of why this list is permitted
 #: to grow and those are not.
+#:
+#: Nine since 2026-09-17: the envelope block's four fields (DESIGN §6.8). They are additions of
+#: the same kind as `role` — the frozen calls were made before anything measured what wrapped a
+#: response — with one difference worth naming, since it is the reason the widening needed a
+#: section of its own below: `envelope` is **required** at the writer, so there was no default to
+#: keep the frozen arms' driver unedited. `run_arm()` was edited. What protects those two lines
+#: is only that nothing rewrites a log, which is the first of this file's two routes and now the
+#: only one in play.
 ADDED_SINCE = ("role", "auditor_sha256", "profiler_sha256", "mapper_sha256",
-               "lexicon_builder_sha256")
+               "lexicon_builder_sha256",
+               "envelope", "fence_lines", "parsed_chars", "parsed_sha256")
 
 #: The window fields whose value on disk has moved *past* this frozen line, because a hashed
 #: prompt was revised after the call was spent. Different in kind from `ADDED_SINCE`: those
@@ -455,8 +482,18 @@ def replay(line: dict, **kw) -> dict:
         model={k: line[k] for k in
                ("model_id", "model_id_reported", "model_id_resolution")},
         model_lifecycle=line["model_lifecycle"],
-        response_chars=line["response_chars"],
-        response_sha256=line["response_sha256"],
+        # The two recorded byte fields are the frozen call's own; the four the envelope block
+        # added on 2026-09-17 are **stipulated by this replay and are not a claim about the
+        # call**. They cannot be recovered: the log holds a hash of the response and not the
+        # response, so nothing on this tree can say whether that response arrived fenced. The
+        # values do not enter any assertion below — the four keys are in `ADDED_SINCE`, so what
+        # is compared is that they are additions and that nothing else moved. What *can* be said
+        # about these two arms is weaker than a measurement and is said in
+        # `test_the_frozen_arms_responses_cannot_be_reclassified`.
+        envelope=an_envelope(response_chars=line["response_chars"],
+                             response_sha256=line["response_sha256"],
+                             parsed_chars=line["response_chars"],
+                             parsed_sha256=line["response_sha256"]),
         outcome=line["outcome"],
         cost=line["cost"],
     )
@@ -706,8 +743,142 @@ def test_a_required_sample_reference_would_have_broken_the_baselines_driver():
     line, = frozen_lines("port-oneshot-nofence")
     assert replay(line)["sample_reference"] is None
     with pytest.raises(TypeError):
-        call_line(1, prompt_reference={}, model={"model_id": "m"}, response_chars=0,
-                  response_sha256="sha256:aa", outcome="called")  # `cost`, which *is* required
+        call_line(1, prompt_reference={}, model={"model_id": "m"},
+                  envelope=an_envelope(), outcome="called")  # `cost`, which *is* required
+
+
+# ─── the envelope block, and the one route it left open ────────────────────
+#
+# 2026-09-17, the fourth addition this file's reasoning covers and the first that could not use
+# the escape the other three did. DESIGN §6.8 accepts a valid object inside exactly one outer
+# fence, and requires the record to say both what arrived and what was read — so `call_line()`
+# gained six fields in one block, `envelope`, and the block is **required**.
+#
+# **Why required, when this file's own docstring says a required parameter is one of the two ways
+# a field reaches backwards.** Because the alternative is worse here in a way it was not for
+# `role` or `sample_reference`. A default would have to be a value, and every candidate value is
+# a claim: `bare` says the response was unfenced, and any "unknown" value would be a fourth
+# vocabulary entry that every honest caller could keep using. Either way the field a reader uses
+# to count fences would be fillable without measuring one, which is exactly what §6.8's second
+# property is for — and per-role fence rates of 0% / 65% / 95% (§6.9) are not measurable off a
+# log whose writer had a default. So the drivers were edited instead, all six call sites, and the
+# one remaining protection for the frozen lines is that nothing reopens a log.
+
+def test_no_frozen_line_acquired_the_envelope_block():
+    """Route 1, at the new block. The same assertion `role` gets, and the reason is sharper here:
+    a backfill would have had to *invent* the value. `role` was recoverable — those calls were the
+    RuleAuthor's and nothing else — whereas nothing in the log says what wrapped a response, and
+    for `port-oneshot` the answer turns out to be `fenced_once` rather than the `bare` a backfill
+    would most plausibly have written (`tests/test_envelope.py`). A wrong value in a field a
+    reader counts fences with is worse than an absent one.
+    """
+    for porting in FROZEN_ARMS:
+        for index, line in enumerate(frozen_lines(porting)):
+            for field in ("envelope", "fence_lines", "parsed_chars", "parsed_sha256"):
+                assert field not in line, (
+                    f"{porting} line {index} acquired `{field}`. Nothing measured what wrapped "
+                    "that response, and the log holds a hash of it rather than the response, so "
+                    "any value here is a reconstruction (DESIGN §6.3, §6.8)."
+                )
+
+
+def test_the_frozen_lines_do_not_say_what_wrapped_their_responses():
+    """What is honestly knowable **from the log**, which is less than the block would say.
+
+    The replay stipulates `bare` because `call_line()` requires something. This states the limit
+    on that stipulation rather than leaving a reader to take it for a finding: the line carries
+    `response_sha256` and not the response, and a hash does not say whether the bytes it covers
+    began with a fence. So no line on this tree can be reclassified, and the correct record of
+    that is the block's *absence*, which is the test above.
+
+    **One of these two arms is classifiable, and not from here.** `port-oneshot` format-failed,
+    so its response is in `format_failure.json` — a committed, screened path — and that is where
+    §6.8's counterfactual is measured (`tests/test_envelope.py`). `port-oneshot-nofence` scored,
+    wrote no failure record, and its response exists nowhere: for that call the answer is not
+    "bare", it is unavailable. Two arms, one writer, and two different amounts of evidence — the
+    log's contribution to both is the same and is zero.
+    """
+    for porting in FROZEN_ARMS:
+        for line in frozen_lines(porting):
+            assert line["response_sha256"].startswith("sha256:")
+            assert "response" not in line, (
+                f"{porting}: a line carries the response itself. That would make the "
+                "classification recoverable from the log — and would put model output in the "
+                "one file `tools/release_screen.py` never looks at (CLAUDE.md)."
+            )
+    scored_arm = ROOT / "results" / "es-meddocan" / "R" / "sup-free" / "port-oneshot-nofence"
+    if scored_arm.is_dir():
+        assert not (scored_arm / "format_failure.json").exists(), (
+            "the arm that scored has a format-failure record. One arm writes one of the two "
+            "files (DESIGN §10 A2), and if both are present the claim above — that this "
+            "response exists nowhere — is no longer true."
+        )
+
+
+def test_the_writer_refuses_a_partial_envelope():
+    """**The route a required field leaves open, closed at the writer.**
+
+    A required parameter cannot be forgotten, but it can be *assembled*, and the four-of-six
+    version is the plausible one: a driver that knew the two byte fields — every driver already
+    computed them — and had no reason to think about the rest. That line would look complete and
+    would say nothing about the wrapper, which is the per-role exemption §6.8 forbids written as
+    an omission. So the check is set equality, and both directions fail.
+    """
+    full = an_envelope()
+    for dropped in sorted(full):
+        with pytest.raises(OrchestrateError, match="envelope must carry exactly"):
+            a_line(envelope={k: v for k, v in full.items() if k != dropped})
+    with pytest.raises(OrchestrateError, match="envelope must carry exactly"):
+        a_line(envelope=dict(full, language_tag="yaml"))
+    with pytest.raises(OrchestrateError, match="envelope must be a mapping"):
+        a_line(envelope=None)
+
+
+def test_the_envelope_has_no_default_at_all():
+    """The counterfactual this widening could not use, asserted as a TypeError.
+
+    `role` and `sample_reference` are defaulted and both defaults are *true* of every caller that
+    predates them. There is no such value here — see the section comment — so the writer demands
+    the argument, and this is the assertion that says so rather than a comment claiming it.
+    """
+    with pytest.raises(TypeError):
+        call_line(1, prompt_reference={}, model={"model_id": "m"}, outcome="called", cost={})
+
+
+def test_the_envelope_block_sits_after_the_reference_and_before_the_cost():
+    """Field order, and the load-bearing part is that `response_chars` did not move.
+
+    The two byte fields keep their names and their positions, so a frozen line's field list is a
+    prefix of today's rather than a different arrangement of the same information — which is what
+    lets one `agent_calls.jsonl` be read as one file across the change. The four new fields go
+    between them and `cost`, in `envelope.RECORD_FIELDS` order, so two drivers logging one call
+    write byte-identical lines.
+    """
+    from src.llm.envelope import RECORD_FIELDS
+
+    fields = list(a_line())
+    assert fields[fields.index("sample_reference") + 1:fields.index("cost")] == \
+        list(RECORD_FIELDS)
+    assert list(RECORD_FIELDS)[:2] == ["response_chars", "response_sha256"]
+
+
+def test_a_role_cannot_be_written_without_the_block():
+    """§6.8's uniformity clause at the writer, over the whole vocabulary rather than the five
+    roles spelled out. A sixth role added to `naming.yaml` gets the requirement by construction;
+    a test naming five would not see it, which is `the_two_halves_partition_the_vocabulary`'s
+    argument one field over.
+    """
+    from src.corpora.base import agent_roles
+
+    for role in sorted(agent_roles()):
+        iteration = orchestrate.AUTHORING_ITERATION if role in \
+            orchestrate.OUT_OF_LOOP_ROLES else 1
+        with pytest.raises((TypeError, OrchestrateError)):
+            call_line(iteration, role=role, prompt_reference={}, model={"model_id": "m"},
+                      outcome="called", cost={})
+        line = call_line(iteration, role=role, prompt_reference={}, model={"model_id": "m"},
+                         envelope=an_envelope(), outcome="called", cost={})
+        assert line["envelope"] == "bare" and line["fence_lines"] == 0
 
 
 def test_a_backfill_would_have_changed_every_frozen_line():

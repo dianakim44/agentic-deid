@@ -67,6 +67,7 @@ TEST_FILES = [
     "tests/test_call_role.py",
     "tests/test_loop.py",
     "tests/test_multi.py",
+    "tests/test_envelope.py",
 ]
 
 #: Repository directories the loader tests need. `splits/` is here because the
@@ -269,6 +270,17 @@ PATCH_CHECK = "tools/check_patched_guarantees.py"
 #: see the module's own note — which is also what makes it mutable in isolation here: a
 #: mutation to δ or to the ceiling branch cannot be confused with a bug in the thing it stops.
 TERMINATION = "src/termination.py"
+#: DESIGN §6.8's strip policy, the whole of it. Its own constant rather than a line in one of the
+#: drivers, for the reason the policy is one module: the boundary between "compliant response" and
+#: "format failure" is decided here for all five roles, so a mutation to it cannot be confused
+#: with a mutation to any one role's parser. The three mutations aimed at it are the three
+#: widenings a reviewer asks for — peel until it parses, find the fence anywhere, exempt the role
+#: that never fences — plus the one that keeps the policy and loses the evidence for it.
+ENVELOPE = "src/llm/envelope.py"
+#: The three authoring roles' driver. Named here as well as below because §6.8's exemption
+#: mutation lives at a *call site* rather than in the policy: an exemption is one author reading
+#: the bytes that arrived, which is invisible from every test of `unwrap` itself.
+MULTI = "src/porting/multi.py"
 #: `port-loop`'s driver. Mutated separately from `src/termination.py` for that constant's
 #: reason read the other way: this file is what *obeys* the pre-registered rule and assembles
 #: each round from the previous one, so a mutation to the chain cannot be confused with a
@@ -3000,8 +3012,15 @@ MUTATIONS = [
     Mutation(
         name="the_failure_record_paraphrases_the_validator",
         path=ORCHESTRATE,
-        anchor="            split=split, model=model, response=response.text, error=str(exc),",
-        replacement="            split=split, model=model, response=response.text,\n"
+        # Re-anchored 2026-09-17: `_write_failure` gained the required `envelope` argument
+        # (DESIGN §6.8), which moved `error=` onto the next line at both of `run_arm`'s and
+        # `loop`'s call sites. The mutation is unchanged in what it does — the anchor is
+        # `run_arm`'s call, and this one is unique because `loop.py` is a different file.
+        anchor="            split=split, model=model, response=response.text, "
+               "envelope=wrapper.record(),\n"
+               "            error=str(exc),",
+        replacement="            split=split, model=model, response=response.text, "
+                    "envelope=wrapper.record(),\n"
                     "            error=\"the response was not a valid rule file\",",
         breaks=(
             "The validator's own message is replaced by a summary of it, and §10 A2's third "
@@ -5306,6 +5325,167 @@ MUTATIONS = [
             "natural test to write and it passes against this mutation."
         ),
         min_kills=1,
+    ),
+    Mutation(
+        name="the_strip_peels_fences_until_it_parses",
+        path=ENVELOPE,
+        # The widening that looks like a simplification: one shape becomes a loop, and the loop's
+        # exit condition is "it parsed". Every accepted response this repository has measured is
+        # still accepted, so nothing in the arms' records would change.
+        anchor=(
+            "    if (\n"
+            "        len(lines) >= 3\n"
+            "        and fences == 2\n"
+            "        and _OPEN.match(lines[0].strip())\n"
+            "        and lines[-1].strip() == _CLOSE\n"
+            "    ):\n"
+            "        payload = \"\\n\".join(lines[1:-1])\n"
+            "        if parses(payload):\n"
+        ),
+        replacement=(
+            "    payload = text.strip()\n"
+            "    while True:\n"
+            "        peel = payload.splitlines()\n"
+            "        if not (len(peel) >= 3 and _OPEN.match(peel[0].strip())\n"
+            "                and peel[-1].strip() == _CLOSE):\n"
+            "            break\n"
+            "        payload = \"\\n\".join(peel[1:-1])\n"
+            "        if parses(payload):\n"
+        ),
+        breaks=(
+            "**Turns one strip into as many as it takes.** The condition on `fences == 2` is "
+            "gone and the shape test is applied repeatedly, so a response wrapped twice is "
+            "unwrapped twice and a response wrapped n times is unwrapped n times. Every "
+            "response this repository has actually measured — 100 probe draws and three dead "
+            "arms — is accepted identically, because none of them was nested. The mutated "
+            "policy is a strict superset of the pre-registered one, which is exactly why it is "
+            "the widening a reviewer proposes: it cannot break a case anybody has seen.\n"
+            "\n"
+            "What it costs is the argument. §6.8 is licensed by a measurement about **one** "
+            "fence: the Mapper's twenty draws are two responses differing by two fence lines, "
+            "so that fence carries no information about the content. There is no measurement of "
+            "a doubly fenced response, and a policy that peels until the result parses has "
+            "stopped being a correction for a wrapper and become a search for an input that "
+            "works — the shape §10 A2 forbids, reached without any retry and without a second "
+            "call. Then the boundary is no longer pre-registered: it is wherever peeling "
+            "happens to succeed.\n"
+            "\n"
+            "Caught by `tests/test_envelope.py::test_the_five_shapes_that_stay_failures[nested]`, "
+            "the only case whose refusal depends on the strip being applied once. The four "
+            "sibling cases pass against this mutation, and so does every acceptance test."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="the_strip_finds_the_fence_anywhere_in_the_response",
+        path=ENVELOPE,
+        # The second widening, and the one with a real complaint behind it: a model that writes
+        # "Here is the mapping:" above a perfectly good object has produced a perfectly good
+        # object. Written as a scan for the outermost fence lines, which is how it would be
+        # written — no regex change, no new constant, four lines.
+        anchor=(
+            "    if (\n"
+            "        len(lines) >= 3\n"
+            "        and fences == 2\n"
+            "        and _OPEN.match(lines[0].strip())\n"
+            "        and lines[-1].strip() == _CLOSE\n"
+            "    ):\n"
+            "        payload = \"\\n\".join(lines[1:-1])\n"
+        ),
+        replacement=(
+            "    opens = [i for i, line in enumerate(lines) if _OPEN.match(line.strip())]\n"
+            "    closes = [i for i, line in enumerate(lines) if line.strip() == _CLOSE]\n"
+            "    if opens and closes and closes[-1] > opens[0]:\n"
+            "        payload = \"\\n\".join(lines[opens[0] + 1:closes[-1]])\n"
+        ),
+        breaks=(
+            "**Accepts a partial envelope: a fence somewhere in the response rather than around "
+            "it.** A preamble above the fence and a closing remark below it are both discarded, "
+            "along with anything else outside the outermost pair. Like its sibling it accepts "
+            "everything the pre-registered policy accepts, so no measured response changes "
+            "outcome.\n"
+            "\n"
+            "What it costs is the one property that makes the policy narrow enough to defend. "
+            "A fence around the whole response is a wrapper; a fence with prose outside it is a "
+            "**response that did not follow §2.1 in a way nobody has measured** — the twenty "
+            "Mapper draws contain no such response, so there is no evidence that the object "
+            "inside is the object the prompt asked for rather than one of several things the "
+            "model said. Worse, the discarded text is discarded silently: `parsed_chars` records "
+            "the surviving length and nothing records that a sentence was thrown away, so the "
+            "record stops answering §6.8's question about what was read.\n"
+            "\n"
+            "Caught by `test_the_five_shapes_that_stay_failures[preamble_outside_the_fence]` and "
+            "`[remark_after_the_fence]`. Both assert the refusal *and* that the payload was left "
+            "equal to the received bytes, which is the half a laxer test would drop."
+        ),
+        min_kills=2,
+    ),
+    Mutation(
+        name="the_strip_exempts_the_role_that_never_fenced",
+        path=MULTI,
+        # The exemption in the form it would actually be committed: not a branch in the policy,
+        # one author at one call site reading the bytes that arrived. The Profiler is the role a
+        # reviewer would pick, because it is the one with a measured 0/20.
+        anchor='        obj = artefacts.parse_object(wrapper.payload, what="profile")',
+        replacement='        obj = artefacts.parse_object(response.text, what="profile")',
+        breaks=(
+            "**Exempts one role from the strip, justified by that role's own measurement.** The "
+            "Profiler fenced 0 of 20 draws on 2026-09-17 — the only authoring role with a "
+            "measured zero — so unwrapping its response is provably unnecessary on the evidence "
+            "available, and this is the change that follows from saying so. It is not a typo and "
+            "not laziness; it is the argument written into code.\n"
+            "\n"
+            "It is also the mechanism by which the fence defect was inherited in the first "
+            "place. `rule_author.md` had the measured pass record, was treated as handled, and "
+            "the four prompts written afterwards copied its fence "
+            "(`the_fence_check_exempts_one_file`, one layer up). Here the same reasoning "
+            "produces a role whose format contract is decided somewhere other than "
+            "`llm/envelope.py`, and 0/20 has a rule-of-three upper bound of 15% — the exempt "
+            "role's true rate is not zero, it is unmeasured below 15%.\n"
+            "\n"
+            "Every test of `unwrap` passes against this, and so does every structural check that "
+            "asks whether the module imports the unwrapper, calls it, strips no backtick of its "
+            "own, and logs a complete envelope block: this site does all four. The record it "
+            "writes even says `fenced_once` while the validator was reading the fence.\n"
+            "\n"
+            "Caught by `test_no_validator_is_handed_the_bytes_that_arrived[src/porting/multi.py]`, "
+            "which is in the suite for this mutation and no other: it asserts that `response.text` "
+            "reaches only `unwrap()` and a failure record's `response=` field."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="the_record_describes_the_bytes_that_parsed",
+        path=ENVELOPE,
+        # The received pair keeps its names, its types and its position; only its subject
+        # changes. Six fields in, six fields out, every writer's key check satisfied.
+        anchor='        received = self.received if isinstance(self.received, str) else ""',
+        replacement='        received = self.payload if isinstance(self.payload, str) else ""',
+        breaks=(
+            "**Keeps the strip and loses the evidence for it.** `response_chars` and "
+            "`response_sha256` are still written, still named after the response, still in the "
+            "same position, still the right types — and they now describe the payload. On a "
+            "`bare` response the two pairs are equal, so nothing changes; on an accepted fence "
+            "the record silently claims the model sent what the validator read.\n"
+            "\n"
+            "That is the failure mode §6.8's second property exists for, and it is the one that "
+            "cannot be recovered later. The response is not stored anywhere else: "
+            "`agent_calls.jsonl` carries a hash and a length by design, because it is "
+            "deny-listed and may not carry model output. So a mutated run produces a log in "
+            "which no accepted fence is distinguishable from a bare response — §6.9's per-role "
+            "rates become unmeasurable on every future arm, the 0% / 65% / 95% observation "
+            "cannot be extended or contradicted, and `port-multi`-style post-hoc questions "
+            "(\"what did we actually receive?\") have no answer. The policy still works; the "
+            "record stops being able to say so, which is what distinguishes an accepted "
+            "correction from an unrecorded repair.\n"
+            "\n"
+            "Caught by `test_the_record_carries_both_sides`, which computes both digests "
+            "independently and asserts they differ, and by "
+            "`test_todays_writer_would_have_recorded_the_fence`, which checks the received hash "
+            "against `port-multi-noexample`'s committed `response_sha256`. A test that only "
+            "asserted the six keys are present passes against this mutation."
+        ),
+        min_kills=2,
     ),
 ]
 

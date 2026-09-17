@@ -4751,6 +4751,213 @@ adjustments to this table.
 
 ---
 
+### 6.8 One outer code fence is stripped — pre-registered 2026-09-17, before the next arm
+
+**What changes is one boundary, and nothing else.** A response that is a valid object wrapped in
+exactly one code fence stops being a format failure. That is the whole amendment. The retry budget
+stays **zero** and §10 A2 is **not amended**: no call is repeated, no response is re-requested, no
+prompt is edited in response to a failure, and nothing that fails still fails silently. Read as a
+diff against A2, this changes what counts as a compliant response, not what happens when a
+response is not one.
+
+**The basis is a measurement taken before the policy was written.** `docs/notes/prompt-format-probe.md`
+(2026-09-17) drew the Mapper prompt 20 times at one temperature with the prompt byte-identical to
+the one `port-multi-noexample` sent. Thirteen draws came back fenced and seven bare, and **all
+twenty are two responses**: every fenced draw is byte-identical to every other (1,626 chars,
+`e0e2f8b8fcc9…`, which is also the hash in that arm's `format_failure.json`), every bare draw is
+byte-identical to every other (1,614 chars, `853f87892957…`), and the fenced one *is* the bare one
+plus two fence lines. Same 69 keys, same depth, same 20 mappings, same zero disagreements against
+§9.0. So on this measurement the fence carries **no information about the content of the
+response**, and a gate that reads it as a signal about content is reading a value that has none.
+Three of this repository's arms died on that reading.
+
+That is what makes this a pre-registration rather than a post-hoc adjustment. The order was
+fixed in advance and is on the record: the arms failed, the measurement was taken *without*
+touching the prompts or the policy (§10 A2's strip prohibition explicitly left alone while the
+probe ran), and only then was the boundary moved. A policy chosen under the pressure of three
+failed arms and a policy chosen from a 100-draw measurement can produce the same code; only the
+second one can be defended, and the difference is visible in the commit order.
+
+#### The scope, stated as what is refused
+
+`src/llm/envelope.py` is the whole implementation and `unwrap(text, *, parses)` is its only
+entry point. It accepts a response in exactly two shapes:
+
+| kind | shape | payload |
+|---|---|---|
+| `bare` | the received bytes parse as an object | the received bytes, untouched |
+| `fenced_once` | first line opens a fence, last line closes one, exactly two fence lines in the response, **and the text between them parses as an object** | the lines between the fences, verbatim |
+| `refused` | anything else | the received bytes, untouched |
+
+Five shapes stay format failures, one test case each in `tests/test_envelope.py`: a nested fence,
+an opened-and-never-closed fence, a closed-and-never-opened fence, any text outside the fence
+(preamble or closing remark), and a fence around a body that does not parse. The received bytes
+are tried **first**, so a response that already parses is never scanned for a fence — a JSON
+object containing three backticks in a string value is `bare`, which is what it is.
+
+Two clauses do the work of keeping this from being the repair A2 forbids. The strip has **one
+shape**, so there is no sequence of removals that eventually succeeds; and its result is
+**discarded unless it parses**, so the step either corrects for a wrapper or fails. A step that
+removed the fence and passed on whatever remained would be trying to make the response work,
+which is the thing A2 is about. Removing whitespace is not in scope either: the payload is the
+inter-fence lines verbatim, trailing blank line included, so the parsed hash stays a hash of
+bytes the model actually sent.
+
+#### The record says both what arrived and what was read
+
+Six fields, on every logged call and every failure record, produced only by `Envelope.record()`:
+`response_chars` and `response_sha256` for the received bytes; `envelope`, `fence_lines`,
+`parsed_chars` and `parsed_sha256` for what the validator saw. Both pairs are written for every
+kind, including `bare`, where they agree — a field present only when it differs has two meanings
+for its absence, which is §4's `model_id_absent` argument. On `refused` the two parsed fields are
+**null and not zero**: nothing was read, and `0` would say an empty string was.
+
+This is what keeps acceptance from destroying the observation. §6.9's per-role fence rates are
+read off `envelope` on every later arm, so a fence that now passes still **counts** as a fence;
+the three-value vocabulary exists in `config/naming.yaml` for that reason and `check_response_envelope()`
+refuses any fourth value. `FAILURE_SCHEMA` is bumped 3 → 4 so that a record which measured nothing
+about the wrapper is distinguishable from one that did, and the three older records are **not
+backfilled** even though their value is recoverable — a reconstructed field under a version that
+promises a measured one is worse than a missing field.
+
+Nothing about the response text enters the record. The fence's language tag is deliberately not
+kept: `agent_calls.jsonl` is deny-listed, so it is the one artefact `tools/release_screen.py`
+cannot review, and every field on it has to be a count, a hash or a vocabulary word. The tag is
+also not read as a claim — a model that labels a JSON object `yaml` has still emitted the object,
+and conditioning the strip on the model being right about its own output would be a second policy.
+
+#### Uniform across all five roles, enforced structurally
+
+There is one `unwrap()`, one `record()` producer, and `envelope` is a **required** parameter with
+an exact-key-set check at both writers (`orchestrate.call_line`, `orchestrate._write_failure`). A
+default value or an accepted subset would be the role exemption written as an omission, so there
+is neither: `tests/test_call_role.py` asserts that the block has no default at all and that
+dropping, adding or nulling any of the six keys raises.
+
+**This defect was inherited through exactly the exemption that is now forbidden.** Five prompts
+carry a §2.1 clause that is word-identical across all of them ("Emit the JSON and nothing else.
+No code fence, no triple-backtick line…"), and the responses were unwrapped by whichever parser
+happened to sit downstream — strict in `artefacts.parse_object`, strict in `load_rules`, and
+reached by three different modules. A per-role decision is how that happened once; the check is
+therefore an AST walk over the three modules that log calls (`test_envelope.py`), asserting that
+each imports and calls `unwrap`, that none strips a backtick of its own, and that no `call_line`
+or `_write_failure` site omits `envelope=`. A behavioural test covers the roles somebody thought
+to drive, which is the set that excludes the next one added.
+
+The Auditor is included at its measured 0/20 fence rate, for the same reason.
+
+#### The counterfactual: three arms would have passed the format gate, and none is revived
+
+| arm | dead at | response | payload under this policy |
+|---|---|---|---|
+| `port-oneshot` | `load_rules`, line 1 col 1 | 6,541 chars, `fenced_once` | 6,529 chars, loads with **28 rules** |
+| `port-multi` | `parse_object`, position 0 | 1,358 chars, `fenced_once` | 1,346 chars, `parse_object` **accepts** |
+| `port-multi-noexample` | `parse_object`, position 0 | 1,626 chars, `fenced_once` | 1,614 chars, `parse_object` **accepts** |
+
+Three arms and not two. The first two were named when this policy was requested;
+`port-oneshot`'s record was put through the same unwrapper while the tests were being written and
+says the same thing, so the number is corrected here rather than in a sentence that would have
+been quietly wrong. All three responses are in committed, screened `format_failure.json` records,
+and `tests/test_envelope.py::test_the_three_dead_arms_would_have_passed_the_format_gate` measures
+them against today's code rather than asserting the claim in prose — a paragraph about code cannot
+fail when the code narrows.
+
+**The claim is about the format gate and stops there.** For the two `port-multi` arms the next
+stage is field validation against a filtered inventory and a label set, and whether that stage
+would have refused anything is not measured and is not implied. For `port-oneshot` the loader
+accepting 28 rules says nothing about what those rules would have scored.
+
+**And none of the three is re-run.** §6.3 does not re-run a spent arm, `check_role_unspent()`
+refuses a second call on the log line alone, and this policy does not create an exception: the
+record says these arms would have passed, and they stay failed. The temptation is unusually
+reachable here — the responses are on disk and the policy now accepts them — so it is closed by a
+test as well as by a rule: `test_the_dead_arms_records_are_left_as_failures` fails if a
+`metrics.json` ever appears beside one of those records.
+
+#### Recorded debt
+
+`metrics.json` carries no envelope block for the rule path. The six fields are on the call log
+and on failure records, so every *call* is measured, but an arm's summary artefact does not
+surface how its responses arrived; §6.9's rates are therefore computed from `agent_calls.jsonl`,
+which is deny-listed and not publishable. Closing this means deciding what aggregate is safe to
+publish, which is a §4 reporting decision and is not made here.
+
+---
+
+### 6.9 Two findings from the 2026-09-17 format probe
+
+Both are observations about the agents, on the model of §6.7.6's table: **reported, not summed
+into anything**, and neither is a result of an arm.
+
+#### The per-role fence rate differs by 95 points under a word-identical instruction
+
+| prompt | draws | fenced | rate |
+|---|---|---|---|
+| `profiler` | 20 | 0 | **0%** |
+| `mapper` | 20 | 13 | **65%** |
+| `lexicon_builder` | 20 | 19 | **95%** |
+| `rule_author` | 20 | 0 | **0%** |
+| `auditor` | 20 | 0 | **0%** |
+
+The three authoring prompts' §2.1 blocks are byte-identical up to line wrapping — the same
+sentence, the same bold, the same enumeration of what not to emit, the same statement that the
+document shows no example. One model, one temperature, one day, 20 draws each, no retries. The
+rate is 0%, 65% and 95%.
+
+`profiler`'s 0% is not in tension with `port-multi`'s Profiler having died on a fence on
+2026-09-04: that was the revision that still carried a fenced example, and the probe measured the
+revision that does not. What that pair licenses is narrow, because there is no 20-draw measurement
+of the earlier revision — one arm fenced before the example was removed, 0 of 20 fenced after. It
+does not license the reading that removing examples fixes fencing: `mapper` and
+`lexicon_builder` had the same example removed by the same commit, and they are the 65% and the
+95% in the table above — measured after that edit, not before it.
+
+**This is not explained here, and the absence of an explanation is deliberate.** Response length,
+structure depth, key count and completion tokens all correlate with fencing across the pooled
+draws (fenced median 9,108 body chars / depth 5 / 2,783 completion tokens; bare median 1,469 /
+depth 3 / 592), and the pooled table is exactly the shape that can make a between-role difference
+look like a within-role one — the three roles differ in output size *and* in rate, and 20 draws
+per role cannot separate those. Nor is it obvious that size is the operative variable at all:
+`rule_author` emits a median 5,837 chars at 0%. So the finding is the observation, and any
+mechanism offered for it now would be a story fitted to five points.
+
+It is worth reporting for what it does establish. Instruction compliance on output format is
+**not a property of the instruction** on this model — the same words produce 0% and 95% depending
+on which task they are attached to — which is a claim about prompt-level format control, and the
+reason §6.8 moves the parser rather than the prompts. A sixth prompt's rate is not predictable
+from these five, so a pipeline whose format gate is a prompt clause has an unmeasured failure rate
+per role added.
+
+#### `rule_author` raised `RuleError` on 2 of 20 draws, and stripping does not close it
+
+Draws 3 and 4 of the `rule_author` probe were format failures with **no fence** — the response
+parsed as YAML and `load_rules` refused the schema. 2/20 = **10%**, exact binomial 95% CI
+**1.2%–31.7%**, which is the honest width of a 20-draw estimate: this is consistent with anything
+from a rare accident to a one-in-three failure, and it is not consistent with zero.
+
+Three things make this a separate risk rather than a footnote to the fence:
+
+1. **It is a different failure.** The fence is a wrapper around a valid object; this is an invalid
+   object. §6.8 strips the first and has no effect on the second — the payload of a `RuleError`
+   draw does not parse into a rule set no matter what is or is not removed from around it.
+2. **Nothing in this repository's history predicted it.** `port-loop` produced eight loadable
+   `rules/iter1..8/es.yaml` in eight rounds, `port-oneshot-nofence` produced one, and
+   `docs/notes/call-variance.md` recorded 0/5 format failures. That is 14 clean draws before this
+   probe, and it supported a belief in a rate near zero that 20 draws contradicted.
+3. **With a zero retry budget, a 10% per-call rate is an arm-level risk that compounds.**
+   `port-loop`'s eight rounds are eight `rule_author` calls; at 10% independent per call the
+   probability that all eight load is 43%. The number is illustrative, not a prediction —
+   independence is assumed and unmeasured, and each round's prompt differs — but it is the right
+   order of magnitude to state before the next multi-round arm, and it is larger than the fence
+   risk this repository has spent three arms on.
+
+No policy change follows from this. Widening `load_rules` would be the repair A2 forbids, raising
+the retry budget is an A2 amendment and not a parser question, and both would be decided on 20
+draws. What is recorded is the rate, its interval, and that the mitigation just adopted for the
+fence does not touch it.
+
+---
+
 ## 7. Data
 
 No corpus is redistributed in this repository — neither DUA-restricted
