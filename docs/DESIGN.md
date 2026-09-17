@@ -4701,6 +4701,27 @@ not be read as one. An empty `unresolved` beside a P4 disagreement is the expect
 device, not a contradiction in the artefact, and a low `unresolved` count is not evidence that
 the profile is right.
 
+**A second draw did the same thing, so there are now two observations.** `port-multi-noexample`'s
+Profiler (2026-09-17) wrote `unresolved: []` and disagreed on `group_key` — the same value, and
+reached by a different route: it cited `identifiers.stems_with_more_than_one_document` (48) where
+2026-09-04's response cited the stem parse rule. Two draws, two
+citations, one wrong field, and zero claimed uncertainty about it both times. The asymmetry
+between the two is stated rather than smoothed: today's figures are **cell values**, read from a
+`profile.json` that exists, and 2026-09-04's are the scratch reading above, which are not. What
+the pair licenses is therefore an observation and not a rate: **on this task the self-reported
+uncertainty carries no information** — in two of two draws the list was empty, and in two of two
+the field that was wrong was not in it. n is 2, from one model family, one prompt revision apart.
+The field stays, for `profiler.md` §2.1's reason — silence and a guess must not be the same bytes,
+and an agent that cannot say "I do not know" is worse instrumented, not better. What is withdrawn
+is any reading of an empty list as evidence about the profile.
+
+**M5 did not extend it, and why not is the interesting half.** The same arm's Mapper response
+also carried `unresolved: []`, and there it was right about the world: nothing in that response
+disagreed with §9.0, so the empty list described a state with nothing to be uncertain about. That
+is the shape a confidence signal would have if it worked, produced by the same device on the same
+day — which is precisely why one such instance is not evidence that it does. And it is not a
+cell value either: that response was refused at `parse_object` (below), so M5 stays empty.
+
 **No thresholds are set, and that is deliberate.** There is no prior for what an agreement
 rate on a type-system mapping ought to be, and a threshold chosen after the number exists is
 the thing pre-registration prevents. P1, P3 and M1 have a natural pass at zero; M4 is
@@ -4710,9 +4731,23 @@ after the correction above that is the point: its reference sits inside the agen
 full agreement means the fields were transcribed and cited faithfully and means nothing about
 whether the conventions are right. Only P3 answers that.
 
-**Cell state, 2026-09-17.** Every cell above is empty. `port-multi` spent its Profiler call on a
-response that never reached an artefact, and by §6.3 that arm is not re-run;
-`port-multi-noexample` (§4) is the next arm that can fill any of them.
+**Cell state, 2026-09-17, after `port-multi-noexample` spent two of its three calls.** Four cells
+now hold values and six do not, and the reasons differ by row.
+
+| # | value | from |
+|---|---|---|
+| P1 | 0 refusals, `by_refusal` empty | `profile.json` `counts` |
+| P2 | 9 of the 9 live fields agree with the path they cite; 11 of 11 citations resolve; `type_inventory` set-equal to the 22 brat-flat labels with nothing from the two-level layer | the filtered inventory against `profile.json` |
+| P3 | **empty** — the loader answers it in round 1, and this arm does not reach round 1 | — |
+| P4 | `patient_key_available: false` agrees; `group_key: document_id_stem` disagrees, read as evidence about the input per the paragraph above | `splits/es-meddocan.json` |
+| P5 | 0, `[]` | `profile.json` |
+| M1–M5 | **empty.** The Mapper's call ended in a format failure at `parse_object` — a fenced response — so no `mapping.yaml` was written. The call is spent, `check_role_unspent()` refuses a second on the log line alone, and `freeze_artefacts()` requires all three artefacts, so no round of this arm can run. As with `port-multi`, §6.3 does not re-run it. | — |
+
+**The four filled rows are no longer correctable, and that is the point of having filled them.**
+§6.6's licence is "while no number exists"; for P1, P2, P4 and P5 it has now been spent. P3 and
+M1–M5 still hold no number, so a correction to those rows remains available on the same terms —
+and any successor arm's identity, prompt revision and window are decisions for §4 and §6.3, not
+adjustments to this table.
 
 ---
 

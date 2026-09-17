@@ -1,0 +1,63 @@
+{
+  "corpus": "es-meddocan",
+  "porting": "port-multi-noexample",
+  "inventory_generated": "2026-08-05",
+  "inventory_filtered_sha256": "sha256:5b75d136666ef14d4f89401d44bd17dc22d5381bb6dc7ca04c6ba50d2d1b558f",
+  "profile": {
+    "annotation_encoding": "brat_standoff",
+    "text_location": "separate_file",
+    "offset_unit": "character",
+    "offset_base": "zero",
+    "offset_end": "exclusive",
+    "newline": "lf_only",
+    "bom": "counted_as_one_character",
+    "type_system_level": "flat",
+    "group_key": "document_id_stem",
+    "patient_key_available": false,
+    "type_inventory": [
+      "TERRITORIO",
+      "FECHAS",
+      "EDAD_SUJETO_ASISTENCIA",
+      "NOMBRE_SUJETO_ASISTENCIA",
+      "NOMBRE_PERSONAL_SANITARIO",
+      "SEXO_SUJETO_ASISTENCIA",
+      "CALLE",
+      "PAIS",
+      "ID_SUJETO_ASISTENCIA",
+      "CORREO_ELECTRONICO",
+      "ID_TITULACION_PERSONAL_SANITARIO",
+      "ID_ASEGURAMIENTO",
+      "HOSPITAL",
+      "FAMILIARES_SUJETO_ASISTENCIA",
+      "INSTITUCION",
+      "ID_CONTACTO_ASISTENCIAL",
+      "NUMERO_TELEFONO",
+      "PROFESION",
+      "NUMERO_FAX",
+      "OTROS_SUJETO_ASISTENCIA",
+      "CENTRO_SALUD",
+      "ID_EMPLEO_PERSONAL_SANITARIO"
+    ],
+    "cites": {
+      "annotation_encoding": "annotation_format.brat",
+      "text_location": "pairing.brat",
+      "offset_unit": "offsets.unit",
+      "offset_base": "offsets.base",
+      "offset_end": "offsets.end",
+      "newline": "encoding.files_lf_only",
+      "bom": "encoding.bom_offset_interaction.finding",
+      "type_system_level": "annotation_format.type_system_depth",
+      "group_key": "identifiers.stems_with_more_than_one_document",
+      "patient_key_available": "identifiers.patient_identifier_present",
+      "type_inventory": "phi_types_brat_flat"
+    },
+    "unresolved": []
+  },
+  "refused": [],
+  "counts": {
+    "fields": 11,
+    "unresolved": 0,
+    "refused": 0,
+    "by_refusal": {}
+  }
+}

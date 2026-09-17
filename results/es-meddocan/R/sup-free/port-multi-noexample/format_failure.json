@@ -1,0 +1,62 @@
+{
+  "schema_version": 3,
+  "corpus": "es-meddocan",
+  "detector": "R",
+  "supervision": "sup-free",
+  "porting": "port-multi-noexample",
+  "split": "dev",
+  "model_id": "us.anthropic.claude-opus-4-5-20251101-v1:0",
+  "model_id_reported": "claude-opus-4-5-20251101",
+  "model_id_resolution": "dated",
+  "model_lifecycle": {
+    "model_arn": "arn:aws:bedrock:us-east-1::foundation-model/anthropic.claude-opus-4-5-20251101-v1:0",
+    "model_name": "Claude Opus 4.5",
+    "status": "ACTIVE",
+    "start_of_life_time": "2025-11-24T00:00:00+00:00"
+  },
+  "generated": "2026-09-17T05:51:37Z",
+  "rules_path": "results/es-meddocan/R/sup-free/port-multi-noexample/mapping.yaml",
+  "error": "the mapping response is not JSON (JSONDecodeError at position 0 of 1626 characters). §2.1 asks for one object and no fence; nothing is stripped here, because stripping is a repair with the failure count still reading zero. No part of the response is quoted in this message (CLAUDE.md); the response verbatim is in format_failure.json.",
+  "response": "```json\n{\"map\":{\"TERRITORIO\":{\"canonical\":\"LOCATION_AREA\",\"basis\":\"source_type_is_coarser\"},\"FECHAS\":{\"canonical\":\"DATE\",\"basis\":\"canonical_gloss\"},\"EDAD_SUJETO_ASISTENCIA\":{\"canonical\":\"AGE\",\"basis\":\"canonical_gloss\"},\"NOMBRE_SUJETO_ASISTENCIA\":{\"canonical\":\"NAME\",\"basis\":\"source_label_family\"},\"NOMBRE_PERSONAL_SANITARIO\":{\"canonical\":\"NAME\",\"basis\":\"source_label_family\"},\"CALLE\":{\"canonical\":\"LOCATION_STREET\",\"basis\":\"canonical_gloss\"},\"PAIS\":{\"canonical\":\"LOCATION_AREA\",\"basis\":\"canonical_gloss\"},\"ID_SUJETO_ASISTENCIA\":{\"canonical\":\"ID\",\"basis\":\"source_label_family\"},\"CORREO_ELECTRONICO\":{\"canonical\":\"CONTACT\",\"basis\":\"canonical_gloss\"},\"ID_TITULACION_PERSONAL_SANITARIO\":{\"canonical\":\"ID\",\"basis\":\"source_label_family\"},\"ID_ASEGURAMIENTO\":{\"canonical\":\"ID\",\"basis\":\"canonical_gloss\"},\"HOSPITAL\":{\"canonical\":\"ORGANISATION\",\"basis\":\"canonical_gloss\"},\"INSTITUCION\":{\"canonical\":\"ORGANISATION\",\"basis\":\"canonical_gloss\"},\"ID_CONTACTO_ASISTENCIAL\":{\"canonical\":\"ID\",\"basis\":\"source_label_family\"},\"NUMERO_TELEFONO\":{\"canonical\":\"CONTACT\",\"basis\":\"canonical_gloss\"},\"PROFESION\":{\"canonical\":\"PROFESSION\",\"basis\":\"canonical_gloss\"},\"NUMERO_FAX\":{\"canonical\":\"CONTACT\",\"basis\":\"canonical_gloss\"},\"OTROS_SUJETO_ASISTENCIA\":{\"canonical\":\"OTHER\",\"basis\":\"residual_bucket\"},\"CENTRO_SALUD\":{\"canonical\":\"ORGANISATION\",\"basis\":\"canonical_gloss\"},\"ID_EMPLEO_PERSONAL_SANITARIO\":{\"canonical\":\"ID\",\"basis\":\"source_label_family\"}},\"excluded\":{\"SEXO_SUJETO_ASISTENCIA\":{\"excluded_type\":\"SEXO\",\"basis\":\"design_exclusion\"},\"FAMILIARES_SUJETO_ASISTENCIA\":{\"excluded_type\":\"FAMILIARES\",\"basis\":\"design_exclusion\"}},\"unresolved\":[]}\n```",
+  "response_chars": 1626,
+  "response_sha256": "sha256:e0e2f8b8fcc958c32804ef073d6130d78a7c3ac8fc8e4f6b80546ddabe2d7211",
+  "prompt_reference": {
+    "block": "mapper",
+    "corpus": "es-meddocan",
+    "sections_filled": [
+      "1.1",
+      "1.2"
+    ],
+    "sections_empty": [],
+    "design_pairs_checked": 15,
+    "design_pairs_self_evident": 5,
+    "sections_withheld": [
+      "1.3"
+    ],
+    "profile_sha256": "sha256:1e3eab1236f8ed73ad1f5f6b789299ef548b336aa9718aca83a2043ce667f7c5",
+    "source_types": 22,
+    "type_system_level": "flat",
+    "text_chars": 37724,
+    "text_sha256": "sha256:ee80a47ee72db193667125cb546d30586265d057e6c6f5be47f4b44683d0e398",
+    "window_files": {
+      "docs/prompts/rule_author.md": "sha256:bcef6f397aa957d4cc5eb4497b940b7cb29f84cf155adea53c6e5afb50473108",
+      "docs/prompts/auditor.md": "sha256:a49739eec170f4e2fc8751b977b23e5aab18dd3e647a3f505f79f4f642135b26",
+      "config/sampling.yaml": "sha256:4c0e2cc725d357a1bdfa5c718d243c850ae52f5f236543bbac45b5d8e6ecb615",
+      "docs/prompts/profiler.md": "sha256:b4434e1807e5230da0a5ea76c108f96ec10fa280d3e4e970130a104de93ac781",
+      "docs/prompts/mapper.md": "sha256:63bc99c04f371d4d5b4dd01c86b8a4503f9b810aa5145f1714b2ce5cd71cc976",
+      "docs/prompts/lexicon_builder.md": "sha256:62a7c54b81028e4c838c59c4e22cb581bf4d7064c3f7292b5839b868844afc63"
+    }
+  },
+  "cost": {
+    "llm_calls": 1,
+    "prompt_tokens": 10375,
+    "completion_tokens": 539,
+    "wall_seconds": 7.648
+  },
+  "prompt_sha256": "sha256:bcef6f397aa957d4cc5eb4497b940b7cb29f84cf155adea53c6e5afb50473108",
+  "auditor_sha256": "sha256:a49739eec170f4e2fc8751b977b23e5aab18dd3e647a3f505f79f4f642135b26",
+  "sampling_sha256": "sha256:4c0e2cc725d357a1bdfa5c718d243c850ae52f5f236543bbac45b5d8e6ecb615",
+  "profiler_sha256": "sha256:b4434e1807e5230da0a5ea76c108f96ec10fa280d3e4e970130a104de93ac781",
+  "mapper_sha256": "sha256:63bc99c04f371d4d5b4dd01c86b8a4503f9b810aa5145f1714b2ce5cd71cc976",
+  "lexicon_builder_sha256": "sha256:62a7c54b81028e4c838c59c4e22cb581bf4d7064c3f7292b5839b868844afc63"
+}
