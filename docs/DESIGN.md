@@ -4621,6 +4621,9 @@ material nor openly licensed corpora. Acquisition scripts only.
 | ko-surro | Korean | nursing notes | derived from PhysioNet; DUA |
 | n2c2 2014 | English | longitudinal progress notes | portal unavailable; on hold |
 
+One further corpus was evaluated against this table's requirements and **not adopted**;
+§7.2 records that decision and the conditions under which it would be reopened.
+
 **GraSCCo is not a GP-letter corpus.** An earlier version of this table said "GP
 letters", which was wrong and would have mis-stated the note-type axis. The corpus
 ships no document-type field, so the distribution below was measured by content
@@ -4905,6 +4908,143 @@ What does not change is the prescription. The medium cell stays impossible with 
 without MIMIC-III, because MIMIC-III is English and adds nothing at Spanish's baseline
 value. A second Spanish register remains the acquisition that closes §7.1; MIMIC-III
 changes how urgent it is, not whether it is needed.
+
+### 7.2 Meddies-PII is cited, not used — decided 2026-09-17
+
+Meddies-PII (arXiv:2609.12544; HuggingFace `Meddies/meddies-pii`,
+`Meddies/meddies-pii-v2`) is a contemporaneous synthetic multilingual PII corpus: LLM-generated
+clinical-adjacent documents in seventeen languages over nine labels, where the labels are
+inline markers emitted by the generating model at generation time and screened by
+deterministic gates. It covers Korean, German and Spanish. **It is cited in related work and
+not used as a corpus.** Three grounds, each sufficient alone. Assessed from public
+documentation only — the v1 preprint and the two dataset cards as read on 2026-09-17 — and
+nothing was downloaded; v2's files are gated.
+
+**What is being declined, priced first.** The offer is the language axis: seventeen languages,
+and enough gold that δ would stop binding. `δ_corpus = max(0.005, 26 / n_dev)` sits on the
+floor branch above `n_dev` = 5,200, and at the most conservative published document count
+(v2's smaller language configs, "roughly 15,000 to 20,500 rows") a 25% dev fold clears 5,200
+in-scope spans at anything above ~1.4 spans per document — which the generation prompt's
+`min_spans` floor guarantees, though its value is not published. This would be the **first
+corpus here for which δ is not the binding constraint**: ko-surro sits at δ ≈ 4.8 pp and
+de-grascco at 4.01–8.02 pp. That is a real offer, and it is declined because **the price is
+the type axis**, which is where both headline quantities are read.
+
+**Ground 1 — `AGE` and `PROFESSION` are not in the label set, so recall over them is
+unmeasurable and precision over them is punished.** The nine labels are `address`,
+`company_name`, `date`, `email_address`, `human_name`, `id_number`, `phone_number`,
+`private_url`, `secret`. Neither `AGE` nor `PROFESSION` has a counterpart, and the generation
+prompt fixes the nine as a closed set, so an age in the generated text was never a candidate
+for marking. The asymmetry that follows is not a wash: those types are absent from the recall
+denominator, and any span our detectors emit there is a false positive by construction.
+
+- §5.1's first sentence is the binding one — *both* headline quantities are reported per
+  canonical type as well as in aggregate. Per-type is not a supplementary view; it is the
+  granularity the leak rate and the complementarity breakdown are required at. Two of ten
+  canonical types would have no row.
+- Priced against the gold we hold, as a share of canonical in-scope spans (§9.0;
+  `docs/notes/corpus-observations.md` §8): `AGE` + `PROFESSION` is **2,111 / 20,538 = 10.3%**
+  on es-meddocan, **906 / 7,246 = 12.5%** on es-carmen, and **21 / 1,297 = 1.6%** on
+  de-grascco. §5.1's common-subset rule would therefore drop two of ten types and about a
+  tenth of the gold on two of the three corpora that have gold at all.
+- **`AGE` is not an arbitrary tenth of the type set.** It is the one type whose weight is
+  close in both Spanish corpora — 10.1% against 11.2% (§5.1) — i.e. the single row where a
+  MEDDOCAN/CARMEN-I comparison is not dominated by the type-mix confound §5.1 measures.
+  Dropping it removes the cleanest cross-corpus row the type set currently has.
+- **An undeclared label is not the same thing as a declared type with zero instances.**
+  GraSCCo ships no `OTHER` and CARMEN-I no patient-name gold; there the corpus declares the
+  type and reports none, so the absence is an assertion the annotation makes and a span there
+  is a false positive in fact. An undeclared label is silence: ages and occupations occur in
+  the generated text and were never marked, so a span there may be a true positive scored as a
+  false one. §5.1's common-subset machinery is built for the first case and cannot repair the
+  second.
+
+**Ground 2 — `address` collapses `LOCATION_AREA` and `LOCATION_STREET`, and recovering them
+is the inference §9.2 refuses.** Meddies' `address` covers street addresses, postal codes,
+coordinates and "care locations" under one label. Our canonical set separates the two (§9.0),
+and both annotated corpora supply the distinction: MEDDOCAN `CALLE` 1,709 against
+`TERRITORIO` + `PAIS` 5,241, GraSCCo `LOCATION_STREET` 36 against 99. Getting our two types
+out of the one label means applying a pattern rule to gold labels — which is exactly §9.2's
+refusal to split `TERRITORIO` on `^\d{5}$`, and its reason applies unchanged: **a label
+produced by inference is not gold.** The direction is reversed and the object is identical;
+§9.0's Mapper clause states the same prohibition for a model-produced mapping. So the only
+admissible move is merging ours down to one for this corpus, which removes
+`LOCATION_STREET` — a further 8.3% of MEDDOCAN's canonical gold — from any comparison the
+corpus takes part in. With ground 1 that is three of ten types. And the merge would not even
+be clean: "care locations" also overlaps `ORGANISATION`, so the label is not the union of two
+of our types but of two and part of a third.
+
+**Ground 3 — circularity goes one step further than any corpus here, and the check ko-surro
+passed cannot be run at all.** The relevant lineage is two-dimensional — where the text comes
+from, and where the marker comes from:
+
+| | narrative text | marker / label | independent reference |
+|---|---|---|---|
+| es-meddocan | human-written published case reports | human annotation | n/a — it *is* the gold |
+| ko-surro | human-written nursing notes | a tool's placeholders | **obtained**, and the gap measured |
+| Meddies-PII | **LLM-generated** | **the same LLM call's marker** | **none, and none promised** |
+
+§6.6's DATE criterion, closed by measurement on 2026-08-28, is what makes the third row
+disqualifying rather than merely unattractive. Its finding: a marker left by a *system*
+answers "where is the span?" only as well as that system's precision, and on ko-surro that
+precision is **0.746** — 550 of 2,164 placeholders have no gold span, and of the 659 untyped
+masks 191 are not PHI at all. That number exists only because the source release's human
+reference was obtained (`docs/notes/ko-surro-gold-provenance.md`); it is what turned "this
+reference is silver" from an argument into a measurement with a size. Meddies has no human
+reference, so its marker precision and marker recall are **unmeasurable, not merely
+unmeasured**, and the gates do not substitute: they check annotation syntax, label coverage,
+span count, document length, offsets, phone-number structure, native-script presence and
+duplication — the *form* of the marking — and never whether an unmarked identifier remains in
+the text, nor whether a label is correct. (The paper asserts thirteen gates without
+enumerating them, naming seven categories and ten reject conditions; the thirteen
+perturbation techniques in its benchmark are a different set of thirteen and must not be
+cited as the gates.) A portion of the published gold is additionally the output of
+"conservative regex repair" of rejected drafts — the v1 card records 451 + 107 repaired
+rejects admitted and 16 quarantined — which is §9.2's object once more, this time inside the
+corpus's own gold.
+
+The second step is ours and it is what "one further" means. Our rules are LLM-authored (§3).
+On MEDDOCAN, an LLM-authored rule that encodes a model's idea of what a Spanish MRN looks
+like can be **wrong, and the gold says so**, because neither the narrative nor the annotation
+descends from a model. On Meddies the same idea sits on both sides of the comparison, and a
+good score cannot be separated from agreement with the generator's conventions. ko-surro is
+the intermediate case and stays usable for exactly the reason recorded in §7.1's 2026-08-27
+correction: its bias is like-biased and *sized*.
+
+**What is not a ground, recorded so it is not read as one.** Not scale, not the label count,
+not the absence of an official split — we construct and freeze splits for CARMEN-I already
+(§6.2) and would here. Not the absence of a patient key: no corpus here has one (§9.5). The
+licence is CC BY-NC 4.0 with v2 gated behind accepting conditions, which would have mattered
+had the decision gone the other way — §9.5 step 4 writes agreeing identifier surfaces into
+`splits/{corpus}.json` in a public repository — and does not arise.
+
+**Consequences, so that the decision is not half-taken.** No `corpus` value is added to
+`config/naming.yaml`: there is no ID for this corpus and none is invented, and the axis is
+unchanged. No acquisition script, no loader, no `mappings/` entry, no row in §9.0's table.
+When the preprint is cited, **the citation is to the preprint** — and any artefact figure
+quoted alongside it must name repo and revision, because the three public documents state
+three different scales (1,000,000 documents in the paper; 1,162,318 rows in `meddies-pii`;
+317,846 language-config rows in `meddies-pii-v2`) and **none of them maps to another.** No
+span count of ours can be quoted at all: per-language and per-label entity counts are
+published in none of the three.
+
+**Conditions for reopening — three, and they are independent.**
+
+1. **A human reference over loadable documents, produced independently of the generator.**
+   This is the ko-surro condition. It converts ground 3 from unmeasurable to sized, and on its
+   own answers nothing about grounds 1 and 2.
+2. **`AGE` and `PROFESSION` present in the corpus's own label set.** Ground 1 lifts only if
+   the corpus annotates them; a subset we derive from the shipped labels is the §9.2 object
+   again.
+3. **`address` separated into street and area at annotation time.** Ground 2 lifts only if the
+   corpus draws the distinction. Nothing done to the shipped labels can draw it for us.
+
+Grounds 1 and 2 could lift while 3 stands and the reverse, so the trigger for re-reading this
+section is any one of the three; adoption requires all three answered. Even then the LLM-text
+substrate remains, so the corpus would enter as a supplementary language-axis corpus and not
+as one a headline leak rate is read from. **What does not reopen it:** more languages, more
+documents, an official split, a higher benchmark F1, or a published per-language span table.
+None of the three grounds is about size, and none is about our ability to compute δ.
 
 ---
 
