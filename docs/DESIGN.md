@@ -1741,6 +1741,41 @@ fills the second thing §4.1 records as lost. It does not adjudicate any rung.
 Bedrock model aliases are updated silently and an unrecorded run does not reproduce six
 months later. That is required whether or not the appendix runs.
 
+#### The convention's second application — `port-multi-noexample`, 2026-09-17
+
+On 2026-09-04 five of the six hashed `WINDOW_FILES` moved: the fenced, indented and inline
+examples came out of all five prompts — `0480abb` for `profiler.md`, `mapper.md` and
+`lexicon_builder.md`, `cc7bc4c` for `rule_author.md` and `auditor.md` — with the before and
+after hashes in `docs/notes/window-freeze-history.md` revision 9. `port-multi` had frozen all
+six files and then spent its Profiler call on the fenced response that motivated the edit, so
+the one repair that would restore agreement is the one §6.3 forbids. The revised prompts run
+as **`port-multi-noexample`**, which is the block above applied for the second time.
+
+**The name states what the call now sees.** `docs/prompts/examples/` is in the repository and
+deliberately not in `WINDOW_FILES` — a prompt names its path and no call receives its bytes —
+so `-noexample` does not say that the directory is absent. It says that nothing in the frozen
+window demonstrates the artefact, which is the property that distinguishes this run from
+`port-multi`'s. Like `-nofence` it names what the prompt withholds rather than how many
+attempts have been made, the reading §10 A2 rules out and `naming.yaml`'s ordinal ban rules
+out again.
+
+**One value, not four.** `port-oneshot-nofence` and `port-loop` also disagree with the disk
+on at least one hash now, and `window_drift()` reports it — that is the record working, not a
+defect to repair. Both produced a `metrics.json`, so neither has a reason to run again, and
+minting values for rungs that will not run leaves names nothing ever writes under, which is
+the objection `naming.yaml`'s header makes to vocabularies without values. If a further rung
+is re-run under these prompts, the convention supplies its value on that day.
+
+**What the value does not change.** The ladder still has four rungs: this is `port-multi`'s
+rung under a different prompt and enters no comparison as a rung of its own. Which value
+supplies the number a rung is read against stays the ordinary rule — a run that produced a
+`metrics.json` — and `port-multi` produced none, so on `es-meddocan` the multi-rung number,
+if it comes, comes from this value. No code changes with the name: axis membership is read
+from `config/naming.yaml`, and `{porting}` is `[^/]+` in `tools/release_screen.py`'s
+`ALLOW_PATTERNS` everywhere except the `port-human` literal. The arm freezes its own window at
+first use like every other (§6.3), against the five revised prompts and the unchanged
+`config/sampling.yaml`.
+
 #### The lead comparison's result on es-meddocan — the rung is earned on quality, and the cost is three orders of magnitude (2026-08-25)
 
 `port-loop` completed on `es-meddocan / R / sup-free` at round 8. The full trajectory, every

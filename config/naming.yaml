@@ -127,6 +127,30 @@ axes:
   # 호출한 뒤 해시되는 창 파일이 움직이면 같은 형태로 새 값을 만든다.
   # 자율성 사다리의 rung 은 그대로 넷이다. 이 값은 새 rung 이 아니라 같은 rung 의
   # 다른 프롬프트이고, 어느 값이 기준선인지는 DESIGN §4 가 정한다.
+  #
+  # ─── 규약의 두 번째 적용 — port-multi-noexample, 2026-09-17 ──
+  # 2026-09-04 에 WINDOW_FILES 여섯 중 다섯이 움직였다: 펜스·들여쓰기·인라인
+  # 예시가 다섯 프롬프트에서 전부 빠졌다 (0480abb 가 profiler·mapper·
+  # lexicon_builder, cc7bc4c 가 rule_author·auditor). 전후 해시는
+  # docs/notes/window-freeze-history.md revision 9 에 있다.
+  # port-multi 는 여섯 전부를 얼린 뒤 Profiler 호출을 소진하고 format_failure 로
+  # 끝났으므로 그 창은 다시 얼릴 수 없다 (DESIGN §6.3). 그래서 고친 프롬프트로
+  # 도는 실행은 port-oneshot-nofence 의 선례를 두 번째로 적용해 새 값을 받는다.
+  #
+  # **이름이 가리키는 것은 호출이 보는 것이다.** docs/prompts/examples/ 는
+  # 저장소에 있고 WINDOW_FILES 에는 일부러 없다 — 프롬프트는 경로를 이름할 뿐이고
+  # 어떤 호출도 그 바이트를 받지 않는다. 그러므로 -noexample 은 그 디렉토리의
+  # 부재가 아니라 **창 안에 산출물을 시연하는 것이 없다**는 뜻이다.
+  # -nofence 와 같은 형태로 프롬프트가 내놓지 않는 것을 이름하며, 시도 횟수를
+  # 이름하지 않는다 (DESIGN §10 A2, 그리고 이 파일 머리의 서수 금지).
+  #
+  # **값은 하나만 만든다.** 다섯이 움직였으므로 port-oneshot-nofence 와
+  # port-loop 의 기록도 최소 한 해시에서 디스크와 불일치하고 window_drift() 가
+  # 그것을 보고한다 — 고칠 결함이 아니라 기록이 작동하는 것이다. 두 arm 은
+  # metrics.json 을 냈으므로 다시 돌 이유가 없고, 돌지 않을 rung 에 값을
+  # 미리 만들면 아무것도 쓰지 않는 이름이 남는다 (이 파일 머리가 값 없는 어휘에
+  # 대해 하는 지적과 같다). 다른 rung 이 이 프롬프트로 돌아야 할 때
+  # 같은 규약으로 그때 만든다.
   porting:
     port-oneshot: |
       a single LLM call writes them, no iteration (DESIGN §4). On es-meddocan this
@@ -139,6 +163,13 @@ axes:
       prompt, which is what the separate path records.
     port-loop:     RuleAuthor <-> Auditor iterate against dev
     port-multi:    port-loop plus Profiler, Mapper, LexiconBuilder
+    port-multi-noexample: |
+      the same rung under the example-free prompts. None of the five carries an
+      instance of its artefact in any form — fenced, indented or inline; the
+      schema is stated in prose and the instances are named by path
+      (docs/prompts/examples/), which transmits no bytes. Not a retry of
+      port-multi: that arm spent its Profiler call on the fenced response this
+      revision removes, and re-freezing its window is what DESIGN §6.3 forbids.
     port-selfdesign: |
       the agent inspects the corpus profile and proposes its own role set
       before executing it; the roles are not fixed in advance

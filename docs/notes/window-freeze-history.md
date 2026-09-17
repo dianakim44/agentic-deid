@@ -381,6 +381,14 @@ DESIGN §4). That is `port-oneshot-nofence`'s precedent applied for the second t
 naming rule with it: the identifier names what the prompt now states, not how many attempts
 have been made.
 
+**The value is `port-multi-noexample`, added 2026-09-17** (`config/naming.yaml`; DESIGN §4,
+"The convention's second application"). It names the absence of an artefact instance in the
+window and not the absence of `docs/prompts/examples/`, which is in the repository and, by the
+test `0480abb` added, not in `WINDOW_FILES`. One value was minted rather than four: the two
+other live records that this revision put out of agreement — `port-oneshot-nofence` and
+`port-loop` — both produced a `metrics.json` and have no reason to run again, so their drift
+stays reported by `window_drift()` and unrepaired, which is this file's whole subject.
+
 **What is new in revision 9 is that the suite reads this file.**
 `tests/test_call_role.py` replays `call_line()` against `port-oneshot-nofence`'s committed log
 line and used to demand that `prompt_sha256` still match, on the correct reasoning that a
