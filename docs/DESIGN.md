@@ -4620,26 +4620,99 @@ property of the RuleAuthor's `terms`, which this arm inherits unchanged.
 These are **evidence about the agent, not results of the arm** — they are reported in a
 per-agent artefact table and **must not be summed into a score.** A composite index would
 let a good profile mask a bad mapping, which is precisely what §6.7.1 says cannot be traded
-off.
+off. One row is an exception to the "about the agent" half and says so: P4 below is evidence
+about the *input*, which is a correction and not a hedge.
+
+> **Corrected 2026-09-17, and what licenses the correction is that no cell here has a value.**
+> `port-multi/es-meddocan` ran on 2026-09-04 and ended in a format failure at `parse_object`:
+> no `profile.json` was written and the Mapper and the LexiconBuilder were never called
+> (`docs/notes/arm-port-multi-es.md` §1). So **P1–P5 and M1–M5 are unmeasured, not zero** —
+> P1 reads "0 is the pass" and that run did not reach the point where refusals are counted.
+> That arm filled no cell of this table. The §6.6 precedent therefore applies unchanged: a
+> pre-registration may be corrected while no number exists, and two things needed correcting —
+> P2 named a file that does not exist, and P4 attributed to the agent what its input supported.
+>
+> **What that note's §2 is, and is not.** After the run, the response's fenced body was
+> stripped in a scratch process and put through the real `validate_profile()` against the same
+> filtered inventory. That produced figures — 0 refusals, `unresolved: []`, 11 of 11 citations
+> resolving, 8 of 8 convention fields agreeing with what they cite, one disagreeing content
+> field — and **not one of them is a value of a cell below.** They are an observation about a
+> response this arm refused, recorded under a heading that says so, and entering them here
+> would report as the arm's result a number obtained by the repair §10 A2 forbids. They are
+> used below only to say what the rows would measure, which is what a pre-registration is for.
 
 | # | figure | source | falsifiable? |
 |---|---|---|---|
 | P1 | refusal count, and `by_refusal` | `profile.json` `counts` | yes — 0 is the pass, and any refusal stops the arm |
-| P2 | fields agreeing with the human `profiles/es-meddocan.json`, of the 9 live ones | field-by-field comparison | yes — a known answer |
+| P2 | of the 9 live fields, how many carry the value the inventory holds **at the path that field's own `cites` entry names**; plus how many citations resolve at all | `profiles/{corpus}.raw.json` as `filter_inventory()` passed it, against `profile.json` | yes, and weaker than a human answer would be — see below |
 | P3 | whether the arm loaded, and the offset-mismatch count if not | loader | yes — binary |
-| P4 | `group_key` and `patient_key_available` agreement with the frozen split's recorded key | `splits/es-meddocan.json` | yes — a known answer, and the 2 dead fields' only use |
-| P5 | `unresolved` count, and which fields | `profile.json` | no — descriptive |
+| P4 | `group_key` and `patient_key_available` against the frozen split's recorded key — **read as evidence about the Profiler's input, not about the agent** | `splits/es-meddocan.json`, against the inventory's `identifiers.*` | yes as a comparison; no as a judgement of the agent — see below |
+| P5 | `unresolved` count, and which fields | `profile.json` | no — descriptive, and **not a confidence measure** — see below |
 | M1 | refusal count, and `by_refusal` | `mapping.yaml` `counts` | yes — 0 is the pass |
 | M2 | **disagreements against §9.0, over `compared_against_design`** — the Mapper's headline | `mapping.yaml` `disagreements` | yes — a known answer |
 | M3 | of those, how many cross the excluded/mapped boundary, counted separately | same | yes, and §9.1 prices this boundary at 9.90% (es) and 9.68% (de) |
 | M4 | whether `source_type_is_coarser` flags include `TERRITORIO` | `mapping.yaml` | yes — §9.2 is one human-recorded instance of the finding, so this is hit/miss |
 | M5 | `unresolved` count, and which labels | `mapping.yaml` | no — descriptive, and it measures how much of §9.0 is derivable from published vocabulary |
 
+**P2's reference is the inventory, because the human profile it used to name does not exist.**
+This row read "the human `profiles/es-meddocan.json`". No such file was ever written; what sits
+in `profiles/` is `es-meddocan.raw.json`, the **measured** inventory that is the Profiler's own
+input, shown to it minus `profiler.md` §1.2's withheld blocks. So the reference is not an
+independent answer key and this row no longer claims to be one. What it measures is whether each
+field carries the value the inventory holds *at the path the field itself cites* — agreement with
+a cited source, which is transcription and citation honesty rather than knowledge. Three things
+keep it from being vacuous: a citation that does not resolve in the filtered object is an
+`uncited_field` refusal (`artefacts.inventory_field_paths()`), so the path cannot be decorative;
+the path is the agent's own choice, so a field may disagree with what it cites; and
+`type_inventory` is checked against the label set of the encoding *the profile itself declared* —
+the 22 brat-flat labels or the XML two-level coarse categories, and mixing the two layers is the
+error this catches. What it cannot see is a field that is wrong in the same way the inventory is
+wrong. That is P3's job: a convention error the inventory shares reaches the loader, and the
+loader either loads or reports an offset-mismatch count.
+
+**P4 is evidence about input design, and the row's heading claim does not hold for it.** The
+comparison is unchanged — the two dead fields against the frozen split — but the reading is. On
+2026-09-04 `patient_key_available: false` agreed with the inventory and with the split, and
+`group_key: document_id_stem` did not: `splits/es-meddocan.json` records `unit: document`,
+`n_groups: 1000` and "no patient key exists; no grouping confirmed by identifier", because §9.5
+step 2 rejected stem groups — 48 stems hold more than one document and not one of them passed the
+identifier test. The vocabulary had `filename` for exactly this case and it was available — and
+the same vocabulary glosses `document_id_stem` as "§9.5's stem parse", which names the mechanism
+to the agent without any of its verdict. **But
+the reasoning that rejects stem groups lives in §9.5 and in the split file, and neither is in what
+the agent was shown.** What the inventory carries in that place is `identifiers.document_id_format`
+(how a stem parses), `identifiers.distinct_article_stems` (936 against 1,000 documents) and
+`identifiers.documents_per_stem_distribution` (48 stems with two or more) — a description of a
+grouping that exists, with the reason it was rejected withheld; §1.2 removes
+`identifiers.example_multi_document_stems`, which withholds the examples and not the fact.
+Reading that as a group key is the answer the input supports. So the pre-registered reading is
+fixed here: **a P4 disagreement is reported as a finding about what the Profiler's input
+transmits, and is not reported as agent error.** Obtaining the other reading is a change to
+`profiler.md` §1.2 and to what the inventory publishes, not a change to this row — and it would
+be a change that hands the agent §9.5's conclusion, which is a different experiment.
+
+**And `unresolved: []` claimed zero uncertainty on the one field that was wrong.** P5 stays
+descriptive, and this is what it is descriptive of. `profiler.md` §2.1 gives `unresolved` as the
+way an agent says it does not know, "so that silence and a guess are not the same bytes". Here
+the empty list was true about the agent's state and wrong about the world: the value was readable
+from the inventory, so it was not a guess — and the field has no way to express that the
+judgement *this is not a guess* can itself be wrong. So P5 is not a confidence measure and must
+not be read as one. An empty `unresolved` beside a P4 disagreement is the expected shape of this
+device, not a contradiction in the artefact, and a low `unresolved` count is not evidence that
+the profile is right.
+
 **No thresholds are set, and that is deliberate.** There is no prior for what an agreement
 rate on a type-system mapping ought to be, and a threshold chosen after the number exists is
 the thing pre-registration prevents. P1, P3 and M1 have a natural pass at zero; M4 is
 hit/miss against an answer a human already wrote down; everything else is reported as
-measured, with no claim that a given value is good.
+measured, with no claim that a given value is good. **P2 has no pass at 9 of 9 either**, and
+after the correction above that is the point: its reference sits inside the agent's input, so
+full agreement means the fields were transcribed and cited faithfully and means nothing about
+whether the conventions are right. Only P3 answers that.
+
+**Cell state, 2026-09-17.** Every cell above is empty. `port-multi` spent its Profiler call on a
+response that never reached an artefact, and by §6.3 that arm is not re-run;
+`port-multi-noexample` (§4) is the next arm that can fill any of them.
 
 ---
 
