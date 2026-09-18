@@ -151,6 +151,38 @@ axes:
   # 미리 만들면 아무것도 쓰지 않는 이름이 남는다 (이 파일 머리가 값 없는 어휘에
   # 대해 하는 지적과 같다). 다른 rung 이 이 프롬프트로 돌아야 할 때
   # 같은 규약으로 그때 만든다.
+  #
+  # ─── 세 번째 적용, 그리고 프롬프트가 움직이지 않은 첫 사례 ──
+  #     port-multi-stripfence, 2026-09-18
+  #
+  # 2026-09-17 에 스트립 정책이 사전등록됐다 (DESIGN §6.8): 바깥 코드 펜스 **하나**를
+  # 벗기고, 벗긴 뒤 파싱되는 경우에만 수용한다. 그 외 다섯 형태는 그대로 형식 실패다.
+  # 프롬프트는 한 바이트도 바뀌지 않았다 — 다섯 프롬프트 모두 여전히 펜스를 금지하고,
+  # WINDOW_FILES 여섯 해시는 port-multi-noexample 의 기록과 **바이트 동일**하다.
+  # 그것이 결함이 아니라 요점이다: 같은 창이 같은 응답을 받고 리더만 달라진다.
+  #
+  # 그래서 이름이 지목하는 것은 프롬프트가 아니라 **파서**다. -nofence 와 -noexample 은
+  # 프롬프트가 내놓지 않는 것을 이름했고, -stripfence 는 리더가 하는 일을 이름한다.
+  # 형태가 {no}{명사} 에서 {동사}{명사} 로 바뀐 이유는 바뀐 것이 다르기 때문이고,
+  # 규약 자체는 같다 — 앞선 값에 대해 **새 값을 필요하게 만든 변경 하나**를 이름한다.
+  # 계보는 port-multi → port-multi-noexample → port-multi-stripfence 이고, 이 값의
+  # 프롬프트는 가운데 값의 것 그대로다. 모디파이어를 누적하지 않는 것은 -nofence 의
+  # 선례와 같다.
+  #
+  # 새 값이 필요한 이유는 앞선 두 번과 같다. port-multi-noexample 은 Mapper 호출을
+  # 소진하고 format_failure 로 끝났으므로 그 셀은 소진됐고, 창을 다시 얼리는 것이
+  # DESIGN §6.3 이 금지하는 바다. **재시도가 아니다** — §10 A2 의 형식 재시도 0 은
+  # 그대로이고 스트립은 재호출이 아니라 같은 바이트를 읽는 방식이다. 서수 접미어는
+  # 이 파일 머리와 A2 양쪽에서 금지된다.
+  #
+  # 값은 하나만 만든다. port-oneshot-nofence · port-loop · port-multi-noexample 이
+  # 이 정책 아래서 통과했을 것이라는 사실은 DESIGN §6.8 의 반사실 표에 기록되어 있고,
+  # 되살리지 않는다 — 돌지 않을 arm 에 값을 미리 만들면 아무것도 쓰지 않는 이름이 남는다.
+  #
+  # **이 두 arm 을 구분하는 것은 창이 아니라 `src/` 다.** 창 해시가 같으므로 기록에서
+  # 차이를 담는 것은 metrics.json 의 run 블록 commit·tree 하나뿐이다. 더러운 트리로
+  # 돌리면 그 구분이 기록되지 않는다 (scorer 가 dirty 를 거부하지는 않는다 — 거부하는
+  # 것은 tree 없는 commit 이다). 그러므로 이 arm 은 클린 트리에서만 띄운다.
   porting:
     port-oneshot: |
       a single LLM call writes them, no iteration (DESIGN §4). On es-meddocan this
@@ -170,6 +202,13 @@ axes:
       (docs/prompts/examples/), which transmits no bytes. Not a retry of
       port-multi: that arm spent its Profiler call on the fenced response this
       revision removes, and re-freezing its window is what DESIGN §6.3 forbids.
+    port-multi-stripfence: |
+      the same rung, the same example-free prompts, and a reader that strips one
+      outer code fence before validating — accepted only when the stripped payload
+      parses (DESIGN §6.8). The six frozen window hashes equal
+      port-multi-noexample's byte for byte: the name states what changed, and what
+      changed is src/, recorded in the run block's commit and tree. Not a retry of
+      port-multi-noexample, whose Mapper call is spent; format retries stay zero.
     port-selfdesign: |
       the agent inspects the corpus profile and proposes its own role set
       before executing it; the roles are not fixed in advance

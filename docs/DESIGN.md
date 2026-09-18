@@ -1596,6 +1596,8 @@ detector     R · T · RT · RT-Arb · RT-Aud · RT-Arb-Aud
 supervision  sup-free · sup-human
 porting      port-oneshot · port-loop · port-multi · port-selfdesign
              port-oneshot-nofence (the baseline's prompt revised — see below)
+             port-multi-noexample (the same rung, example-free prompts — see below)
+             port-multi-stripfence (the same prompts, one outer fence stripped — see below)
              port-human (RETIRED 2026-08-07 — §11, retained in naming.yaml)
 ```
 
@@ -1775,6 +1777,67 @@ from `config/naming.yaml`, and `{porting}` is `[^/]+` in `tools/release_screen.p
 `ALLOW_PATTERNS` everywhere except the `port-human` literal. The arm freezes its own window at
 first use like every other (§6.3), against the five revised prompts and the unchanged
 `config/sampling.yaml`.
+
+#### The convention's third application, and the first where the prompt did not move — `port-multi-stripfence`, 2026-09-18
+
+`port-multi-noexample` spent its Mapper call on a fenced response, and §6.8 pre-registered the
+reader that would have accepted it: one outer code fence comes off, and only if the stripped
+payload parses. **Nothing in `WINDOW_FILES` moved.** All five prompts still forbid a fence, and
+this arm's freeze record will hold the same six hashes as `port-multi-noexample`'s, byte for
+byte — the first time a new `porting` value freezes a window identical to its predecessor's.
+That identity is the point rather than a defect: §6.8's licence is that the fenced and the bare
+Mapper responses are the same object, so the experiment worth running is the same window read
+differently.
+
+**So the name states the reader.** `-nofence` and `-noexample` name what the prompt withholds,
+because a prompt edit is what forced each of those values; here the prompt withheld the fence
+all along and the parser changed, so `-stripfence` names what the parser now does. The shape of
+the modifier moves from *no*-plus-noun to verb-plus-noun, and the convention underneath is
+unchanged and is worth stating in its general form: **the modifier names the one change that
+made a new value necessary, relative to the value it succeeds.** The lineage is `port-multi` →
+`port-multi-noexample` → `port-multi-stripfence`, modifiers are not accumulated, and the middle
+value's prompts are this value's prompts.
+
+**Why a new value at all, given that nothing the model reads has changed.** For the reason the
+two clauses above give: `port-multi-noexample`'s Mapper call is spent — `called_where()` reads
+its `agent_calls.jsonl` line and `format_failure.json` is committed — so the authoring gate
+refuses the cell before a second Profiler call is paid for, and re-freezing that arm's window is
+what §6.3 forbids. It is **not a retry**: §10 A2's format-retry budget is still zero and is not
+amended, because the strip is not a second call, it is how the one response is read. An ordinal
+suffix is forbidden here twice over, by `naming.yaml`'s header and by A2's reading.
+
+**What the record has to carry, and it is not the window.** Since the six hashes are equal, the
+only place the difference between the two arms appears is `src/`, and the only field that pins
+`src/` is the `run` block's `commit` beside its `tree` (§5). The scorer refuses a `commit`
+without a `tree` and not a dirty one, so nothing in the harness stops an arm launched on a dirty
+tree from recording a revision that is not what ran — on this arm that field is the whole
+distinction, so it is launched on a clean tree and the dry-run prints the state before the first
+call.
+
+**Two rejected alternatives, both of which put the difference somewhere it does not belong.**
+
+- **A `format_policy` field in the `run` block instead of a new value (rejected).** The same
+  answer as 2026-08-11: recording which reader ran presumes a second run to record it on, and
+  the cell that would hold one is spent. The field would also be a claim about the reader made by
+  the reader, in the file the reader writes.
+- **Adding `src/llm/envelope.py` to `WINDOW_FILES` (rejected).** Tempting because the change is
+  in code and the freeze is the project's mechanism for "this run committed to these bytes", and
+  the widening is supported (`recorded_window_fields()`, §6.3). It is refused because the window
+  is what the *call* sees: freezing the reader would make every edit to the parsing path a new
+  window revision, and the freeze would stop distinguishing "the model was shown different
+  bytes" from "we changed our own reader" — which is precisely the distinction this arm exists to
+  make. The commit and tree already pin the code, at the cost of pinning all of it rather than
+  one file, and that is the correct trade for a field that is read as provenance rather than as a
+  prompt.
+
+**What the value does not change.** Four rungs still, and this is `port-multi`'s rung under a
+different reader; it enters no comparison as a rung of its own. The multi-rung number for
+`es-meddocan`, if it comes, comes from this value, on the ordinary rule that a rung is read
+against a run that produced a `metrics.json` — neither `port-multi` nor `port-multi-noexample`
+produced one. No code changes with the name (`{porting}` is `[^/]+` outside the `port-human`
+literal). And the fence is not the only way this arm can end: §6.9's `RuleError` is a content
+failure that the strip does not close, it reaches the same `format_failure.json` by a different
+path, and at round 1 it ends the arm — which is checked before launch rather than asserted here.
 
 #### The lead comparison's result on es-meddocan — the rung is earned on quality, and the cost is three orders of magnitude (2026-08-25)
 
