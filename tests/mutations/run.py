@@ -5455,6 +5455,84 @@ MUTATIONS = [
         min_kills=1,
     ),
     Mutation(
+        name="the_rung_is_a_prefix_test",
+        path=MULTI,
+        # The predicate as it would be written by anyone fixing the literal comparison in the
+        # obvious way. Both lines go, because a prefix test has no use for either of them.
+        anchor=(
+            "    porting_rung(porting)               # raises for a value no rung declares\n"
+            "    return porting in rung_values()     # raises if `RUNG` no longer names a rung"
+        ),
+        replacement="    return porting.startswith(PORTING)",
+        breaks=(
+            "**Answers today's three values correctly and derives the answer from the "
+            "spelling.** `port-multi`, `port-multi-noexample` and `port-multi-stripfence` all "
+            "start with `port-multi`, so every arm that has ever run gets the right branch, and "
+            "the naming convention (`{rung}-{modifier}`, `config/naming.yaml`) says they always "
+            "will. This is the fix that was written first and rejected.\n"
+            "\n"
+            "Two things go with the declaration, and neither has a symptom. A value that "
+            "shares the prefix without being on this rung is classified onto it silently — and "
+            "a value **on no rung at all** is classified rather than refused, which is the "
+            "behaviour a string test cannot have. That refusal is the only thing standing "
+            "between an undeclared arm identifier and three unrepeatable authoring calls: this "
+            "rung's driver spends them before round 1 exists (DESIGN §6.7.1), so the answer has "
+            "to arrive at argument-checking time or not at all.\n"
+            "\n"
+            "It also puts the grouping back where the config cannot be checked against it. The "
+            "rung a value runs on stops being a declared fact and becomes a property of how it "
+            "was spelled, which is the derivation CLAUDE.md forbids for a span's `layer` for the "
+            "same reason: a prefix that happens to be right is not a decision anyone recorded.\n"
+            "\n"
+            "Caught by three, all in `tests/test_multi.py`: "
+            "`test_an_undeclared_value_that_shares_the_prefix_raises_instead_of_being_classified` "
+            "(`port-multiverse` must raise; under this it answers `True`), "
+            "`test_the_membership_is_read_from_the_config_and_not_carried_in_the_module`, and "
+            "`test_a_rung_renamed_out_from_under_this_module_is_refused`. Not caught by "
+            "`test_a_value_added_to_this_rung_in_the_config_is_driven_without_a_code_change` — a "
+            "fourth value spelled `port-multi-…` is exactly the case a prefix test gets right, "
+            "which is the coincidence this whole mutation is about."
+        ),
+        min_kills=3,
+    ),
+    Mutation(
+        name="the_rung_membership_is_hardcoded",
+        path=MULTI,
+        # The subtler half: the *validation* stays, so an undeclared value still raises and every
+        # test about the refusal passes. Only the membership moves into the module.
+        anchor="    return porting in rung_values()     # raises if `RUNG` no longer names a rung",
+        replacement=(
+            '    return porting in ("port-multi", "port-multi-noexample", '
+            '"port-multi-stripfence")'
+        ),
+        breaks=(
+            "**Keeps the refusal and hardcodes the list.** An undeclared value still raises — "
+            "`porting_rung()` is still called — so this passes every test about the value a "
+            "prefix test gets wrong. What it drops is the only property that made the "
+            "declaration worth adding: the answer no longer follows `config/naming.yaml`.\n"
+            "\n"
+            "The failure arrives on the next arm rather than on this one. A fourth value on this "
+            "rung is a line of YAML written by whoever names the arm, and under this mutation "
+            "that line does nothing: `tools/run_loop.py` takes the loop-only branch at all four "
+            "sites, and what happens is precisely the defect this predicate was written to fix — "
+            "the three authoring calls are paid for, then round 1 is refused as spent, and the "
+            "cell is gone. That defect survived because `port-multi-noexample` died at the "
+            "Mapper and never reached round 1; there is no reason to expect the next one to be "
+            "caught by being run either.\n"
+            "\n"
+            "It is also the shape a reviewer would not object to. Three names in a tuple beside "
+            "`RUNG` reads as documentation, agrees with the config on the day it is written, and "
+            "makes the config's block look like a comment.\n"
+            "\n"
+            "Caught by `test_the_membership_is_read_from_the_config_and_not_carried_in_the_"
+            "module` and `test_a_value_added_to_this_rung_in_the_config_is_driven_without_a_code_"
+            "change`, which move a value between rungs and add one to this rung; both assert the "
+            "predicate followed. `test_a_rung_renamed_out_from_under_this_module_is_refused` "
+            "catches it too, since `rung_values()` is no longer on the path."
+        ),
+        min_kills=3,
+    ),
+    Mutation(
         name="the_record_describes_the_bytes_that_parsed",
         path=ENVELOPE,
         # The received pair keeps its names, its types and its position; only its subject

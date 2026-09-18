@@ -44,7 +44,7 @@ from src.corpora import meddocan                                             # n
 from src.corpora.base import CorpusError, lexicon_target_types               # noqa: E402
 from src.llm import bedrock as bedrock_module                                 # noqa: E402
 from src.orchestrate import CALLED, FORMAT_FAILURE                            # noqa: E402
-from src.porting import artefacts, multi                                     # noqa: E402
+from src.porting import artefacts, loop, multi                               # noqa: E402
 from src.porting.artefacts import ArtefactError                              # noqa: E402
 from src.sample import WINDOW_FILES                                           # noqa: E402
 
@@ -853,3 +853,202 @@ def test_roles_called_is_empty_before_anything_and_counts_after(tree):
     counts = orchestrate.roles_called(*ARM.values())
     assert counts.get(orchestrate.RULE_AUTHOR, 0) == 0
     assert sum(counts.values()) == 3
+
+
+# ─── which porting values this rung drives ───────────────────────────────────
+# The declaration is `config/naming.yaml`'s `porting_rungs` and the predicate is
+# `multi.drives()`. Both exist because of a defect: `tools/run_loop.py` asked
+# `args.porting == multi.PORTING` at four places, which was true for one of this rung's three
+# values, and `port-multi-noexample` never reached round 1 to show it. What that would have
+# done is spend the three authoring calls and then refuse round 1 as spent.
+#
+# So the tests here are about the two wrong fixes as much as the right one. A prefix test
+# answers today's three values correctly and cannot raise for a value nothing declared; a
+# membership list in Python answers them correctly and stops agreeing with the config the
+# moment the config moves. Neither has a symptom, so each has a test that fails on it.
+
+
+def _with_naming(monkeypatch, data):
+    """Replace the parsed naming.yaml, clearing what caches it. `test_layer_families`' helper.
+
+    Patching the parsed dict rather than a temporary file, for that file's reason: the object
+    under test is the validation. `multi` imports the two readers by value, so patching
+    `base.naming` is what reaches them — patching `base.porting_rung` would not.
+    """
+    from src.corpora import base
+
+    base.naming.cache_clear()
+    base.porting_rungs.cache_clear()
+    monkeypatch.setattr(base, "naming", lambda: data)
+
+
+@pytest.fixture(autouse=True)
+def _clear_rung_caches():
+    """`naming()` and `porting_rungs()` are lru_cached and these tests patch them."""
+    from src.corpora import base
+
+    base.naming.cache_clear()
+    base.porting_rungs.cache_clear()
+    yield
+    base.naming.cache_clear()
+    base.porting_rungs.cache_clear()
+
+
+RUNGS = {
+    "oneshot": ["port-oneshot", "port-oneshot-nofence"],
+    "loop": ["port-loop"],
+    "multi": ["port-multi", "port-multi-noexample", "port-multi-stripfence"],
+    "selfdesign": ["port-selfdesign"],
+    "human": ["port-human"],
+}
+
+
+def _naming(rungs=None, values=None):
+    """A naming.yaml holding just the porting axis and the rungs, for the validation tests."""
+    import copy
+
+    rungs = copy.deepcopy(RUNGS if rungs is None else rungs)
+    if values is None:
+        values = sorted({v for members in RUNGS.values() for v in members})
+    return {"axes": {"porting": {v: "" for v in values}}, "porting_rungs": rungs}
+
+
+def test_the_rungs_partition_the_real_porting_axis():
+    """The load-bearing invariant, on the config as committed.
+
+    Every axis value on exactly one rung, and no rung naming a value the axis does not have.
+    A subset check either way would pass while a new arm value went undeclared, and the driver
+    asked about it would then take whichever branch its rung's absence left."""
+    from src.corpora.base import axis, porting_rungs
+
+    rungs = porting_rungs()
+    assigned = [v for members in rungs.values() for v in members]
+    assert sorted(assigned) == sorted(axis("porting"))
+    assert len(assigned) == len(set(assigned))
+
+
+def test_this_rung_holds_the_three_values_and_the_predicate_agrees_with_it():
+    """`drives()` answers the declaration and not the spelling, over the whole axis."""
+    from src.corpora.base import axis, porting_rung
+
+    assert set(multi.rung_values()) == {"port-multi", "port-multi-noexample",
+                                        "port-multi-stripfence"}
+    for value in axis("porting"):
+        assert multi.drives(value) is (porting_rung(value) == multi.RUNG)
+    assert multi.drives(multi.PORTING) is True
+    assert multi.drives(loop.PORTING) is False
+
+
+def test_an_undeclared_value_that_shares_the_prefix_raises_instead_of_being_classified():
+    """**The prefix test's killer.** `"port-multiverse".startswith("port-multi")` is `True`.
+
+    A value on no rung is not a value with a rung to guess at: it is an arm identifier nothing
+    declared, and the answer is a refusal before the first call rather than a branch. This is
+    the one behaviour a derivation from the string cannot have, which is why it is the test
+    that separates the declaration from the coincidence."""
+    for value in ("port-multiverse", "port-multi-stripfence-again", "port-loopy", "multi", ""):
+        with pytest.raises(CorpusError, match="on no rung"):
+            multi.drives(value)
+
+
+def test_the_membership_is_read_from_the_config_and_not_carried_in_the_module(monkeypatch):
+    """**The hardcoded-list killer.** Move the value in the config; the predicate must move.
+
+    A tuple in `src/porting/multi.py` passes every other test in this section — it holds the
+    same three names today. What it cannot do is follow the config, and following the config is
+    the whole reason the declaration exists: the next value on this rung is added to
+    `naming.yaml` by whoever names the arm, not to a Python literal by whoever remembers."""
+    moved = {**RUNGS, "multi": ["port-multi", "port-multi-noexample"],
+             "loop": ["port-loop", "port-multi-stripfence"]}
+    _with_naming(monkeypatch, _naming(rungs=moved))
+    assert multi.drives("port-multi-stripfence") is False
+    assert multi.drives("port-multi") is True
+
+
+def test_a_value_added_to_this_rung_in_the_config_is_driven_without_a_code_change(monkeypatch):
+    """The other direction of the same killer, and the case that will actually happen.
+
+    A fourth value on this rung is a line of YAML written by whoever names the arm. A module
+    literal makes it a second edit in a second file, and the symptom of forgetting it is the
+    defect this section exists for: three authoring calls paid for, round 1 refused as spent."""
+    added = {**RUNGS, "multi": [*RUNGS["multi"], "port-multi-elsewhere"]}
+    _with_naming(monkeypatch, _naming(
+        rungs=added, values=[*sorted({v for m in RUNGS.values() for v in m}),
+                             "port-multi-elsewhere"]))
+    assert multi.drives("port-multi-elsewhere") is True
+    assert set(multi.rung_values()) == set(added["multi"])
+
+
+@pytest.mark.parametrize("rungs, values, match", [
+    ({"multi": ["port-multi"]}, None, r"on no rung of porting_rungs"),
+    ({**RUNGS, "spare": ["port-nothing"]}, None, r"not values of the `porting` axis"),
+    ({**RUNGS, "loop": ["port-loop", "port-multi"]}, None, r"on both the .* rungs?"),
+    ({**RUNGS, "port-loop": []}, None, r"also a value of the `porting` axis"),
+    ({**RUNGS, "multi": "port-multi"}, None, r"is not a list"),
+])
+def test_a_declaration_that_is_not_a_partition_is_refused(monkeypatch, rungs, values, match):
+    """Each way the block can stop being a partition, refused at read time.
+
+    `layer_families()`' five checks, one axis along, and for the same reason: the value a
+    driver reads from a half-declared block is a wrong answer with no symptom. The rung-name
+    check is the one that differs — a rung may not share a name with an axis value at all,
+    with no exception for a rung of one, because a rung name is a fragment of a value rather
+    than a value and a path built from one would name a cell nothing ran in."""
+    from src.corpora import base
+
+    _with_naming(monkeypatch, _naming(rungs=rungs, values=values))
+    with pytest.raises(CorpusError, match=match):
+        base.porting_rungs()
+
+
+def test_an_absent_block_is_refused_rather_than_defaulted(monkeypatch):
+    """No fallback to a literal, per this module's own rule about `layer_families`."""
+    from src.corpora import base
+
+    _with_naming(monkeypatch, {"axes": {"porting": {"port-multi": ""}}})
+    with pytest.raises(CorpusError, match="no porting_rungs block"):
+        base.porting_rungs()
+
+
+def test_a_rung_renamed_out_from_under_this_module_is_refused(monkeypatch):
+    """The second silent `False`, and it is not worth trading for the first.
+
+    `RUNG` is this file's answer to "which rung am I"; the members are the config's. Renamed
+    there and not here, a predicate that only asked `porting in rungs.get(RUNG, ())` would go
+    quiet at all four of `tools/run_loop.py`'s branches at once — the same failure shape as
+    the literal comparison, arrived at from the other side."""
+    renamed = {k: v for k, v in RUNGS.items() if k != "multi"}
+    renamed["multirung"] = RUNGS["multi"]
+    _with_naming(monkeypatch, _naming(rungs=renamed))
+    with pytest.raises(CorpusError, match=f"drives the {multi.RUNG!r} rung"):
+        multi.rung_values()
+    with pytest.raises(CorpusError, match=f"drives the {multi.RUNG!r} rung"):
+        multi.drives("port-multi")
+
+
+def test_no_driver_compares_a_porting_value_against_a_literal():
+    """Over the syntax tree, because the behavioural tests above cannot see a fifth site.
+
+    The defect was four comparisons in one file, and what made it survive is that each one
+    read as obviously right where it stood. A comparison of `args.porting` against
+    `multi.PORTING` — or against any string — is the shape, so the shape is what is refused;
+    `drives()` is the one question, asked through the declaration. `PORTING` stays a default
+    argument value and this does not object to that (`--porting`'s default is one), only to
+    deciding the rung with it."""
+    for rel in ("tools/run_loop.py", "tools/run_multi.py"):
+        tree_ = ast.parse((ROOT / rel).read_text(encoding="utf-8"))
+        for node in ast.walk(tree_):
+            if not isinstance(node, ast.Compare):
+                continue
+            sides = [node.left, *node.comparators]
+            names = {ast.unparse(side) for side in sides}
+            if not any(name.endswith(".porting") or name == "porting" for name in names):
+                continue
+            others = names - {n for n in names
+                              if n.endswith(".porting") or n == "porting"}
+            assert not others, (
+                f"{rel} decides something by comparing a porting value against {others}. "
+                "Which rung runs a value is declared in config/naming.yaml's porting_rungs "
+                "and asked through multi.drives(); a comparison here was right for one of "
+                "this rung's three values and silently wrong for the other two."
+            )

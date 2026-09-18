@@ -75,7 +75,7 @@ from ..orchestrate import (
     AUTHORING_ITERATION, CALLED, FORMAT_FAILURE, ONESHOT_SECTIONS, OUT_OF_LOOP_ROLES,
     _digest, _now, _write_failure, append_call, call_line, freeze_window, roles_called,
 )
-from ..corpora.base import rule_langs
+from ..corpora.base import CorpusError, porting_rung, porting_rungs, rule_langs
 from ..eval.run_fold import DEFAULT_SPLIT
 from ..rules import arm_lexicon_root
 from . import artefacts
@@ -84,7 +84,13 @@ from .loop import DETECTOR, SUPERVISION
 
 #: The arm this module drives. `loop.PORTING` is `port-loop` and the loop functions take it as
 #: an argument, which is what lets this rung reuse them — see `loop.run_iteration`'s docstring.
+#: A default and not the rung: `drives()` below is what asks "is this value mine", because the
+#: rung has had three values since 2026-09-17 and this one is only the first of them.
 PORTING = "port-multi"
+
+#: This module's rung, as the key of `config/naming.yaml`'s `porting_rungs`. The membership is
+#: there and not here (see `base.porting_rungs()`); what is here is which rung this file is.
+RUNG = "multi"
 
 #: The three roles, in call order. `orchestrate.OUT_OF_LOOP_ROLES` is the *set* that
 #: `check_agent_role` admits at `AUTHORING_ITERATION`; ordering is this module's, because the
@@ -135,6 +141,52 @@ FREEZE_SCHEMA = 1
 PROFILE_KEY = "profile"
 MAPPING_KEY = "mapping"
 MANIFEST_KEY = "lexicon_manifest"
+
+
+def drives(porting: str) -> bool:
+    """Does this `porting` value run on the rung this module drives?
+
+    The one predicate `tools/run_loop.py` asks, at all four places where this rung changes
+    what a round does: the spent judgement (which asks about loop roles, not about the three
+    authoring calls), the `lexicons` argument, `already_frozen`, and the dry-run's artefact
+    block. Answered from `config/naming.yaml`'s `porting_rungs` (`base.porting_rung`) rather
+    than from the value's spelling.
+
+    Not `porting == PORTING`, which is what it was until 2026-09-18, and not
+    `porting.startswith(...)`, which is what a fix in the same shape would have been:
+
+    - The literal was correct for exactly one value and turned every branch here off for the
+      other two. `port-multi-noexample` never reached round 1 — it died at the Mapper — so
+      nothing had exercised it, and what would have happened is that the three authoring
+      calls get paid for and round 1 is then refused as spent.
+    - A prefix test would answer the three current values correctly by coincidence and
+      classify anything that shares the prefix silently onto this rung, while an undeclared
+      value has to raise. See `base.porting_rungs()`.
+
+    Raises `CorpusError` for a value on no rung, which is the behaviour worth having: an arm
+    identifier that nothing declared stops the driver before its first call.
+    """
+    porting_rung(porting)               # raises for a value no rung declares
+    return porting in rung_values()     # raises if `RUNG` no longer names a rung
+
+
+def rung_values() -> tuple[str, ...]:
+    """The `porting` values on this module's rung, from `config/naming.yaml`.
+
+    Also the check that `RUNG` still names a rung. Renamed in the config and not here,
+    `drives()` would answer `False` for every value and turn off all four of
+    `tools/run_loop.py`'s branches at once — which is the shape of the failure the literal
+    comparison had, and it is not worth replacing one silent `False` with another.
+    """
+    rungs = porting_rungs()
+    if RUNG not in rungs:
+        raise CorpusError(
+            f"src/porting/multi.py drives the {RUNG!r} rung and config/naming.yaml's "
+            f"porting_rungs declares {sorted(rungs)}. Nothing would raise on this: every "
+            "`drives()` would answer False and this rung's four branches in the drivers "
+            "would go quiet, which is what reading the declaration is meant to prevent."
+        )
+    return rungs[RUNG]
 
 
 # ─── the gate: each role's one call, asked before the spend ──────────────────

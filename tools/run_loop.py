@@ -213,7 +213,7 @@ def _plan(args, history, n_docs: int) -> list[str]:
     for name, field in WINDOW_HASH_FIELDS.items():
         lines.append(f"{field:16} {hashes[field]}  ({name})")
 
-    if args.porting == multi.PORTING:
+    if multi.drives(args.porting):
         # The three inputs this round will read, and whether they have moved. Shown for the
         # window block's reason one artefact along: a round assembled under a moved prompt and a
         # round scored against an edited lexicon are the same kind of finding, and this is the
@@ -344,6 +344,16 @@ def main(argv: list[str] | None = None) -> int:
         print(problem, file=sys.stderr)
         return 2
 
+    # Which rung runs this value, asked once and read from the declaration rather than
+    # compared against a literal (`multi.drives()`, `config/naming.yaml`'s `porting_rungs`).
+    # The check above admits any axis value; this one is what decides four branches below, and
+    # it raises for a value no rung declares instead of quietly taking the loop-only path.
+    try:
+        on_multi = multi.drives(args.porting)
+    except CorpusError as exc:
+        print(f"{exc}", file=sys.stderr)
+        return 2
+
     try:
         corpus_root(args.corpus)
         n_docs = _fold_size(args.corpus, args.split)
@@ -361,7 +371,7 @@ def main(argv: list[str] | None = None) -> int:
     where = orchestrate.called_where(args.corpus, args.detector, args.supervision,
                                      args.porting)
     cell = f"{args.corpus}/{args.detector}/{args.supervision}/{args.porting}"
-    if args.porting == multi.PORTING:
+    if on_multi:
         # **`where is not None` is the wrong predicate on this rung and would refuse every
         # round 1 of it.** `port-multi` makes three authoring calls before the loop starts, so
         # its log is non-empty at this point on an arm that has not called the RuleAuthor once.
@@ -398,7 +408,7 @@ def main(argv: list[str] | None = None) -> int:
               f"line lands (DESIGN §6.3, §5.5). Run --iteration {loop.FIRST_ITERATED} to "
               "continue the arm, or a second arm with a written reason.", file=sys.stderr)
         return 2
-    if (args.porting != multi.PORTING
+    if (not on_multi
             and args.iteration >= loop.FIRST_ITERATED and where is None):
         print(f"{cell}: this arm has made no call, so there is no round "
               f"{args.iteration - 1} for round {args.iteration} to iterate from. Round "
@@ -458,7 +468,7 @@ def main(argv: list[str] | None = None) -> int:
     common = dict(corpus=args.corpus, lang=args.lang, model_id=args.model_id,
                   detector=args.detector, supervision=args.supervision,
                   porting=args.porting, split=args.split, max_tokens=args.max_tokens)
-    if args.porting == multi.PORTING:
+    if on_multi:
         # **The whole of what this rung changes in the loop**, and it is two arguments (DESIGN
         # §6.7.1). `lexicons` is the collection the LexiconBuilder wrote, passed to the
         # validating `load_rules` and to `run_fold` so the round validates and scores against
@@ -468,7 +478,7 @@ def main(argv: list[str] | None = None) -> int:
             corpus=args.corpus, detector=args.detector, supervision=args.supervision,
             porting=args.porting, root=ROOT)
     first_only = ({"already_frozen": True}
-                  if args.porting == multi.PORTING and args.iteration == loop.ITERATION
+                  if on_multi and args.iteration == loop.ITERATION
                   else {})
     try:
         out = (loop.run_iteration_1(**common, **first_only)

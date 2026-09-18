@@ -784,6 +784,40 @@ layer_families:
   rules:  [regex_checksum, context_cue, gazetteer]
   tagger: [tagger]
 
+# ─── porting 값 → 어느 rung 의 드라이버가 도는가 ─────────────
+# porting 축에는 rung 하나에 값이 여럿 있다 (port-multi · port-multi-noexample ·
+# port-multi-stripfence). 드라이버는 "이 값이 내 rung 인가" 를 물어야 하는데
+# (tools/run_loop.py 는 네 곳에서 묻는다 — 소진 판정 · lexicons 인자 ·
+# already_frozen · dry-run 블록), 그 지식이 코드에만 있으면 값은 config 에 있고
+# 묶음은 코드에 있는 상태가 된다. layer_families 와 같은 문제이고 같은 해법이다.
+#
+# **접두어·부분문자열로 유도하지 않는다.** `startswith("port-multi")` 가 지금
+# 맞는 답을 주는 것은 규약이 {rung}-{모디파이어} 라서 생긴 우연이다. 그 규약은
+# 사람이 읽는 것이고, 코드가 문자열에서 rung 을 유도하면 (a) 접두어를 우연히
+# 공유하는 값이 조용히 그 rung 으로 분류되고 (b) 접두어를 공유하지 않는 값이
+# 조용히 빠진다. 어느 쪽도 실패로 보이지 않고 둘 다 청구서가 도착한 뒤에 드러난다
+# — 선언되지 않은 값은 raise 하는 것이 맞고, 그것이 유도로는 불가능하다.
+# CLAUDE.md 가 layer 를 탐지기 이름에서 유도하지 말라고 하는 것과 같은 유도다.
+#
+# 합집합이 porting 축과 정확히 일치해야 한다 — 누락도 잉여도 거부한다.
+# 새 arm 값을 축에 추가하고 여기 넣는 것을 잊으면, 그 값으로 도는 실행은
+# rung 판정에서 raise 한다. 그것이 의도다: 조용히 잘못된 rung 으로 도는 것보다
+# 시작 전에 멈추는 것이 싸다.
+#
+# rung 이름은 축 값과 다른 층위의 개념이므로 축 값과 같은 이름을 쓸 수 없다
+# (layer_families 의 조건과 같은 이유이나, 여기서는 원소 하나인 예외도 두지
+# 않는다 — rung 이름은 값의 조각이지 값이 아니다).
+#
+# 앞의 넷이 DESIGN §4 의 자율성 사다리이고 순서가 곧 자율성이다. human 은
+# 사다리에 없다 — 철회된 arm 이지만 분할이 전체를 덮어야 하므로 자기 rung 을
+# 갖는다. 검증은 src/corpora/base.py 에 있다.
+porting_rungs:
+  oneshot:    [port-oneshot, port-oneshot-nofence]
+  loop:       [port-loop]
+  multi:      [port-multi, port-multi-noexample, port-multi-stripfence]
+  selfdesign: [port-selfdesign]
+  human:      [port-human]
+
 # ─── 코퍼스 → 로드할 규칙 파일 목록 ──────────────────────────
 # 탐지 실행은 이 목록의 파일을 **전부** 로드하고 매치를 합집합한다.
 # 문서 단위 언어 판별을 하지 않는다 (DESIGN.md §5.2 의 결정).

@@ -239,6 +239,23 @@ def main(argv: list[str] | None = None) -> int:
         print(problem, file=sys.stderr)
         return 2
 
+    # This driver's three calls belong to one rung, and the check above admits any axis value.
+    # Asked from the declaration (`multi.drives()`, `config/naming.yaml`'s `porting_rungs`):
+    # pointed at another rung's value this would author three artefacts into that arm's cell and
+    # spend three out-of-loop calls there, which no later run can undo (DESIGN §6.3).
+    try:
+        if not multi.drives(args.porting):
+            print(f"--porting {args.porting!r} is not on the {multi.RUNG!r} rung "
+                  f"(config/naming.yaml porting_rungs: {list(multi.rung_values())}). This "
+                  "driver makes the three authoring calls that rung is defined by; on another "
+                  "rung's value they would write artefacts into a cell whose arm does not read "
+                  "them and spend calls that cell can never get back (DESIGN §6.3, §6.7.1).",
+                  file=sys.stderr)
+            return 2
+    except CorpusError as exc:
+        print(f"{exc}", file=sys.stderr)
+        return 2
+
     try:
         # Before the call, for `run_arm.py`'s reason: a corpus that is not on this machine
         # would otherwise be discovered after the Profiler had been paid for.

@@ -28,6 +28,45 @@ CLAUDE.md's rule that re-anchored mutations are re-measured **regardless of whet
 scope** is what this section serves: an anchor edit is a change to the mutation itself, so its old
 count describes a different experiment, and that fact is invisible from the count alone.
 
+### Two new counts, measured by scope run — the rung declaration, 2026-09-18
+
+**`MUTATIONS` 192 → 194 with `TEST_FILES` unchanged**, so the denominator holds and CLAUDE.md's
+first trigger applies: an impact-scope run suffices. What was added is `porting_rungs` in
+`config/naming.yaml`, `porting_rung()`/`porting_rungs()` in `src/corpora/base.py`, `drives()` and
+`rung_values()` in `src/porting/multi.py`, the four driver sites in `tools/run_loop.py` and the new
+guard in `tools/run_multi.py` — the literal `port-multi` comparison that the `port-multi-stripfence`
+readiness check found, replaced by one predicate that reads the declaration.
+
+*Measured 2026-09-18 by scope run, 3 mutations, baseline **2065 passed** in 300.86 s, tree
+`37feb0ad1684881f`. All three caught; the run's own log and JSON agree and the working tree was
+unedited under it.*
+
+| mutation | last full run | now |
+|---|---|---|
+| `the_rung_is_a_prefix_test` | — | **3** (min 3) |
+| `the_rung_membership_is_hardcoded` | — | **3** (min 3) |
+| `the_strip_exempts_the_role_that_never_fenced` | 1 | 1 |
+
+The first two are first measurements and owe the next full run a comparable number. The third is
+the reason the scope is three and not two: it is the only pre-existing mutation anchored in
+`src/porting/multi.py`, the file this change edits, so it is in scope by runtime reach and not by
+filename. It is unchanged at 1, which is a measurement about reach — the nine tests added here do
+not read through the strip's role exemption.
+
+**Nothing else is deferred, and that is an enumeration rather than an assumption.** The new tests
+live in `tests/test_multi.py`, already a `TEST_FILES` member, and every one of them exercises
+`porting_rungs()`, `porting_rung()`, `drives()`, `rung_values()` or a syntax tree of the two
+drivers. No pre-existing mutation is anchored in `naming()`, `axis()`, the `porting` axis block or
+anything the nine reach, so their runtime reach contains no already-measured count. The baseline
+moving 2052 → 2065 is those nine tests (one parametrised five ways), which is +13 exactly.
+
+Per CLAUDE.md, no expectation of "unchanged" is recorded for the two new counts, because there is
+no comparable value until a full run measures them; and the 3 and 3 in
+`tests/mutations/README.md`'s table come from this run, not from the `--probe` invocations that
+preceded it — a probe skips the green-baseline check, so a probe number is not a count.
+`mutation-full-runs.counts.json` still holds 192 counts at baseline 2052 and is not amended by a
+scope run.
+
 ### Nothing outstanding — both 2026-09-17 entries settled by the full run of 2026-09-17
 
 **192 of 192 caught, nothing survived, at commit `2eff35967e1a` with a clean tree, 2.29 h on eight

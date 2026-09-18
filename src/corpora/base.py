@@ -205,6 +205,99 @@ def family_of(layer: str) -> str:
     )
 
 
+@lru_cache(maxsize=1)
+def porting_rungs() -> dict[str, tuple[str, ...]]:
+    """Rung name -> the `porting` values driven on it, validated. See DESIGN §4.
+
+    One rung holds several values — `port-multi`, `port-multi-noexample`,
+    `port-multi-stripfence` are the same rung under a different prompt revision and a
+    different reader — and a driver has to ask "is this value mine" at every point where
+    the rung changes what the loop does (`tools/run_loop.py` asks four times). That
+    grouping is declared in `config/naming.yaml` for `layer_families()`' reason: values in
+    the config with their grouping in Python is the drift naming.yaml exists to prevent,
+    moved one level up.
+
+    **It is a declaration and not a string test.** `porting.startswith("port-multi")`
+    answers correctly today, but only because the naming convention is
+    `{rung}-{modifier}`; that convention is for readers. Derived from the string, a value
+    that happens to share the prefix is classified silently onto the rung and a value that
+    does not share it is dropped from it silently — neither looks like a failure, and both
+    surface after the calls are paid for. An undeclared value must raise, and a prefix test
+    cannot raise. It is the same derivation CLAUDE.md forbids for a span's `layer`.
+
+    The union must match the `porting` axis exactly, in both directions, for
+    `layer_families()`' reason: a subset check would pass when a new arm value is added to
+    the axis and forgotten here, and the run would then take the branch of whichever rung's
+    driver was invoked rather than stopping.
+    """
+    rungs = naming().get("porting_rungs")
+    if not rungs:
+        raise CorpusError(
+            "config/naming.yaml has no porting_rungs block. The drivers ask which rung a "
+            "porting value runs on (DESIGN §4), and deriving the answer from the value's "
+            "prefix would put that grouping where naming.yaml cannot be checked against it."
+        )
+
+    values = set(axis("porting"))
+    assigned: dict[str, str] = {}
+    for rung, members in rungs.items():
+        if not isinstance(members, list):
+            raise CorpusError(
+                f"porting_rungs[{rung!r}] is not a list. A rung with one value is written "
+                "as a list too, so that it is not a special case."
+            )
+        if rung in values:
+            raise CorpusError(
+                f"rung {rung!r} is also a value of the `porting` axis. A rung name is a "
+                "fragment of a value and not a value: sharing the name would let a rung "
+                "be written where an arm identifier belongs, and a path built from it "
+                "would name a cell nothing ran in."
+            )
+        for value in members:
+            if value in assigned:
+                raise CorpusError(
+                    f"porting value {value!r} is on both the {assigned[value]!r} and "
+                    f"{rung!r} rungs. A value runs one driver, so the rungs must "
+                    "partition the axis."
+                )
+            assigned[value] = rung
+
+    missing = sorted(values - set(assigned))
+    if missing:
+        raise CorpusError(
+            f"porting values {missing} are in the `porting` axis but on no rung of "
+            "porting_rungs. Add them to a rung: a driver asked about an unrunged value "
+            "raises, which stops the arm before its first call rather than running it "
+            "down another rung's branch."
+        )
+    unknown = sorted(set(assigned) - values)
+    if unknown:
+        raise CorpusError(
+            f"porting_rungs names {unknown}, which are not values of the `porting` axis "
+            f"(have: {sorted(values)}). A rung entry for an arm that does not exist is a "
+            "leftover from a rename, and nothing ever asks about it."
+        )
+    return {r: tuple(m) for r, m in rungs.items()}
+
+
+def porting_rung(porting: str) -> str:
+    """Which rung a `porting` value runs on. Raises for an undeclared value.
+
+    Never guesses from the name — `porting_rungs` is the only answer. That is the whole
+    point of the declaration: a value added to the axis without a rung stops the driver
+    here, at argument-checking time, instead of quietly taking the branch of the rung
+    whose prefix it happens to share.
+    """
+    for rung, members in porting_rungs().items():
+        if porting in members:
+            return rung
+    raise CorpusError(
+        f"{porting!r} is on no rung of config/naming.yaml's porting_rungs "
+        f"(have: {sorted(axis('porting'))}). Declare it there — which driver runs a "
+        "value is not derivable from the value."
+    )
+
+
 def model_id_absent() -> str:
     """The `model_id` value an arm that called no language model records.
 

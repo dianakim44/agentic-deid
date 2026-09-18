@@ -1772,11 +1772,16 @@ is re-run under these prompts, the convention supplies its value on that day.
 rung under a different prompt and enters no comparison as a rung of its own. Which value
 supplies the number a rung is read against stays the ordinary rule — a run that produced a
 `metrics.json` — and `port-multi` produced none, so on `es-meddocan` the multi-rung number,
-if it comes, comes from this value. No code changes with the name: axis membership is read
+if it comes, comes from this value. Paths do not change with the name: axis membership is read
 from `config/naming.yaml`, and `{porting}` is `[^/]+` in `tools/release_screen.py`'s
-`ALLOW_PATTERNS` everywhere except the `port-human` literal. The arm freezes its own window at
-first use like every other (§6.3), against the five revised prompts and the unchanged
-`config/sampling.yaml`.
+`ALLOW_PATTERNS` everywhere except the `port-human` literal. **Drivers did**, and this sentence
+said otherwise until 2026-09-18: `tools/run_loop.py` compared `args.porting` against the literal
+`port-multi` at four sites, so this value would have been refused at round 1 after paying for
+three authoring calls. It never got there — it died at the Mapper — and the correction, with the
+declaration that replaced the comparison, is in the `port-multi-stripfence` clause below.
+
+The arm freezes its own window at first use like every other (§6.3), against the five revised
+prompts and the unchanged `config/sampling.yaml`.
 
 #### The convention's third application, and the first where the prompt did not move — `port-multi-stripfence`, 2026-09-18
 
@@ -1834,10 +1839,36 @@ call.
 different reader; it enters no comparison as a rung of its own. The multi-rung number for
 `es-meddocan`, if it comes, comes from this value, on the ordinary rule that a rung is read
 against a run that produced a `metrics.json` — neither `port-multi` nor `port-multi-noexample`
-produced one. No code changes with the name (`{porting}` is `[^/]+` outside the `port-human`
+produced one. Paths do not change with the name (`{porting}` is `[^/]+` outside the `port-human`
 literal). And the fence is not the only way this arm can end: §6.9's `RuleError` is a content
 failure that the strip does not close, it reaches the same `format_failure.json` by a different
 path, and at round 1 it ends the arm — which is checked before launch rather than asserted here.
+
+**What it did change in code, which the readiness check found and this clause records.** Adding
+the value to the axis was not enough, and the claim that a new value costs no code — made in the
+`port-multi-noexample` clause above and repeated here — was **false**. `tools/run_loop.py` decided
+four things by comparing `args.porting` against `multi.PORTING`, the literal `port-multi`: the
+spent judgement (this rung's log is non-empty before round 1, so the question is whether a *loop*
+role has called), the `lexicons` argument, `already_frozen`, and the dry-run's artefact-drift
+block. On this value all four were off. The order of failure is what makes it worth recording:
+`tools/run_multi.py` compares no literal, so the three authoring calls would have been paid for
+and *then* round 1 refused as spent — the cell burnt on a harness defect. And a fix of only the
+first guard would leave `lexicons=None`, whose `RuleError` (`src/rules.py`) writes a
+`format_failure.json` **shaped exactly like the model's own failure**, which is a harness defect
+published as a capability result. `port-multi-noexample` never reached round 1, so nothing had run
+this path; it was found by reading the driver rather than by running it.
+
+The fix is a declaration, `porting_rungs` in `config/naming.yaml`: which rung's driver runs a
+`porting` value, validated in `src/corpora/base.py` as a partition of the axis and read through one
+predicate (`multi.drives()`). **Not a prefix test.** `startswith("port-multi")` answers all three
+of today's values correctly because the convention is `{rung}-{modifier}`, and that convention is
+for readers: derived from the spelling, a value that shares the prefix is classified onto the rung
+silently, a value that does not is dropped from it silently, and — the property that decides it — a
+value **no rung declares** is classified rather than refused. On this rung the refusal is what
+stands between an undeclared identifier and three unrepeatable calls. It is the derivation this
+document forbids for a span's `layer` (§3), one axis along. Two mutations hold the two wrong fixes
+open (`the_rung_is_a_prefix_test`, `the_rung_membership_is_hardcoded`), and a third test refuses a
+fifth comparison site over the syntax tree, because four sites in one file is how this arrived.
 
 #### The lead comparison's result on es-meddocan — the rung is earned on quality, and the cost is three orders of magnitude (2026-08-25)
 

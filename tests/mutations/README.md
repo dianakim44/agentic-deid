@@ -2623,6 +2623,61 @@ three that rose belong to the previous commit and are recorded there. So the sui
 coverage claim moved with it — the outcome to expect from a file written against one new module,
 and not one to assume without the run.
 
+### Two against a declaration that replaced a literal — 2026-09-18
+
+The defect these are aimed at was live and unshipped: `tools/run_loop.py` decided four things by
+asking `args.porting == multi.PORTING`, and that rung has had three values since 2026-09-17
+(`port-multi`, `port-multi-noexample`, `port-multi-stripfence`). For the two newer ones every one
+of the four branches was off — the spent judgement, the `lexicons` argument, `already_frozen`, and
+the dry-run's artefact block — and what that produces is not an error but an order of events: the
+three authoring calls are paid for by `tools/run_multi.py`, which compares no literal, and *then*
+round 1 is refused as spent. `port-multi-noexample` died at the Mapper and never reached round 1,
+so nothing had run this path.
+
+The fix is a declaration — `porting_rungs` in `config/naming.yaml`, validated in
+`src/corpora/base.py` as a partition of the `porting` axis and read through one predicate,
+`multi.drives()`. **These two mutations are the two wrong fixes**, and neither is a typo: each is
+what a reviewer would accept.
+
+| mutation | kills | min_kills |
+| --- | --- | --- |
+| `the_rung_is_a_prefix_test` | 3 | 3 |
+| `the_rung_membership_is_hardcoded` | 3 | 3 |
+
+`the_rung_is_a_prefix_test` is the fix that was written first and rejected: `porting.startswith(
+PORTING)`. It answers all three of today's values correctly, and the naming convention
+(`{rung}-{modifier}`) says it will keep answering them correctly. What goes with the declaration is
+the refusal. A value **on no rung at all** gets classified instead of refused — `port-multiverse`
+answers `True` — and on this rung the refusal is the only thing standing between an undeclared arm
+identifier and three unrepeatable calls, because they are spent before round 1 exists (DESIGN
+§6.7.1). A string test cannot raise; that is the property, not the prefix's accuracy. It is also
+the derivation CLAUDE.md forbids for a span's `layer`, one axis along.
+
+`the_rung_membership_is_hardcoded` is the subtler one, and it keeps the refusal: `porting_rung()`
+is still called, so every test about the undeclared value passes. Only the membership moves into
+the module, as three names in a tuple that agree with the config on the day they are written.
+**Its damage arrives on the next arm rather than on this one** — a fourth value on this rung is a
+line of YAML written by whoever names the arm, and under the mutation that line does nothing, so
+the original defect comes back in full: three calls paid, round 1 refused, cell gone.
+
+Both are caught by three tests each and the sets differ, which is the point of writing two
+mutations rather than one. `test_a_rung_renamed_out_from_under_this_module_is_refused` and
+`test_the_membership_is_read_from_the_config_and_not_carried_in_the_module` catch both;
+`test_an_undeclared_value_that_shares_the_prefix_raises_instead_of_being_classified` catches only
+the prefix test, and `test_a_value_added_to_this_rung_in_the_config_is_driven_without_a_code_change`
+catches only the hardcoded list — a fourth value spelled `port-multi-…` is precisely the case the
+prefix gets right. A single mutation would have licensed only one of those two tests.
+`test_no_driver_compares_a_porting_value_against_a_literal` is in the same section of
+`tests/test_multi.py` and catches neither: it is aimed over the syntax tree at a fifth comparison
+site appearing in a driver, which is how the defect arrived four times in one file.
+
+**These two took `MUTATIONS` from 192 to 194 and changed no `TEST_FILES` membership** — the tests
+are new assertions inside `tests/test_multi.py`, which is already a member. So the trigger below is
+not met and the counts above come from an impact-scope run, not a full one; which mutations it
+covered and what it deferred are in `docs/notes/mutation-full-runs.md`. The counts were first seen
+in two `--probe` runs and then re-measured in that run, which is the order that matters: a probe
+skips the green-baseline check, so a probe number is not a count anyone should write here.
+
 ## What the seal cost, and what carries the difference
 
 Sealing 250 documents removed checks that cannot be replaced, and pretending
