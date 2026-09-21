@@ -1,0 +1,186 @@
+version: 1
+lang: de
+rules:
+  - rule_id: dr_prefix_name
+    layer: context_cue
+    phi_type: NAME
+    cue: ["Dr.", "Dr", "Prof.", "Prof", "PD", "PD."]
+    then: capitalised_words
+    comment: clinician titles followed by names
+
+  - rule_id: herr_frau_prefix_name
+    layer: context_cue
+    phi_type: NAME
+    cue: ["Herr", "Frau", "Hr.", "Fr."]
+    then: capitalised_words
+    comment: formal address followed by names
+
+  - rule_id: patient_label_name
+    layer: context_cue
+    phi_type: NAME
+    cue: ["Patient:", "Patientin:", "Pat.", "Pat:", "Name:"]
+    then: capitalised_words
+    comment: patient label cues
+
+  - rule_id: kollege_cue_name
+    layer: context_cue
+    phi_type: NAME
+    cue: ["Kollege", "Kollegin", "Kollegen"]
+    then: capitalised_words
+    comment: colleague references
+
+  - rule_id: geboren_am_date
+    layer: context_cue
+    phi_type: DATE
+    cue: ["geboren am", "geb.", "geb:", "Geb.", "Geb:", "*", "Geburtsdatum:", "Geburtsdatum"]
+    then: digits
+    comment: birth date cues
+
+  - rule_id: date_vom_cue
+    layer: context_cue
+    phi_type: DATE
+    cue: ["vom", "am", "bis", "ab", "seit", "Datum:", "Datum"]
+    then: digits
+    comment: general date cues
+
+  - rule_id: german_date_dot
+    layer: regex_checksum
+    phi_type: DATE
+    pattern: '\b(0?[1-9]|[12]\d|3[01])\.(0?[1-9]|1[0-2])\.(\d{4}|\d{2})\b'
+    comment: dates in dd.mm.yyyy or dd.mm.yy format
+
+  - rule_id: german_date_slash
+    layer: regex_checksum
+    phi_type: DATE
+    pattern: '\b(0?[1-9]|[12]\d|3[01])/(0?[1-9]|1[0-2])/(\d{4}|\d{2})\b'
+    comment: dates in dd/mm/yyyy format
+
+  - rule_id: iso_date
+    layer: regex_checksum
+    phi_type: DATE
+    pattern: '\b\d{4}[-/](0?[1-9]|1[0-2])[-/](0?[1-9]|[12]\d|3[01])\b'
+    comment: ISO format dates yyyy-mm-dd
+
+  - rule_id: strasse_address
+    layer: context_cue
+    phi_type: LOCATION_STREET
+    cue: ["Str.", "Straße", "straße", "Strasse", "strasse", "Weg", "weg", "Platz", "platz", "Allee", "allee", "Gasse", "gasse"]
+    then: number
+    gap: 5
+    comment: street names followed by house numbers
+
+  - rule_id: street_pattern
+    layer: regex_checksum
+    phi_type: LOCATION_STREET
+    pattern: '\b[A-ZÄÖÜ][a-zäöüß]+(?:straße|strasse|str\.|weg|platz|allee|gasse)\s+\d+[a-zA-Z]?\b'
+    flags: [ignorecase]
+    comment: street name with number pattern
+
+  - rule_id: plz_city
+    layer: regex_checksum
+    phi_type: LOCATION_AREA
+    pattern: '\b[0-9]{5}\s+[A-ZÄÖÜ][a-zäöüß]+(?:\s+[A-ZÄÖÜ][a-zäöüß]+)?\b'
+    comment: German postal code followed by city name
+
+  - rule_id: plz_standalone
+    layer: regex_checksum
+    phi_type: LOCATION_AREA
+    pattern: '(?<!\d)\b[0-9]{5}\b(?!\d)'
+    comment: standalone German postal code
+
+  - rule_id: aus_cue_location
+    layer: context_cue
+    phi_type: LOCATION_AREA
+    cue: ["aus", "in", "nach", "wohnhaft"]
+    then: capitalised_words
+    comment: location preposition cues
+
+  - rule_id: telefon_contact
+    layer: context_cue
+    phi_type: CONTACT
+    cue: ["Tel.", "Tel:", "Telefon:", "Telefon", "Fon:", "Fon", "Handy:", "Mobil:", "Fax:", "Fax"]
+    then: digits
+    comment: phone and fax number cues
+
+  - rule_id: phone_pattern
+    layer: regex_checksum
+    phi_type: CONTACT
+    pattern: '\b(?:\+49|0049|0)\s*[\d\s/\-]{6,14}\d\b'
+    comment: German phone number patterns
+
+  - rule_id: email_pattern
+    layer: regex_checksum
+    phi_type: CONTACT
+    pattern: '\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b'
+    comment: email addresses
+
+  - rule_id: fallnummer_id
+    layer: context_cue
+    phi_type: ID
+    cue: ["Fallnummer:", "Fall-Nr.:", "Fall-Nr.", "Fall:", "Fallnr.:", "Fallnr.", "FN:", "FN"]
+    then: digits
+    comment: case number identifiers
+
+  - rule_id: patientennummer_id
+    layer: context_cue
+    phi_type: ID
+    cue: ["Patientennummer:", "Pat.-Nr.:", "Pat.-Nr.", "Pat.Nr.:", "Pat.Nr.", "Patientennr.:", "Patientennr.", "PN:"]
+    then: digits
+    comment: patient number identifiers
+
+  - rule_id: versicherungsnummer_id
+    layer: context_cue
+    phi_type: ID
+    cue: ["Versicherungsnummer:", "Vers.-Nr.:", "Vers.-Nr.", "Versicherungsnr.:", "Versicherungsnr.", "VNR:", "KV-Nr.:"]
+    then: digits
+    comment: insurance number identifiers
+
+  - rule_id: aktenzeichen_id
+    layer: context_cue
+    phi_type: ID
+    cue: ["Aktenzeichen:", "Az.:", "Az.", "AZ:"]
+    then: digits
+    comment: file reference identifiers
+
+  - rule_id: age_jahre_cue
+    layer: context_cue
+    phi_type: AGE
+    cue: ["Jahre alt", "J. alt", "jährig", "-jährig", "Lebensjahr", "LJ"]
+    then: number
+    gap: 3
+    comment: age expressions with years
+
+  - rule_id: age_pattern
+    layer: regex_checksum
+    phi_type: AGE
+    pattern: '\b(\d{1,3})\s*(?:Jahre?|J\.?|jährig|-jährig|LJ)\b'
+    flags: [ignorecase]
+    comment: age patterns
+
+  - rule_id: alter_cue
+    layer: context_cue
+    phi_type: AGE
+    cue: ["Alter:", "Alter"]
+    then: number
+    comment: age label cue
+
+  - rule_id: beruf_profession
+    layer: context_cue
+    phi_type: PROFESSION
+    cue: ["Beruf:", "beruflich:", "von Beruf", "arbeitet als", "tätig als"]
+    then: capitalised_words
+    comment: profession cues
+
+  - rule_id: krankenhaus_org
+    layer: context_cue
+    phi_type: ORGANISATION
+    cue: ["Krankenhaus", "Klinik", "Klinikum", "Hospital", "Universitätsklinikum", "Uniklinik", "Praxis", "MVZ", "Gesundheitszentrum"]
+    then: capitalised_words
+    comment: hospital and clinic cues
+
+  - rule_id: station_org
+    layer: context_cue
+    phi_type: ORGANISATION
+    cue: ["Station:", "Station", "Abteilung:", "Abteilung"]
+    then: capitalised_words
+    comment: hospital ward and department cues
