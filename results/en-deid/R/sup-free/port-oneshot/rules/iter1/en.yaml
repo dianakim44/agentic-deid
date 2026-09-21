@@ -1,0 +1,177 @@
+version: 1
+lang: en
+rules:
+  - rule_id: dr_prefix_name
+    layer: context_cue
+    phi_type: NAME
+    cue: ["Dr.", "Dr ", "DR.", "DR "]
+    then: capitalised_words
+
+  - rule_id: mr_mrs_ms_prefix_name
+    layer: context_cue
+    phi_type: NAME
+    cue: ["Mr.", "Mr ", "Mrs.", "Mrs ", "Ms.", "Ms ", "Miss "]
+    then: capitalised_words
+
+  - rule_id: prof_prefix_name
+    layer: context_cue
+    phi_type: NAME
+    cue: ["Prof.", "Prof ", "Professor "]
+    then: capitalised_words
+
+  - rule_id: patient_label_name
+    layer: context_cue
+    phi_type: NAME
+    cue: ["Patient:", "Patient Name:", "Pt:", "Pt Name:"]
+    then: capitalised_words
+    gap: 5
+
+  - rule_id: md_suffix_name
+    layer: regex_checksum
+    phi_type: NAME
+    pattern: '\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*,?\s*(?:M\.?D\.?|DO|RN|NP|PA|PhD)\b'
+
+  - rule_id: date_slash_mdy
+    layer: regex_checksum
+    phi_type: DATE
+    pattern: '\b(?:0?[1-9]|1[0-2])/(?:0?[1-9]|[12]\d|3[01])/(?:19|20)?\d{2}\b'
+
+  - rule_id: date_slash_dmy
+    layer: regex_checksum
+    phi_type: DATE
+    pattern: '\b(?:0?[1-9]|[12]\d|3[01])/(?:0?[1-9]|1[0-2])/(?:19|20)?\d{2}\b'
+
+  - rule_id: date_dash_mdy
+    layer: regex_checksum
+    phi_type: DATE
+    pattern: '\b(?:0?[1-9]|1[0-2])-(?:0?[1-9]|[12]\d|3[01])-(?:19|20)?\d{2}\b'
+
+  - rule_id: date_dash_ymd
+    layer: regex_checksum
+    phi_type: DATE
+    pattern: '\b(?:19|20)\d{2}-(?:0?[1-9]|1[0-2])-(?:0?[1-9]|[12]\d|3[01])\b'
+
+  - rule_id: date_month_name_dmy
+    layer: regex_checksum
+    phi_type: DATE
+    pattern: '\b(?:0?[1-9]|[12]\d|3[01])[\s\-]?(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)[,\s\-]+(?:19|20)?\d{2}\b'
+    flags: [ignorecase]
+
+  - rule_id: date_month_name_mdy
+    layer: regex_checksum
+    phi_type: DATE
+    pattern: '\b(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)[.\s\-]+(?:0?[1-9]|[12]\d|3[01])[,\s\-]+(?:19|20)?\d{2}\b'
+    flags: [ignorecase]
+
+  - rule_id: age_years_old
+    layer: regex_checksum
+    phi_type: AGE
+    pattern: '\b(\d{1,3})[\s\-]?(?:year|yr|y)[\s\-]?(?:old|o)\b'
+    flags: [ignorecase]
+
+  - rule_id: age_month_old
+    layer: regex_checksum
+    phi_type: AGE
+    pattern: '\b(\d{1,2})[\s\-]?(?:month|mo|m)[\s\-]?(?:old|o)\b'
+    flags: [ignorecase]
+
+  - rule_id: age_label
+    layer: context_cue
+    phi_type: AGE
+    cue: ["Age:", "age:", "AGE:"]
+    then: number
+    gap: 3
+
+  - rule_id: phone_us_format
+    layer: regex_checksum
+    phi_type: CONTACT
+    pattern: '\b(?:\+?1[\s\-.]?)?\(?[2-9]\d{2}\)?[\s\-.]?[2-9]\d{2}[\s\-.]?\d{4}\b'
+
+  - rule_id: phone_intl_format
+    layer: regex_checksum
+    phi_type: CONTACT
+    pattern: '\b\+\d{1,3}[\s\-.]?\d{1,4}[\s\-.]?\d{1,4}[\s\-.]?\d{1,9}\b'
+
+  - rule_id: email_address
+    layer: regex_checksum
+    phi_type: CONTACT
+    pattern: '\b[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}\b'
+
+  - rule_id: fax_label
+    layer: context_cue
+    phi_type: CONTACT
+    cue: ["Fax:", "FAX:", "fax:", "Fax Number:", "Fax#:"]
+    then: digits
+    gap: 5
+
+  - rule_id: ssn_format
+    layer: regex_checksum
+    phi_type: ID
+    pattern: '\b\d{3}[\s\-]?\d{2}[\s\-]?\d{4}\b'
+
+  - rule_id: mrn_label
+    layer: context_cue
+    phi_type: ID
+    cue: ["MRN:", "MRN#:", "Medical Record Number:", "Med Rec#:", "Record#:"]
+    then: digits
+    gap: 5
+
+  - rule_id: account_label
+    layer: context_cue
+    phi_type: ID
+    cue: ["Account#:", "Acct#:", "Account Number:", "Patient ID:", "PID:"]
+    then: digits
+    gap: 5
+
+  - rule_id: street_address_number
+    layer: regex_checksum
+    phi_type: LOCATION_STREET
+    pattern: '\b\d{1,5}\s+(?:[NSEW]\.?\s+)?(?:[A-Z][a-z]+\s+){1,3}(?:Street|St\.?|Avenue|Ave\.?|Road|Rd\.?|Boulevard|Blvd\.?|Drive|Dr\.?|Lane|Ln\.?|Court|Ct\.?|Place|Pl\.?|Way|Circle|Cir\.?|Terrace|Ter\.?)\b'
+    flags: [ignorecase]
+
+  - rule_id: po_box
+    layer: regex_checksum
+    phi_type: LOCATION_STREET
+    pattern: '\b[Pp]\.?\s*[Oo]\.?\s*[Bb]ox\s+\d+\b'
+
+  - rule_id: apt_suite_unit
+    layer: regex_checksum
+    phi_type: LOCATION_STREET
+    pattern: '\b(?:Apt\.?|Apartment|Suite|Ste\.?|Unit|#)\s*[A-Za-z0-9\-]+\b'
+    flags: [ignorecase]
+
+  - rule_id: zip_code_us
+    layer: regex_checksum
+    phi_type: LOCATION_AREA
+    pattern: '\b\d{5}(?:[\-]\d{4})?\b'
+
+  - rule_id: city_state_pattern
+    layer: regex_checksum
+    phi_type: LOCATION_AREA
+    pattern: '\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?,\s*[A-Z]{2}\b'
+
+  - rule_id: hospital_suffix
+    layer: regex_checksum
+    phi_type: ORGANISATION
+    pattern: '\b(?:[A-Z][a-z]+\s+){1,4}(?:Hospital|Medical Center|Medical Centre|Clinic|Health Center|Health Centre|Healthcare|Health System)\b'
+
+  - rule_id: hospital_label
+    layer: context_cue
+    phi_type: ORGANISATION
+    cue: ["Hospital:", "Facility:", "Institution:"]
+    then: capitalised_words
+    gap: 5
+
+  - rule_id: profession_label
+    layer: context_cue
+    phi_type: PROFESSION
+    cue: ["Occupation:", "Profession:", "Job:", "Employment:"]
+    then: capitalised_words
+    gap: 5
+
+  - rule_id: employed_as_cue
+    layer: context_cue
+    phi_type: PROFESSION
+    cue: ["employed as", "works as", "worked as", "working as"]
+    then: capitalised_words
+    gap: 3

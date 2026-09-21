@@ -56,11 +56,11 @@ corpora:
 sealed:
   es-meddocan: sealed/es-meddocan
   de-grascco:  sealed/de-grascco      # 2026-09-21 봉인
+  en-deid:     sealed/en-deid         # 2026-09-21 봉인 (484문서 · 30환자)
 
   # es-carmen 은 아직 분할을 만들지 않았다. splits/{corpus}.json 을 커밋한 뒤
   # 같은 순서(생성 → 동결 → 봉인)로 봉인한다.
   # es-carmen:  sealed/es-carmen
-  # en-deid:    sealed/en-deid
   #
   # ko-surro 항목은 en-deid 의 분할에서 도출되므로 손으로 적지 않는다.
   # tools/derive_aligned_split.py 를 읽을 것 (DESIGN §6.5).
