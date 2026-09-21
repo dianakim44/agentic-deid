@@ -1845,7 +1845,10 @@ failure that the strip does not close, it reaches the same `format_failure.json`
 path, and at round 1 it ends the arm — which is checked before launch rather than asserted here.
 **That check was made on 2026-09-21 and its disposition is §6.7.4's fourth state**, which fixes
 how a score-less ending is reported and records what the RuleAuthor's input does and does not
-transmit about the collection it would have to name.
+transmit about the collection it would have to name. **The launch decision that followed is
+§6.7.7: this value is not launched, and the rung is suspended with the fix written down.** It is
+not spent — no call, no `results/` directory, no frozen window — and §6.7.7's resume sequence
+takes it as the predecessor of the value that carries the transmission fix.
 
 **What it did change in code, which the readiness check found and this clause records.** Adding
 the value to the axis was not enough, and the claim that a new value costs no code — made in the
@@ -2160,6 +2163,13 @@ read as one it would contradict the table above. The ablation that sentence name
 item 2, and scheduling it belongs in §3 beside the sentence that raises it rather than here. Whether the per-artefact question is worth three arms is a scoping
 decision for later, and if it is ever taken, the arms it needs are new cells on the porting
 axis and not a re-analysis of this one.
+
+**The rung is suspended as of 2026-09-21 and this clause stands unchanged.** §6.7.7 records
+the decision and the reason: the one capability named here is intact, and what is missing is a
+path by which the RuleAuthor learns the name of the collection the LexiconBuilder wrote. That
+is a wiring gap in the arm's input, not a correction to the capability, so nothing above is
+rewritten — which is also why the suspension is not a retirement (§4.1) and the rung's three
+`porting` values stay declared.
 
 #### Every rung runs on one **dated** id: `us.anthropic.claude-opus-4-5-20251101-v1:0` — decided 2026-08-11
 
@@ -4937,6 +4947,111 @@ now hold values and six do not, and the reasons differ by row.
 M1–M5 still hold no number, so a correction to those rows remains available on the same terms —
 and any successor arm's identity, prompt revision and window are decisions for §4 and §6.3, not
 adjustments to this table.
+
+#### 6.7.7 The rung is suspended, not retired — decided 2026-09-21
+
+**What is suspended.** No further `port-multi` arm is launched until one of the resume
+conditions below is met. Nothing is deleted: the rung stays in §4's ladder, its three
+`porting` values stay declared in `config/naming.yaml`, the two spent arms' records stay
+on disk as failures (§6.8), and §6.7.1–§6.7.6 stay as written. This is deliberately not
+what §4.1 did to `port-human`, which withdrew a comparison the paper had been going to
+make. Nothing is withdrawn here, because **no number was ever produced to withdraw** —
+which is the reason for the suspension rather than an argument against it.
+
+**The state of the rung, counted.** Three `porting` values were created for it —
+`port-multi`, `port-multi-noexample`, `port-multi-stripfence`. Two of the three have
+called: `port-multi` died at the Profiler's `parse_object` on 2026-09-04 and
+`port-multi-noexample` at the Mapper's on 2026-09-17, both with a `format_failure.json`
+and no `metrics.json`. The third has never called and is therefore **not spent**; it has
+no `results/` directory and no frozen window. **Scored rounds on this rung: zero.** Round
+1 has never been reached by any of the three, so every figure §6.7.3 predicts and every
+branch §6.7.4 reports on is still empty, and the cells in §6.7.6 that were filled were
+filled from out-of-loop calls.
+
+**The blockage and its fix are diagnosed, and that is why this is a suspension.** A rung
+abandoned because nobody knows what is wrong is a different thing from one parked with a
+written fix. The fix is:
+
+1. The 2026-09-21 check (§6.7.4's fourth state) established that the RuleAuthor has **no
+   path to the LexiconBuilder's output names**. One of the three declared names reaches it,
+   and only as §2's illustration of the `lexicon:` form; §1.1 carries the `phi_type` and
+   `layer` axes and nothing else; §1.2 is empty at round 1 and a wrong name ends the arm
+   before round 2 exists; the profile and the mapping are not shown to it at all.
+2. `docs/prompts/lexicon_builder.md` §4.3 and `mapper.md` §4.4 refused to transmit the
+   names, on three grounds, and the refusal **does not survive** the check. Two of the
+   three grounds are wrong: "the lexicon reaches the loop through a form the rule schema
+   already has" is a statement about the *consumption* path and not about whether a name is
+   *transmitted*; "§1.1 already documents both gazetteer forms" misplaces the section — the
+   forms are in §2, and §1 is "Input — what the agent is shown" while §2 is "Output", so
+   the file's own division makes documenting an output schema and transmitting which names
+   exist two different categories. The third ground, hash drift, is real about *when* to
+   edit and says nothing about *what* to transmit, and its "for no gain" clause was written
+   2026-09-01, before the 2026-09-18 probe put numbers on both sides of it.
+3. The mechanism already exists and is not a hashed file. `_task_frame`
+   (`src/llm/prompt.py`) generates the `phi_type` and `layer` axes from `config/naming.yaml`
+   and appends them to the prompt; `src/llm/prompt.py` already imports `lexicon_names`, and
+   the Profiler path already records what vocabulary was shown in
+   `prompt_reference.vocabularies_shown`. Its own docstring gives the argument that applies
+   here unchanged — the block "tells the agent which values exist, so a hardcoded list would
+   teach it an axis that has drifted from the config and the rules it wrote would then be
+   refused at load by the same config" — and a lexicon collection name is exactly a value
+   that the same config refuses at load when it is wrong.
+4. **It nevertheless requires a new arm, not a code-only change.** `assemble_task_prompt`'s
+   own discipline forbids injecting a block the template does not describe, and §6.8's
+   reason for keeping `envelope.py` out of the window ("the window is what the *call* sees")
+   breaks in the other direction if the six hashes stay equal while the bytes the call sees
+   change. So the honest form edits the `rule_author.md` template, which moves a hash, which
+   under §4's modifier convention requires a **new `porting` value**.
+
+**The reach rate is unmeasured, and this is the reason not to launch now rather than a
+reason to launch.** The observation is that 5 of 60 `port-loop` rule drafts used the
+`lexicon:` form at all and 1 of those 5 named a declared collection. That 5/60 **does not
+separate "the agent did not know the names" from "the agent did not reach for a
+gazetteer"**, and nothing on disk separates them: a draft that never writes `lexicon:`
+leaves no trace of whether a name was available to it. Both readings predict the same 5/60.
+So the per-round figures pre-registered in §6.7.4 (1.67% reach, 6.67% arm death, and
+10.0% / 40.1% / 49.9% over eight rounds) are the *observed* rates under a prompt that
+transmits nothing, and they bound what a further arm under that same prompt would buy;
+they are not an estimate of what the fix would buy, and the experiment that would separate
+the two readings is the fixed arm, not another unfixed one. Launching
+`port-multi-stripfence` as it stands spends a fourth value on a 1.67%-per-round door with
+a 40% chance of ending the arm before it is scored.
+
+**Resume conditions.** Either of two, and neither is a date:
+
+- **After the paper is submitted.** The rung's claim is §6.7.2's, and §6.7.2 already
+  states that a null from this rung cannot license reading 1. The paper can therefore
+  report the ladder up to `port-loop` plus the format-gate findings (§6.8, §6.9) and the
+  attribution rule (§6.7.4) without this rung, and a rung whose result is
+  uninterpretable-by-construction is not worth a submission's remaining hours.
+- **As separate research.** The isolating rung §6.7.2 names as not-run — `port-loop` plus
+  the LexiconBuilder alone — is the design that makes the lexicon path interpretable, and
+  it wants the transmission fix as a precondition rather than as an afterthought. That is a
+  study, not a repair of this one.
+
+If neither obtains, the rung stays suspended and the paper says so in the words of §6.7.2's
+limitation.
+
+**First task on resume, in order, so that it is not re-derived.**
+
+1. **Edit the `rule_author.md` template** — add the section that says which lexicon
+   collections exist and which of them this arm has written (a fifth item in §1.1, or a new
+   §1.5). Both halves matter: the declared names are an axis fact of the same category as
+   §1.1, and "written / not written" is an arm-state fact of the same category as §1.2's
+   emptiness statement. Neither is content supply: no term from any list is shown.
+2. **Allocate a new `porting` value** in `config/naming.yaml`, inside the `porting_rungs`
+   partition's `port-multi` rung, taking `port-multi-stripfence` as its predecessor and
+   adding one prompt change — so that §4's convention ("the modifier names the one change
+   that made a new value necessary") still holds. Record the window revision in
+   `docs/notes/window-freeze-history.md` and strike the two rejections in
+   `lexicon_builder.md` §4.3 and `mapper.md` §4.4 rather than deleting them.
+3. **Probe before launching**, as §6.9's probe did: draw the RuleAuthor under the new
+   template and count how many drafts use the `lexicon:` form and how many name a declared
+   collection. This is the measurement 5/60 could not make, it costs no arm, and it is what
+   turns "the names were not transmitted" from a diagnosis into a tested one.
+4. **Then launch the arm**, and only if the probe moves the naming rate. If it does not,
+   the finding is about the RuleAuthor's use of gazetteers and not about its input, and
+   §6.7.2's isolating rung is the next question rather than another `port-multi`.
 
 ---
 
