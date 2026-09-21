@@ -6229,6 +6229,73 @@ German rule is written, per §6. At a 20% test fold that is 12–13 documents an
 roughly 290 spans, which bounds what German per-type numbers can claim
 independently of any of these decisions.
 
+**GraSCCo's constructed split: 50 / 30 / 20 by document over 60 group units,
+stratified by span count — decided 2026-09-21.** §9.5 decides the *unit* and this
+decides the *partition*; both are frozen before any German rule exists (§6.2).
+
+- **Unit: the §9.5 group.** 60 units for 63 documents — `Tupolev_1..4` is one unit,
+  every other document is its own. Folds are assigned to units, never to documents,
+  so the four Tupolev documents cannot straddle the split.
+- **The targets are counted in documents, not in units**, so that the test fold lands
+  on the 12–13 documents the paragraph above commits to. Counting 20% of *units* would
+  put 12 units in test, and if one of them were Tupolev that is 15 documents — the
+  stated bound broken by the grouping rather than by a decision. The unit stays the
+  atom of assignment and the document stays the unit of the target; one group of four
+  is the entire reason those two differ here.
+- **Proportions: train 0.50 / dev 0.30 / test 0.20.** Test is 0.20 because the
+  paragraph above already fixed it and the bound it states is what German per-type
+  numbers are reported against. The remaining 0.80 is split 5:3 rather than
+  MEDDOCAN's 2:1, which gives dev 19 documents instead of 17. Dev is where every German
+  rule is developed and where δ is evaluated, and at this corpus size the dev fold is
+  the binding constraint on the whole arm; train is not, because no German tagger is
+  trained in this work (§5.1 — `RT` on German is future work, and if it happens the
+  proportions are re-derived then, not stretched now).
+- **Stratified by in-scope gold span count per unit, in terciles.** Measured: 5 to 61
+  in-scope spans per document, median 17, total 1,297. The leak-rate denominator *is*
+  the span count, so an unstratified draw of 12 units out of 60 can hand the test fold
+  a materially different number of spans than its document share suggests, and a
+  dev/test difference would then confound corpus composition with detector behaviour.
+  This is §9.5's CARMEN-I argument applied to the variable that varies here.
+- **Not stratified by document type, and the reason is a measurement rather than a
+  preference.** The document type is not a partition of this corpus: only 13 of 63
+  documents carry an explicit type line (`Arztbrief` 5, `Befund` 4,
+  `Befund-Ambulanz` 3, `Entlassungsbrief` 1), 52 of 63 are letter-form with no
+  declared type, and the content cues that would fill the gap are non-exclusive — one
+  document can match three of them. A stratum has to assign every unit exactly one
+  cell; this axis cannot, so stratifying on it would mean inventing the missing 50
+  labels and then stratifying on the invention. The type therefore stays a
+  **reporting** axis (per-type breakdown of the German result), where a document with
+  no derivable type can be counted as exactly that, and is not a stratum. The
+  derivation and its unresolved fraction are declared with the axis, not inside the
+  split.
+- **Seed: `config/split.yaml`, read by `src/split.py` alone**, and copied into
+  `splits/de-grascco.json`'s provenance block, per CLAUDE.md. A separate file for the
+  same reason `config/sampling.yaml` is separate from `config/naming.yaml`: this is a
+  numeric parameter, not an identifier, and naming.yaml's "use only this vocabulary"
+  rule should not read as if it covered numbers.
+- **Assignment: deterministic given the seed.** Units are ordered by id, shuffled
+  once per stratum by the seeded RNG, then taken **largest unit first** and each
+  assigned to the fold it leaves *least over* its target share — `(assigned + size) /
+  target`, minimised, ties broken train → dev → test. Both refinements are there
+  because of the one group of four, and both were measured rather than reasoned
+  about. Assigning to the fold with the largest absolute shortfall gave test 15
+  documents: the shortfall was largest on the 12.6-document test fold, and four
+  documents into it broke the 12–13 bound above by arithmetic rather than by
+  decision. Taking the group last gave 34 / 17 / 12, because by then every fold was
+  nearly full and the least-bad placement still overshot by three. Largest-first with
+  the ratio rule gives **train 32 / dev 19 / test 12 documents** against targets of
+  31.5 / 18.9 / 12.6, and test's 282 in-scope spans (314 gold) sit inside the ~290
+  this section commits to. No cell is rounded and no stratum is special-cased, which
+  is what §9.5 demands of a ragged cross.
+- **What the stratification did not balance, recorded next to what it did.** The split
+  file carries the achieved per-fold unit count, document count, span count and spans
+  per 1,000 tokens. The span *share* matches the document share (test: 19.0% of
+  documents, 21.7% of in-scope spans); the *density* does not, and cannot, because
+  document length varies independently of span count — 50.2 spans per 1,000 tokens in
+  test against 34.2 in dev. A dev↔test density difference is therefore not evidence
+  about a detector, and the number is in the file so that nobody has to take
+  "stratified" as a claim that it is.
+
 ### 9.7 BOM is stripped and offsets are shifted
 
 Every corpus loader strips a leading U+FEFF and subtracts its length from all gold

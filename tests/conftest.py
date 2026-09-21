@@ -41,11 +41,15 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-#: The corpus these fixtures are about. Every one of them is MEDDOCAN-specific today
-#: because it is the only corpus with a loader (`src/corpora/base._loaders`). When a
-#: second one lands, the shape to add is another named fixture here — not a per-file
+#: The corpus most of these fixtures are about. Unqualified names (`corpus_present`,
+#: `loader`) mean MEDDOCAN, because it is the corpus the suite was written around;
+#: the second loader's fixtures are named for it below. That is the shape this file
+#: asked for when there was one loader — another named fixture here, never a per-file
 #: availability check, which is the thing this file exists to stop.
 CORPUS = "es-meddocan"
+
+#: The second corpus with a loader, since 2026-09-21 (`src/corpora/grascco.py`).
+GRASCCO = "de-grascco"
 
 #: The arm whose dev record `terminated_arm_record` answers for: the only one in the tree
 #: that has terminated with a reason and a round count, which is what DESIGN §6.4 requires
@@ -139,6 +143,40 @@ def loader(corpus_present: str):
     from src.corpora.meddocan import MeddocanLoader
 
     return MeddocanLoader()
+
+
+@pytest.fixture(scope="session")
+def grascco_present() -> str:
+    """Availability of the second corpus, asked the same way and asked separately.
+
+    Not folded into `corpus_present` with a parameter: the two corpora are on this
+    machine independently, and a shared availability fixture would skip the MEDDOCAN
+    tests on a machine that has only GraSCCo. Same rule as above — `corpus_root()`
+    resolves a path and does nothing else, so the skip means one thing.
+    """
+    from src.corpora.base import CorpusError, corpus_root
+
+    try:
+        corpus_root(GRASCCO)
+    except CorpusError as exc:
+        pytest.skip(f"{GRASCCO} not on this machine: {exc}")
+    return GRASCCO
+
+
+@pytest.fixture(scope="session")
+def grascco_loader(grascco_present: str):
+    """The GraSCCo loader, constructed. No `try`, for `loader`'s reason exactly."""
+    from src.corpora.grascco import GrasccoLoader
+
+    return GrasccoLoader()
+
+
+@pytest.fixture(scope="session")
+def grascco_unsplit_loader(grascco_present: str):
+    """The GraSCCo loader with no split file, for the tests that check the split file."""
+    from src.corpora.grascco import GrasccoLoader
+
+    return GrasccoLoader(use_split_file=False)
 
 
 @pytest.fixture(scope="session")

@@ -613,10 +613,21 @@ MUTATIONS = [
     Mutation(
         name="unsealed_load_filters_instead_of_not_reaching",
         path=BASE,
-        anchor="                if not self._sealed_ok:\n                    continue\n                roots[fold_dir] = sealed",
+        # Re-anchored 2026-09-21: the permission moved into `sealed_reachable()` so a
+        # flat-layout corpus could ask the same question, and the anchor read the
+        # `_sealed_ok` test that `fold_roots()` no longer performs itself. Same defect
+        # either way — hand the path out and let a later step filter — so the mutation
+        # keeps its name and is re-measured rather than rewritten.
+        anchor=(
+            "                permitted = self.sealed_reachable()\n"
+            "                if permitted is None:\n"
+            "                    continue\n"
+            "                roots[fold_dir] = permitted"
+        ),
         replacement=(
+            "                permitted = self.sealed_reachable()\n"
             "                roots[fold_dir] = sealed\n"
-            "                if not self._sealed_ok:\n"
+            "                if permitted is None:\n"
             "                    pass"
         ),
         breaks=(

@@ -446,9 +446,92 @@ def test_a_document_id_that_does_not_parse_stops_the_audit(docs):
 
 
 def test_a_corpus_without_grouping_types_raises():
-    """A new corpus must define its §9.5 comparison types, not skip the audit."""
+    """A new corpus must define its §9.5 comparison types, not skip the audit.
+
+    `es-carmen` is the corpus that has none yet. This test named `de-grascco` until
+    2026-09-21, when de-grascco got its types and the test began asserting that the
+    corpus it was written for still had none — a test whose subject is "whichever
+    corpus is next" has to be moved on, not deleted.
+    """
     with pytest.raises(CorpusError, match="grouping types"):
-        split.grouping_audit("de-grascco", [])
+        split.grouping_audit("es-carmen", [])
+
+
+def test_unstructured_document_ids_do_not_stop_the_audit():
+    """The converse of the test above it, and the reason that one is per-corpus.
+
+    47 of GraSCCo's 63 ids contain no separator at all. For MEDDOCAN an id that does
+    not parse means the step-1 pattern missed documents; for GraSCCo it means the file
+    names carry no sibling structure, which is what step 3 is for. Declaring which
+    corpus is which is the only way one rule can serve both — inferring it from how
+    many ids failed would accept a broken pattern on any corpus where most ids parse.
+    """
+    from src.corpora.base import Document
+
+    docs = [
+        Document(
+            doc_id=doc_id,
+            corpus_id="de-grascco",
+            text="x",
+            spans=[],
+            split=None,
+            had_bom=False,
+            meta={},
+        )
+        for doc_id in ("Kolkhorst", "Baastrup", "Tupolev_1", "Tupolev_2")
+    ]
+    audit = split.grouping_audit("de-grascco", docs)
+    assert set(audit["candidate_stems"]) == {"Tupolev"}
+    assert audit["n_candidate_stems"] == 1
+    # No identifiers at all in these stubs, so step 2 cannot confirm.
+    assert audit["candidate_stems"]["Tupolev"]["grouped"] is False
+
+
+def test_dates_are_compared_after_normalisation():
+    """§9.5 step 2 normalises dates, and `Tupolev_1..4` is why.
+
+    Its one birth date ships as `21/06/1967`, `21.06.67` and `21.06.1967`, so a raw
+    comparison finds no agreement and the only confirmed group in three corpora
+    dissolves. Two-digit years stay two digits: expanding them needs a century cutoff
+    that no evidence here supports, and the question is only whether two surfaces
+    denote the same day.
+    """
+    assert (
+        split.normalise_date("21/06/1967")
+        == split.normalise_date("21.06.67")
+        == split.normalise_date("21-6-67")
+    )
+    assert split.normalise_date("1967-06-21") is None  # ISO order is not this pattern
+    assert split.normalise_date("32.06.67") is None  # not a day
+    assert split.normalise_date("21.13.67") is None  # not a month
+    assert split.normalise_date("Juni 1967") is None
+
+
+def test_normalisation_only_adds_agreement():
+    """The union is what makes adding normalisation safe for an already-frozen file.
+
+    A surface set contains the raw surfaces *and* the normalised dates, so a pair that
+    agreed before still agrees: the count can only rise, never fall. That is the
+    property that lets `splits/es-meddocan.json` stay frozen — the check that its
+    recorded counts are unchanged is `test_grouping_audit_is_reproducible_from_the_corpus`
+    above, and this is the argument for the 18 stems that check can no longer reach.
+    """
+    from src.corpora.base import Span
+
+    spans = [
+        Span(
+            start=0,
+            end=10,
+            surface="21.06.67",
+            subtype="FECHAS",
+            phi_type="DATE",
+            excluded=False,
+        )
+    ]
+    raw = split.comparable_surfaces(spans, ("FECHAS",), as_dates=False)
+    with_dates = split.comparable_surfaces(spans, ("FECHAS",), as_dates=True)
+    assert raw == {"21.06.67"}
+    assert raw < with_dates
 
 
 def test_stem_crossings_are_recorded_even_though_no_group_crosses(record):

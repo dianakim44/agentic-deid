@@ -567,11 +567,15 @@ def test_the_sealed_path_and_run_fold_resolve_the_same_loader(corpus_present):
     rehearsed against a different reader of the same corpus. Asserted as identity of the
     class rather than by behaviour, because the behaviours are equal today — that is
     exactly why the divergence would be quiet.
+
+    The registry has two entries since 2026-09-21, so the identity assertion is no longer
+    satisfiable by a registry of one. The refusal below names `es-carmen`, the corpus that
+    is still declared and unimplemented — it named `de-grascco` until that day.
     """
     registry = run_sealed_eval.base._loaders()
     assert type(run_sealed_eval._loader_for(CORPUS)) is registry[CORPUS]
     with pytest.raises(run_sealed_eval.CorpusError, match="no loader yet"):
-        run_sealed_eval._loader_for("de-grascco")
+        run_sealed_eval._loader_for("es-carmen")
 
 
 def test_the_documented_entry_point_puts_the_real_module_on_the_stack(monkeypatch):

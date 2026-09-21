@@ -47,8 +47,19 @@ CONFTEST = TESTS / "conftest.py"
 #: derived, so that adding a fixture there forces a decision here: an unclassified
 #: fixture fails `test_every_shared_fixture_is_classified` instead of quietly inheriting
 #: whichever set of permissions is laxer.
-AVAILABILITY = {"corpus_present", "sealed_corpus", "terminated_arm_path"}
-CONSTRUCTION = {"loader", "unsplit_loader", "terminated_arm_record"}
+AVAILABILITY = {
+    "corpus_present",
+    "sealed_corpus",
+    "terminated_arm_path",
+    "grascco_present",
+}
+CONSTRUCTION = {
+    "loader",
+    "unsplit_loader",
+    "terminated_arm_record",
+    "grascco_loader",
+    "grascco_unsplit_loader",
+}
 
 #: Calls an availability fixture may make. Both answer from a configured path and can
 #: fail for one reason only — the corpus is not on this machine. `load`, `.load()` and a

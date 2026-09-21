@@ -361,9 +361,14 @@ def test_an_unknown_corpus_has_no_loader():
     branch is the difference between an unimplemented corpus failing here, before the seal
     is touched, and failing somewhere further in. It needs one test that runs it, and no
     corpus is required to reach the branch that says there is no loader.
+
+    `es-carmen` is the corpus standing in for "declared and not implemented". It was
+    `de-grascco` until 2026-09-21, when that corpus got a loader and this test stopped
+    exercising the branch it names — the same edit `tests/test_meddocan_loader.py` and
+    `tests/test_split_file.py` needed on the same day.
     """
     with pytest.raises(CorpusError, match="has no loader yet"):
-        run_sealed_eval._loader_for("de-grascco")
+        run_sealed_eval._loader_for("es-carmen")
 
 
 def test_the_no_loader_message_names_what_does_exist():

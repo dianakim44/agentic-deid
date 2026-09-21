@@ -68,6 +68,11 @@
       "why": "Korean comments explaining the error-sample parameters and why changing them invalidates a port-human run. Holds four integers and two strings; no span, no offset, no corpus text."
     },
     {
+      "path": "config/split.yaml",
+      "sniff": "Korean prose",
+      "why": "Korean comments explaining the constructed-split parameters for the corpora that ship no official split, and why editing an entry after a split is frozen re-opens the seal. Holds three proportions, a stratification variable, a stratum count and a seed; no document id, no span, no offset, no corpus text."
+    },
+    {
       "path": "docs/notes/arm-port-oneshot-es.md",
       "sniff": "Korean prose",
       "why": "Korean prose recording the first port-oneshot run on es-meddocan: that it was a format failure, the validator's own error message, the cost and model-id fields, and the lifecycle record. No corpus text and no rule content beyond counts by layer — the failure was a markdown fence at line 1, so the position is quoted and the offending line is not, which is the same rule the validator message follows."

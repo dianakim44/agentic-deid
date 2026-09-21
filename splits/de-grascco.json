@@ -1,0 +1,408 @@
+{
+  "schema_version": 1,
+  "corpus": "de-grascco",
+  "generated": "2026-09-21T02:24:26Z",
+  "generated_by": "src/split.py",
+  "repository": {
+    "commit": "5fce3d8e7ebe7340a465ddf36a22d94bf2dfbdc4",
+    "working_tree_dirty": true
+  },
+  "tokenizer": "whitespace",
+  "provenance": {
+    "origin": "constructed",
+    "note": "The corpus ships no split, so this one was constructed here and is frozen before any German rule exists (DESIGN §6.2). Proportions are counted in documents and assigned per §9.5 unit; the seed below is config/split.yaml's and is the only source of randomness — no clock, no directory order, no process state enters the assignment.",
+    "rationale_ref": "DESIGN.md §9.6",
+    "seed": 20260921,
+    "stratification": {
+      "variable": "in_scope_span_count",
+      "n_strata": 3,
+      "target_proportions": {
+        "train": 0.5,
+        "dev": 0.3,
+        "test": 0.2
+      },
+      "note": "The variable is the in-scope span count per unit, because the span count is the denominator of the leak rate and of every per-type figure. Spans per 1,000 tokens is recorded per fold and is *not* what was balanced: document lengths vary independently, so the folds differ in density even though their span shares match their document shares. That is a limitation of reading one fold's density against another's, stated here rather than left for a reader to infer from the word 'stratified'.",
+      "achieved": {
+        "dev": {
+          "n_units": 19,
+          "n_documents": 19,
+          "proportion_of_documents": 0.3016,
+          "n_spans_in_scope": 410,
+          "spans_in_scope_per_1000_tokens": 34.19
+        },
+        "test": {
+          "n_units": 12,
+          "n_documents": 12,
+          "proportion_of_documents": 0.1905,
+          "n_spans_in_scope": 282,
+          "spans_in_scope_per_1000_tokens": 50.2
+        },
+        "train": {
+          "n_units": 29,
+          "n_documents": 32,
+          "proportion_of_documents": 0.5079,
+          "n_spans_in_scope": 605,
+          "spans_in_scope_per_1000_tokens": 44.0
+        }
+      }
+    }
+  },
+  "group_key": {
+    "unit": "§9.5 group (a confirmed same-patient cluster, else the document)",
+    "basis": "no patient key exists; one grouping confirmed by identifier agreement",
+    "rationale_ref": "DESIGN.md §9.5",
+    "n_groups": 60,
+    "note": "60 units over 63 documents. 1 unit holds more than one document (['Tupolev_1', 'Tupolev_2', 'Tupolev_3', 'Tupolev_4']): a patient name and a birth date agree across all of its documents, the only §9.5 group in three corpora. Its birth date ships in three formats, so the agreement is found after normalisation (§9.5 step 2) and the record number is shared by only three of the four documents — the intersection over all four is empty, which is why the rule asks for a name and *either* a record number or a date. The 11 Colon_Fake_* documents share a stem and are 11 units: 11 distinct patient names, 11 distinct birth dates, no shared record number, so the stem marks a shared clinical scenario and not a shared patient. Folds are assigned to units, so no group straddles the split.",
+    "grouping_audit": {
+      "rule_ref": "DESIGN.md §9.5",
+      "step_1_pattern": "^(?P<stem>.+)[-_](?P<suffix>[0-9]+|[A-Za-z]+)$",
+      "step_2_types": {
+        "name": [
+          "NAME_PATIENT"
+        ],
+        "record": [
+          "ID"
+        ],
+        "date": [
+          "DATE_BIRTH"
+        ]
+      },
+      "n_candidate_stems": 2,
+      "n_stems_confirmed": 1,
+      "n_documents_grouped": 4,
+      "surfaces_recorded": "no — counts only. The schema is shared with DUA-restricted corpora whose surfaces may not appear in any committed file (CLAUDE.md).",
+      "candidate_stems": {
+        "Colon_Fake": {
+          "documents": [
+            "Colon_Fake_A",
+            "Colon_Fake_B",
+            "Colon_Fake_C",
+            "Colon_Fake_D",
+            "Colon_Fake_E",
+            "Colon_Fake_F",
+            "Colon_Fake_G",
+            "Colon_Fake_H",
+            "Colon_Fake_I",
+            "Colon_Fake_J",
+            "Colon_Fake_K"
+          ],
+          "n_shared_surfaces": {
+            "name": 0,
+            "record": 0,
+            "date": 0
+          },
+          "grouped": false,
+          "decision": "step 3: no group. Step 1 admitted the stem, step 2 found no identifier agreement, so each document is its own group"
+        },
+        "Tupolev": {
+          "documents": [
+            "Tupolev_1",
+            "Tupolev_2",
+            "Tupolev_3",
+            "Tupolev_4"
+          ],
+          "n_shared_surfaces": {
+            "name": 1,
+            "record": 0,
+            "date": 1
+          },
+          "grouped": true,
+          "decision": "step 2 confirmed: a name and at least one of record number or date agree across all documents of the stem"
+        }
+      }
+    },
+    "crosses_split": {
+      "n_groups_crossing": 0,
+      "n_candidate_stems_crossing": 1,
+      "n_documents_in_crossing_stems": 11,
+      "fold_combinations": {
+        "dev+test+train": 1
+      },
+      "note": "No group crosses the split, and here that is a property of the assignment rather than of the absence of groups: folds are assigned per §9.5 unit, so a multi-document group cannot straddle them. The stem figure counts the stems step 2 rejected and which therefore may straddle — that is the intended outcome for them, not a leak."
+    }
+  },
+  "source": {
+    "hash_algorithm": "sha256",
+    "hashed": "per document, over its CAS JSON annotation file and its .txt in sorted-name order; the manifest digest is derived from the per-document digests",
+    "n_documents": 63,
+    "manifest_digest": "48dec74e7899fab1fbb4476eb3f92a586fe31e7584e54b800af8c65959469b58",
+    "documents": {
+      "Albers": "e3048b1167ba0cbf6343a0149b170ca9ccebd892e42422eb642cb267b0e33fab",
+      "Amanda_Alzheimer": "66438c2c57e82369c5fdaefa85962857d16410e7c22f686323952a0dd9b5eda3",
+      "Baastrup": "a37dace31ecc7134b8801669e47e89992a60f77194970e82be6a291b458e85af",
+      "Beuerle": "d57eb98b779209076e53e41975ede8776d7d57f163024d275e7af8f929ba8b25",
+      "Boeck": "af5678f6f1dc9aad87483943ade0194b0bd714c9e4c47e139c6ffd706107c897",
+      "Cajal": "cf43c626ad95cd0a1c49ee78b98ff94953a9f9cccaec61657f18624715091a62",
+      "Clausthal": "4a2716754e1314e65e308ac993c17fe08310f4e845c79dfe8588da8e8de0903c",
+      "Colon_Fake_A": "d5a80afa545a0feebe650f7a8956c3771753e0bf9a167dce6777e36fe3c76d29",
+      "Colon_Fake_B": "1733ef773b098833ba175b61106cee572349e197015c796d309ee68bf859d9aa",
+      "Colon_Fake_C": "808a7d29d4af3962bf66d63329482822e27377ca187e6fbe7486f44deb438041",
+      "Colon_Fake_D": "f968b08147da47c7c525b2eacfe12ddaf25c16f93f6569224db094077b2a0c0f",
+      "Colon_Fake_E": "421a531fff9579efa3e41f396a3c99b56a91a501fffb21486af035f0d8815396",
+      "Colon_Fake_F": "31291745e85ca659a4ba4a81c76804fa46bfba39e1692c3e09e986134c1a9b74",
+      "Colon_Fake_G": "77e76d942ae8d330cca15eb9e09eb477bd551250ea87c9d4694f23e442f81eb5",
+      "Colon_Fake_H": "8c717bc4064f66c84d1d27b30a78851a54dc4e2b3d339a3baf32363b03772962",
+      "Colon_Fake_I": "31f425dfda8efabd475d4a44249db7db8399b9dafc7932ee817dd1af3ab88e29",
+      "Colon_Fake_J": "1b70b61ef047ce20cba065dccd75e1e5ea15561f52f51f2b4eb9b96fa06cc98b",
+      "Colon_Fake_K": "1a8e8427decdbce958783cb893a6595f46e930bea31655333dedeaa4bd8b3395",
+      "Dewald": "00629e8208709ab01ec023fe8c16fbff9160fc546e8304545b7f9013f15734d9",
+      "Dupuytren": "2ef0617debb7fff16b5a306e59216de8d056f362c1012131e78a983fce22a80a",
+      "Ehrenberger": "752b0bdfd2006363beb430d0b7b6d2c8049d5a32bbacf160c0b03b4ab38072c2",
+      "Fabry": "3c962f6241adf3342e80b65d2ca7da52d9a5eba027efbe2b7a42d040f24e1586",
+      "Fleischmann": "732a3af155f79a39b2b94ae2ee2be841c64eee1d6874574bac6eed3b82c93e65",
+      "Fuss": "a3c74c3d4fdd9e15e762e0c98330028b4fc2b4ab863078a8ac0d4661d42b505f",
+      "Gebauer": "79d1ed8db12db9d12af7e944f8d51a2bd01b348261a536a7ab78704ba3bc9fa1",
+      "Haefner": "f20f838bdb1fe7a51f77891c5440ce5a2c90d4c7e75185acffea0ab13454ef7e",
+      "Ilgner": "727cff4c3c3b35aff08ef4a78dde054240cac520d6caa3dafa1b8018848f8fd5",
+      "Jadassohn": "e8076c089798b11c30a5f527c42f0155464343282481ec429e65b91d44b23f09",
+      "Jenninger": "ac32033f6158430572fefdd9df2e769f72306aa092772e085288c99ea29aa113",
+      "Joubert": "9149f933a59e69dcd33858ac543b7a5c0b071163051881e32af900b99e52c67e",
+      "Kawasaki": "ca5e34f107a6804bdad034eb99e1181a6d7e95d8089d5a8b66b77fc7b1133c17",
+      "Koenig": "fab8ff570550d4f7163bd6b0331a610dbda0c749a01c1514d2f7e50b3f96799d",
+      "Leitner": "75a198b56046b35a4a28869437b97b6a836e4bf2a6d5e82dad37cd2991a0100f",
+      "Meulengracht": "2d7685c0b91fa2e7ad2ccb487b92fbe0172548596a01c76d0afa1bf99643d985",
+      "Meyr": "de661dc5735a6b64dd6ce7274d723874531f7c8d453865ded014410872302cb0",
+      "Neubauer": "18b8afdbb1d769c899b2446922262f1fcd8a8a5f7378f8c62f62312c0ebdb14d",
+      "Obradovic": "0e196c9023531586fe04219f50dcc304e7a1693d1eb38db669b3d8fe1638301d",
+      "Osler": "43cb9ab761c2850e23165fccde49978ec0ba8c4e16d01132c50d64c71484910d",
+      "Popovic": "cdfc10a75bac24a44847521760ba7e8d7a3cf78a2b3e48308cd5f6f9d0823f49",
+      "Praechtel": "455ec5ea1b3ce31a711be9c4c5e4aa8cf7a8a8fa211a8b260102acdb0a81823e",
+      "Queisser": "9e05c21d09dbbd4ed93403a4ff4b6cb7ad34b4336764b647fa1847291acc1f1d",
+      "Quervain": "a6d8a28f550e42d9db675332da3423f22c6ad044eda452804abc15460481ecef",
+      "Recklinghausen": "2e3c860d6b4141c55c4dd2e8c00246e8455e20ac65acb297643934041aaa68be",
+      "Rieser": "cf0a758ef3056342235074ffff4d4364888b2287cc3bf2e9233a6434500491fc",
+      "Schielaug": "e2d6459d2f54cb3e7ae4cff5c01516d3ba63d888b4e548d55701545535eadf1d",
+      "Schnitzler": "b75aadb7be00a290b21d1382c9f871e666eb4877642393e8a1ba063a5c5ac65a",
+      "Schuh": "dd18faa7981cde53dc8e87c608b2cbe66e7b42b3604869e23e06a051953a226b",
+      "Stölzl": "1ee4548ae326101a03ad0ab802735f09f38849f2c5ecc8b460ba2b799e9f4c31",
+      "Sudeck": "e1c711b72e80134fd0981b35aafab0a82612054c122214e619b789391cd13f95",
+      "Theodor": "c475a2d7816db92f4666d7aa1f7133f3a156fa4c08585917c788066d251f4ee1",
+      "Tupolev_1": "05bf3b04ad6a9f0d80537d167235252da8d5c525972553659fb5507561c04b4d",
+      "Tupolev_2": "a6547211c6dad15b6241cc4f3c1dba5a4924b192c7060b4bfe8fd35b2ef3daa2",
+      "Tupolev_3": "ec4ccbba93797ed3e8fb783ec6d35334ea401c507f2529cc1fc98ad4438bf160",
+      "Tupolev_4": "bfaf66f52e7875bce027cd32bdfecb97b35fe1faaa6d3be7b3f5218914374e80",
+      "Utz": "e261fec99d14f2affed725359aba2cee209628afa5f4af6671131e82489ac475",
+      "Vogler": "82f3e161433073f3259bb4b2c105424bed071853499a8dc994590b88ddd17490",
+      "Waldenström": "d1b0f58db03a693a7dc7af779413fcbc1cab9855accfd270a3e7e7a7c716c953",
+      "Wankel": "dbbb23c175be61b488f06af4a18a16b145335669df7f380d345c239ab49f2ded",
+      "Weber": "d10ff537696c719a140e6a99c302447294a0e240d7896068d02e48321d17c705",
+      "Weil": "7fe2b56ce5a25e8d45134afba0b7fd2cf92598f3106d5b11e681940cc62497a1",
+      "Xavier": "a9e960ec1a756dada6e407ac3a9fdb5ef2101617302a5d7f6e5b24b7f3bbd69b",
+      "Ypsilanti": "0221d6ae05eed9215d5977ba1ecf858f1af964aa2357b855ebd599627a144df9",
+      "Zezelj": "cecb82361085241e51e795a016a5f74302a796fd9445163980a092a6a1f3ab92"
+    }
+  },
+  "folds": {
+    "dev": {
+      "n_documents": 19,
+      "n_spans": 453,
+      "n_spans_in_scope": 410,
+      "n_spans_excluded": 43,
+      "spans_by_phi_type": {
+        "AGE": 5,
+        "CONTACT": 11,
+        "DATE": 221,
+        "ID": 11,
+        "LOCATION_AREA": 26,
+        "LOCATION_STREET": 9,
+        "NAME": 116,
+        "ORGANISATION": 11
+      },
+      "spans_by_excluded_type": {
+        "NAME_TITLE": 43
+      },
+      "tokens": {
+        "total": 11993,
+        "per_document": {
+          "min": 147,
+          "p25": 311,
+          "median": 609,
+          "p75": 863,
+          "max": 1584
+        }
+      },
+      "document_ids": [
+        "Amanda_Alzheimer",
+        "Colon_Fake_J",
+        "Colon_Fake_K",
+        "Fabry",
+        "Fleischmann",
+        "Gebauer",
+        "Haefner",
+        "Jadassohn",
+        "Leitner",
+        "Meyr",
+        "Obradovic",
+        "Queisser",
+        "Quervain",
+        "Recklinghausen",
+        "Schuh",
+        "Stölzl",
+        "Wankel",
+        "Weber",
+        "Zezelj"
+      ]
+    },
+    "test": {
+      "n_documents": 12,
+      "n_spans": 314,
+      "n_spans_in_scope": 282,
+      "n_spans_excluded": 32,
+      "spans_by_phi_type": {
+        "AGE": 5,
+        "CONTACT": 7,
+        "DATE": 145,
+        "ID": 8,
+        "LOCATION_AREA": 35,
+        "LOCATION_STREET": 14,
+        "NAME": 59,
+        "ORGANISATION": 8,
+        "PROFESSION": 1
+      },
+      "spans_by_excluded_type": {
+        "NAME_TITLE": 32
+      },
+      "tokens": {
+        "total": 5617,
+        "per_document": {
+          "min": 176,
+          "p25": 351,
+          "median": 467,
+          "p75": 537,
+          "max": 1183
+        }
+      },
+      "document_ids": [
+        "Boeck",
+        "Cajal",
+        "Colon_Fake_D",
+        "Colon_Fake_H",
+        "Colon_Fake_I",
+        "Dupuytren",
+        "Ilgner",
+        "Joubert",
+        "Praechtel",
+        "Schielaug",
+        "Waldenström",
+        "Xavier"
+      ]
+    },
+    "train": {
+      "n_documents": 32,
+      "n_spans": 669,
+      "n_spans_in_scope": 605,
+      "n_spans_excluded": 64,
+      "spans_by_phi_type": {
+        "AGE": 9,
+        "CONTACT": 10,
+        "DATE": 327,
+        "ID": 40,
+        "LOCATION_AREA": 38,
+        "LOCATION_STREET": 13,
+        "NAME": 149,
+        "ORGANISATION": 18,
+        "PROFESSION": 1
+      },
+      "spans_by_excluded_type": {
+        "NAME_TITLE": 64
+      },
+      "tokens": {
+        "total": 13751,
+        "per_document": {
+          "min": 105,
+          "p25": 222,
+          "median": 331,
+          "p75": 539,
+          "max": 1268
+        }
+      },
+      "document_ids": [
+        "Albers",
+        "Baastrup",
+        "Beuerle",
+        "Clausthal",
+        "Colon_Fake_A",
+        "Colon_Fake_B",
+        "Colon_Fake_C",
+        "Colon_Fake_E",
+        "Colon_Fake_F",
+        "Colon_Fake_G",
+        "Dewald",
+        "Ehrenberger",
+        "Fuss",
+        "Jenninger",
+        "Kawasaki",
+        "Koenig",
+        "Meulengracht",
+        "Neubauer",
+        "Osler",
+        "Popovic",
+        "Rieser",
+        "Schnitzler",
+        "Sudeck",
+        "Theodor",
+        "Tupolev_1",
+        "Tupolev_2",
+        "Tupolev_3",
+        "Tupolev_4",
+        "Utz",
+        "Vogler",
+        "Weil",
+        "Ypsilanti"
+      ]
+    }
+  },
+  "totals": {
+    "n_documents": 63,
+    "n_spans": 1436,
+    "n_spans_in_scope": 1297,
+    "n_spans_excluded": 139,
+    "spans_by_phi_type": {
+      "AGE": 19,
+      "CONTACT": 28,
+      "DATE": 693,
+      "ID": 59,
+      "LOCATION_AREA": 99,
+      "LOCATION_STREET": 36,
+      "NAME": 324,
+      "ORGANISATION": 37,
+      "PROFESSION": 2
+    },
+    "spans_by_excluded_type": {
+      "NAME_TITLE": 139
+    },
+    "tokens": {
+      "total": 31361,
+      "per_document": {
+        "min": 105,
+        "p25": 236,
+        "median": 404,
+        "p75": 689,
+        "max": 1584
+      }
+    }
+  },
+  "corpus_specific": {
+    "reading": "UIMA CAS JSON; the redundant CAS XMI encoding is not read. The annotation file carries the text as sofaString and the loader asserts it equals the .txt on every load.",
+    "fold_directories": null,
+    "fold_directories_note": "The layout encodes no fold: all documents live in one directory, so this file is the only authority on which fold a document is in and there is no second source to cross-check it against. MEDDOCAN's loader has that check and this one cannot.",
+    "n_ids_without_stem_suffix": 47,
+    "ids_note": "47 of 63 document ids contain no separator, so §9.5 step 1 never considers them and step 3 makes each its own group. That is a fact about the corpus's file naming, not a gap in the pattern — which is why the loader does not raise on it here and does for MEDDOCAN, where every id is {journal}-{n}.",
+    "bom_documents": [
+      "Baastrup",
+      "Boeck",
+      "Dupuytren",
+      "Stölzl",
+      "Waldenström"
+    ],
+    "bom_note": "5 documents carry a UTF-8 BOM which the shipped offsets count; stripped and shifted per DESIGN §9.7. In 2 of them the first gold span starts at index 0, so the annotated surface begins with the BOM; those spans are clipped to 0 and listed per document in bom_clipped_spans below.",
+    "bom_clipped_spans": {
+      "Baastrup": [
+        0
+      ],
+      "Dupuytren": [
+        0
+      ]
+    }
+  }
+}

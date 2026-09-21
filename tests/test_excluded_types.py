@@ -16,17 +16,37 @@ rather than in a module. The two properties worth pinning are therefore not abou
   2. The block is **not** derived from a loader's `excluded_types`, and is not its source.
      That attribute holds one corpus's own type names and drives the `excluded` flag at
      load. A derivation would silently shorten this list for a corpus whose loader is not
-     written yet — `de-grascco` contributes `NAME_TITLE` and has no loader today — and a
-     silently shortened list is indistinguishable from "nothing is excluded".
+     written yet, and a silently shortened list is indistinguishable from "nothing is
+     excluded". The two directions stay separate now that both corpora have loaders:
+     `src/corpora/grascco.py` spells `NAME_TITLE` because that is GraSCCo's own `kind`, and
+     `CORPUS_OWN_SPELLINGS` below is where that coincidence is declared.
 
     python3 -m pytest tests/test_excluded_types.py -q
 """
 from __future__ import annotations
 
+import ast
+from pathlib import Path
+
 import pytest
 
 from src.corpora import base
 from src.corpora.base import CorpusError, axis, excluded_types
+
+SRC = Path(__file__).resolve().parents[1] / "src"
+
+#: The one place a corpus's own type name is spelled the same as a §9.1 concept name, as
+#: `{relative path: {constant name: the values it may hold}}`. GraSCCo's `kind` for a title
+#: *is* `NAME_TITLE`, byte for byte, where MEDDOCAN's is `SEXO_SUJETO_ASISTENCIA` — so the
+#: exactness argument in `test_no_exclusion_name_is_spelled_in_a_module` stops separating the
+#: two spellings for this corpus and the site has to be named instead of inferred.
+#:
+#: Written out for the reason `tests/test_conftest.py`'s fixture classification is: a second
+#: corpus whose names collide has to be added here, in a commit, rather than inheriting an
+#: exemption that a pattern would have handed it silently.
+CORPUS_OWN_SPELLINGS = {
+    "corpora/grascco.py": {"EXCLUDED_TYPES": {"NAME_TITLE"}},
+}
 
 
 @pytest.fixture(autouse=True)
@@ -136,6 +156,42 @@ def test_the_accessor_returns_a_copy(monkeypatch):
     assert "INVENTED" not in excluded_types()
 
 
+def _declared_here(tree: ast.Module, relative: str) -> set[int]:
+    """Node ids of the constants `CORPUS_OWN_SPELLINGS` permits in this module.
+
+    Only module-level `NAME = ...` statements are consulted, and only for the constant
+    names the entry lists. A permitted value anywhere else in the same file — inside a
+    function, a prompt string, a second constant — is not in the returned set and is
+    reported like any other literal.
+    """
+    allowed_by_name = CORPUS_OWN_SPELLINGS.get(relative, {})
+    permitted: set[int] = set()
+    for stmt in tree.body:
+        if not isinstance(stmt, ast.Assign):
+            continue
+        for target in stmt.targets:
+            if not isinstance(target, ast.Name):
+                continue
+            values = allowed_by_name.get(target.id, set())
+            if not values:
+                continue
+            for node in ast.walk(stmt.value):
+                if isinstance(node, ast.Constant) and node.value in values:
+                    permitted.add(id(node))
+    return permitted
+
+
+def literal_sites(path: Path, tree: ast.Module, names: set[str]) -> list[str]:
+    """Every place `tree` holds one of `names` as a constant, exemptions applied."""
+    relative = path.as_posix().split("/src/")[-1]
+    permitted = _declared_here(tree, relative)
+    return [f"{relative}:{node.lineno} {node.value!r}"
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Constant)
+            and node.value in names
+            and id(node) not in permitted]
+
+
 def test_no_exclusion_name_is_spelled_in_a_module():
     """CLAUDE.md's rule, and the same shape as `test_the_tag_is_not_spelled_in_any_module`.
 
@@ -148,20 +204,63 @@ def test_no_exclusion_name_is_spelled_in_a_module():
     corpus-specific names like `SEXO_SUJETO_ASISTENCIA`. Those are not these names, and the
     check is exact rather than substring for that reason — otherwise the corpus-specific
     constant would trip a check meant for the corpus-independent one.
-    """
-    import ast
-    from pathlib import Path
 
+    `de-grascco` is where the exactness argument runs out: the corpus's own `kind` for a
+    title is spelled `NAME_TITLE`, the concept's own name. `CORPUS_OWN_SPELLINGS` names that
+    one declaration site, and what makes the exemption safe is that the loader's set is not
+    the list this test protects — the prompt reads `excluded_types()` from the config, and a
+    name dropped from a loader's own set does not shorten it but makes 139 spans neither
+    mapped nor excluded, which `classify()` refuses at load
+    (`tests/test_grascco_loader.py::test_unknown_annotation_type_raises`).
+    """
     names = set(excluded_types())
-    root = Path(__file__).resolve().parents[1] / "src"
-    offenders = []
-    for path in sorted(root.rglob("*.py")):
-        tree = ast.parse(path.read_text(encoding="utf-8"))
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Constant) and node.value in names:
-                offenders.append(f"{path}:{node.lineno} {node.value!r}")
+    offenders = [site
+                 for path in sorted(SRC.rglob("*.py"))
+                 for site in literal_sites(path, ast.parse(path.read_text(encoding="utf-8")),
+                                           names)]
     assert offenders == [], (
         f"an §9.1 exclusion name appears as a literal at {offenders}. The names are read "
         "from config/naming.yaml via excluded_types(); a module holding one is a second "
         "place the list can be shortened (CLAUDE.md)."
     )
+
+
+def test_the_exemption_covers_the_declaration_and_nothing_else():
+    """The positive control the exemption needs, or it is a hole rather than a carve-out.
+
+    Both halves are asserted against one synthetic module, parsed as a string and never
+    written: the permitted constant at the named module-level assignment is silent (line 1),
+    while the same name in a second module-level collection (line 2) and inside a function
+    (line 4) is still reported. Without this, `CORPUS_OWN_SPELLINGS` is consistent with an
+    implementation that exempts the whole file, or every `frozenset` in `src/`.
+    """
+    exempt = next(iter(CORPUS_OWN_SPELLINGS))
+    constant, values = next(iter(CORPUS_OWN_SPELLINGS[exempt].items()))
+    name = next(iter(values))
+    source = (
+        f"{constant} = frozenset({{{name!r}}})\n"
+        f"PROMPT_TYPES = [{name!r}]\n"
+        f"def describe():\n"
+        f"    return {name!r}\n"
+    )
+    sites = literal_sites(SRC / exempt, ast.parse(source), {name})
+    assert [site.split(":")[1].split(" ")[0] for site in sites] == ["2", "4"], (
+        f"the exemption for {exempt}::{constant} did not stay on its own line: {sites}"
+    )
+
+
+def test_every_exempt_site_is_a_file_that_exists_and_still_holds_the_name():
+    """An exemption for a file that moved, or for a literal that is gone, is stale.
+
+    The failure this prevents is the quiet one: a loader renamed or rewritten leaves an
+    entry that exempts a path nothing reads, and the next collision is covered by it.
+    """
+    for relative, by_name in CORPUS_OWN_SPELLINGS.items():
+        path = SRC / relative
+        assert path.is_file(), f"CORPUS_OWN_SPELLINGS names {relative}, which is not there"
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for constant, values in by_name.items():
+            assert _declared_here(tree, relative), (
+                f"{relative} no longer declares {constant} with {sorted(values)} at module "
+                "level; drop the exemption rather than leaving it to cover something else."
+            )

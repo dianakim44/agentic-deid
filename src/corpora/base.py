@@ -1015,8 +1015,10 @@ def excluded_types() -> dict[str, str]:
     `excluded` flag at load; it is corpus-specific and known only to the code that reads
     that corpus. This is the corpus-independent concept, in the spelling an agent is shown.
     Deriving this from the loaders would silently shorten the list on a corpus whose loader
-    is not written yet — `de-grascco` contributes `NAME_TITLE` and has no loader today — and
-    a silently shortened list is indistinguishable from "nothing is excluded".
+    is not written yet, and a silently shortened list is indistinguishable from "nothing is
+    excluded". The two spellings coincide for one corpus — GraSCCo's own `kind` for a title
+    is `NAME_TITLE` — which is a coincidence and not a derivation; `tests/`
+    `test_excluded_types.py` declares that single site and keeps the exemption to it.
     """
     value = naming().get("excluded_types")
     if not isinstance(value, dict) or not value:
@@ -1474,6 +1476,27 @@ class CorpusLoader:
         self._sealed_ok = False
         self._check_type_map()
 
+    def sealed_reachable(self) -> Path | None:
+        """The sealed root if this read may open it, `None` if it may not.
+
+        **The permission, in one place.** `fold_roots()` renders it for a corpus
+        whose directories are its folds; a corpus with a flat layout — GraSCCo ships
+        63 documents in one directory and carries no fold anywhere on disk — asks it
+        directly. Both have to ask the same question, because two answers to "may
+        the sealed fold be read" is the defect shape DESIGN §3 names for layers.
+
+        Note what this does *not* answer: whether any fold of the corpus is sealed
+        at all. That is a configuration fact (`sealed_root()`), and it is a different
+        question — an unsealed corpus reads its test fold from the corpus root, while
+        a sealed one refused permission reads it from nowhere. Conflating the two
+        would make a corpus with no `sealed:` entry look like a corpus whose seal was
+        refused, and the second must never silently become the first.
+        """
+        sealed = sealed_root(self.corpus_id)
+        if sealed is None or not self._sealed_ok:
+            return None
+        return sealed
+
     def fold_roots(self) -> dict[str, Path]:
         """Fold directory -> the root it lives under. The reachability decision.
 
@@ -1482,11 +1505,18 @@ class CorpusLoader:
         sealed fold that is not in this mapping is not skipped downstream — its
         directory is never looked at, so there is no later step that could forget.
 
-        A sealed fold appears here only when `_sealed_ok` is set, which only
-        `_authorise_sealed()` does, and only after the access has been logged.
+        A sealed fold appears here only when `sealed_reachable()` permits it, which
+        needs `_sealed_ok`, which only `_authorise_sealed()` sets and only after the
+        access has been logged.
         """
         if not self.fold_dirs:
-            raise CorpusError(f"{type(self).__name__} does not set fold_dirs")
+            raise CorpusError(
+                f"{type(self).__name__} sets no fold_dirs, so it has no fold "
+                "directories to hand out. A corpus whose layout does not encode the "
+                "fold must not call fold_roots(): it asks sealed_reachable() for the "
+                "same permission and takes its folds from splits/{corpus}.json, "
+                "which is the authority for every corpus anyway."
+            )
         unknown = sorted(set(self.fold_dirs.values()) - set(axis("split")))
         if unknown:
             raise CorpusError(
@@ -1497,9 +1527,10 @@ class CorpusLoader:
         roots: dict[str, Path] = {}
         for fold_dir, fold in self.fold_dirs.items():
             if fold in self.sealed_splits and sealed is not None:
-                if not self._sealed_ok:
+                permitted = self.sealed_reachable()
+                if permitted is None:
                     continue
-                roots[fold_dir] = sealed
+                roots[fold_dir] = permitted
             else:
                 roots[fold_dir] = self.root
         if self._sealed_ok:
@@ -1790,9 +1821,12 @@ class CorpusLoader:
 
 def _loaders() -> dict[str, type[CorpusLoader]]:
     """Imported lazily so one broken loader cannot break the others."""
-    from . import meddocan
+    from . import grascco, meddocan
 
-    return {meddocan.MeddocanLoader.corpus_id: meddocan.MeddocanLoader}
+    return {
+        meddocan.MeddocanLoader.corpus_id: meddocan.MeddocanLoader,
+        grascco.GrasccoLoader.corpus_id: grascco.GrasccoLoader,
+    }
 
 
 def loader_for(corpus_id: str, root: Path | None = None) -> CorpusLoader:

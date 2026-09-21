@@ -586,7 +586,12 @@ def test_unknown_corpus_id_raises():
 
 
 def test_known_corpus_without_a_loader_says_so():
-    """de-grascco is a real corpus id with no loader yet — a distinguishable
-    failure from a typo, because the fix is different."""
+    """es-carmen is a real corpus id with no loader yet — a distinguishable
+    failure from a typo, because the fix is different.
+
+    This test named `de-grascco` until 2026-09-21, when that corpus got a loader and
+    the test started asserting the opposite of what the registry now says. A test
+    whose subject is "the next corpus" has to be moved on rather than deleted; the
+    registry is `src/corpora/base._loaders`."""
     with pytest.raises(CorpusError, match="no loader yet"):
-        base.load("de-grascco")
+        base.load("es-carmen")
