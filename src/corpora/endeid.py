@@ -342,6 +342,19 @@ class EndeidLoader(CorpusLoader):
                 )
             if header is not None:
                 buf.append(line)
+                continue
+            if line.strip():
+                # Between records the release writes exactly one blank line — 2,434 of
+                # them, all of length 0 (measured). A non-blank line out here would be
+                # note text in no record, and ignoring it would drop that text from the
+                # corpus silently: it would be scored against nothing, so PHI in it
+                # could never be counted as a leak. It shifts no offset, which is
+                # precisely why nothing else would notice.
+                raise CorpusError(
+                    f"{self.corpus_id}: {path.name} line {lineno} has content and is "
+                    "outside every record. The release frames every line; refusing "
+                    "rather than dropping it."
+                )
         if header is not None:
             raise CorpusError(
                 f"{self.corpus_id}: {path.name} ends inside an open record"

@@ -63,38 +63,80 @@ def sealed_splits() -> tuple[str, ...]:
 # ─── routing a file's raw lines by record ──────────────────────────────────────
 
 
+def patient_folds(lines: list[str], fold_of: dict[str, str]) -> dict[str, str]:
+    """patient id -> fold, read from `id.text`'s own headers.
+
+    Needed for the nine records that carry no reference: they are in no fold because the
+    loader does not load them, and they still have to go somewhere. Their patient decides
+    — one of the nine belongs to a patient in the test fold, and leaving that record in
+    the corpus root would put a sealed patient's note text where rule development reads
+    it. There is no gold to leak, and the text is the other half of the seal.
+
+    Built from the headers rather than by splitting the split file's document ids: the
+    composition `{patient}_{note}` is made here, in this file and the loader, and taking
+    it apart again elsewhere would be a second answer to which half is the patient.
+    """
+    out: dict[str, str] = {}
+    for line in lines:
+        match = _RECORD_START_RE.match(line)
+        if match is None:
+            continue
+        patient, note = match.group(1), match.group(2)
+        fold = fold_of.get(f"{patient}_{note}")
+        if fold is None:
+            continue
+        if out.setdefault(patient, fold) != fold:
+            raise SystemExit(
+                f"splits/{CORPUS}.json puts one patient's notes in more than one fold "
+                f"({out[patient]} and {fold}). The folds are patient-disjoint by "
+                "construction, so this is a corrupted split file — do not seal."
+            )
+    return out
+
+
 def split_text(lines: list[str], fold_of: dict[str, str]) -> dict[str, list[str]]:
     """`id.text`'s lines, routed by the fold of the record they belong to.
 
-    A line outside any record raises: the release has none, and silently dropping one
-    would remove bytes from whichever destination it belonged in.
+    The release writes one blank line after each record — 2,434 of them, every one of
+    length 0 (measured). Those go with the record they follow, so each destination file
+    keeps the shape the loader reads: START / body / END / blank, repeated. A **non-blank**
+    line outside every record raises, here and in the loader, because it would be note
+    text belonging to no record and either destination would be the wrong one.
     """
+    by_patient = patient_folds(lines, fold_of)
     out: dict[str, list[str]] = {}
     buf: list[str] = []
     doc_id: str | None = None
+    patient: str | None = None
+    last_fold: str | None = None
     for lineno, line in enumerate(lines, 1):
         match = _RECORD_START_RE.match(line)
         if match is not None:
             if doc_id is not None:
                 raise SystemExit(f"{TEXT_FILE} line {lineno}: record opened inside one")
-            doc_id = f"{match.group(1)}_{match.group(2)}"
+            patient = match.group(1)
+            doc_id = f"{patient}_{match.group(2)}"
             buf = [line]
             continue
         if doc_id is None:
+            if not line.strip() and last_fold is not None:
+                out[last_fold].append(line)
+                continue
             raise SystemExit(
-                f"{TEXT_FILE} line {lineno} is outside every record. The release has "
-                "no such line; refusing rather than deciding where it goes."
+                f"{TEXT_FILE} line {lineno} is outside every record and is not one of "
+                "the blank separators. Refusing rather than deciding where it goes."
             )
         buf.append(line)
         if line.strip() == _END_MARK:
-            fold = fold_of.get(doc_id)
+            fold = fold_of.get(doc_id) or by_patient.get(patient)
             if fold is None:
                 raise SystemExit(
-                    f"{TEXT_FILE}: a record is in no fold of splits/{CORPUS}.json. "
-                    "The split file and the release disagree; do not seal."
+                    f"{TEXT_FILE}: a record is in no fold of splits/{CORPUS}.json and "
+                    "neither is any other note of its patient, so nothing says which "
+                    "side of the seal it belongs on. Refusing."
                 )
             out.setdefault(fold, []).extend(buf)
-            doc_id, buf = None, []
+            doc_id, patient, buf, last_fold = None, None, [], fold
     if doc_id is not None:
         raise SystemExit(f"{TEXT_FILE} ends inside an open record")
     return out
@@ -150,6 +192,20 @@ def split_types(lines: list[str], fold_of: dict[str, str]) -> dict[str, list[str
 
 
 ROUTERS = {TEXT_FILE: split_text, OFFSETS_FILE: split_offsets, TYPES_FILE: split_types}
+
+
+def _records(name: str, lines: list[str]) -> str:
+    """`, N records` for the two files that frame them, empty for the third.
+
+    Lines are what is routed and records are what the seal is about, so both are
+    printed. Counted from the written lines rather than tracked alongside, so the
+    figure describes the file that now exists.
+    """
+    if name == TEXT_FILE:
+        return f", {sum(1 for line in lines if _RECORD_START_RE.match(line)):5} records"
+    if name == OFFSETS_FILE:
+        return f", {sum(1 for line in lines if _DEID_HEADER_RE.match(line)):5} records"
+    return ""
 
 
 # ─── stages ────────────────────────────────────────────────────────────────────
@@ -242,7 +298,7 @@ def cmd_seal() -> int:
             for line in routed[name].get(fold, [])
         ]
         (sealed / name).write_text("\n".join(kept) + "\n", encoding="utf-8")
-        print(f"sealed  {name:16} {len(kept)} lines")
+        print(f"sealed  {name:16} {len(kept):6} lines{_records(name, kept)}")
     for name in FILES:
         kept = [
             line
@@ -251,7 +307,7 @@ def cmd_seal() -> int:
             for line in routed[name].get(fold, [])
         ]
         (root / name).write_text("\n".join(kept) + "\n", encoding="utf-8")
-        print(f"root    {name:16} {len(kept)} lines")
+        print(f"root    {name:16} {len(kept):6} lines{_records(name, kept)}")
 
     print(
         f"\n{CORPUS}: {', '.join(folds)} moved out of the corpus root. Verify with\n"

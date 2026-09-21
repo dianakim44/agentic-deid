@@ -250,17 +250,6 @@ def endeid_unsplit_loader(endeid_present: str):
 
 
 @pytest.fixture(scope="session")
-def endeid_docs(endeid_unsplit_loader):
-    """Every loaded record, once per session.
-
-    Session-scoped because `load()` parses three files and asserts 1,779 offsets, and a
-    dozen tests want the same result. The loader is the unsplit one so that a test about
-    the split file is not reading the split file to ask its question.
-    """
-    return endeid_unsplit_loader.load()
-
-
-@pytest.fixture(scope="session")
 def unsplit_loader(corpus_present: str):
     """The loader with `use_split_file=False`, for the tests that check the split file.
 

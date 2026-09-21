@@ -53,6 +53,8 @@ AVAILABILITY = {
     "terminated_arm_path",
     "grascco_present",
     "grascco_sealed",
+    "endeid_present",
+    "endeid_sealed",
 }
 CONSTRUCTION = {
     "loader",
@@ -60,6 +62,8 @@ CONSTRUCTION = {
     "terminated_arm_record",
     "grascco_loader",
     "grascco_unsplit_loader",
+    "endeid_loader",
+    "endeid_unsplit_loader",
 }
 
 #: Calls an availability fixture may make. Both answer from a configured path and can
