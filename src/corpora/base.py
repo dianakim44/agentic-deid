@@ -1274,6 +1274,34 @@ def corpus_root(corpus_id: str) -> Path:
     return _resolve(raw, corpus_id)
 
 
+def corpus_root_to_create(corpus_id: str) -> Path:
+    """The configured corpus path, existing or not, for the one caller that builds it.
+
+    `corpus_root` requires the directory to be there, which is right for every reader:
+    a missing corpus is a configuration error and not an empty corpus. `en-deid`'s root
+    is *derived* — `tools/prepare_endeid.py` writes it from the source release — so that
+    tool needs the path before it exists.
+
+    A separate function rather than a `must_exist=False` flag on `corpus_root`: a flag
+    is something a loader can pass, and a loader that resolved a non-existent root would
+    report an empty corpus instead of a missing one.
+    """
+    path = Path(os.path.expanduser(str(corpus_root_raw(corpus_id))))
+    return path if path.is_absolute() else ROOT / path
+
+
+def corpus_root_raw(corpus_id: str) -> str:
+    """The configured string for a corpus, unexpanded and unvalidated."""
+    with open(DATA_PATHS, encoding="utf-8") as fh:
+        mapping = (yaml.safe_load(fh) or {}).get("corpora") or {}
+    raw = mapping.get(corpus_id)
+    if not raw:
+        raise CorpusError(
+            f"config/data_paths.local.yaml has no path for {corpus_id!r}."
+        )
+    return str(raw)
+
+
 def _resolve(raw: str, corpus_id: str) -> Path:
     """Expand and validate a configured path.
 
@@ -1497,6 +1525,21 @@ class CorpusLoader:
     #: comparison somewhere else in the code.
     sealed_splits: tuple[str, ...] = ("test",)
 
+    #: Whether the corpus ships a patient identifier, which is DESIGN §9.5's first
+    #: branch: with a key the split is patient-disjoint, and the identifying-surface
+    #: rule is the fallback for corpora without one. **Declared, never inferred.**
+    #: Asking instead whether `patient_key()` returns something would classify a
+    #: half-implemented loader as having a key, and the consequence is a split whose
+    #: groups are documents while the file says they are patients — the same defect
+    #: shape as deriving a span's `layer` from its detector's name (DESIGN §3).
+    has_patient_key: bool = False
+
+    #: Where that key comes from, in one phrase, for the split file's grouping audit.
+    #: The audit has to say what was grouped on — "patient-disjoint" is not auditable
+    #: without it, because a reader cannot tell a key the corpus ships from a prefix
+    #: someone parsed out of a filename. Empty unless `has_patient_key`.
+    patient_key_source: str = ""
+
     #: Fold directory name -> naming.yaml split value, in load order. A mapping
     #: rather than a list of names because MEDDOCAN's directories happen to be
     #: named after the folds and no other corpus is promised to be — a corpus whose
@@ -1623,6 +1666,47 @@ class CorpusLoader:
 
     def _read(self) -> Iterator[Document]:
         raise NotImplementedError
+
+    def source_files(self, doc_id: str) -> list[Path]:
+        """The files one document is made of. Overridden by every loader.
+
+        Declared here so that the one caller — the split file's per-document digest —
+        has a name to call on any loader, and so that a loader for which the question
+        has no answer refuses it explicitly rather than by `AttributeError`. `en-deid`
+        is that loader: all 2,434 of its documents are records inside the same three
+        files (`src/corpora/endeid.py`), so it raises and overrides `digest_parts()`
+        instead.
+        """
+        raise NotImplementedError(
+            f"{type(self).__name__} does not implement source_files()"
+        )
+
+    def patient_key(self, doc: Document) -> str:
+        """Which patient this document is about. Only for `has_patient_key` loaders.
+
+        Raises rather than returning the document id, because a fallback here is a
+        patient-disjoint split that is really a document-random one — the partition
+        CLAUDE.md forbids outright — announced in the split file as patient-disjoint.
+        """
+        raise CorpusError(
+            f"{type(self).__name__} has no patient key. DESIGN §9.5's first branch "
+            "needs one; without it the grouping comes from the identifying-surface "
+            "rule, and this method must not be called."
+        )
+
+    def digest_parts(self, doc: Document) -> list[tuple[str, bytes]]:
+        """One document's named byte parts, for the split file's per-document digest.
+
+        Default: its files, named by filename. That is the whole answer for a corpus
+        with a file per document, and it is why this is a hook rather than two
+        code paths in `src/split.py` — `en-deid` has no file per document and hashes
+        the record's own bytes, and the hashing itself must stay one function so that
+        two corpora's digests cannot come to mean different things.
+
+        The default reproduces the earlier `digest_document(source_files(...))` byte for
+        byte, so digests already recorded in a frozen split file stay valid.
+        """
+        return [(path.name, path.read_bytes()) for path in self.source_files(doc.doc_id)]
 
     # -- shared machinery --
 
@@ -1872,11 +1956,12 @@ class CorpusLoader:
 
 def _loaders() -> dict[str, type[CorpusLoader]]:
     """Imported lazily so one broken loader cannot break the others."""
-    from . import grascco, meddocan
+    from . import endeid, grascco, meddocan
 
     return {
         meddocan.MeddocanLoader.corpus_id: meddocan.MeddocanLoader,
         grascco.GrasccoLoader.corpus_id: grascco.GrasccoLoader,
+        endeid.EndeidLoader.corpus_id: endeid.EndeidLoader,
     }
 
 

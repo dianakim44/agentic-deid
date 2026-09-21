@@ -27,8 +27,16 @@ corpora:
   # 경로는 각자 다르다. data/acquire/fetch_carmen.sh 를 읽을 것.
   es-carmen:   ~/path/to/carmen-i
 
+  # ko-surro 는 원천 배포본 디렉토리, en-deid 는 그 배포본에서 만든 파생
+  # 디렉토리다. 한 배포본의 두 절반이지만 경로가 다른 이유는 봉인이다 —
+  # en-deid 는 2,434 레코드가 세 파일 안에 들어 있어서 test fold 를 빼내려면
+  # 파일을 다시 써야 하고, 원천 배포본은 읽기 전용으로 둔다.
+  # tools/prepare_endeid.py 가 만든다. 분할 도출 방향도 정해져 있다
+  # (DESIGN §6.5: en-deid 를 먼저 정의하고 ko-surro 를 도출한다).
+  ko-surro:    ~/path/to/deid-release
+  en-deid:     data/raw/en-deid
+
   # 아직 취득하지 않음. 취득하면 주석을 풀고 경로를 적는다.
-  # ko-surro:  ~/path/to/ko-surro
   # en-n2c2:   ~/path/to/n2c2-2014
 
 # ─── 봉인된 test fold ───────────────────────────────────────
@@ -47,8 +55,12 @@ corpora:
 #     구분되어야 하므로 비워두는 것이 기본값이다.
 sealed:
   es-meddocan: sealed/es-meddocan
+  de-grascco:  sealed/de-grascco      # 2026-09-21 봉인
 
-  # de-grascco 와 es-carmen 은 아직 분할을 만들지 않았다. splits/{corpus}.json
-  # 을 커밋한 뒤 같은 순서(생성 → 동결 → 봉인)로 봉인한다.
-  # de-grascco: sealed/de-grascco
+  # es-carmen 은 아직 분할을 만들지 않았다. splits/{corpus}.json 을 커밋한 뒤
+  # 같은 순서(생성 → 동결 → 봉인)로 봉인한다.
   # es-carmen:  sealed/es-carmen
+  # en-deid:    sealed/en-deid
+  #
+  # ko-surro 항목은 en-deid 의 분할에서 도출되므로 손으로 적지 않는다.
+  # tools/derive_aligned_split.py 를 읽을 것 (DESIGN §6.5).

@@ -51,6 +51,12 @@ CORPUS = "es-meddocan"
 #: The second corpus with a loader, since 2026-09-21 (`src/corpora/grascco.py`).
 GRASCCO = "de-grascco"
 
+#: The third, since 2026-09-21 (`src/corpora/endeid.py`). Its root is *derived* — built
+#: from the shared PhysioNet release by `tools/prepare_endeid.py` — so on a machine that
+#: has the release and has not run that tool, these fixtures skip. That is the same
+#: "corpus not here" the other two mean, and it is still answered from the path alone.
+ENDEID = "en-deid"
+
 #: The arm whose dev record `terminated_arm_record` answers for: the only one in the tree
 #: that has terminated with a reason and a round count, which is what DESIGN §6.4 requires
 #: before a sealed opening. Kept beside the fixture rather than in the test file, because a
@@ -193,6 +199,65 @@ def grascco_unsplit_loader(grascco_present: str):
     from src.corpora.grascco import GrasccoLoader
 
     return GrasccoLoader(use_split_file=False)
+
+
+@pytest.fixture(scope="session")
+def endeid_present() -> str:
+    """Availability of the third corpus, asked separately for `grascco_present`'s reason.
+
+    One extra thing is true here and is deliberately *not* checked: this root is derived,
+    so "absent" can mean either the release is not on this machine or `prepare_endeid.py`
+    has not been run. Distinguishing those would mean resolving the release path too, and
+    the whole value of this fixture is that it resolves one path and does nothing else.
+    The message says which tool builds the root instead.
+    """
+    from src.corpora.base import CorpusError, corpus_root
+
+    try:
+        corpus_root(ENDEID)
+    except CorpusError as exc:
+        pytest.skip(
+            f"{ENDEID} not on this machine: {exc} "
+            "(the root is built by tools/prepare_endeid.py stage)"
+        )
+    return ENDEID
+
+
+@pytest.fixture(scope="session")
+def endeid_sealed(endeid_present: str) -> str:
+    """Present *and* sealed, asked separately for `sealed_corpus`'s reason exactly."""
+    from src.corpora import base
+
+    if base.sealed_root(endeid_present) is None:
+        pytest.skip(f"{endeid_present} is not sealed on this machine")
+    return endeid_present
+
+
+@pytest.fixture(scope="session")
+def endeid_loader(endeid_present: str):
+    """The en-deid loader, constructed. No `try`, for `loader`'s reason exactly."""
+    from src.corpora.endeid import EndeidLoader
+
+    return EndeidLoader()
+
+
+@pytest.fixture(scope="session")
+def endeid_unsplit_loader(endeid_present: str):
+    """The en-deid loader with no split file, for the tests that check the split file."""
+    from src.corpora.endeid import EndeidLoader
+
+    return EndeidLoader(use_split_file=False)
+
+
+@pytest.fixture(scope="session")
+def endeid_docs(endeid_unsplit_loader):
+    """Every loaded record, once per session.
+
+    Session-scoped because `load()` parses three files and asserts 1,779 offsets, and a
+    dozen tests want the same result. The loader is the unsplit one so that a test about
+    the split file is not reading the split file to ask its question.
+    """
+    return endeid_unsplit_loader.load()
 
 
 @pytest.fixture(scope="session")

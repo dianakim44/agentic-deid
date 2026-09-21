@@ -19,6 +19,7 @@ axes:
     es-meddocan:   MEDDOCAN, Spanish synthetic clinical case studies
     de-grascco:    GraSCCo, German synthetic clinical narratives
     es-carmen:     CARMEN-I, authentic Hospital Clinic de Barcelona records; Spanish with within-document Catalan
+    en-deid:       PhysioNet Deidentified Medical Text, authentic English nursing notes; the release ko-surro derives from
     en-n2c2:       n2c2 2014 de-identification corpus (optional, portal status unclear)
 
   # ─── 탐지 구성 ─────────────────────────────────────────────
@@ -873,6 +874,7 @@ corpus_rule_langs:
   es-carmen:    [es, cat]
   de-grascco:   [de]
   ko-surro:     [ko]
+  en-deid:      [en]
   en-n2c2:      [en]
 
 # ─── 산출물 경로 ─────────────────────────────────────────────

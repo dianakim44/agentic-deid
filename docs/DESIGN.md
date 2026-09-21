@@ -4304,6 +4304,73 @@ that non-nursing categories were the plan. Link 2 is checked as an early post-ac
 measurement, before the fold is sampled, so that the fallback is chosen before anything
 depends on it.
 
+#### The same question, a different pair — `en-deid` × `ko-surro`, decided 2026-09-21
+
+Everything above is about `ko-surro` and MIMIC-III and is dormant. **A second instance of
+the same question is now live, and it is not that one.** The source release itself — the
+2,434 English nursing notes `ko-surro` descends from — is taken as a corpus in its own
+right, `en-deid` (§7.1 below). So the two corpora are the surrogate and its own source,
+and the overlap is not partial and uncertain: it is **total and exactly known**.
+
+| | MIMIC-III × `ko-surro` (above) | `en-deid` × `ko-surro` (here) |
+|---|---|---|
+| links needed | 1 and 2 | **1 only** — there is no third dataset |
+| link status | 1 established, 2 open | 1 established, and it is the whole correspondence |
+| overlap | unknown, bounded above by 2,434 | **2,434 of 2,434** |
+| decision | D + A, dormant | **B, with `en-deid`'s split defined first** |
+
+**B is adopted: corresponding documents take the same fold role in both corpora, and
+`splits/en-deid.json` is the one defined first.** `ko-surro`'s fold assignment is
+*derived* from it through link 1's `{patient identifier}_{note index}` key.
+
+**What must be fixed before `en-deid`'s split is committed is the derivation, not a second
+file.** B's stated expiry is that the split defined second has to be derived from the
+first, and a file cannot be derived from one that does not exist yet. `ko-surro`'s text is
+not on this machine — `corpora.ko-surro` resolves to the source release, which is
+`en-deid`'s root — so a `splits/ko-surro.json` written today would carry fold contents
+(documents, tokens, spans per fold) that nobody measured, in a schema whose whole purpose
+is that a reader need not re-read the corpus to know what a fold held. Committing that to
+satisfy a procedural reading of B would put an unverified assertion where the seal's
+reference point goes. So what is committed with `en-deid`'s split is the derivation itself
+— `tools/derive_aligned_split.py`, which maps a `ko-surro` document to the fold its source
+note occupies and refuses any document whose source note `en-deid`'s split does not
+assign. B is preserved exactly: when the Korean corpus arrives, its split is already
+determined and nothing about it remains free.
+
+**The ground on which B was refused above does not hold in this configuration, and saying
+why is owed.** That refusal was not expiry but "computing the intersection reads the seal":
+aligning documents requires knowing which fold each counterpart occupies, and for the
+sealed half that was read as a query against sealed membership. **Fold membership is not
+sealed.** `splits/{corpus}.json` is a committed, readable artefact — CLAUDE.md seals the
+test fold's *text* into `sealed/` and keeps membership in the split file — and §6.1's
+concern is a result measured on sealed text shaping a choice. The derivation reads one
+visible split file and one identifier per document; it consults no text, opens no `sealed/`
+path, and depends on no measurement. The distinction was available on 2026-08-27 and was
+not drawn then, so the refusal overstated its ground. This is recorded as a correction to
+the argument, not to the decision.
+
+**D is untouched, and it never rested on that ground alone.** Its first and third grounds —
+B can be lost by inaction, and D leaves no post-hoc degrees of freedom — are unaffected by
+anything here, and D needs link 2, which this pair does not involve at all. If a MIMIC-III
+arm ever exists, D binds it as written.
+
+**What B buys, and what it costs.** It buys §7.1's item (iii), the English/Korean pair at
+fixed note type, which that section calls the sharpest single prediction §7 makes — and it
+buys it without discarding a document from either side, which matters because A applied to
+`ko-surro` is the one thing §7.1 route (b) says it cannot afford (δ fails there by 2×–9×).
+Independent splits would have been strictly worse than either option: with no alignment
+about three quarters of each corpus's sealed documents would sit in the other's dev fold
+while both per-corpus checks reported the seal intact — the failure this section opened
+with, avoidable here by construction. The cost is that `ko-surro`'s split is no longer
+free. It is a function of `en-deid`'s, permanently, and a resampling of one is a resampling
+of both.
+
+**Alignment is at document level only.** The human reference's offsets index `id.text`;
+`ko-surro` is Korean text derived from `id.res`, and 59 of the 1,779 gold spans have no
+Korean counterpart at all (`ko-surro-gold-provenance.md` §7). A document's fold role
+transfers; a span's does not. Nothing here licenses scoring one corpus with the other's
+reference.
+
 ### 6.6 The MIMIC-III arm's pre-registration — three things that freeze together, 2026-08-27
 
 > **Status, corrected 2026-08-27: pre-registered and dormant.** The MIMIC-III application
@@ -5667,6 +5734,54 @@ without MIMIC-III, because MIMIC-III is English and adds nothing at Spanish's ba
 value. A second Spanish register remains the acquisition that closes §7.1; MIMIC-III
 changes how urgent it is, not whether it is needed.
 
+#### The English cell is populated without MIMIC-III — pre-registered 2026-09-21
+
+The paragraph above gates item (iii) on §6.5 and items (i)–(ii) on MIMIC-III. §6.5 is now
+decided for this pair (B, `en-deid` first), and **MIMIC-III turns out not to be the only
+route to the high-baseline end.** The release `ko-surro` descends from is itself a corpus of
+2,434 English nursing notes; it is held; and unlike MIMIC-III it ships a **human
+reference** — 1,779 expert-reviewed PHI spans in `id.deid` / `id-phi.phrase`, with the parse
+externally validated against the package's own published recall and false-negative counts
+(`ko-surro-gold-provenance.md` §5). It enters the corpus axis as `en-deid`.
+
+**Which of the four options this is: A.** `ko-surro-gold-provenance.md` §9 left the English
+cell open with four options and required the choice to be pre-registered here before any arm
+ran. The choice is **A — run the arm on `id.text` and score against `id.deid`.** Its ground
+for is unchanged from §9: a human reference of the strength §7 assumes, comparable with
+`es-meddocan` and `de-grascco` on the same footing. Its two grounds against are accepted as
+stated and neither is repaired here:
+
+- **The corpus cannot iterate.** At 1,779 reference spans, ≈0.91 in scope and 25% dev, δ
+  would be ≈6.4 pp — unusable as a termination threshold. So `en-deid` runs **single-call
+  arms only**, and no `port-loop`/`port-multi` figure on it is admissible. This is the same
+  constraint that made `de-grascco`'s arm a single call, arrived at independently.
+- **The two halves of the cell have different access terms.** `id.text` is DUA-restricted;
+  the reference is open access (ODC-By v1.0). Both are read through
+  `config/data_paths.local.yaml` like any other corpus, and nothing printed from either half
+  carries note text.
+
+**B, C and D are refused, and the refusals are recorded rather than the choice alone.** D
+(leave the cell a projection) is refused because the measurement is now available at the
+cost of one call. B (score `ko-surro` against its silver reference instead) is refused for
+the reason §9 states — precision 0.746 against human gold makes a leak rate on it
+incommensurable with this project's headline figure — and it is not foregone: it becomes
+available whenever the Korean corpus is in hand, on a split already determined by §6.5's
+derivation. C (run both and publish the gap as the calibration) is refused **for now and not
+on principle**: it costs a second arm, and its calibration is measured on English while the
+claim it licenses is about Korean. The alignment decided in §6.5 is what keeps C reachable
+later without redoing a split.
+
+**What changes in the three items above, and what does not.**
+
+| item | with `en-deid` |
+|---|---|
+| (i) operative count 1 → 2 | **yes**, and against a human reference rather than a masking tool's output — strictly stronger than the MIMIC-III route, so the "populated by a silver measurement" qualifier does not apply to this cell |
+| (ii) English gains *within-corpus* axis-2 variation | **no.** The release is nursing-only. This item still needs MIMIC-III and stays unpopulated |
+| (iii) the English/Korean pair at fixed note type | **unblocked**, and now the pair is a corpus and its own source rather than two corpora sharing a parent. Running the Korean half still needs the Korean text |
+
+The prescription is unchanged: a second Spanish register is what closes the interior, and
+`en-deid` populates an end.
+
 ### 7.2 Meddies-PII is cited, not used — decided 2026-09-17
 
 Meddies-PII (arXiv:2609.12544; HuggingFace `Meddies/meddies-pii`,
@@ -5884,6 +5999,80 @@ in §6.7 together with what the Mapper is evaluated on instead. `docs/prompts/ma
 §4 is the operative statement of the comparison procedure. On a corpus this table has
 no row for, the mapping is load-bearing and `applied` reads `agent`; §6.7 records that
 as an open question rather than a permission.
+
+#### `en-deid`'s ten source types — added 2026-09-21, before the arm
+
+A third corpus, and it is not added to the table above as a column: its reference is a
+different artefact from the two annotation files (offsets in `id.deid`, types positionally in
+`id-phi.phrase`), the per-type counts below are over 1,779 spans rather than tens of
+thousands, and a five-column table invites reading the three counts as comparable volumes
+when two of the ten canonical types have no gold here at all.
+
+| canonical | `en-deid` source types | n |
+|---|---|---|
+| `NAME` | `HCPName` 593, `RelativeProxyName` 175, `PTName` 54, `PTNameInitial` 2 | 824 |
+| `DATE` | `Date` 482, `DateYear` 46 | 528 |
+| `LOCATION_AREA` | `Location` 367 | 367 |
+| `CONTACT` | `Phone` 53 | 53 |
+| `AGE` | `Age` 4 | 4 |
+| `OTHER` | `Other` 3 | 3 |
+| `LOCATION_STREET`, `ORGANISATION`, `ID`, `PROFESSION` | — | **0** |
+| **canonical total** | | **1,779** |
+| **excluded (§9.1)** | | **0** |
+
+Nothing is excluded: the release has no sex, relationship-word or title category, so §9.1's
+three exclusions have no counterpart here and `n_spans_excluded` is 0 rather than unreported.
+
+**`RelativeProxyName` is `NAME`, and that does not conflict with §9.1's `FAMILIARES_*`.**
+§9.1 excludes relationship *words* — `madre`, `familia` — because a common noun is not a
+Safe Harbor identifier. This label marks a relative's or proxy's **name**, which is, and
+GraSCCo's `NAME_RELATIVE` is already mapped to `NAME` in the table above on that basis.
+
+**`DateYear` is `DATE`, measured rather than assumed.** Its 46 spans are 2 or 4 characters
+long (28 and 17; one of 5) and 40 of the 46 lie more than three characters from any other
+gold span, so they are standalone year mentions and not the year component of a marked date.
+A bare year is not itself a Safe Harbor element, which is an argument for excluding it — and
+the argument is refused because it would make this corpus's `DATE` denominator differ *in
+kind* from the other two. MEDDOCAN's `FECHAS` and GraSCCo's `DATE` do not separate years
+out, so excluding the one corpus that distinguishes them would remove spans from the English
+`DATE` row that the Spanish and German rows still contain. §9.0's `subtype` field keeps the
+distinction: a year-only analysis on `en-deid` is available, and cross-corpus `DATE` stays
+one type.
+
+**`Location` is the real difficulty, and it is §7.2's ground 2 arriving in a corpus we have
+to use.** The label is undifferentiated: it covers what our set separates into
+`LOCATION_AREA`, `LOCATION_STREET` and, in part, `ORGANISATION`. The package README does not
+define the categories, and recovering the distinction from the annotated surfaces is the
+inference §9.2 refuses and §7.2 refuses again — a label produced by inference is not gold.
+§7.2 names the only admissible move for exactly this shape: **merge ours down to one for this
+corpus.** So `Location` → `LOCATION_AREA`, and three consequences are stated now rather than
+discovered in the numbers:
+
+- **`en-deid`'s location rows are not comparable across corpora.** `LOCATION_AREA` here is a
+  coarser type than `LOCATION_AREA` elsewhere. Any cross-corpus location comparison this
+  corpus takes part in is invalid, in both directions.
+- **A correct street or hospital detection scores as a false positive, and is also a leak.**
+  §9.3 requires type equality in both matching modes, so a `LOCATION_STREET` prediction over
+  a gold `Location` span matches nothing: it is counted against precision *and* the gold span
+  is counted as uncovered. That is a double penalty no definition of gold can repair here,
+  and it is a stronger version of §7.2's "declared type with zero instances" case — the gold
+  span exists and its type cannot be matched. Predictions of `LOCATION_STREET` and
+  `ORGANISATION` on `en-deid` are therefore counted and reported separately, so the size of
+  the artefact is visible next to the number it distorts.
+- **`ID` and `PROFESSION` are silence, not zero.** The release declares no category for
+  either, so an identifier or an occupation in the text may be a true positive scored as a
+  false one. This is §7.2's first bullet in its own words, and the reason `en-deid`'s
+  aggregate precision is a **lower bound**. Its recall is not affected.
+
+**Nine documents carry no reference at all and are excluded at document level.** `id.deid`
+frames 2,425 of the 2,434 records with a `Patient … Note …` header; 1,690 of those headers
+carry zero spans, which is an assertion that the record holds no PHI. Nine records have no
+header, which is not that assertion — it is absence of coverage, and a prediction anywhere in
+them is uncheckable. They are dropped by the loader and counted: 9 of 2,434 records, 0.37%.
+The denominator is records and not characters, because the unit of coverage is a record — a
+record either has a reference or it does not.
+This is not §9.1's mechanism: §9.1 keeps a span and flags it,
+and here there are no spans to keep.
 
 ### 9.1 Excluded from the canonical set
 

@@ -116,19 +116,35 @@ def digest_file(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def digest_document(paths: Sequence[Path]) -> str:
-    """One digest per document, over its files in sorted-name order.
+def digest_material(parts: Sequence[tuple[str, bytes]]) -> str:
+    """One digest per document, over its named byte parts in sorted-name order.
 
     Per document rather than per file because the document is the unit the folds
     are made of: when a re-release changes three files, what matters is whether
     those documents are in the sealed fold.
+
+    Named *parts* rather than files because `en-deid` has no file per document — all
+    2,434 of its records live inside three files, and its `digest_parts()` supplies the
+    record's own bytes instead. One hashing function for both, so that two corpora's
+    digests cannot come to mean different things; `digest_document` below is this
+    function applied to files, which is what the two frozen split files recorded.
     """
     sha = hashlib.sha256()
-    for path in sorted(paths, key=lambda p: p.name):
-        sha.update(path.name.encode("utf-8"))
+    for name, payload in sorted(parts, key=lambda part: part[0]):
+        sha.update(name.encode("utf-8"))
         sha.update(b"\0")
-        sha.update(path.read_bytes())
+        sha.update(payload)
     return sha.hexdigest()
+
+
+def digest_document(paths: Sequence[Path]) -> str:
+    """`digest_material` over a document's files, named by filename.
+
+    Kept as its own name because it is what `tests/test_split_file.py` recomputes
+    against `splits/es-meddocan.json`: the digests in the two frozen files were
+    produced by this and must keep verifying byte for byte.
+    """
+    return digest_material([(path.name, path.read_bytes()) for path in paths])
 
 
 def manifest_digest(per_document: dict[str, str]) -> str:
@@ -428,10 +444,112 @@ def group_units(corpus_id: str, docs: Sequence[Document], audit: dict) -> list[l
     return units
 
 
+def patient_key_audit(
+    corpus_id: str, docs: Sequence[Document], loader: base.CorpusLoader
+) -> dict:
+    """DESIGN §9.5's *first* branch: the corpus ships a patient key, so group on it.
+
+    Steps 1–3 — the stem pattern, the identifying-surface comparison, one group per
+    document — are the fallback for a corpus with no key, and they do not run here. That
+    is recorded rather than left implicit: "patient-disjoint" and "no surface agreed, so
+    each document stood alone" are different claims that would otherwise produce
+    audit blocks distinguishable only by which keys happen to be present.
+
+    The key is read through `loader.patient_key`, which raises rather than falling back
+    to the document id, so a loader that declares a key and does not supply one fails
+    here instead of producing a document-random split labelled patient-disjoint.
+
+    No surface is compared and none is recorded, so this block is safe for a
+    DUA-restricted corpus for the same reason `grouping_audit`'s is — and here trivially,
+    since the key is the release's own record field.
+    """
+    if not loader.has_patient_key:
+        raise CorpusError(
+            f"{corpus_id}: patient_key_audit called for a loader that declares no "
+            "patient key. The branch is chosen from that declaration (DESIGN §9.5)."
+        )
+    if not loader.patient_key_source:
+        raise CorpusError(
+            f"{corpus_id}: the loader declares a patient key but no "
+            "`patient_key_source`, so the audit could not say what was grouped on. A "
+            "split file claiming patient-disjoint folds without naming the key is not "
+            "auditable (DESIGN §9.5 step 4)."
+        )
+
+    by_key: dict[str, list[str]] = {}
+    for doc in docs:
+        by_key.setdefault(loader.patient_key(doc), []).append(doc.doc_id)
+    per_patient = [len(ids) for ids in by_key.values()]
+
+    return {
+        "rule_ref": "DESIGN.md §9.5",
+        "branch": "patient key (§9.5 first branch)",
+        "key_source": loader.patient_key_source,
+        "n_patients": len(by_key),
+        "n_documents": len(docs),
+        "documents_per_patient": {
+            **_percentiles(per_patient),
+            "mean": round(len(docs) / len(by_key), 2),
+        },
+        "n_patients_with_one_document": sum(1 for n in per_patient if n == 1),
+        "identifying_surface_rule": (
+            "did not run. §9.5 steps 1–3 are the fallback for a corpus with no patient "
+            "key; this corpus has one, so the stem pattern and the surface comparison "
+            "are not consulted and the fields grouping_audit records for them "
+            "(step_1_pattern, step_2_types, candidate_stems) are absent rather than "
+            "empty. An empty candidate_stems here would read as 'the rule ran and "
+            "found nothing'."
+        ),
+        "surfaces_recorded": (
+            "no, and none was read: the key is the release's own record field, not an "
+            "identifier recovered from the text (CLAUDE.md)."
+        ),
+        "patients": {key: sorted(ids) for key, ids in sorted(by_key.items())},
+    }
+
+
+def patient_key_units(
+    corpus_id: str, docs: Sequence[Document], audit: dict
+) -> list[list[str]]:
+    """The §9.5 units under the patient-key branch: one unit per patient.
+
+    Read back out of the audit for `group_units`' reason — the partition a split is
+    built from is by construction the partition its audit explains.
+    """
+    units = [sorted(ids) for ids in audit["patients"].values()]
+    units.sort(key=lambda ids: ids[0])
+    flat = [doc_id for unit in units for doc_id in unit]
+    if sorted(flat) != sorted(d.doc_id for d in docs):
+        raise CorpusError(
+            f"{corpus_id}: the patient units cover {len(flat)} document ids and the "
+            f"corpus has {len(docs)} documents. A unit list that is not a partition of "
+            "the corpus would silently drop or duplicate documents in the split."
+        )
+    return units
+
+
+def grouping(
+    corpus_id: str, docs: Sequence[Document], loader: base.CorpusLoader
+) -> tuple[dict, list[list[str]]]:
+    """DESIGN §9.5's two branches, chosen from the loader's declaration.
+
+    One dispatch point, so that "which rule grouped this corpus" is answered once for
+    the audit and the units together. A caller that picked the branch itself would be a
+    second place where a corpus with a key could be grouped without it.
+    """
+    if loader.has_patient_key:
+        audit = patient_key_audit(corpus_id, docs, loader)
+        return audit, patient_key_units(corpus_id, docs, audit)
+    audit = grouping_audit(corpus_id, docs)
+    return audit, group_units(corpus_id, docs, audit)
+
+
 def _crossing_summary(
     docs: Sequence[Document],
     by_fold: dict[str, list[Document]],
     units: Sequence[Sequence[str]],
+    *,
+    branch: str = "surface",
 ) -> dict:
     """How many groups, and how many candidate stems, straddle the split.
 
@@ -478,7 +596,14 @@ def _crossing_summary(
         # reference point), so a key added here would exist in the code and not in
         # the one committed file — invisible until a reader compares them.
         "note": (
-            "No group crosses the split, because no group was formed — every "
+            "No patient crosses the split: folds are assigned per §9.5 unit and a "
+            "unit is a patient, so this is a property of the assignment. The stem "
+            "figures below are computed from the id pattern for schema uniformity and "
+            "carry no decision here — step 1 never ran (§9.5's first branch), and "
+            "where a stem coincides with a patient it is the patient figure that is "
+            "authoritative."
+            if branch == "patient"
+            else "No group crosses the split, because no group was formed — every "
             "document is its own group (§9.5 step 3). The stem figure is recorded "
             "instead: it is the quantity that would matter if the grouping "
             "decision were wrong, and reporting only 'zero groups cross' would "
@@ -609,6 +734,10 @@ def _record(
 SPLIT_ORIGIN = {
     "es-meddocan": "official",
     "de-grascco": "constructed",
+    # The release ships no split. It does ship a patient key, so this is the first
+    # corpus whose units are patients rather than §9.5 steps 1–3's groups. ko-surro's
+    # split is derived from this one, not built beside it (DESIGN §6.5).
+    "en-deid": "constructed",
 }
 
 
@@ -641,8 +770,11 @@ def _build_official(corpus_id: str) -> dict:
     for doc in docs:
         by_fold.setdefault(doc.split, []).append(doc)
 
+    # Through `digest_parts` like the constructed route, not `source_files` directly:
+    # the default hook is byte-identical to the earlier call, so the digests in the
+    # frozen `splits/es-meddocan.json` still verify, and there is one path to change.
     per_document = {
-        doc.doc_id: digest_document(loader.source_files(doc.doc_id)) for doc in docs
+        doc.doc_id: digest_material(loader.digest_parts(doc)) for doc in docs
     }
     audit = grouping_audit(corpus_id, docs)
     units = group_units(corpus_id, docs, audit)
@@ -853,8 +985,7 @@ def _build_constructed(corpus_id: str) -> dict:
             "first and the seal follows from it (DESIGN §6.2)."
         )
 
-    audit = grouping_audit(corpus_id, docs)
-    units = group_units(corpus_id, docs, audit)
+    audit, units = grouping(corpus_id, docs, loader)
     sizes = {doc.doc_id: len(doc.in_scope_spans) for doc in docs}
     fold_of_doc = assign_folds(
         units,
@@ -868,62 +999,99 @@ def _build_constructed(corpus_id: str) -> dict:
     for doc in docs:
         by_fold.setdefault(fold_of_doc[doc.doc_id], []).append(doc)
     per_document = {
-        doc.doc_id: digest_document(loader.source_files(doc.doc_id)) for doc in docs
+        doc.doc_id: digest_material(loader.digest_parts(doc)) for doc in docs
     }
-    _, unstructured = stem_index(docs)
-    grouped = [unit for unit in units if len(unit) > 1]
+
+    narrative = CONSTRUCTED_NARRATIVE.get(corpus_id)
+    if narrative is None:
+        raise CorpusError(
+            f"{corpus_id!r} is declared as constructed but src/split.py has no entry in "
+            f"CONSTRUCTED_NARRATIVE (have: {sorted(CONSTRUCTED_NARRATIVE)}). The blocks "
+            "a reader needs — what was hashed, what the unit is, how the corpus is read "
+            "— are corpus facts and are written per corpus rather than defaulted, "
+            "because a default would produce a file that describes the wrong corpus "
+            "plausibly."
+        )
+    described = narrative(docs, units, loader)
 
     return _record(
         corpus_id,
         docs,
         by_fold,
         per_document,
-        hashed=(
-            "per document, over its CAS JSON annotation file and its .txt in "
-            "sorted-name order; the manifest digest is derived from the "
-            "per-document digests"
-        ),
+        hashed=described["hashed"],
         provenance={
             "origin": "constructed",
-            "note": (
-                "The corpus ships no split, so this one was constructed here and is "
-                "frozen before any German rule exists (DESIGN §6.2). Proportions are "
-                "counted in documents and assigned per §9.5 unit; the seed below is "
-                "config/split.yaml's and is the only source of randomness — no "
-                "clock, no directory order, no process state enters the assignment."
-            ),
+            "note": described["origin_note"],
             "rationale_ref": "DESIGN.md §9.6",
             "seed": params["seed"],
             "stratification": _achieved(by_fold, units, fold_of_doc, params),
         },
         group_key={
-            "unit": "§9.5 group (a confirmed same-patient cluster, else the document)",
-            "basis": (
-                "no patient key exists; one grouping confirmed by identifier "
-                "agreement"
-            ),
+            "unit": described["unit"],
+            "basis": described["basis"],
             "rationale_ref": "DESIGN.md §9.5",
             "n_groups": len(units),
-            "note": (
-                f"{len(units)} units over {len(docs)} documents. "
-                f"{len(grouped)} unit holds more than one document "
-                f"({sorted(i for unit in grouped for i in unit)}): a patient name "
-                "and a birth date agree across all of its documents, the only §9.5 "
-                "group in three corpora. Its birth date ships in three formats, so "
-                "the agreement is found after normalisation (§9.5 step 2) and the "
-                "record number is shared by only three of the four documents — the "
-                "intersection over all four is empty, which is why the rule asks for "
-                "a name and *either* a record number or a date. The 11 Colon_Fake_* "
-                "documents share a stem and are "
-                "11 units: 11 distinct patient names, 11 distinct birth dates, no "
-                "shared record number, so the stem marks a shared clinical scenario "
-                "and not a shared patient. Folds are assigned to units, so no group "
-                "straddles the split."
-            ),
+            "note": described["group_note"],
             "grouping_audit": audit,
-            "crosses_split": _crossing_summary(docs, by_fold, units),
+            "crosses_split": _crossing_summary(
+                docs, by_fold, units, branch=described["branch"]
+            ),
         },
-        corpus_specific={
+        corpus_specific=described["corpus_specific"],
+    )
+
+
+# ─── what a constructed split file says about its corpus ────────────────────
+#
+# One function per corpus, returning the blocks `_record` cannot derive: what was
+# hashed, what a unit is, how the corpus is read. Separated from `_build_constructed`
+# because the machinery is shared and the prose is not — with both in one function the
+# second corpus's file inherits the first's sentences, and a split file that says
+# "the annotation file carries the text as sofaString" about a corpus with no
+# annotation file is worse than one that says nothing.
+
+
+def _grascco_narrative(
+    docs: Sequence[Document], units: Sequence[Sequence[str]], loader: base.CorpusLoader
+) -> dict:
+    _, unstructured = stem_index(docs)
+    grouped = [unit for unit in units if len(unit) > 1]
+    return {
+        "hashed": (
+            "per document, over its CAS JSON annotation file and its .txt in "
+            "sorted-name order; the manifest digest is derived from the "
+            "per-document digests"
+        ),
+        "origin_note": (
+            "The corpus ships no split, so this one was constructed here and is "
+            "frozen before any German rule exists (DESIGN §6.2). Proportions are "
+            "counted in documents and assigned per §9.5 unit; the seed below is "
+            "config/split.yaml's and is the only source of randomness — no "
+            "clock, no directory order, no process state enters the assignment."
+        ),
+        "branch": "surface",
+        "unit": "§9.5 group (a confirmed same-patient cluster, else the document)",
+        "basis": (
+            "no patient key exists; one grouping confirmed by identifier agreement"
+        ),
+        "group_note": (
+            f"{len(units)} units over {len(docs)} documents. "
+            f"{len(grouped)} unit holds more than one document "
+            f"({sorted(i for unit in grouped for i in unit)}): a patient name "
+            "and a birth date agree across all of its documents, the only §9.5 "
+            "group in three corpora. Its birth date ships in three formats, so "
+            "the agreement is found after normalisation (§9.5 step 2) and the "
+            "record number is shared by only three of the four documents — the "
+            "intersection over all four is empty, which is why the rule asks for "
+            "a name and *either* a record number or a date. The 11 Colon_Fake_* "
+            "documents share a stem and are "
+            "11 units: 11 distinct patient names, 11 distinct birth dates, no "
+            "shared record number, so the stem marks a shared clinical scenario "
+            "and not a shared patient. Folds are assigned to units, so no group "
+            "straddles the split."
+        ),
+        "corpus_specific": {
             "reading": (
                 "UIMA CAS JSON; the redundant CAS XMI encoding is not read. The "
                 "annotation file carries the text as sofaString and the loader "
@@ -958,7 +1126,109 @@ def _build_constructed(corpus_id: str) -> dict:
                 if doc.meta.get("bom_clipped_spans")
             },
         },
-    )
+    }
+
+
+def _endeid_narrative(
+    docs: Sequence[Document], units: Sequence[Sequence[str]], loader: base.CorpusLoader
+) -> dict:
+    if not hasattr(loader, "uncovered"):
+        raise CorpusError(
+            "en-deid: the loader did not report which records carry no reference. That "
+            "list belongs in the split file — the records are excluded from every fold, "
+            "and an exclusion no file records is one nobody can audit."
+        )
+    uncovered = sorted(loader.uncovered)
+    with_spans = sum(1 for doc in docs if doc.spans)
+    return {
+        "hashed": (
+            "per document, over the record's own bytes: its body from id.text and its "
+            "own lines from id.deid and id-phi.phrase, named by source file and hashed "
+            "in sorted-name order. **Not** over the three files, which are shared by "
+            "every document and would give all of them the same digest — this corpus "
+            "has no file per document, so the loader supplies the parts (digest_parts) "
+            "and the hashing itself is the same function every corpus uses."
+        ),
+        "origin_note": (
+            "The corpus ships no split, so this one was constructed here and is frozen "
+            "before any rule or prompt has seen an English nursing note (DESIGN §6.2). "
+            "Proportions are counted in documents and assigned per §9.5 unit — here a "
+            "patient, so the fold sizes in documents can only approximate the requested "
+            "proportions. The seed below is config/split.yaml's and is the only source "
+            "of randomness. This is also the split ko-surro's is derived from and not "
+            "the other way round (DESIGN §6.5): the two corpora are two halves of one "
+            "release, and a note in en-deid's dev fold whose Korean surrogate sat in "
+            "ko-surro's test fold would be a leak in whichever direction it was built."
+        ),
+        "branch": "patient",
+        "unit": "patient (DESIGN §9.5's first branch — the corpus ships the key)",
+        "basis": (
+            "the release's own patient field in each record header; the "
+            "identifying-surface rule is not consulted"
+        ),
+        "group_note": (
+            f"{len(units)} patients over {len(docs)} notes, so the folds are "
+            "patient-disjoint by construction rather than by a surface comparison. "
+            "This is the first corpus here to take §9.5's first branch: MEDDOCAN and "
+            "GraSCCo ship no patient identifier and fall through to steps 1–3. The "
+            "distribution is heavily skewed — the largest patient carries a large "
+            "fraction of a fold's worth of notes on its own — which is why assignment "
+            "places the largest unit first (see assign_folds) and why the achieved "
+            "document proportions are reported next to the requested ones rather than "
+            "assumed to match."
+        ),
+        "corpus_specific": {
+            "reading": (
+                "Three files, 2,434 records: id.text carries the notes framed by "
+                "START_OF_RECORD/END_OF_RECORD markers, id.deid carries per-record "
+                "offsets relative to the body, and id-phi.phrase carries the type and "
+                "the surface for the same spans. The two reference files are "
+                "cross-checked span for span on every load and a disagreement raises "
+                "rather than dropping a span. id.res — the release's own automatic "
+                "de-identification and the basis of ko-surro — is not read: it is "
+                "silver, and a split hashed over it would change if that file did."
+            ),
+            "fold_directories": None,
+            "fold_directories_note": (
+                "The layout encodes no fold, and cannot: a document is a record inside "
+                "a file, not a file. This split file is the only authority on which "
+                "fold a note is in, so the seal rewrites the three files rather than "
+                "moving them (tools/prepare_endeid.py)."
+            ),
+            "n_records_without_reference": len(uncovered),
+            "records_without_reference": uncovered,
+            "records_without_reference_note": (
+                f"{len(uncovered)} of {len(docs) + len(uncovered)} records have no "
+                "id.deid header at all, so they carry no reference — not zero spans, "
+                "but no statement either way. They are not loaded and so are in no "
+                "fold: scoring a note with no reference as 'every prediction is a false "
+                "positive' would be a measurement of the reference's absence. This is "
+                "not §9.1's mechanism, which keeps a span and flags it; here there are "
+                "no spans to keep (DESIGN §9.0, §9.1)."
+            ),
+            "n_documents_with_spans": with_spans,
+            "sparsity_note": (
+                f"{with_spans} of {len(docs)} loaded notes carry at least one gold "
+                f"span; the other {len(docs) - with_spans} are genuinely PHI-free "
+                "according to the reference. Recorded because it is the denominator of "
+                "any per-note leak figure, and because a corpus where most notes have "
+                "no PHI makes document-level precision look very different from "
+                "span-level precision."
+            ),
+            "bom_documents": sorted(d.doc_id for d in docs if d.had_bom),
+            "bom_note": (
+                "None: a record is not a file, so there is no per-document byte-order "
+                "mark to strip. Recorded as an empty list rather than omitted so that "
+                "the §9.7 correction is visibly accounted for on every corpus."
+            ),
+        },
+    }
+
+
+CONSTRUCTED_NARRATIVE = {
+    "de-grascco": _grascco_narrative,
+    "en-deid": _endeid_narrative,
+}
 
 
 # ─── reading and verification ───────────────────────────────────────────────
