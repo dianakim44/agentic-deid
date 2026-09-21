@@ -146,6 +146,11 @@
       "path": "tools/probe_prompt_format.py",
       "sniff": "Korean prose",
       "why": "The Korean is the note this tool writes: render() composes docs/notes/prompt-format-probe.md's headings, its rate and shape tables and the caption warning that a pooled fenced-versus-clean table can make a between-role difference look like a within-role correlate. Same false positive as tools/probe_call_variance.py's, one probe over — a tool whose output is Korean prose holds Korean prose as literals. It appeared only after the 2026-09-17 rate run added those tables; the earlier revision's Korean was under the sniffer's run threshold. It builds its prompts with the same assemble_* functions the arms use, sends a committed prompt template plus a filtered inventory and two label lists, and records outcome names, counts, token figures, wall seconds and hashes — no span, offset, matcher, prompt text or response text is printed, logged or written."
+    },
+    {
+      "path": "docs/notes/corpus-observations.md",
+      "sniff": "Korean prose",
+      "why": "The corpus-comparison note. Its §7 and §9 are written in Korean, and §9 (added 2026-09-21) took the Hangul-run count over the sniffer's threshold of three — the file was under it before, so this is a new false positive rather than a newly noticed one. The Korean is this note's own analysis: section headings, the statement that a table is a table and not an interpretation, and the sentence recording that the measured direction disagrees with DESIGN §7. It cannot be note text, and not only because the sniffer's purpose is Korean note text: the two corpora this file compares are German and Spanish, so there is no Korean surface form in either corpus for it to have come from. No document id, no span index and no offset appears in the Korean, and nothing in this file is read out of sealed/."
     }
   ],
   "acknowledged": [

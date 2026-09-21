@@ -5489,6 +5489,28 @@ falsifiable claim than "rules do worse in nursing notes" — it names which comp
 should move and which should not, so a result where all four fall together would
 refute the mechanism even if the aggregate rule-layer number moved as expected.
 
+#### The first two single-call measurements go the other way on the total — recorded 2026-09-21
+
+Axis 1 orders German **low** and Spanish **medium**. The two scored single-call arms now on
+record come out in the opposite order on the aggregate leak rate:
+
+| | arm | gold (dev, in-scope) | leak `fully_covered` | leak `relaxed` |
+|---|---|---|---|---|
+| de-grascco | `port-oneshot` | 410 | **0.4146** | 0.3683 |
+| es-meddocan | `port-oneshot-nofence` | 5254 | **0.5600** | 0.4850 |
+
+German leaks 14.5 points **less** than Spanish. That is recorded here as a fact about the
+two numbers and nothing is attributed to it, for reasons that are on the face of the
+comparison: the two are different `arm` values rather than one arm run twice, the
+denominators differ by 12.8×, the phi-type mixes differ (es-meddocan carries `OTHER` and
+`PROFESSION`, de-grascco carries neither, and DATE is 54% of de-grascco's gold against 14% of
+es-meddocan's), and the two `metrics.json` files are schema 5 and schema 10. Beyond all of
+that, the prediction this section actually makes is **per-layer** — where the loss
+concentrates when realisation falls — and a single call on each corpus tests no part of it.
+So this block registers a direction that does not match, before any iterating arm on
+de-grascco exists to be read in its light. The per-type side-by-side is in
+`docs/notes/corpus-observations.md` §9.
+
 **Measuring this requires layer-level provenance, which is why §3 carries a `layer`
 field.** §5's complementarity breakdown is a rules/tagger dichotomy: it can show
 that the rule layer as a whole lost ground, but it cannot attribute the loss to

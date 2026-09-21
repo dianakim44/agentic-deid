@@ -987,3 +987,57 @@ Two further facts bear on any split:
 anywhere in the release). Unlike MEDDOCAN there is no external comparability to
 inherit, and unlike MEDDOCAN's frozen 500/250/250 the split must be made here and
 frozen before any rule is written.
+
+---
+
+## 9. 단발 결과 유형별 대조 — de-grascco × es-meddocan (2026-09-21)
+
+**표만 둔다.** 해석은 여기 넣지 않는다. 두 arm 이 비교 가능한 범위와 비교 불가능한
+범위는 DESIGN §7 의 2026-09-21 블록에 적혀 있고, 이 절은 그 블록이 가리키는 숫자다.
+
+두 실행 모두 dev fold · 단발 호출 1회 · 태거 없음:
+
+| | de-grascco | es-meddocan |
+|---|---|---|
+| arm | `port-oneshot` | `port-oneshot-nofence` |
+| split | `splits/de-grascco.json` (seed 20260921) | `splits/es-meddocan.json` (공식 500/250/250) |
+| dev gold (in-scope) | 410 | 5254 |
+| `metrics.json` schema | 10 | 5 |
+| LLM 호출 | 1 | 1 |
+| prompt / completion tokens | 14,868 / 2,212 | 14,071 / 2,325 |
+| wall time | 28.801 s | 32.542 s |
+
+### 총계
+
+| | de-grascco | es-meddocan |
+|---|---|---|
+| 누출률 `fully_covered` | **0.4146** (170/410) | **0.5600** (2942/5254) |
+| 누출률 `relaxed` | 0.3683 | 0.4850 |
+| precision (`relaxed`) | 0.5548 | 0.7919 |
+| recall (`relaxed`) | 0.6293 | 0.5150 |
+| F1 (`relaxed`) | 0.5897 | 0.6241 |
+
+### 유형별 (`fully_covered`) — gold · 누출 · 누출률 · tp · fp
+
+| 유형 | de gold | de 누출 | de 누출률 | de tp | de fp | es gold | es 누출 | es 누출률 | es tp | es fp |
+|---|---|---|---|---|---|---|---|---|---|---|
+| AGE | 5 | 5 | 1.000 | 0 | 1 | 521 | 63 | 0.1209 | 458 | 73 |
+| CONTACT | 11 | 7 | 0.6364 | 4 | 3 | 272 | 14 | 0.0515 | 258 | 22 |
+| DATE | 221 | 57 | 0.2579 | 163 | 18 | 724 | 196 | 0.2707 | 528 | 246 |
+| ID | 11 | 9 | 0.8182 | 2 | 0 | 745 | 495 | 0.6644 | 250 | 190 |
+| LOCATION_AREA | 26 | 11 | 0.4231 | 15 | 150 | 1334 | 937 | 0.7024 | 397 | 94 |
+| LOCATION_STREET | 9 | 6 | 0.6667 | 3 | 6 | 434 | 184 | 0.4240 | 250 | 217 |
+| NAME | 116 | 64 | 0.5517 | 52 | 43 | 1000 | 837 | 0.8370 | 163 | 27 |
+| ORGANISATION | 11 | 11 | 1.000 | 0 | 5 | 214 | 206 | 0.9626 | 8 | 236 |
+| OTHER | — | — | — | — | — | 6 | 6 | 1.000 | 0 | 0 |
+| PROFESSION | — | — | — | — | — | 4 | 4 | 1.000 | 0 | 0 |
+
+`—` 는 그 코퍼스의 dev fold 에 그 유형의 gold 가 없다는 뜻이고 0 이 아니다.
+`sparse` 표시(DESIGN §9.4): de 는 AGE, es 는 OTHER·PROFESSION.
+
+### 기록해 둘 한 가지
+
+**총계 방향이 DESIGN §7 축 1 의 예측과 반대다.** 축 1 은 독일어를 `low`,
+스페인어를 `medium` 으로 정렬하는데, 측정된 누출률은 독일어가 14.5 포인트 **낮다**.
+사실만 적는다 — 이 절은 귀속을 하지 않고, 두 arm 이 무엇 때문에 비교 불가능한지는
+DESIGN §7 의 2026-09-21 블록에 있다.
