@@ -1843,6 +1843,9 @@ produced one. Paths do not change with the name (`{porting}` is `[^/]+` outside 
 literal). And the fence is not the only way this arm can end: §6.9's `RuleError` is a content
 failure that the strip does not close, it reaches the same `format_failure.json` by a different
 path, and at round 1 it ends the arm — which is checked before launch rather than asserted here.
+**That check was made on 2026-09-21 and its disposition is §6.7.4's fourth state**, which fixes
+how a score-less ending is reported and records what the RuleAuthor's input does and does not
+transmit about the collection it would have to name.
 
 **What it did change in code, which the readiness check found and this clause records.** Adding
 the value to the axis was not enough, and the claim that a new value costs no code — made in the
@@ -4649,6 +4652,98 @@ this order and report which obtained:**
 Cause 3 is the only one that supports a positive claim about agent authorship, and it is the
 only one of the three not verifiable from the arm's own bookkeeping alone. That asymmetry is
 stated here so the easy explanations must be ruled out first.
+
+##### The fourth state — a round-1 `lexicon_file_absent` ends the arm before either branch applies, pre-registered 2026-09-21, before the next arm's first call
+
+**Both branches above presuppose a `metrics.json`, and there is a state that produces none.**
+"If it holds" compares degradations and "if it fails" checks three causes against `by_rule`,
+`complementarity` and fires-retained. A run that ends at round 1 has none of those objects, so
+neither branch is applicable and the table as written has no row for it. This is the state
+cause 1's resolution converted rather than removed: **"there is no third state" is true of a
+run that reaches a score**, which is what that paragraph says, and the conversion sends the
+remaining case to arm death instead of to a mis-scored lexicon. The reading is correct and the
+consequence was not carried into the branches.
+
+**The mechanism, exactly.** A `gazetteer` rule takes the form `lexicon: {lang}/{name}`. If
+`{name}` is not one of the three the config declares — `institutions`, `regions`,
+`departments` (`config/naming.yaml`'s `lexicon_name`, and `src/corpora/base.py`'s
+`lexicon_names()`, which states that the declared set and the set `_read_lexicon` can resolve
+are one set) — then `_read_lexicon` raises `RuleError` (`src/rules.py`, "no lexicon at
+{path}"), `src/porting/loop.py` writes `format_failure.json` with `metrics_path: None` and
+`stop: True`, and the arm is over. The format-retry budget is zero and is not amended (§10
+A2). At round 1 there is no earlier round to publish, so the arm's record is a failure file
+and nothing else. §4's `port-multi-stripfence` clause names this exit — "§6.9's `RuleError`
+is a content failure that the strip does not close… at round 1 it ends the arm" — and defers
+the check to before launch; this block is that check's disposition.
+
+**What the check found, 2026-09-21, before any call on this rung.** Of the three declared
+names, **one reaches the RuleAuthor at all**, and not as an available-name list: `es/institutions`
+appears in `rule_author.md` §2 as the filled instance illustrating the reference *form*, in a
+file whose own §"Why this file contains no example" records that demonstrations in this project
+get imitated. `regions` and `departments` reach it by no path. §1.1's task frame transmits the
+`phi_type` axis and the `layer` axis from `config/naming.yaml` and no lexicon vocabulary
+(`src/llm/prompt.py`'s `_task_frame`); §1.2 is empty at round 1 and can carry a name only in
+the branch where an earlier round already named a declared one — and in the branch where it
+named an undeclared one there is no later round to carry anything, by the mechanism above.
+`profile.json` and `mapping.yaml` hold no lexicon name and are not shown to this agent at all
+(`assemble_task_prompt` takes `lang`, `corpus`, `rules_path`). `lexicon_manifest.json` is
+written into the collection and never rendered; the audit report carries masked text and flags;
+`_score_block` carries no lexicon field; and the loader's error text returns to nobody, because
+the budget is zero.
+
+**So the reporting rule, in §6.7.6's P4 form.** A round-1 `lexicon_file_absent` **is reported
+as a finding about what the RuleAuthor's input transmits, and is not reported as agent error.**
+Cause 1's closing sentence is narrowed by the same clause: where the `lexicon` form is never
+taken, that is an outcome of the arm and it is attributed to input design, not to the
+RuleAuthor's judgement. Obtaining the other reading is a change to what the RuleAuthor is
+shown — a §4 decision about the input, taken separately from this block — and not a change to
+how this state is reported.
+
+**This is the second attribution error of the same shape, and naming the shape is the point.**
+The first is P4: `group_key` was read as the Profiler's error while the reasoning that rejects
+stem groups lives in §9.5 and in the split file, neither of which the agent was shown. The
+second is here: the `lexicon` form was read as the RuleAuthor's outcome while the set of names
+that exist lives in `naming.yaml` and in the LexiconBuilder's manifest, neither of which the
+agent is shown. Both are **a wiring gap reported as the agent's outcome** — a value the harness
+possesses, does not transmit, and then scores the agent on. The first correction was written
+per-agent, inside the Profiler's own evaluation row, and one artefact over the same error was
+already in this section; a per-agent correction did not generalise, so the rule is stated once
+for all three artefacts: **before any outcome is attributed to an agent, the path by which the
+value it needed reaches that agent is named. If no path exists, the finding is about the input.**
+
+**The figures this state is reported with, fixed now.** From the `rule_author` format probe of
+2026-09-18 (`docs/notes/prompt-format-probe.md`, N = 60 declared before the first call, round-1
+prompts): the `lexicon` form was taken 5 times; 1 named a declared list, 4 named undeclared
+ones and met `lexicon_file_absent`. Per round, reach = 1/60 = **1.67%** (Clopper-Pearson 95%
+[0.04, 8.94]), arm death = 4/60 = **6.67%** [1.85, 16.20], form taken at all = 5/60 = 8.33%
+[2.76, 18.39], and the conditional hit rate is 1/5. Over the eight-round ceiling as an
+absorbing chain at those rates: **reach ≈ 10.0%, death ≈ 40.1%, form never taken ≈ 49.9%** —
+so on this input design the modal outcome is an unread lexicon and death is four times reach.
+Supply is not the constraint: the LexiconBuilder wrote all three files in 40 of 40 draws, at
+median term counts 123.5 / 82 / 101 (total 307), so **61.7% of the collection's terms sit
+behind the two names that reach the RuleAuthor by no path.** Three caveats travel with the
+figures and are stated here rather than when the number is read: the 5/60 is round-1 prompts
+only and rounds 2+ propensity is unmeasured; `port-loop` took the form 0 times in eight rounds,
+so there is no evidence the propensity rises with the round; and the probe's arm-side load
+resolves against a collection holding exactly the refs the response declared, so the joint
+property "the file the name asked for exists" is closed by the 40/40 supply figure and not by
+the probe alone. The CI corners are wide — reach@8 spans 0.10% to 57.5% — and the point of
+recording them is that a null on this path is not readable as a capability result at any point
+in that range.
+
+**What is reported if the state obtains.** The outcome, the round, the name the rule asked for
+(a rule-file value, not corpus text, so it is recordable), and the figures above — with **no
+lexicon effect reported**, as in cause 1, and with the attribution clause above rather than
+cause 1's. If the input is changed so that the declared names are transmitted, the figures
+above become the pre-change measurement, the state's probability is no longer estimated by
+them, and an arm launched on a changed input is a different `porting` value (§4's modifier
+convention) rather than this one re-read.
+
+**Writable today for §4's reason.** `results/es-meddocan/R/sup-free/port-multi-stripfence/`
+does not exist and `called_where()` reports the value unspent, so this fixes how a score-less
+ending is read before there is one to read. After the first call the identical edit is a
+post-hoc narrowing of what the rung claims, indistinguishable in the record from one chosen
+because the broader claim did not survive.
 
 #### 6.7.5 Whether "transcribed dev names" is distinguishable from "a general lexicon"
 
