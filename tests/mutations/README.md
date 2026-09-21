@@ -3709,6 +3709,7 @@ not a rule; the reasoning is here, with the measurements it rests on.
 | 188 mutations, 8 shards | **2.26 h** | measured, 2026-09-04, suite 1991 |
 | 192 mutations, 8 shards | **2.29 h** | measured, suite 2052 — the date is in `docs/notes/mutation-full-runs.md` and deliberately not here |
 | 194 mutations, 8 shards | **2.43 h** | measured, suite 2068 — the date is in `docs/notes/mutation-full-runs.md` and deliberately not here |
+| 194 mutations, 8 shards | **2.51 h** | measured, suite 2068 — **a repeat of the row above with both inputs identical.** Kept as its own row, not averaged: two runs of the same experiment 3.3% apart is the noise floor measured directly |
 
 The three serial rows are derivations and are marked as such; nobody has spent a serial run to
 check any of them. The first two disagree by more than the mutation count explains — 170 → 179 is
@@ -3820,6 +3821,33 @@ one where the earlier runs had an idle box. Seconds of network against 8733 s of
 account for 6%, and it is noted because unrecorded differences are how a noise floor becomes an
 explanation.) No serial row was added, for the standing reason: 8 × 2.43 h ÷ 1.16 = 16.8 h, and a
 derivation restated from a 6% input move would read as a measurement of something nobody measured.
+
+**The tenth data point is the only one in the table that measures the noise floor instead of
+inferring it, because it is the first repeat: both inputs are identical to the ninth.** 194
+mutations, 8 shards, **2.51 h** (9022 s), suite 2068, all 194 caught. 194 → 194 is 1.000 and 2068 →
+2068 is 1.000, so the denominator model predicts exactly no change against a wall clock that grew
+8733 s → 9022 s, a factor of 1.033. With nothing on the input side to attribute it to, **the whole
+3.3% residual is noise by construction** — this is the one row where that sentence needs no
+argument. Per-mutation cost is 46.5 s against 45.0 s at the same 194 and 42.9 s at 192.
+
+That confirms the ninth point's correction by a different route and slightly narrows it. The ninth
+put the floor at about 4% from two consecutive residuals of opposite sign, which is an inference
+that depends on the model being right about the inputs; the tenth measures 3.3% with the model
+removed from the question entirely. So ±4% stands as the figure to quote, now with one direct
+measurement under it rather than only a pair of residuals — and the two-point reasoning stays above
+because a reader should be able to see that the direct measurement agreed with it rather than
+replaced it.
+
+**The two rows are kept separate and are not averaged, which is the point of recording this at
+all.** Averaging them to 2.47 h would produce a number that looks like a better estimate and
+destroys the only evidence in the table about how much a single measurement can be trusted. Two runs
+of the same experiment at 2.43 and 2.51 is the useful fact; one run at 2.47 is not. What changed
+between them was the repository, not the harness: the ninth ran at `f89de7c2` and the tenth at
+`513f349b2a25`, with `src/corpora/base.py`, `src/split.py` and a new loader module in between and
+`TEST_FILES` untouched — so the suite the shards actually execute is the same 2068 tests and the two
+runs are comparable as repeats. No serial row was added: 8 × 2.51 h ÷ 1.16 = 17.3 h against the
+16.8 h above, a 3% move in a derivation whose inputs did not move at all, which is precisely the
+restatement the standing reason forbids.
 
 One thing that reads as a reversal and is not. The serial derivation for 185 comes out at ~15.2 h,
 which is the number the correction below rejected — but not the same number. The rejected fifteen
