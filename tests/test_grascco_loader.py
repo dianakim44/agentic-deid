@@ -16,11 +16,21 @@ and calling the result the surface proves nothing. The two checks that replace i
 asserted directly below: `sofaString` against the `.txt` (63 of 63), and the measured
 invariant that no gold span begins or ends on whitespace (1,436 of 1,436).
 
-**These tests see all 63 documents.** The split was constructed on 2026-09-21 and the
-test fold is not sealed yet, so unlike the MEDDOCAN file this one can still recount
-the whole corpus. When the seal lands, the tests that assert corpus-wide totals move
-to `splits/de-grascco.json` exactly as that file's header describes — which is why the
-split file is generated first (DESIGN §6.2).
+**These tests see 51 documents, not 63.** The test fold was sealed on 2026-09-21, after
+the split file was written and its per-document hashes recorded (DESIGN §6.2), so the
+same division the MEDDOCAN file makes applies here:
+
+  - The recount over raw CAS JSON covers train+dev. It stays an independent check of the
+    loader over what the loader can reach; extending it over the sealed fold would be a
+    check of the sealed fold, which no test may be.
+  - The corpus-wide figures DESIGN §9.0 reports are `FULL_*` and come from
+    `splits/de-grascco.json`, which is frozen. `test_the_split_file_accounts_for_the_seal`
+    is what keeps them credible rather than merely unfalsifiable: the visible constants
+    plus the split file's test fold must equal them, per type as well as in total.
+
+Three of the five BOM documents went to the test fold, so `BOM_DOCS` here is two names
+and §9.7's second clipped span is no longer reachable. That is recorded rather than
+worked around — a corpus fact about the sealed fold, held by the split file.
 
     python3 -m pytest tests/test_grascco_loader.py -q
 """
@@ -28,6 +38,7 @@ import json
 import os
 import re
 import sys
+from pathlib import Path
 
 import pytest
 
@@ -46,11 +57,36 @@ from src.corpora.grascco import (  # noqa: E402
 
 # ─── expected values (DESIGN §9.0, §9.1, §9.7) ──────────────────────────────
 
-N_DOCS = 63
-N_SPANS = 1436
-N_CANONICAL = 1297
-N_EXCLUDED = 139
+# What the loader can see: train+dev. Measured on 2026-09-21 with the seal in place,
+# which is the only state these numbers describe.
+N_DOCS = 51
+N_SPANS = 1122
+N_CANONICAL = 1015
+N_EXCLUDED = 107
 CANONICAL_COUNTS = {
+    "NAME": 265,
+    "DATE": 548,
+    "AGE": 14,
+    "LOCATION_AREA": 64,
+    "LOCATION_STREET": 22,
+    "ORGANISATION": 29,
+    "CONTACT": 21,
+    "ID": 51,
+    "PROFESSION": 1,
+}
+EXCLUDED_COUNTS = {"NAME_TITLE": 107}
+UNSEALED_SPLIT = {"train": 32, "dev": 19}
+SPANS_BY_SPLIT = {"train": 669, "dev": 453}
+IN_SCOPE_BY_SPLIT = {"train": 605, "dev": 410}
+
+# The whole corpus, which is what DESIGN §9.0 reports and the paper prints. Read from
+# the frozen split file rather than from the corpus: 12 documents are sealed, so a test
+# that recomputed these would be reading the test fold to do it.
+FULL_N_DOCS = 63
+FULL_N_SPANS = 1436
+FULL_N_CANONICAL = 1297
+FULL_N_EXCLUDED = 139
+FULL_CANONICAL_COUNTS = {
     "NAME": 324,
     "DATE": 693,
     "AGE": 19,
@@ -61,11 +97,15 @@ CANONICAL_COUNTS = {
     "ID": 59,
     "PROFESSION": 2,
 }
-EXCLUDED_COUNTS = {"NAME_TITLE": 139}
+CONSTRUCTED_SPLIT = {"train": 32, "dev": 19, "test": 12}
 
-#: §9.7: five BOM documents, and in two of them the first gold span starts at 0.
-BOM_DOCS = ["Baastrup", "Boeck", "Dupuytren", "Stölzl", "Waldenström"]
-BOM_CLIPPED = {"Baastrup": [0], "Dupuytren": [0]}
+#: §9.7: five BOM documents corpus-wide, two of them reachable. `Boeck`,
+#: `Dupuytren` and `Waldenström` are in the sealed fold, which is also where the
+#: second of the two clipped spans went.
+BOM_DOCS = ["Baastrup", "Stölzl"]
+BOM_CLIPPED = {"Baastrup": [0]}
+FULL_BOM_DOCS = 5
+FULL_BOM_CLIPPED = 2
 
 BOM = "﻿"
 
@@ -134,7 +174,13 @@ def test_loader_matches_independent_recount(docs, recount):
 
 
 def test_the_recount_saw_the_corpus(recount):
-    """The regex above must have matched, or every comparison to it is vacuous."""
+    """The regex above must have matched, or every comparison to it is vacuous.
+
+    Against the unsealed figures, because `annotation_paths` goes through
+    `source_roots()` and an ordinary read reaches train+dev only. A recount that
+    produced 63 documents here would mean the seal is not holding, which is why this is
+    an equality and not a lower bound.
+    """
     assert recount["docs"] == N_DOCS
     assert recount["spans"] == N_SPANS
     assert recount["bom_docs"] == len(BOM_DOCS)
@@ -218,7 +264,11 @@ def test_every_span_slices_back_to_its_surface(docs):
 
 
 def test_the_sofa_string_equals_the_plain_text_file(annotation_paths):
-    """63 of 63, re-derived here without the loader.
+    """51 of 51 reachable documents, re-derived here without the loader.
+
+    It was 63 of 63 when it was first measured, on 2026-09-21 before the seal. The
+    sealed twelve are not re-checked here and cannot be: `source_roots()` does not hand
+    them out, and the check is not a reason to ask it to.
 
     This is what licenses applying CAS offsets to the `.txt`: the offsets index the
     sofaString, and the document text is read from the file. If the two ever diverge,
@@ -244,17 +294,23 @@ def test_the_sofa_string_equals_the_plain_text_file(annotation_paths):
 
 
 def test_no_gold_span_is_whitespace_edged(docs):
-    """The invariant that stands in for a surface comparison: 1,436 of 1,436.
+    """The invariant that stands in for a surface comparison.
+
+    Measured 1,436 of 1,436 on the whole corpus before the seal; 1,122 of them are
+    reachable now, and the count of spans actually examined is asserted so that a
+    fixture returning nothing cannot pass this as an absence.
 
     A one-character offset slip is the most likely offset error and the most likely
     to break this. Reported as a count so the message quotes no text.
     """
-    edged = sum(
-        1
-        for doc in docs
-        for span in doc.spans
-        if span.surface != span.surface.strip()
-    )
+    examined = 0
+    edged = 0
+    for doc in docs:
+        for span in doc.spans:
+            examined += 1
+            if span.surface != span.surface.strip():
+                edged += 1
+    assert examined == N_SPANS
     assert edged == 0
 
 
@@ -262,6 +318,19 @@ def test_no_gold_span_is_whitespace_edged(docs):
 
 
 def test_bom_documents_are_found_and_flagged(docs):
+    """Two reachable, and the other three named by the split file rather than by nothing.
+
+    The corpus fact is five, which is what §9.7 reports; three of the five are sealed.
+    Asserting only the reachable two would leave the sealed three unrecorded anywhere a
+    reader of this file can see, and §9.7's figure would look wrong.
+    """
+    record = json.loads(
+        (Path(ROOT) / "splits" / "de-grascco.json").read_text(encoding="utf-8")
+    )
+    sealed_facts = record["corpus_specific"]
+    assert len(sealed_facts["bom_documents"]) == FULL_BOM_DOCS
+    assert len(sealed_facts["bom_clipped_spans"]) == FULL_BOM_CLIPPED
+    assert set(BOM_DOCS) <= set(sealed_facts["bom_documents"])
     assert sorted(d.doc_id for d in docs if d.had_bom) == BOM_DOCS
 
 
@@ -270,14 +339,14 @@ def test_no_loaded_text_starts_with_a_bom(docs):
         assert not doc.text.startswith(BOM)
 
 
-def test_the_two_spans_inside_the_bom_are_clipped_and_recorded(docs):
+def test_the_span_inside_the_bom_is_clipped_and_recorded(docs):
     """§9.7's decision, as a fact about the loaded documents.
 
-    In `Baastrup` and `Dupuytren` the first gold span begins at index 0, so the
-    annotated extent includes the byte-order mark. The span is clipped to 0 and keeps
-    its shifted end — it loses exactly the BOM — and the clip is recorded per document
-    so that the two cases stay countable rather than becoming an invisible property of
-    the loader.
+    Two documents had this — `Baastrup` and `Dupuytren` — and `Dupuytren` is sealed, so
+    one is reachable. In both, the first gold span begins at index 0, so the annotated
+    extent includes the byte-order mark. The span is clipped to 0 and keeps its shifted
+    end — it loses exactly the BOM — and the clip is recorded per document so that the
+    cases stay countable rather than becoming an invisible property of the loader.
     """
     clipped = {
         d.doc_id: d.meta["bom_clipped_spans"]
@@ -344,7 +413,11 @@ def test_excluded_spans_are_kept_and_carry_no_canonical_type(docs):
     assert len(excluded) == N_EXCLUDED
     assert all(s.phi_type is None for s in excluded)
     assert {s.subtype for s in excluded} == set(EXCLUDED_TYPES)
-    assert round(100 * len(excluded) / N_SPANS, 2) == 9.68
+    # Both percentages, because the reported limitation is about GraSCCo and not about
+    # the part of GraSCCo that is still readable. 9.68% is the corpus-wide figure §9.1
+    # prints; the reachable folds are slightly leaner.
+    assert round(100 * FULL_N_EXCLUDED / FULL_N_SPANS, 2) == 9.68
+    assert round(100 * len(excluded) / N_SPANS, 2) == 9.54
 
 
 def test_gold_spans_have_empty_provenance(docs):
@@ -381,11 +454,57 @@ def test_calling_fold_roots_is_refused():
         GrasccoLoader(use_split_file=False).fold_roots()
 
 
-def test_loading_with_the_split_file_assigns_every_fold(grascco_loader):
-    """The default path reads `splits/de-grascco.json` and every document gets a fold."""
+def test_only_the_unsealed_folds_load(grascco_loader):
+    """An ordinary load is train+dev and nothing else (DESIGN §6).
+
+    Not a filter that was applied afterwards: the sealed documents are under a second
+    root, `source_roots()` does not return it without `sealed_reachable()`, and so the
+    twelve files are never opened. Every document that does load carries a fold, because
+    the split file is the only thing that knows which one.
+    """
     docs = grascco_loader.load()
-    assert {d.split for d in docs} == set(base.split_names())
     assert len(docs) == N_DOCS
+    assert base.count_by_split(docs) == UNSEALED_SPLIT
+    assert "test" not in base.count_by_split(docs)
+
+
+def test_the_split_file_accounts_for_the_seal():
+    """The corpus-wide figures, and the arithmetic that keeps them checkable.
+
+    `FULL_*` cannot be recomputed from the corpus any more, which is exactly the state
+    that lets a published number drift unnoticed. What is still checkable without
+    opening anything is the accounting: the frozen split file's totals must match the
+    §9.0 table, its folds must sum to those totals, and what the loader can see must be
+    the totals minus the sealed fold — per canonical type as well as in aggregate.
+    """
+    record = json.loads(
+        (Path(ROOT) / "splits" / "de-grascco.json").read_text(encoding="utf-8")
+    )
+    totals, folds = record["totals"], record["folds"]
+
+    assert totals["n_documents"] == FULL_N_DOCS
+    assert totals["n_spans"] == FULL_N_SPANS
+    assert totals["n_spans_in_scope"] == FULL_N_CANONICAL
+    assert totals["n_spans_excluded"] == FULL_N_EXCLUDED
+    assert totals["spans_by_phi_type"] == FULL_CANONICAL_COUNTS
+    assert {f: v["n_documents"] for f, v in folds.items()} == CONSTRUCTED_SPLIT
+
+    sealed = folds["test"]
+    assert FULL_N_DOCS - sealed["n_documents"] == N_DOCS
+    assert FULL_N_SPANS - sealed["n_spans"] == N_SPANS
+    assert FULL_N_CANONICAL - sealed["n_spans_in_scope"] == N_CANONICAL
+    assert FULL_N_EXCLUDED - sealed["n_spans_excluded"] == N_EXCLUDED
+    assert {
+        phi_type: count - sealed["spans_by_phi_type"].get(phi_type, 0)
+        for phi_type, count in FULL_CANONICAL_COUNTS.items()
+    } == CANONICAL_COUNTS
+
+    # And the unsealed half of the file agrees with what actually loads, which is what
+    # makes the sealed figures credible rather than merely unfalsifiable.
+    for fold, documents in UNSEALED_SPLIT.items():
+        assert folds[fold]["n_documents"] == documents
+        assert folds[fold]["n_spans"] == SPANS_BY_SPLIT[fold]
+        assert folds[fold]["n_spans_in_scope"] == IN_SCOPE_BY_SPLIT[fold]
 
 
 # ─── failure modes, on synthetic files ──────────────────────────────────────
@@ -531,7 +650,9 @@ def test_an_empty_annotation_directory_raises(tmp_path):
 # ─── the seal ───────────────────────────────────────────────────────────────
 
 
-def test_the_sealed_root_is_unreachable_without_authorisation(grascco_unsplit_loader):
+def test_the_sealed_root_is_unreachable_without_authorisation(
+    grascco_sealed, grascco_unsplit_loader
+):
     """One gate for two layouts. `sealed_reachable()` is the only permission.
 
     GraSCCo's seal is a second *root* rather than a directory the loader declines to
@@ -539,5 +660,7 @@ def test_the_sealed_root_is_unreachable_without_authorisation(grascco_unsplit_lo
     answer to "may this read open the seal" (DESIGN §3's argument about layers,
     applied to the seal).
     """
+    sealed = base.sealed_root(grascco_sealed)
     assert grascco_unsplit_loader.sealed_reachable() is None
-    assert base.sealed_root("de-grascco") not in grascco_unsplit_loader.source_roots()
+    assert sealed not in grascco_unsplit_loader.source_roots()
+    assert grascco_unsplit_loader.source_roots() == [grascco_unsplit_loader.root]

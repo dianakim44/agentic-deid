@@ -52,6 +52,7 @@ AVAILABILITY = {
     "sealed_corpus",
     "terminated_arm_path",
     "grascco_present",
+    "grascco_sealed",
 }
 CONSTRUCTION = {
     "loader",

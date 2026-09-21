@@ -164,6 +164,22 @@ def grascco_present() -> str:
 
 
 @pytest.fixture(scope="session")
+def grascco_sealed(grascco_present: str) -> str:
+    """Present *and* sealed, asked separately for `sealed_corpus`'s reason exactly.
+
+    The second corpus reached this state on 2026-09-21. A machine can have GraSCCo and
+    not have moved the test fold, and the seal tests are about the seal — so the skip
+    has to distinguish the two, or a suite on an unsealed checkout would pass tests
+    asserting that a seal holds.
+    """
+    from src.corpora import base
+
+    if base.sealed_root(grascco_present) is None:
+        pytest.skip(f"{grascco_present} is not sealed on this machine")
+    return grascco_present
+
+
+@pytest.fixture(scope="session")
 def grascco_loader(grascco_present: str):
     """The GraSCCo loader, constructed. No `try`, for `loader`'s reason exactly."""
     from src.corpora.grascco import GrasccoLoader
