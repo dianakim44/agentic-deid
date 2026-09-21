@@ -1,6 +1,6 @@
 {
- "baseline_outcomes": 2052,
- "commit": "2eff35967e1a3f56697bdaeac7f1c01ae8c5fe02",
+ "baseline_outcomes": 2068,
+ "commit": "f89de7c2fdd32402795c9940cf8a54da636a0905",
  "counts": {
   "a_ceiling_stop_is_recorded_as_converged": 4,
   "a_checksum_accepts_every_match": 1,
@@ -62,7 +62,7 @@
   "greedy_allows_reuse": 10,
   "greedy_tiebreak_dropped": 2,
   "grouping_name_only": 2,
-  "grouping_numeric_suffix_only": 1,
+  "grouping_numeric_suffix_only": 2,
   "human_log_allowed_under_any_arm": 1,
   "human_log_path_from_a_literal": 1,
   "initial_pool_excludes_train_instead_of_selecting_dev": 1,
@@ -180,6 +180,8 @@
   "the_role_is_appended_at_the_end_of_the_line": 2,
   "the_round_s_files_are_written_by_every_arm": 3,
   "the_rule_authors_prompt_is_cached_too": 2,
+  "the_rung_is_a_prefix_test": 3,
+  "the_rung_membership_is_hardcoded": 3,
   "the_score_block_carries_the_run_and_cost_blocks_too": 1,
   "the_strip_exempts_the_role_that_never_fenced": 1,
   "the_strip_finds_the_fence_anywhere_in_the_response": 2,
@@ -195,7 +197,7 @@
   "utf8_sig": 157,
   "zero_minutes_read_as_not_started": 1
  },
- "date": "2026-09-17",
+ "date": "2026-09-21",
  "dirty": false,
  "test_files": [
   "tests/test_meddocan_loader.py",

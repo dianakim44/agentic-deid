@@ -117,7 +117,7 @@ than a comment — every one of them leaves all 22,795 spans loading correctly.
 | `fold_from_directory_not_file` | `load()` skips `_apply_split_file` | folds come from the directory layout instead of the frozen file. No count changes, because the two agree today; what is lost is that the *file* decides what is sealed | **2** |
 | `split_disagreement_ignored` | the corpus-vs-file fold cross-check becomes `if False` | the file silently overrides the disk, so a re-release that moved a document out of `test` is accepted without a word | **1** |
 | `top_level_leak_allowed` | `check_schema` stops rejecting unknown top-level keys | corpus-specific fields may then sit beside the common ones. Nothing fails today; the schema stops being shared the first time GraSCCo's generator adds a key | **1** |
-| `grouping_numeric_suffix_only` | `STEM_RE` becomes the old `^(S\d{4}-\d+)-(\d+)$` | reinstates the §9.5 bug that dropped the 31 ids with a letter in the journal prefix, so the grouping audit covers 969 of 1,000 documents and calls itself complete | **1** |
+| `grouping_numeric_suffix_only` | `STEM_RE` becomes the old `^(S\d{4}-\d+)-(\d+)$` | reinstates the §9.5 bug that dropped the 31 ids with a letter in the journal prefix, so the grouping audit covers 969 of 1,000 documents and calls itself complete | **2** |
 | `grouping_name_only` | §9.5 step 2 accepts a name match without a record number or date | the one stem sharing a bare given name across different surnames becomes a group, and two independent units stop being independent | **2** |
 | `split_file_span_count` | `"n_spans": 5801` → `5800` **in the committed JSON** | a stale summary — which is what a re-released corpus actually produces. Direction reversed from every other mutation here: the artefact is the suspect and the code is the check | **3** |
 
@@ -2678,6 +2678,13 @@ covered and what it deferred are in `docs/notes/mutation-full-runs.md`. The coun
 in two `--probe` runs and then re-measured in that run, which is the order that matters: a probe
 skips the green-baseline check, so a probe number is not a count anyone should write here.
 
+**The 2026-09-21 full run then measured both for the first time in a full run, and both came back
+3.** So the impact-scope numbers above stand unchanged and the sentence before this one is now a
+statement about how they were *first* obtained rather than about what they rest on. That is the
+whole point of separating the two: an impact-scope count that survives its first full run is a
+confirmed count, and one that does not would have been a finding about the scope rule rather than
+about the mutation.
+
 ## What the seal cost, and what carries the difference
 
 Sealing 250 documents removed checks that cannot be replaced, and pretending
@@ -3701,6 +3708,7 @@ not a rule; the reasoning is here, with the measurements it rests on.
 | 185 mutations, 8 shards | **2.21 h** | measured, 2026-09-03, suite 1982 |
 | 188 mutations, 8 shards | **2.26 h** | measured, 2026-09-04, suite 1991 |
 | 192 mutations, 8 shards | **2.29 h** | measured, suite 2052 — the date is in `docs/notes/mutation-full-runs.md` and deliberately not here |
+| 194 mutations, 8 shards | **2.43 h** | measured, suite 2068 — the date is in `docs/notes/mutation-full-runs.md` and deliberately not here |
 
 The three serial rows are derivations and are marked as such; nobody has spent a serial run to
 check any of them. The first two disagree by more than the mutation count explains — 170 → 179 is
@@ -3795,6 +3803,23 @@ measurement of something nobody measured. The date of that run is in
 `docs/notes/mutation-full-runs.md` and is deliberately not repeated here or in the table — CLAUDE.md
 puts the last full run's timestamp in exactly one place, because two places means one of them goes
 stale invisibly.
+
+**The ninth data point settles what the eighth was a hint about, and it settles it against the
+hint.** 194 mutations, 8 shards, **2.43 h** (8733 s), suite 2068, all 194 caught. 192 → 194 is
+1.010 and the suite 2052 → 2068 is 1.008, so the denominator model predicts 1.018 against a wall
+clock that grew 1.061. That is a 4% *overshoot* one step after a 4% *shortfall* — the same
+magnitude in the opposite direction, which is what a noise floor looks like and not what a trend
+looks like. So the eighth point's "hint" is withdrawn as a hint: two consecutive residuals of ±4%
+put the real noise floor at about 4% rather than the 2% asserted above, and the model is not
+resolving steps of 2%. Both readings stay in this file because the sequence is the evidence —
+deleting the first would leave a reader unable to see that the correction came from the next
+measurement rather than from an argument. Per-mutation cost is 45.0 s here against 42.9 s at 192,
+43.3 s at 188 and 43.0 s at 185; 45.0 s is the highest of the four and is inside the same ±4%.
+(One difference in conditions, recorded so it is not invisible: a `git push` ran during this
+one where the earlier runs had an idle box. Seconds of network against 8733 s of CPU cannot
+account for 6%, and it is noted because unrecorded differences are how a noise floor becomes an
+explanation.) No serial row was added, for the standing reason: 8 × 2.43 h ÷ 1.16 = 16.8 h, and a
+derivation restated from a 6% input move would read as a measurement of something nobody measured.
 
 One thing that reads as a reversal and is not. The serial derivation for 185 comes out at ~15.2 h,
 which is the number the correction below rejected — but not the same number. The rejected fifteen
