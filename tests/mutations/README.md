@@ -3700,6 +3700,7 @@ not a rule; the reasoning is here, with the measurements it rests on.
 | 185 mutations, 8 shards | **2.20 h** | measured, 2026-09-02, suite 1945 |
 | 185 mutations, 8 shards | **2.21 h** | measured, 2026-09-03, suite 1982 |
 | 188 mutations, 8 shards | **2.26 h** | measured, 2026-09-04, suite 1991 |
+| 192 mutations, 8 shards | **2.29 h** | measured, suite 2052 — the date is in `docs/notes/mutation-full-runs.md` and deliberately not here |
 
 The three serial rows are derivations and are marked as such; nobody has spent a serial run to
 check any of them. The first two disagree by more than the mutation count explains — 170 → 179 is
@@ -3779,6 +3780,21 @@ is all.** The three counts it produced are in the section above. No serial row w
 ÷ 1.16 = 15.6 h against the 15.2 h above, which is a 2.6% move by a derivation whose inputs moved
 inside the noise, and restating it would read as a new measurement of something nobody measured.
 "About fifteen hours serially" is still the figure, and it is still a derivation.
+
+**The eighth data point is the row above at 192 mutations and 2.29 h, and it is the first where the
+per-mutation figure went *down*: 42.9 s each, against 43.3 s at 188 and 43.0 s at 185.** Mutations
+188 → 192 is 1.021 and the suite 1991 → 2052 is 1.031, so the denominator model predicts 1.053
+against a wall clock that grew 1.013. That is a 4% shortfall on a clock whose noise floor is about
+2%, which is the first step in eight to fall outside it in the *cheap* direction — and the honest
+reading is that one point at 2× the noise is a hint and not a finding. Nothing in the harness
+changed to explain it; the candidate explanations (a quieter machine, a shard split that happened to
+balance better) are exactly the ones this table cannot distinguish. **So it is recorded as a
+measurement and not as a revision of the model.** No serial row was added, for the standing reason:
+8 × 2.29 h ÷ 1.16 = 15.8 h, which restated from inputs that moved this little would read as a new
+measurement of something nobody measured. The date of that run is in
+`docs/notes/mutation-full-runs.md` and is deliberately not repeated here or in the table — CLAUDE.md
+puts the last full run's timestamp in exactly one place, because two places means one of them goes
+stale invisibly.
 
 One thing that reads as a reversal and is not. The serial derivation for 185 comes out at ~15.2 h,
 which is the number the correction below rejected — but not the same number. The rejected fifteen
