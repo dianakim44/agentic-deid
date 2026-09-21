@@ -543,6 +543,41 @@ underlying standard expressed in its own fold's units. Editing the 26, the floor
 corpus's δ by hand after a run makes the rungs incomparable exactly as a mid-ladder model
 change would (§4).
 
+#### de-grascco's δ is now the split file's, and it is 0.0634 — recorded 2026-09-21, after the split and before any iterating arm on this corpus
+
+`splits/de-grascco.json` is frozen: 63 documents over 60 §9.5 units, dev = 19 documents and
+**`n_spans_in_scope` = 410**. So the binding value is
+
+```
+δ_de-grascco = max(0.005, 26 / 410) = 0.063415   (6.34 pp, 26.0 spans)
+```
+
+which is **12.7× es-meddocan's 0.005** and sits between the ⅓ and 25% rows of the table
+above (432 → 0.0602, 324 → 0.0802). The realised fraction is 31.6% of in-scope gold, and
+δ follows from it rather than the other way round — which is what the four pre-computed
+rows were for. Nothing is edited: the table's rows stay as the pre-registration, and this
+is the value read from the split file, exactly as that block said it would be.
+
+**What it means for an iterating arm, stated now because it cannot be stated later.** A
+`port-loop` round on this corpus has to move **6.34 points of leak rate** to count as
+improving. That is a large step for one round, and on es-meddocan `port-loop`'s productive
+rounds were nowhere near it. So the likely behaviour is an early `converged` — two
+consecutive sub-6.34-point rounds while the arm is still improving — and per the paragraph
+above **that is a finding to report, not a reason to retune δ**. The 26-span invariant is
+doing exactly what it was defined to do: 26 spans is the standard, and on a fold of 410 the
+standard is 6.34 points because that is what 26 spans *is* there. The alternative reading —
+that δ is "broken" on a small corpus — is the one the invariant exists to refuse.
+
+**It is inert for the arms actually being run on this corpus.** `port-oneshot` makes one
+call, so `termination.not_applicable('de-grascco')` writes `reason: not_applicable`,
+`iterations: 1`, `improvements: []` — one observation has no first difference, so no
+threshold is consulted and δ cannot fire, be missed, or be crossed. It is still **recorded**
+in that block (δ = 0.063415, `n_dev` = 410, k = 2, ceiling = 8), for the reason
+`not_applicable` exists as a function rather than an omission: a reader comparing this
+corpus's single leak rate against another arm's stopping point gets the threshold that
+*would* have applied from the same file. The consequence above therefore binds the first
+`port-loop`-class arm on de-grascco and nothing that has run.
+
 #### Call-to-call variance, and how a δ crossing is to be read against it — 2026-08-21
 
 δ answers "is this round's improvement small enough to stop". It does not answer "is this
@@ -5308,6 +5343,53 @@ note-type contrast than any cross-corpus pair, because it holds everything excep
 document type constant. It is also small: the subsets overlap, and per-type figures
 for the 12 rare PHI types will not survive the split, so this is a secondary
 analysis, not a headline arm.
+
+#### The eight labels become a reporting block, and the numbers above stop being the ones reported — 2026-09-21
+
+The distribution above was a note's one-off measurement. It is now derived at scoring
+time and written into every `metrics.json`, so that a de-grascco arm reports its leak
+rate per document type without anyone re-measuring anything. Four decisions fix what
+that block is allowed to be.
+
+**1. It is a reporting axis and not an axis.** The labels live in
+`config/naming.yaml` under `document_type`, deliberately *outside* `axes`. An axis value
+is fillable into a `paths` template, and `results/de-grascco/radiology/…` is a directory
+no arm ever ran — the breakdown is a slice of one arm's fold, not a cell of the design.
+`base.document_types()` is the accessor; §3's rule that a span's `layer` is read from
+naming.yaml and never derived from a name applies here for the same reason.
+
+**2. It is derived from text, not stored.** `config/document_types.yaml` holds the cue
+regexes per corpus at an integer `version`, and `run_fold` records
+`{source, version}` in the run block as `document_type_cues`. A stored per-document table
+could not exist: 12 of the 63 documents are sealed, so `run_sealed_eval.py` derives their
+labels *inside its own authorised read* and nothing outside that read holds those ids.
+This is the same discipline as §6.1 — the seal is a code gate, and a convenience table
+would be a way around it.
+
+**3. The block sits inside each scoring mode, and reaches no headline.** A leak rate over
+radiology documents is a leak rate, so `by_document_type` is a member of the mode
+(`relaxed`, `fully_covered`) and not a sibling of it; `SCHEMA_VERSION` is 10. It is
+optional for schema 8's reason: a corpus with no measured distribution gets `null`, and
+"not measured" must not be readable as "measured and found nothing". Per §9.3, which
+figure is the headline is a per-metric decision made by the reporting layer — and this
+one is secondary by the paragraph above, so it is never it.
+
+**4. Multi-label, and no name for the absence.** The rows do not sum to the fold, and the
+block says `multi_label: true` rather than leaving a reader to discover it by adding them
+up. `unlabelled` is a row in the breakdown and **not** a ninth vocabulary value: a ninth
+value would read as a ninth kind of document, when what it records is that the cues did
+not fire.
+
+**What is reported is 51 documents, and the table above is 63.** de-grascco's test fold
+was sealed the same day. The re-derived counts are in
+`docs/notes/corpus-observations.md` §7.4 and pinned in `tests/test_document_types.py`.
+**The difference between the two tables is not decomposable**, and neither document
+claims it is: 12 documents left *and* the regexes changed, because §7.3 described its
+cues in prose, elided one as `CT …Befund`, and never saved the patterns. One direction is
+provable and is the only comparison asserted anywhere — `radiology` is 34 over 51 where
+§7.3 reported 30 over 63, and sealing can only lower a count, so the current patterns are
+strictly wider. The counts in the table above are therefore kept as what was measured on
+2026-08-05 over the whole corpus, and are not the figures any arm reports.
 
 **The two Spanish corpora are not a language-held-constant pair.** MEDDOCAN and
 CARMEN-I share a language, a clinical domain, and every type name, which makes it

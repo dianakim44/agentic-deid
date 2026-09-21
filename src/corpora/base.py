@@ -1051,6 +1051,57 @@ def excluded_types() -> dict[str, str]:
     return dict(value)
 
 
+def document_types() -> dict[str, str]:
+    """The document-type labels a fold's score may be broken down by, with a gloss each.
+
+    DESIGN §7 measured GraSCCo's distribution as eight content-cue labels and recorded
+    that the breakdown is a secondary analysis rather than a headline. This is the
+    vocabulary those labels are named from, and it is here for the reason every other
+    block here is: the names land in `metrics.json` under `by_document_type`, and
+    CLAUDE.md's rule covers values that never reach a results *path* too.
+
+    **Not an axis, and specifically not in the `axes` block.** An axis value names a cell
+    of the experiment; these name a subset of one cell's documents. In `axes` they would be
+    fillable into a `paths` template, which would make `results/de-grascco/radiology/…`
+    syntactically possible — a directory no arm ran.
+
+    **Multi-label, and the reverse mapping is not a function.** One document can be an
+    outpatient letter reporting an imaging finding, so label counts do not sum to the
+    document count. The reporting layer says so beside the table; a reader who meets a
+    table whose column does not add up reads it as a typo.
+
+    **There is no value for "no label matched".** A ninth entry spelled `unlabelled` would
+    sit at the same level as the eight in every table and be read as a ninth kind of
+    document, when it is a statement about the cues. The reporting layer counts it in its
+    own field.
+
+    The cues that *derive* a label from a document are not here — they are per corpus, they
+    are versioned, and they live in `config/document_types.yaml` (`src.corpora.doctype`).
+    Keeping them apart is what stops an edit that adds a corpus from moving the vocabulary.
+    """
+    value = _closed_vocabulary(
+        "document_type",
+        "the document-type labels a fold's score is broken down by (DESIGN §7)",
+    )
+    overlap = sorted(set(value) & set(axis("corpus")))
+    if overlap:
+        raise CorpusError(
+            f"config/naming.yaml declares {overlap} both as a corpus and as a "
+            "document-type label. The two are read side by side in a metrics file, and a "
+            "name that is both would make `by_document_type` unreadable at the one place "
+            "the breakdown is compared across corpora."
+        )
+    for label, gloss in value.items():
+        if not isinstance(gloss, str) or not gloss.strip():
+            raise CorpusError(
+                f"config/naming.yaml `document_type`[{label!r}] carries no gloss. The "
+                "gloss is what says which content the label is about — the labels were "
+                "measured from content cues (DESIGN §7), and a bare name leaves a reader "
+                "to guess whether `progress_note` means the register or the content."
+            )
+    return value
+
+
 def masked_tag_heterogeneous() -> str:
     """The mask tag for a union of overlapping spans whose types disagree. DESIGN §3.
 

@@ -751,8 +751,9 @@ masked_tag_heterogeneous: "[PHI]"
 # 로딩 시 스팬에 excluded 표시를 붙이는 데 쓰인다 — 코퍼스마다 다르고, 그
 # 코퍼스를 읽는 코드만 안다. 여기 있는 것은 코퍼스와 무관한 **개념**이고
 # 에이전트에게 보여주는 이름이다. 한쪽에서 다른 쪽을 유도하지 않는다: 유도하면
-# 로더가 없는 코퍼스(de-grascco)의 제외 유형이 프롬프트에서 조용히 사라지고,
-# 그 침묵은 "제외가 없다" 와 구별되지 않는다.
+# 로더가 아직 없는 코퍼스(현재 es-carmen · ko-surro)의 제외 유형이 프롬프트에서
+# 조용히 사라지고, 그 침묵은 "제외가 없다" 와 구별되지 않는다. de-grascco 가
+# 여기 적혀 있었는데 2026-09-21 에 로더를 얻어서 예시가 아니게 됐다.
 #
 # 값은 이름 → 한 줄 설명이고, 설명은 왜 범위 밖인지를 말한다. 이유가 두 종류라서
 # (§9.1) 한 줄로 뭉개지 않는다 — 앞의 둘은 HIPAA Safe Harbor 식별자가 아니고,
@@ -761,6 +762,44 @@ excluded_types:
   SEXO:       sex of the patient; not a HIPAA Safe Harbor identifier, so a detector scored on it is measured on something other than disclosure risk
   FAMILIARES: family relationship words; the surfaces are the common nouns madre, familia, padres — not names
   NAME_TITLE: titles such as Dr. or Prof.; the corpora annotate them incompatibly and neither is wrong, so keeping it would score one corpus's convention as another's false positive
+
+# ─── 문서유형 (보고 축) ──────────────────────────────────────
+# DESIGN.md §7 이 GraSCCo 의 문서유형 분포를 여덟 종으로 측정했다. 그 분포를
+# metrics.json 의 `by_document_type` 으로 보고하려면 라벨 이름이 어휘여야 한다
+# (CLAUDE.md — 결과 경로에 들어가지 않는 값도 예외가 아니다).
+#
+# **axes 블록이 아니라 최상위 블록이다.** 이 값들은 실험의 cell 을 이름 짓지
+# 않는다 — arm 을 문서유형별로 돌리는 것이 아니고, 한 arm 의 채점 결과를
+# 문서 부분집합으로 쪼개서 보는 것이다. axes 에 넣으면 paths 템플릿에 채워질 수
+# 있게 되고, 그 순간 `results/de-grascco/radiology/...` 같은 경로가 문법적으로
+# 가능해진다. termination_reason 과 같은 층위의 블록이다.
+#
+# **다중 라벨이다.** 한 문서가 영상 소견을 보고하는 외래 서신일 수 있다.
+# 그래서 라벨별 문서 수의 합은 문서 수보다 크고, 라벨별 gold 합도 fold 의
+# gold 합보다 크다. 보고 층이 그 사실을 함께 적는다 — 합이 맞지 않는 표는
+# 읽는 사람이 오타로 읽는다.
+#
+# **어느 라벨도 아닌 문서가 있다.** 그 상태에 값을 주지 않는다: `unlabelled` 를
+# 이 목록에 넣으면 "단서가 없었다" 가 아홉 번째 문서유형이 되고, 라벨별 표에서
+# 다른 여덟과 같은 층위로 보인다. 보고 층이 별도 칸으로 센다.
+#
+# **단서(cue)는 여기 없다.** 라벨 → 정규식은 config/document_types.yaml 에
+# 있고 코퍼스마다 다르다. 어휘와 유도를 한 파일에 두면 코퍼스를 하나 추가하는
+# 편집이 어휘를 움직인다. 유도는 버전을 갖고 그 버전이 metrics.json 에 들어간다.
+#
+# letter frame (Sehr geehrte … Mit kollegialen Grüßen) 은 여기 없다. 63 문서 중
+# 52 가 그 형식이고, 그것은 문서유형이 아니라 **register** 다 — DESIGN §7 이
+# "GP letters" 라는 잘못된 기술을 그 근거로 철회했다. 라벨로 넣으면 그 오류를
+# 어휘에 되돌려 놓는 것이 된다.
+document_type:
+  radiology:        imaging study or its report — MRT, Sonographie, Röntgen, Kontrastmittel, CT findings
+  pathology:        histology or immunohistochemistry — Histologie, Immunhistochemie, Makroskopie
+  outpatient:       seen in a clinic rather than admitted — Ambulanz, ambulante Vorstellung, Sprechstunde
+  laboratory:       laboratory values reported in the text — Laborwerte, Leukozyten, CRP, Hämoglobin
+  progress_note:    an entry in the course of an admission — Verlaufsnotiz, Visite, Verlauf
+  discharge:        discharge letter or report — Entlassungsbericht, Entlassungsbrief, entlassen wir
+  tumour_board:     multidisciplinary tumour conference — Tumorboard, Tumorkonferenz
+  operation_report: operative record — OP-Bericht, Hautschnitt, intraoperativ
 
 # ─── 층 → 계열 ───────────────────────────────────────────────
 # 상보성 분해(DESIGN.md §5)는 "rules only / tagger only / both / neither" 로

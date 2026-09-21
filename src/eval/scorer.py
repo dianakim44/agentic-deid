@@ -50,6 +50,10 @@ from ..corpora.base import (
     ROOT, axis, check_termination_reason, family_of, layer_families, model_id_absent,
     path_template, round_path,
 )
+#: Aliased because `_document_type_block` takes a parameter named `document_types` — the
+#: caller's mapping — and shadowing the vocabulary accessor inside the one function that
+#: needs both would be a name resolving to the argument where the config was meant.
+from ..corpora.base import document_types as base_document_types
 #: `ErrorSpan` and the two error kinds, from the module that defines them. Imported
 #: rather than re-spelled, and the direction is deliberate: this module *produces* errors
 #: and `src/sample.py` consumes them, while the vocabulary is declared there ("fixed here
@@ -121,7 +125,19 @@ SCORER_VERSION = 1
 #: block outright if anyone passes it there. That is deliberate: this is spend that bought no
 #: result, and adding it to the figure DESIGN §11.3's 1.9× standard is read off would price a
 #: rung for work that produced nothing while making the rung look more productive per token.
-SCHEMA_VERSION = 9
+#: 10 adds an **optional** `by_document_type` block inside each mode block, and the run block
+#: gains `document_type_cues` naming the config and version it was derived from (2026-09-21,
+#: DESIGN §7). Optional for schema 8's reason: a corpus whose document-type distribution has
+#: not been measured declares no cues and gets no block, and that absence is a real state —
+#: `src/corpora/doctype.py` returns `None` for it rather than an empty mapping, precisely so
+#: "not measured" cannot be read as "measured and found nothing". A block of zeros would be
+#: the same lie the two versions above refuse.
+#:
+#: Inside the mode and not beside the modes, because a leak rate over the radiology documents
+#: is a leak rate and has the same two definitions as every other one (DESIGN §9.3). It reaches
+#: no `headline` field: DESIGN §7 pre-registers the breakdown as a secondary analysis, the
+#: subsets overlap, and the per-type figures inside them will not survive the split.
+SCHEMA_VERSION = 10
 
 FULLY_COVERED = "fully_covered"
 RELAXED = "relaxed"
@@ -912,6 +928,93 @@ def _complementarity(records: Sequence[_GoldRecord]) -> dict:
     }
 
 
+def _document_type_block(records: Sequence[_GoldRecord],
+                         fp_marks: Sequence[tuple[str, Mark]],
+                         pairs: Sequence[DocPair],
+                         document_types: Mapping[str, Sequence[str]]) -> dict:
+    """One mode's numbers again, restricted to the documents carrying each label.
+
+    DESIGN §7: GraSCCo's note-type contrast stands within the corpus, because radiology,
+    pathology and outpatient subsets hold language, guideline and corpus constant. This is
+    that contrast as a block — and §7 also pre-registers it as a **secondary analysis**, so
+    nothing here reaches `headline`.
+
+    **The rows do not sum to the mode's totals, in either direction.** The labels are
+    multi-label, so a document reporting an imaging finding in an outpatient letter is in two
+    rows; and a document no cue reached is in none of them, which is what `unlabelled` holds.
+    `multi_label` is written into the block rather than left to the reader, because a table
+    whose column does not add up is read as a defect in the writer.
+
+    **From this mode's own `records` and `fp_marks`, not from a second scoring.** The
+    matching happened once (DESIGN §9.3); this partitions its verdicts by document. A
+    subset-and-rescore would be a second `assign()` over the same spans, and two matchings
+    of one fold is the thing §9.3 forbids.
+
+    `document_types` is `{doc_id: (label, ...)}` from `src.corpora.doctype`. Ids and labels
+    only — no text and no offsets — which is what keeps this module a function of spans.
+    """
+    labels = list(base_document_types())
+    unknown = sorted({l for these in document_types.values() for l in these} - set(labels))
+    if unknown:
+        raise ScorerError(
+            f"the document-type mapping carries {unknown}, which config/naming.yaml does "
+            "not declare as a `document_type`. The label lands in metrics.json, so a value "
+            "the vocabulary does not have would name nothing (CLAUDE.md)."
+        )
+    missing = sorted(p.doc_id for p in pairs if p.doc_id not in document_types)
+    if missing:
+        raise ScorerError(
+            f"{len(missing)} document(s) in this fold have no entry in the document-type "
+            f"mapping (first: {missing[0]!r}). An absent entry and an empty label tuple are "
+            "different facts — the second says the cues reached nothing, the first says this "
+            "document was never asked — and only the second belongs in `unlabelled`."
+        )
+
+    fp_by_doc: dict[str, int] = {}
+    for doc_id, _mark in fp_marks:
+        fp_by_doc[doc_id] = fp_by_doc.get(doc_id, 0) + 1
+    pred_by_doc = {p.doc_id: len(p.pred) for p in pairs}
+    gold_docs = {p.doc_id for p in pairs if p.gold}
+
+    def row(doc_ids: set[str]) -> dict:
+        rows = [r for r in records if r.doc_id in doc_ids]
+        tp = sum(1 for r in rows if r.matched)
+        leaked = sum(1 for r in rows if not r.covered)
+        fp = sum(fp_by_doc.get(doc_id, 0) for doc_id in doc_ids)
+        entry = {
+            "documents": len(doc_ids),
+            "documents_with_gold_phi": len(doc_ids & gold_docs),
+            "gold": len(rows),
+            "pred": sum(pred_by_doc.get(doc_id, 0) for doc_id in doc_ids),
+            "leaked": leaked,
+            "leak_rate": leaked / len(rows) if rows else None,
+        }
+        entry.update(_prf(tp, fp, len(rows) - tp))
+        return entry
+
+    by_label = {
+        label: row({doc_id for doc_id, these in document_types.items()
+                    if label in these and doc_id in pred_by_doc})
+        for label in labels
+    }
+    unlabelled = {doc_id for doc_id, these in document_types.items()
+                  if not these and doc_id in pred_by_doc}
+    assignments = sum(len(document_types[p.doc_id]) for p in pairs)
+    return {
+        # Stated in the record, for the reason in the docstring.
+        "multi_label": True,
+        "documents": len(pairs),
+        "documents_labelled": len(pairs) - len(unlabelled),
+        "documents_unlabelled": len(unlabelled),
+        "labels_per_document_mean": (round(assignments / len(pairs), 3) if pairs else None),
+        "labels": by_label,
+        # Its own key and not a ninth label (`base.document_types()`): "no cue matched" is a
+        # statement about the cues, and a row beside the eight would be read as a ninth kind
+        # of document.
+        "unlabelled": row(unlabelled),
+    }
+
+
 def _mode_block(records: Sequence[_GoldRecord], fp_by_type: dict,
                 pairs: Sequence[DocPair], duplicates: int,
                 by_rule: dict) -> dict:
@@ -1032,7 +1135,8 @@ def _check_layers(pairs: Sequence[DocPair]) -> None:
                 )
 
 
-def score(pairs: Sequence[DocPair], *, excluded_gold: int = 0) -> dict:
+def score(pairs: Sequence[DocPair], *, excluded_gold: int = 0,
+          document_types: Mapping[str, Sequence[str]] | None = None) -> dict:
     """The metrics block: counts, headline, and both modes in full.
 
     Pure and deterministic. No agent is called, no file is read beyond
@@ -1048,13 +1152,27 @@ def score(pairs: Sequence[DocPair], *, excluded_gold: int = 0) -> dict:
     (DESIGN §5.5): put here, a list of the positions of every missed identifier in the fold
     would be published by every arm that scores, on every corpus, as a permanent by-product
     of a feature only the iterating arms use.
+
+    `document_types` is `{doc_id: (label, ...)}` for every document in `pairs`, from
+    `src.corpora.doctype`, and adds a `by_document_type` block to each mode (schema 10).
+    `None` — the default and the state of every corpus whose distribution has not been
+    measured — writes no block, which is the record that the breakdown was not available
+    rather than that it was empty. The mapping is passed in for `excluded_gold`'s reason
+    and a second one: this module is a function of spans, and a label derived here would
+    make it read `config/document_types.yaml` and the documents' text.
     """
     _check_layers(pairs)
 
     modes = {}
     for mode in MODES:
-        records, fp_by_type, duplicates, by_rule, _fp_marks = _records(pairs, mode)
+        records, fp_by_type, duplicates, by_rule, fp_marks = _records(pairs, mode)
         modes[mode] = _mode_block(records, fp_by_type, pairs, duplicates, by_rule)
+        if document_types is not None:
+            # Inside the mode, not beside the modes. A leak rate restricted to the
+            # radiology documents is a leak rate, so it is defined per mode exactly as
+            # every other number here is, and a single copy would silently be one mode's.
+            modes[mode]["by_document_type"] = _document_type_block(
+                records, fp_marks, pairs, document_types)
 
     gold_total = sum(len(p.gold) for p in pairs)
     no_gold = [p for p in pairs if not p.gold]

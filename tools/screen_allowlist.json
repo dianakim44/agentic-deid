@@ -58,6 +58,11 @@
       "why": "Korean comments explaining the corpora: and sealed: keys. This is the committed template and holds no real path; the machine's real paths live in data_paths.local.yaml, which is gitignored."
     },
     {
+      "path": "config/document_types.yaml",
+      "sniff": "Korean prose",
+      "why": "Korean comments explaining the document-type cue file: why the derivation is config rather than code, why the version field is written into every metrics.json, and how these patterns differ from the pre-seal measurement they were rewritten from. The values are German clinical vocabulary used as regexes (imaging modalities, specimen and ward words) in the same category as a rule file's patterns — general register terms, no document id, no span, no offset, no PHI surface form, and nothing read out of sealed/."
+    },
+    {
       "path": "config/naming.yaml",
       "sniff": "Korean prose",
       "why": "Korean comments documenting the identifier vocabulary. The values are experiment identifiers; the prose explains what each axis is for."

@@ -52,6 +52,7 @@ from pathlib import Path
 from typing import Mapping, Sequence
 
 from ..corpora import base
+from ..corpora import doctype
 from ..corpora.base import CorpusError, Document, SealError
 from ..rules import RuleError, load_for_corpus
 from ..rules import _relative as rules_relative
@@ -87,8 +88,13 @@ COPIED_BLOCKS = (
 
 #: Run-block fields a sealed run **replaces**, and the only ones. Everything else in the
 #: block describes the arm and travels unchanged, which is what makes the dev and sealed
-#: files diffable: they differ in `split`, in these three, and in the scores.
-FRESH_RUN_FIELDS = ("split", "generated", "commit", "tree")
+#: files diffable: they differ in `split`, in these four, and in the scores.
+#:
+#: `document_type_cues` joined them at schema 10 and is the one that is not about *when* the
+#: run happened. The reason it is fresh rather than copied is in `sealed_run_block`: the cue
+#: file is the harness's and is read when the labels are derived, which for the test fold is
+#: the sealed run itself.
+FRESH_RUN_FIELDS = ("split", "generated", "commit", "tree", "document_type_cues")
 
 
 class SealedEvalError(SealError):
@@ -570,7 +576,14 @@ def score_fold(
     predictions = detect_fold(subset, ruleset, detector=plan.detector)
     elapsed = time.monotonic() - started
     pairs, excluded = from_documents(subset, predictions)
-    return score(pairs, excluded_gold=excluded), elapsed
+    # The same derivation `run_fold` makes, over the documents this call was handed — which
+    # is the whole reason it is a derivation and not a stored table (DESIGN §7). The test
+    # fold's labels are computed here, inside the read this module is authorised to make,
+    # and nothing outside it ever holds the twelve ids and their labels. If this line were
+    # missing, `--verify-dev` would report the dev record and this path as differing on
+    # `modes`, which is the check working.
+    document_types = doctype.label_documents(plan.corpus, subset)
+    return score(pairs, excluded_gold=excluded, document_types=document_types), elapsed
 
 
 def sealed_run_block(plan: ArmPlan, *, observed: tuple[str | None, str]) -> dict:
@@ -595,14 +608,30 @@ def sealed_run_block(plan: ArmPlan, *, observed: tuple[str | None, str]) -> dict
     outputs cannot make that true, so the sample has to be taken before there are any —
     which is what the log row does, and is now the only thing this block will accept.
     No default, because a default here is a sample taken at the wrong time by omission.
+
+    **`document_type_cues` is sampled here too, and it is the fifth fresh field** (schema
+    10). It looks like `rules_version` and is not: the rule files are the arm's own and
+    travel with it, while `config/document_types.yaml` belongs to the harness and is read at
+    the moment the labels are derived — which for the test fold is *this* run, inside
+    `score_fold`. Copied from the dev record it would name the version that produced the dev
+    breakdown while sitting beside a sealed breakdown derived from whatever is on disk now,
+    and the two would differ silently because a cue edit leaves every label's name
+    unchanged. `--verify-dev` would catch such an edit, but it is a separate invocation and
+    not a gate, so the field states what this run read rather than resting on a rehearsal
+    someone may not have run. A corpus with no cues records `None` from both paths.
     """
     commit, tree = observed
+    cues = (
+        {"source": doctype.SOURCE, "version": doctype.version()}
+        if doctype.has_axis(plan.corpus) else None
+    )
     return {
         **dict(plan.dev["run"]),
         "split": SEALED_SPLIT,
         "generated": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "commit": commit,
         "tree": tree,
+        "document_type_cues": cues,
     }
 
 

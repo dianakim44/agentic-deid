@@ -562,6 +562,68 @@ remains open question 5.
 
 ---
 
+### 7.4 The same distribution as a reporting axis (2026-09-21, 51 documents)
+
+§7.3(iii) was a one-off measurement in a note. It is now a **reporting axis**: eight
+labels declared in `config/naming.yaml` (`document_type`), derived from each document's
+text by `config/document_types.yaml` at a recorded `version`, and written into every
+`metrics.json` as `by_document_type` inside each scoring mode (schema 10). DESIGN §7
+pre-registers it as secondary — it reaches no `headline`.
+
+Three properties, so the table below is not misread:
+
+- **Multi-label.** A document can carry several labels or none, so the rows do not sum
+  to the fold. Adding them up over-counts every document that matched two cue sets.
+- **No label for "no cue matched".** `unlabelled` is a row in the breakdown, not a
+  ninth label in the vocabulary; a ninth label would read as a ninth kind of document.
+- **Not an axis in the naming sense.** `document_type` is deliberately outside
+  `naming.yaml`'s `axes`, because an axis value is fillable into a `paths` template and
+  `results/de-grascco/radiology/…` is a directory no arm ever ran.
+
+**What is measurable here is 51 documents, not 63.** The test fold (12 documents) was
+sealed the same day; `sealed/` is not opened, and `run_sealed_eval.py` derives its
+labels inside its own authorised read. So this table and §7.3's are over different
+document sets.
+
+| label | 51 visible | train (32) | dev (19) |
+|---|---|---|---|
+| `radiology` | 34 | 21 | 13 |
+| `laboratory` | 19 | 12 | 7 |
+| `pathology` | 18 | 15 | 3 |
+| `outpatient` | 15 | 9 | 6 |
+| `progress_note` | 11 | 4 | 7 |
+| `tumour_board` | 2 | 0 | 2 |
+| `discharge` | 1 | 1 | 0 |
+| `operation_report` | 0 | 0 | 0 |
+| *unlabelled* | 8 | 6 | 2 |
+| labels per document, mean | 1.961 | 1.938 | 2.000 |
+
+Cue version 1. `operation_report` is 0 on the visible folds where §7.3 found 1 on 63,
+which is consistent with that one document being sealed — consistent with, not evidence
+of; nothing here can look.
+
+**The difference from §7.3 is not decomposable, and this note does not decompose it.**
+Two things changed at once: 12 documents left, *and* the regexes are not the same ones.
+§7.3 described its cues in prose and elided one as `CT …Befund`; the patterns were never
+saved. `config/document_types.yaml` was written from that prose, with stems for
+inflection (`[Hh]istolog`, `[Ss]onographi`) and no cue words added. One direction is
+provable: `radiology` is 34 over 51 where §7.3 reported 30 over 63, and sealing can only
+lower a count, so these patterns are strictly wider than that measurement's. For the
+other seven labels not even the direction follows, and
+`tests/test_document_types.py::test_the_patterns_are_wider_than_the_pre_seal_measurement`
+asserts only the one that does.
+
+§7.3's collegial-letter frame (52/63 by salutation and closing) is **not** a label here.
+It is a register — a discharge summary and a radiology report can both be written as a
+letter to a colleague — and DESIGN §7 retracted "GP letters" as a type on that ground.
+
+The pinned numbers live in `tests/test_document_types.py` (`VISIBLE`), so a cue edit
+fails a test before it changes a reported figure. Editing a pattern without bumping
+`version` is the failure the version field exists to prevent: the same label name would
+then denote two derivations, and comparing two `metrics.json` files would not show it.
+
+---
+
 ## 8. CARMEN-I (`es-carmen`), inventoried 2026-08-06
 
 **DUA notice.** CARMEN-I is real clinical text from the Hospital Clínic of

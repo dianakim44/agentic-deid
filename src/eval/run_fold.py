@@ -65,6 +65,7 @@ from pathlib import Path
 from typing import Mapping, Sequence
 
 from ..corpora import load
+from ..corpora import doctype
 from ..corpora.base import (
     ROOT, CorpusError, Document, axis, model_id_absent, path_template, round_path,
 )
@@ -918,7 +919,13 @@ def run_fold(
     elapsed = time.monotonic() - started
 
     pairs, excluded = from_documents(docs, predictions)
-    scored = score(pairs, excluded_gold=excluded)
+    # Derived here and not in the scorer, from the documents this pass loaded (DESIGN §7).
+    # `None` for a corpus that declares no cues, which writes no breakdown — see
+    # `scorer.SCHEMA_VERSION` 10 on why that absence has to stay distinguishable from an
+    # empty one. The sealed driver derives its own from its own read; the twelve sealed
+    # documents are not labellable from here and nothing here holds a table of them.
+    document_types = doctype.label_documents(corpus, docs)
+    scored = score(pairs, excluded_gold=excluded, document_types=document_types)
 
     if model_record is not None:
         unknown = [k for k in model_record if k not in MODEL_FIELDS]
@@ -1000,6 +1007,17 @@ def run_fold(
         "lexicons_source": {ref: p for ref, p
                             in sorted(ruleset.lexicon_sources.items())},
         "rules": sorted(r.rule_id for r in ruleset.rules),
+        # Where the `by_document_type` labels came from, and at which revision of the cues
+        # (schema 10). Beside the block rather than inside it for `rules_version`'s reason: a
+        # label name is identical across two cue sets that mean different things, and the
+        # difference is invisible in the breakdown itself. `None` for a corpus that declares
+        # no cues — the key is written on every arm, because a field only some arms carry
+        # cannot be compared across arms, and the null says the axis was unavailable rather
+        # than that the version was not recorded.
+        "document_type_cues": (
+            {"source": doctype.SOURCE, "version": doctype.version()}
+            if document_types is not None else None
+        ),
         # DESIGN §10 A2: the instant, the revision, and whether the revision describes
         # what ran. Required by `scorer.REQUIRED_RUN` since schema 4 — `commit` and `tree`
         # were already written here, and what changed is that omitting them is now refused

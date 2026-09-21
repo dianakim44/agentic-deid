@@ -1719,8 +1719,18 @@ def test_the_schema_version_moved_with_the_new_required_fields():
     which is every round in the record up to and including `port-loop` round 5 — and nothing but
     this counter tells them apart. A reader totalling an arm's abandoned spend across rounds gets
     the wrong answer in a way no value in the file betrays, because the wrong answer is zero.
+
+    Schema 10 is the first addition *inside* a scoring mode (`by_document_type`, DESIGN §7)
+    plus `document_type_cues` in the run block, and it takes schema 8's call once more. The
+    two states behind an absent block are "this corpus has no measured document-type
+    distribution" and "a writer that could not break a fold down at all"; only es-meddocan and
+    de-grascco exist in the record, and exactly one of them has cues, so the ambiguity is live
+    on the first file written after this. It sits inside the mode because a leak rate over
+    radiology documents is a leak rate and not a fourth kind of number, which is also why
+    `SCORER_VERSION` does not move: the matching is untouched and the rows are the same
+    verdicts grouped by document.
     """
-    assert scorer.SCHEMA_VERSION == 9
+    assert scorer.SCHEMA_VERSION == 10
     assert scorer.SCORER_VERSION == 1
 
 
