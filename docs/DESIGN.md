@@ -4403,6 +4403,22 @@ determined and nothing about it remains free.
 > `ko-surro` is the one corpus of the four whose reference is not human, and that belongs in
 > §9 beside the leak-rate definitions rather than inside a split file.
 >
+> **Status of (v), 2026-09-22: there is a third candidate and it is measured, not argued.**
+> `ko-surro-gold-provenance.md` §10 constructs **human-verified silver** — the Korean silver
+> spans whose source placeholder the human gold supports — and measures it at **1,614** spans
+> (1,611 if the 3 `NOT_PHI_RESTORED` mislabels are also dropped), with precision 1.000 and
+> recall 0.907 / 0.967 against the human reference by construction. It is buildable despite the
+> absence of any source-offset key, because the per-record placeholder multisets are equal and
+> every repeated-literal group carries a uniform verdict, so the count *and* each span's verdict
+> are exact. **All three candidates share one floor: 59 gold spans (3.3%) were never tagged by
+> the tool, so that PHI is translated into Korean unmarked and no Korean-side reference can
+> point at it.** An arm that correctly detects one is charged a false positive. (v) is therefore
+> a choice among three and is still pre-registered here before any Korean arm runs; (i)–(iv)
+> wait on it, because it is the scoring basis and (ii) is what produces it. One handling rule
+> falls out of the measurement regardless of the choice: `src_tag` is text-bearing (30.5% of
+> payloads are values, not type names), so it is corpus text for the purposes of CLAUDE.md's
+> message rule and must not appear in the split file either. `type` is the safe field.
+>
 > One further consequence of (v) for §7's own comparison: `tokenizer: "whitespace"` counts
 > eojeol in Korean and words in English, so `spans per 1,000 tokens` will not be comparable
 > across the aligned pair even though every other field of the pair is. Document counts and

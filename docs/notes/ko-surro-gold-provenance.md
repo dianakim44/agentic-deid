@@ -193,3 +193,127 @@ recorded with their grounds and no verdict. Two facts bound every option:
 
 The decision belongs in DESIGN §7 and is pre-registered there before any arm runs, not
 chosen after a number is visible.
+
+## 10. A third option for decision 5: human-verified silver (2026-09-22)
+
+Decision 5 is *which span set the Korean fold counts*. §9 recorded two candidates — the
+silver reference the corpus ships with, and the human reference of `id.deid`. A third was
+asked for on 2026-09-22: **keep only those Korean silver spans whose source English
+placeholder is supported by the human gold.** This section measures whether that set can be
+constructed, how large it is, and what it cannot see. It does not choose.
+
+### 10.1 Can a Korean surrogate be traced back to its source English mask?
+
+Asked and answered **from key names alone**, no file body opened for the judgement. The
+counts in §10.2 then come from programmatic joins whose output is integers only.
+
+| file | keys | what the keys carry |
+|---|---|---|
+| `ko_surrogate.jsonl` · `ko_placeholder.jsonl` | record: `uid`, `spans`; span: `start`, `end`, `type`, `src_tag`, `surrogate` | per span, the source placeholder **literal** (`src_tag`) and the normalised type |
+| `surrogate_registry.jsonl` | `instance`, `normalized_key`, `note_uids`, `scope`, `scope_key`, `src_tags_seen`, `surrogate` | per *surrogate value*, the source identity at a scope, and the set of notes it appears in |
+| `ko_tagged.jsonl` | `ko`, `uid` | no span structure |
+
+So the link exists at **identity and type level** and is absent at **instance level**:
+
+- `src_tag` names the source placeholder, so every Korean span knows *what kind of mask*
+  it replaced, and `surrogate_registry` knows *which source identity* a surrogate stands for
+  across notes (`note_uids`, `scope_key`).
+- **No key anywhere is a source offset.** There is no `src_start`, `src_end` or `res_offset`
+  in any of the five files. Nothing records *which occurrence* of a repeated placeholder in
+  `id.res` a given Korean span came from.
+- The registry is keyed by surrogate *value*, not by occurrence: grouping the Korean spans by
+  `(uid, src_tag)` and by `(uid, src_tag, surrogate)` yields identical group counts (1,967)
+  and identical size histograms. Within a note the surrogate is a function of the literal, so
+  it adds no disambiguation the literal did not already give.
+
+### 10.2 The instance join can be reconstructed anyway, and the count is exact
+
+`id.res`'s placeholders are ordered; so are the Korean spans. Comparing the two sequences
+per record (`gold_provenance_check.align` indexes placeholders by `tag_index`; Korean spans
+sorted by `start`):
+
+| relation, per record | records | Korean spans |
+|---|---|---|
+| literal sequences identical, position for position | 2,402 | 1,962 |
+| Korean an ordered subsequence of the source | 6 | — (drops exactly the 6 `gold_excluded_spans`) |
+| same multiset, reordered by translation | 26 | 186 |
+
+In the 26 reordered records, 140 of the 186 spans are pinned by literal uniqueness and 46
+(2.13% of all spans) are not. **All 21 repeated-literal groups containing those 46 carry a
+uniform verdict** — every candidate in the group is `matched`, or every candidate is
+`unsupported` — so no span's verdict depends on which assignment is chosen. And because the
+within-record literal multisets are equal everywhere, the *count* was already exact before
+that check.
+
+### 10.3 The size of the set
+
+| | spans |
+|---|---|
+| `id.res` placeholders | 2,164 |
+| less `gold_excluded_spans` (all 6 `unsupported`) | −6 |
+| Korean silver spans | **2,158** |
+| of which gold-**supported** | **1,614** |
+| of which gold-**unsupported** | 544 |
+| gold-supported minus the 3 `NOT_PHI_RESTORED` relabels (§8) | 1,611 |
+
+1,614 is the §6 `matched` count unchanged: the 6 dropped placeholders were all
+over-marks, so the exclusion cost the human-verified set nothing. Beside the alternatives —
+2,158 silver spans, 2,016 PHI-labelled silver, 1,779 human gold spans.
+
+By construction the set has **precision 1.000** against the human gold. Its recall is
+1,614/1,779 = **0.907** one-to-one, or 1,720/1,779 = **0.967** counting the 106 gold spans a
+neighbour's placeholder also covers.
+
+### 10.4 The limitation, which is the reason not to read precision 1.000 as "clean"
+
+**59 gold spans — 3.3% — have no placeholder at all.** The tool never tagged them, so
+`id.res` carries their source text unmasked, and the Korean corpus was built from `id.res`.
+That PHI was therefore **translated into Korean with no marking of any kind**. It is not a
+span the reference omits; it is a span that exists in the published Korean text and that no
+Korean-side reference can point at.
+
+Two consequences, both independent of which option decision 5 takes:
+
+- Any arm scored against this set is charged a **false positive** for correctly detecting one
+  of those 59. The number is a floor, not an estimate: 3.3% of the human gold, 2.7% of the
+  1,614 + 59 that a perfect Korean detector would find.
+- The floor cannot be lowered by filtering, because filtering only removes spans. It can be
+  lowered only by annotating the Korean text, which is the annotation this project is built
+  to avoid.
+
+### 10.5 The three options, compared
+
+| | **Silver as shipped** (2,158, or 2,016 PHI-labelled) | **Human gold** (1,779) | **Human-verified silver** (1,614) |
+|---|---|---|---|
+| where the spans are | Korean text, offsets valid | English `id.text`, offsets do not transfer | Korean text, offsets valid |
+| precision vs human gold | 0.746 | — (it *is* the reference) | 1.000 by construction |
+| recall vs human gold | 0.907 / 0.967 | — | 0.907 / 0.967 (identical: filtering removes no true positive) |
+| unmarked PHI in the scored text | 59 spans (3.3%) | 0 | 59 spans (3.3%) |
+| for | the corpus as published; no construction step; largest denominator, so per-type cells stay above `SPARSE_MAX` in more types | a human reference of the strength §7 assumes, expert-adjudicated, externally validated parse | removes 544 over-marks, so a leak rate on it is on the same scale as one measured against `es-meddocan`'s gold |
+| against | 544 over-marks are charged as misses against any arm that correctly ignores them; a leak rate on it is not comparable across corpora | it scores the **English** cell, not the Korean one — §7's axis-1 contrast needs the Korean side | 25% smaller denominator, so more per-type cells fall sparse; needs a construction step nobody has written and a derived artefact to version; the 3.3% floor survives intact, so precision 1.000 is against the reference and not against the text |
+| what it does not fix | — | — | the 3.3%. All three share it, because all three inherit `id.res` |
+
+**No conclusion here.** Decision 5 belongs in DESIGN (§6.5 / §6.6) and is pre-registered
+there before any Korean arm runs.
+
+### 10.6 Decision 5 comes before the other four
+
+The remaining `ko-surro` decisions — the 26-type map onto §9.0's canonical set, the loader,
+the third `SPLIT_ORIGIN` route, and the prepare/seal step — all depend on which span set is
+counted, because that set is the scoring basis and the loader is what produces it. They are
+held until 5 is decided rather than worked in parallel.
+
+### 10.7 A disclosure, recorded because the rule is about messages and not about intent
+
+While distinguishing `type` from `src_tag` on 2026-09-22 I printed **eight `src_tag`
+literals** to the terminal. One of them was a *value* payload — real source date content
+from `id.res`. CLAUDE.md forbids corpus text in messages, logs and warnings, and a terminal
+transcript is exactly the path that rule names. Nothing of the kind reached any file in this
+repository or the report; every subsequent measurement in this section printed integers only.
+
+The design consequence outlives the slip: **`src_tag` is text-bearing.** 30.5% of placeholder
+payloads are values rather than type names (1,125 distinct `src_tag` values over 2,158 spans;
+`type == src_tag` in 0 of them). So any loader, prepare tool or split file that handles
+`ko-surro` must treat `src_tag` as corpus text — never in an exception message, never in a
+log line, and never written into `splits/ko-surro.json`. `type`, the normalised 26-value
+field, is the one safe to name.
