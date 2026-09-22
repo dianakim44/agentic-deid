@@ -151,6 +151,55 @@ the number exists.
 13. **No repository edits while it runs**, for the reason a full mutation run has the same
     rule: the commit hash in the row must keep describing the code that produced the number.
 
+14. **The corpus's "authorised read that reached nothing" refusal has a test.** Open debt as
+    of 2026-09-22, and the one item on this list that is currently *unsatisfiable* for two of
+    the three sealed corpora — see the section below. This is not a general item like 5; it is
+    per corpus, and until it is closed that corpus has no opening.
+
+## Open debt: the empty-sealed-root `SealError` is untested, 2026-09-22
+
+There are three implementations of one invariant — *an authorised sealed read must actually
+read the sealed fold* — and **none of them is exercised by any test, and none is anchored by
+any mutation**:
+
+| where | shape of the failure it catches | corpus |
+|---|---|---|
+| `src/corpora/base.py` `fold_roots()` | `fold_dirs` has no entry for a sealed split | es-meddocan (fold-directory layout) |
+| `src/corpora/grascco.py` | sealed root holds no annotation files | de-grascco |
+| `src/corpora/endeid.py` | sealed root holds no records | en-deid |
+
+`grep` finds no test for any of the three, and `tests/mutations/run.py` anchors nothing on
+them. The gap was noticed while attaching the two loaders' mutations (recorded in
+`tests/mutations/README.md` §"The other two loaders") and is repeated here because this is
+the file that gets read immediately before the irreversible step.
+
+**Why it is debt and not a curiosity.** The branch fires exactly once per arm at most, and
+it fires *after* `results/sealed_eval_log.md` has recorded the access. So the first time any
+of these three lines executes for real is inside a run that has already spent the opening.
+If the branch is wrong — the condition inverted, the count read from the wrong root, an
+exception type the caller does not catch — the outcome is not a crash but the thing the
+invariant exists to prevent: unsealed folds scored under a log row asserting the test fold
+was evaluated. A refusal that has never once been observed to refuse is an assumption.
+
+**Why it is not urgent for anything running now.** No arm in flight touches it. The
+single-shot arms open no seal at all (`port-oneshot` reads dev), and the one opening that has
+happened — es-meddocan, 2026-08-28, row 1 — ran with a populated sealed root, so the branch
+was not reached then either. Nothing already reported depends on it.
+
+**What closing it costs, and what it makes unavoidable.** Three tests, one per row above,
+each building a corpus root whose sealed root is empty, authorising the read, and asserting
+`SealError` — plus the message check CLAUDE.md requires (no corpus surface in the text) and
+three mutations that invert or delete the guard. Two of the three tests live in
+`tests/test_grascco_loader.py` and a new or existing `en-deid` loader test file, both already
+in `TEST_FILES`, so adding mutations there changes the **denominator**: 211 becomes ~214 and
+CLAUDE.md's gate rule then requires a fresh full run before any count is cited — about 2.9 h
+at eight shards on the current suite. That cost is the reason this is written down as debt
+with a deadline rather than done inside an unrelated commit.
+
+**Deadline, stated as a condition and not a date: before `de-grascco`'s or `en-deid`'s first
+opening.** Item 14 above is where it is enforced. es-meddocan's `base.py` row inherits the
+same deadline through any second opening of that corpus.
+
 ## If it fails after the append
 
 The row stays. The opening happened, the count includes it, and the honest report is a row

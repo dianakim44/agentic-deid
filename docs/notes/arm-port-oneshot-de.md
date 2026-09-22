@@ -56,6 +56,9 @@ survived 0 이다** (`tests/mutations/README.md` §"The other two loaders"). 그
 소급해서 es-meddocan 결과가 처음부터 갖고 있던 지위를 얻는다. 하나라도 생존했다면
 그 뮤테이션이 닿는 칸부터 다시 봐야 했다. 아직 남은 구멍 하나는 기록해 둔다: 봉인
 루트가 비었는데 봉인 읽기가 허가된 경우의 `SealError` 는 테스트도 뮤테이션도 없다.
+**2026-09-22 에 부채로 등록했다** — `docs/notes/sealed-eval-preflight.md`
+§"Open debt", 항목 14. 이 코퍼스의 봉인 개방 전에 닫는다. 단발 arm 에는 무관하다
+(이 실행은 dev 를 읽고 `sealed/` 를 열지 않는다).
 
 ### 상보성 분해
 
