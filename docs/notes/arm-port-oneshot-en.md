@@ -349,11 +349,14 @@ de-grascco 와 같다. 드라이버가 `results/` 밑에 파일을 쓴 뒤 run �
 
 ## 4. 남은 것
 
-- **뮤테이션 전량 실행이 미결이다.** `src/` 광범위 변경(`base.py` · `split.py` +
-  신규 `corpora/endeid.py`)이 CLAUDE.md 의 전량 조건에 걸린다. `TEST_FILES` 멤버십은
-  바뀌지 않았다(`tests/test_endeid_loader.py` 는 `tests/test_grascco_loader.py` 와
-  같은 이유로 밖에 있다) — 그래서 기록된 카운트의 분모는 그대로이고, 전량이 필요한
-  것은 분모가 아니라 `src/` 변경 쪽 조건이다.
+- **뮤테이션 전량 실행은 끝났다 — 두 번.** 이 arm 을 낸 `src/` 광범위 변경에 대해
+  2026-09-21 에 194/194, 그리고 2026-09-22 에 로더 테스트 두 파일이 `TEST_FILES` 에
+  들어간 뒤 **211/211 caught, survived 0** (`418e17ccde77`, 8샤드 2.83시간, 스위트
+  2171). 위 §1 의 9건은 두 실행에서 같은 값으로 나왔다. 이 문단이 처음 쓰였을 때
+  "멤버십은 바뀌지 않았다" 고 적은 것은 그때는 사실이었고 지금은 아니다 — 바꾼 것이
+  그 다음 커밋의 내용이다.
 - **AGE 문턱의 §9.1 처리** — §1 의 해당 절이 관찰만 남겼다. DESIGN 결정이다.
-- **`ko-surro` 분할 도출** (`tools/derive_aligned_split.py`, DESIGN §6.5 option B).
-  en-deid 의 분할이 동결됐으므로 이제 가능하다. 그 코퍼스가 다음 코퍼스다.
+- **`ko-surro` 분할 도출은 끝났다** (`tools/derive_aligned_split.py`, DESIGN §6.5
+  option B, 커밋 `418e17c`). `splits/ko-surro.json` 은 §6.5 의 근거대로 아직 쓰지
+  않는다 — 한국어 텍스트가 없으므로 fold 내용이 미측정 단언이 된다. 도출이 고정하는
+  것: assignable 2,425 · 거부 9 · key space 2,434 · 환자군 163, 교차 0.

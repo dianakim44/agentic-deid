@@ -82,6 +82,13 @@ much smaller scale: three cells disagreed with its sidecar and all three were lo
 run, not marked, because the run measured them. The other 185 comparable cells came back
 unchanged.
 
+The full run of **2026-09-22** (`418e17ccde77`, 211 of 211 caught) is the third such
+rewrite and the first where the cause was not the passage of time. Eight cells disagreed
+and all eight were low — listed in §"The other two loaders", where they belong, because
+what raised them is that commit's two new `TEST_FILES` members reaching guarantees anchored
+in `base.py` and `src/split.py`. They are rewritten here from that run's sidecar. No cell
+was marked †: the run that would have settled a marker is the run that arrived.
+
 `tests/test_mutation_harness.py::test_a_readme_count_that_contradicts_the_last_full_run_is_marked`
 holds both halves of that convention — a stale cell without a † fails, and so does a † on
 a cell that now agrees with the sidecar. So the markers cannot outlive the drift they
@@ -95,14 +102,14 @@ in `docs/notes/mutation-full-runs.md` alongside what that run did **not** measur
 
 | mutation | changes | breaks | tests that catch it |
 |---|---|---|---|
-| `utf8_sig` | `meddocan.py` reads the text with `encoding="utf-8-sig"` | BOM removed at decode time, so `strip_bom` finds nothing and applies no shift; all 761 spans in the 32 BOM files are off by one. DESIGN §9.7 | **157** |
-| `no_bom_shift` | offsets are not decremented by the BOM length | same one-character error, reached from the other direction | **157** |
-| `assert_offsets_noop` | `Document.assert_offsets` returns immediately | the §9.7 assertion stops asserting; counts are unaffected, so only tests that slice spans themselves can notice | **3** |
-| `drop_excluded` | `load()` filters out `excluded` spans | §9.1 spans discarded instead of flagged; the canonical count stays a correct 20,538 while the reported exclusion volume becomes unmeasurable | **13** |
+| `utf8_sig` | `meddocan.py` reads the text with `encoding="utf-8-sig"` | BOM removed at decode time, so `strip_bom` finds nothing and applies no shift; all 761 spans in the 32 BOM files are off by one. DESIGN §9.7 | **158** |
+| `no_bom_shift` | offsets are not decremented by the BOM length | same one-character error, reached from the other direction | **158** |
+| `assert_offsets_noop` | `Document.assert_offsets` returns immediately | the §9.7 assertion stops asserting; counts are unaffected, so only tests that slice spans themselves can notice | **5** |
+| `drop_excluded` | `load()` filters out `excluded` spans | §9.1 spans discarded instead of flagged; the canonical count stays a correct 20,538 while the reported exclusion volume becomes unmeasurable | **20** |
 | `familiares_as_other` | `FAMILIARES_SUJETO_ASISTENCIA` moves from `EXCLUDED_TYPES` into `TYPE_MAP` as `OTHER` | an excluded type is scored; every span still loads and the total still reconciles to 22,795, so the corruption is entirely in *which* spans count | **33** |
-| `type_in_both_lists` | the same type is added to `TYPE_MAP` while left in `EXCLUDED_TYPES` | `_check_type_map` must reject it at construction. See "What this found", below | **191** |
+| `type_in_both_lists` | the same type is added to `TYPE_MAP` while left in `EXCLUDED_TYPES` | `_check_type_map` must reject it at construction. See "What this found", below | **192** |
 | `missing_test_fold` | `SPLIT_DIRS` loses its `test` entry | before the seal: 750 documents loaded instead of 1,000. Now 750 is correct, so what remains visible is that an *authorised* sealed read would return no sealed documents while the log records a completed evaluation | **2** |
-| `bucket_unknown_types` | `classify()` returns `("OTHER", False)` instead of raising | an unmapped type is scored as a residual bucket. Invisible on today's corpus and waiting for the day a re-release adds a type | **1** |
+| `bucket_unknown_types` | `classify()` returns `("OTHER", False)` instead of raising | an unmapped type is scored as a residual bucket. Invisible on today's corpus and waiting for the day a re-release adds a type | **3** |
 
 ## The other two loaders — 2026-09-22, and what was scored before them
 
@@ -191,6 +198,23 @@ counts. That is CLAUDE.md's first full-run trigger and
 `test_the_full_run_covered_the_current_test_files` fails until the run happens. **The 194
 older counts are deferred to that run, not exempt from it.**
 
+**That run has since happened, at `418e17ccde77`: 211 of 211 caught, 0 survived, one
+denominator.** So all seventeen counts above are now in the sidecar beside the other 194
+and none of them moved — the scope run and the full run agree to the count on every one of
+the seventeen, which is the outcome that makes the four-invocation measurement above
+trustworthy in retrospect rather than merely self-consistent. What did move is eight of
+the *older* cells, and they moved in one direction for one reason: `assert_offsets_noop`
+3 → 5, `bucket_unknown_types` 1 → 3, `drop_excluded` 13 → 20,
+`fold_from_directory_not_file` 2 → 4, `type_in_both_lists` 191 → 192, `utf8_sig` 157 → 158,
+`no_bom_shift` 157 → 158, `unsealed_load_filters_instead_of_not_reaching` 160 → 161. Every
+one of the eight is a **shared** guarantee in `src/corpora/base.py` or `src/split.py`, and
+the two new test files reach it. That is the denominator change made visible from the other
+side: the reason not to duplicate the shared mutations per loader is that one anchor covers
+three loaders, and these eight deltas are the evidence that the third loader's tests
+actually arrive at it. The sixth of the eight is the one to read twice —
+`drop_excluded` gaining seven catchers says the exclusion accounting is now checked by
+three loaders' tests and not one's.
+
 Floors follow the convention the table above already uses rather than a rule about
 measurement: exact where the catchers are the tests whose subject the mutation is (1, 2, 4
 and 5), and conservative where the count is "every test that shares a fixture the load now
@@ -219,7 +243,7 @@ than a comment — every one of them leaves all 22,795 spans loading correctly.
 |---|---|---|---|
 | `split_verify_noop` | `split.verify()` returns immediately | the recorded summaries stop being compared to the corpus, so a stale split file passes | **2** |
 | `split_ignores_membership` | `verify()` checks the counts but not `document_ids` | a file that swapped one dev document for one test document of equal span count would verify. This is the seal violation the aggregates cannot see | **1** |
-| `fold_from_directory_not_file` | `load()` skips `_apply_split_file` | folds come from the directory layout instead of the frozen file. No count changes, because the two agree today; what is lost is that the *file* decides what is sealed | **2** |
+| `fold_from_directory_not_file` | `load()` skips `_apply_split_file` | folds come from the directory layout instead of the frozen file. No count changes, because the two agree today; what is lost is that the *file* decides what is sealed | **4** |
 | `split_disagreement_ignored` | the corpus-vs-file fold cross-check becomes `if False` | the file silently overrides the disk, so a re-release that moved a document out of `test` is accepted without a word | **1** |
 | `top_level_leak_allowed` | `check_schema` stops rejecting unknown top-level keys | corpus-specific fields may then sit beside the common ones. Nothing fails today; the schema stops being shared the first time GraSCCo's generator adds a key | **1** |
 | `grouping_numeric_suffix_only` | `STEM_RE` becomes the old `^(S\d{4}-\d+)-(\d+)$` | reinstates the §9.5 bug that dropped the 31 ids with a letter in the journal prefix, so the grouping audit covers 969 of 1,000 documents and calls itself complete | **2** |
@@ -251,7 +275,7 @@ together because neither guard is sufficient alone:
 | `log_append_disabled` | the `record_access` call is wrapped in `except Exception: pass` | an evaluation proceeds unlogged. The numbers are real and the log says the test fold was never opened. **The caller check survives**, so this needs the allowed script — the counterpart of the mutation above, and the one that leaves nothing behind | **2** |
 | `sealed_flag_not_cleared` | `_sealed_ok` is not reset after the read | one authorised evaluation leaves that loader object permanently able to reach the sealed fold; every later ordinary `load()` silently includes 250 test documents, with no second log row | **1** |
 | `sealed_root_falls_back_to_corpus` | an absent `sealed:` entry resolves to the corpus root | a "sealed evaluation" reads unsealed data and logs itself as a test run. Worse than a refusal: the row is indistinguishable from a real evaluation, so the reported count becomes wrong in the flattering direction | **1** |
-| `unsealed_load_filters_instead_of_not_reaching` | `fold_roots()` hands out the sealed path unconditionally | the sealed fold is read and then discarded downstream. Every count still comes out right; the test fold's text has been read on every ordinary load, unlogged. Defends the distinction that the seal is a path that is not known, not a filter that is applied | **160** |
+| `unsealed_load_filters_instead_of_not_reaching` | `fold_roots()` hands out the sealed path unconditionally | the sealed fold is read and then discarded downstream. Every count still comes out right; the test fold's text has been read on every ordinary load, unlogged. Defends the distinction that the seal is a path that is not known, not a filter that is applied | **161** |
 
 ### What the guards do once reached
 
@@ -3805,6 +3829,7 @@ not a rule; the reasoning is here, with the measurements it rests on.
 | 170 mutations serial | ~12.9 h | derived: 171 × 271.5 s, baseline included |
 | 179 mutations serial | ~14.3 h | derived: 8 × 2.07 h ÷ 1.16 contention. Never measured |
 | 185 mutations serial | ~15.2 h | derived: 8 × 2.20 h ÷ 1.16 contention. Never measured |
+| 211 mutations serial | ~19.5 h | derived: 8 × 2.83 h ÷ 1.16 contention. Never measured |
 | 170 mutations, 8 shards | **1.87 h** | measured, 2026-08-20 |
 | 176 mutations, 8 shards | **2.02 h** | measured, 2026-08-25 |
 | 179 mutations, 8 shards | **2.07 h** | measured, 2026-08-26 |
@@ -3815,12 +3840,14 @@ not a rule; the reasoning is here, with the measurements it rests on.
 | 192 mutations, 8 shards | **2.29 h** | measured, suite 2052 — the date is in `docs/notes/mutation-full-runs.md` and deliberately not here |
 | 194 mutations, 8 shards | **2.43 h** | measured, suite 2068 — the date is in `docs/notes/mutation-full-runs.md` and deliberately not here |
 | 194 mutations, 8 shards | **2.51 h** | measured, suite 2068 — **a repeat of the row above with both inputs identical.** Kept as its own row, not averaged: two runs of the same experiment 3.3% apart is the noise floor measured directly |
+| 211 mutations, 8 shards | **2.83 h** | measured, suite 2171 — the first row where both inputs moved at once, and the first whose plan was made from a derived per-mutation figure and can be scored against it |
 
-The three serial rows are derivations and are marked as such; nobody has spent a serial run to
+The four serial rows are derivations and are marked as such; nobody has spent a serial run to
 check any of them. The first two disagree by more than the mutation count explains — 170 → 179 is
 a factor of 1.05 and the figures differ by 1.11 — because the suite each mutation pays for grew
 1696 → 1867 tests in the same span. The number to quote for "what a serial run would cost today"
-is the **third** one, and the number to quote as measured is **2.20 h**, at 185 mutations. Each
+is the **fourth** one, ~19.5 h at 211, and the number to quote as measured is **2.83 h**, at 211
+mutations. Each
 serial row is left at the count it was derived for rather than re-derived from the newest wall
 clock; the 185 row was added rather than replacing the 179 one because that step is large enough
 to resolve (see below), where a derivation restated from a figure that moved by less than the
@@ -3953,6 +3980,35 @@ between them was the repository, not the harness: the ninth ran at `f89de7c2` an
 runs are comparable as repeats. No serial row was added: 8 × 2.51 h ÷ 1.16 = 17.3 h against the
 16.8 h above, a 3% move in a derivation whose inputs did not move at all, which is precisely the
 restatement the standing reason forbids.
+
+**The eleventh data point is the first with both inputs moving at once, and it is the one that
+scores this table's own planning rule.** 211 mutations, 8 shards, **2.83 h** (10201 s), suite 2171,
+all 211 caught, at `418e17ccde77`. 194 → 211 is 1.088 and 2068 → 2171 is 1.050, so the denominator
+model predicts 1.088 × 1.050 = **1.142** against a measured 9022 s → 10201 s = **1.131**. The
+residual is **−1.0%**, the smallest in the table and the first of either sign to come from a run
+where the mutation count and the suite both moved — which is the configuration that could have
+separated the two factors and instead found them multiplying as written. Per-mutation cost is 48.3 s
+against 46.5 s at 194, and that rise is 1.039 against the suite's 1.050, so per-mutation cost is
+still tracking `TEST_FILES` and not `MUTATIONS`.
+
+**What it says about planning from a derived per-mutation figure — the one number this table
+supplied for a plan that then got measured.** `CLAUDE.md` said to cost the owed run at 46.5 s per
+mutation, and 211 × 46.5 s = 9812 s = **2.73 h** against a measured 2.83 h: **4.0% low**, sitting
+exactly on the ±4% noise floor where an error is unattributable. It is attributable, and the
+attribution matters more than the size. The shortcut carries the per-mutation cost forward
+unchanged, and per-mutation cost is the thing the model says moves with the suite — so it is not
+a noisy estimate, it is the estimate with one of the model's two factors deleted. Scale it first
+and it lands: 46.5 s × 1.050 = 48.8 s, so 211 × 48.8 s = 10297 s = 2.86 h, **0.9% high**. The rule
+to carry forward is therefore narrower than "multiply by 46.5 s": **multiply by the per-mutation
+figure scaled by the suite ratio**, and when the suite has not moved the two are the same rule.
+That is why the planning figure in `CLAUDE.md` is stated together with the suite it was measured
+against rather than on its own.
+
+A serial row **was** added here, unlike at the ninth and tenth points: 8 × 2.83 h ÷ 1.16 = **19.5 h**
+at 211. The standing reason for withholding one is that a derivation restated from an input move
+smaller than the noise reads as a measurement; this move is 1.088 in mutations and 1.050 in suite,
+and 17.3 h → 19.5 h is 13%, which the noise floor cannot produce. Like every serial row it is
+derived and nobody has spent a serial run to check it.
 
 One thing that reads as a reversal and is not. The serial derivation for 185 comes out at ~15.2 h,
 which is the number the correction below rejected — but not the same number. The rejected fifteen
