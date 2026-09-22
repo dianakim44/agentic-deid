@@ -493,6 +493,14 @@ def test_the_detection_pass_lands_in_both_blocks(tmp_path, probe_file, corpus_pr
     round_detect = written["cost"]["wall_seconds"] - ROUND_COST["wall_seconds"]
     arm_detect = written["cost_to_date"]["wall_seconds"] - ARM_COST["wall_seconds"]
     assert round_detect > 0, "the detection pass took no time, so this asserts nothing"
+    # Both blocks are asserted to have *grown*, not only to have grown by the same amount.
+    # The tolerance below is 2 ms and a detection pass over this fixture's one document takes
+    # about 1 ms, so a total that gained nothing sat inside the tolerance and this test passed
+    # on the defect: the 2026-09-22 full run recorded this mutation falling 87 → 86, and the
+    # kill it lost was this one. `arm_detect > 0` cannot be swallowed by a faster machine, and
+    # it adds no fragility the line above does not already have — both differences come from
+    # one `elapsed`, so a pass too short to show up here fails that assertion first.
+    assert arm_detect > 0, "the fold's seconds reached the round's block and not the arm's"
     assert abs(round_detect - arm_detect) < 0.002, (
         "the fold's seconds went into one block and not the other. Rounding to milliseconds "
         "is why this is a tolerance and not equality."

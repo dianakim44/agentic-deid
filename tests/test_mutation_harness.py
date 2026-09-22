@@ -634,6 +634,15 @@ def test_a_readme_count_that_contradicts_the_last_full_run_is_marked():
     number that is in fact current. Markers that can outlive their cause become decoration,
     and then the honest cells look marked too.
 
+    `‡` is the third state and it points the other way in time: **re-measured after that full
+    run**, at a commit that changed what the mutation's tests can see. The sidecar is then the
+    older measurement and the cell is the newer one, so "the sidecar is right" stops holding
+    for that row — 2026-09-22 produced the first instance, where a fix to
+    `test_the_detection_pass_lands_in_both_blocks` restored
+    `the_folds_seconds_go_to_the_round_and_not_the_arm` from the run's 86 to 87. A `‡` is held
+    to the same rule as a `†`: it has to disagree with the sidecar, or it is decoration, and
+    the two markers cannot both be on one cell because they are claims about opposite commits.
+
     Deliberately not a check that the cells *equal* the sidecar. They could be made to by
     copying 27 values out of a run record, which is arithmetic and not measurement, and the
     table would then contain numbers no commit took, in rows for modules no commit touched.
@@ -655,17 +664,18 @@ def test_a_readme_count_that_contradicts_the_last_full_run_is_marked():
     with open(readme_path, encoding="utf-8") as fh:
         text = fh.read()
 
-    compared, unmarked, over_marked = 0, [], []
+    compared, unmarked, over_marked, over_remeasured = 0, [], [], []
     for lineno, name, cell in _readme_count_cells(text):
         if name not in recorded:
-            # Added since the full run: no recorded value, so nothing to contradict. Its
-            # count came from an impact-scope run, and `docs/notes/mutation-full-runs.md`
-            # records which one and what it left unmeasured.
-            assert "†" not in cell, (
-                f"README.md:{lineno}: `{name}` is marked † but has no entry in the "
-                "sidecar — it was added after the last full run, so there is no recorded "
-                "count for it to disagree with"
-            )
+            # Added since the full run: no recorded value, so nothing to contradict, and
+            # nothing to be newer than either. Its count came from an impact-scope run, and
+            # `docs/notes/mutation-full-runs.md` records which one and what it left unmeasured.
+            for marker in ("†", "‡"):
+                assert marker not in cell, (
+                    f"README.md:{lineno}: `{name}` is marked {marker} but has no entry in the "
+                    "sidecar — it was added after the last full run, so there is no recorded "
+                    "count for it to disagree with"
+                )
             continue
         shown = re.match(r"\*{0,2}(\d+)\*{0,2}", cell)
         if not shown:
@@ -673,10 +683,18 @@ def test_a_readme_count_that_contradicts_the_last_full_run_is_marked():
         compared += 1
         agrees = int(shown.group(1)) == recorded[name]
         marked = "†" in cell
-        if not agrees and not marked:
+        remeasured = "‡" in cell
+        assert not (marked and remeasured), (
+            f"README.md:{lineno}: `{name}` carries both † and ‡ — one says the cell predates "
+            "the last full run and was not re-measured, the other says it was measured after "
+            "that run. A cell cannot be both"
+        )
+        if not agrees and not marked and not remeasured:
             unmarked.append((lineno, name, int(shown.group(1)), recorded[name]))
         if agrees and marked:
             over_marked.append((lineno, name, recorded[name]))
+        if agrees and remeasured:
+            over_remeasured.append((lineno, name, recorded[name]))
 
     assert compared > 100, (
         f"only {compared} count cells were compared — the parser stopped matching the "
@@ -686,13 +704,20 @@ def test_a_readme_count_that_contradicts_the_last_full_run_is_marked():
         "README.md cells contradict the last full run and are not marked †: "
         + "; ".join(f"line {ln}: `{n}` says {r}, the run measured {s}"
                     for ln, n, r, s in unmarked)
-        + ". Mark them † (not re-measured) or re-measure them — do not copy the run's "
-          "numbers into cells this commit did not measure"
+        + ". Mark them † (not re-measured), or ‡ if a later commit re-measured them, or "
+          "re-measure them — do not copy the run's numbers into cells this commit did not "
+          "measure"
     )
     assert not over_marked, (
         "README.md cells are marked † but now agree with the last full run: "
         + "; ".join(f"line {ln}: `{n}` at {s}" for ln, n, s in over_marked)
         + ". Remove the marker — it is warning about drift that no longer exists"
+    )
+    assert not over_remeasured, (
+        "README.md cells are marked ‡ but agree with the last full run: "
+        + "; ".join(f"line {ln}: `{n}` at {s}" for ln, n, s in over_remeasured)
+        + ". Remove the marker — a re-measurement that came out equal to the run needs no "
+          "marking, and a ‡ that marks nothing makes the ones that do look decorative"
     )
 
 

@@ -3899,7 +3899,11 @@ MUTATIONS = [
             "because the total is still larger than the round's.\n"
             "\n"
             "Caught by `test_the_detection_pass_lands_in_both_blocks`, which measures the "
-            "difference each block grew by rather than asserting either number."
+            "difference each block grew by rather than asserting either number — and asserts "
+            "that the arm's block grew at all, because comparing the two growths against a "
+            "2 ms tolerance let a total that gained nothing pass on a machine where the "
+            "detection pass takes about 1 ms. That is what the 87 -> 86 fall on 2026-09-22 "
+            "was; README §\"Six on the two cost blocks\" has the reading."
         ),
         min_kills=1,
     ),

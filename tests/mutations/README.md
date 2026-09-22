@@ -89,10 +89,27 @@ what raised them is that commit's two new `TEST_FILES` members reaching guarante
 in `base.py` and `src/split.py`. They are rewritten here from that run's sidecar. No cell
 was marked †: the run that would have settled a marker is the run that arrived.
 
+The full run of **2026-09-22** (`cf51f7eb0530`, 229 of 229 caught) is the fourth rewrite and
+the first with a cell to rewrite *downwards*. Three cells were low and are rewritten from its
+sidecar (`assert_offsets_noop` 5 → 6, `bucket_unknown_types` 3 → 4, `drop_excluded` 20 → 22,
+all three raised by `tests/test_kosurro_loader.py`'s real-corpus tests reaching guarantees in
+`base.py`). The fourth disagreement went the other way and is the reason `‡` exists.
+
+**‡ means: re-measured after that full run.** The run measured
+`the_folds_seconds_go_to_the_round_and_not_the_arm` at 86, one below the 87 that seven
+consecutive runs had taken, and the kill it had lost was
+`test_the_detection_pass_lands_in_both_blocks` — see §"Six on the two cost blocks" for what
+the test stopped seeing. Fixing the test restored the count to 87, probed at the commit that
+fixed it, so this cell is *newer* than the sidecar rather than staler. That inverts the rule
+above: for a ‡ row the sidecar is the older number, and the marker is what keeps a reader from
+reading the run record as the current value. A ‡ comes off the next full run, like a †, and
+for the same reason — that run measures the row again under one denominator.
+
 `tests/test_mutation_harness.py::test_a_readme_count_that_contradicts_the_last_full_run_is_marked`
 holds both halves of that convention — a stale cell without a † fails, and so does a † on
 a cell that now agrees with the sidecar. So the markers cannot outlive the drift they
-describe.
+describe. It holds `‡` to the same two rules, and refuses a cell carrying both: one claims the
+cell predates the last full run, the other that it postdates it.
 
 Mutations added *since* the last full run have no sidecar entry, so they are neither
 compared nor marked. Their counts come from an impact-scope run, and which run is recorded
@@ -104,12 +121,12 @@ in `docs/notes/mutation-full-runs.md` alongside what that run did **not** measur
 |---|---|---|---|
 | `utf8_sig` | `meddocan.py` reads the text with `encoding="utf-8-sig"` | BOM removed at decode time, so `strip_bom` finds nothing and applies no shift; all 761 spans in the 32 BOM files are off by one. DESIGN §9.7 | **158** |
 | `no_bom_shift` | offsets are not decremented by the BOM length | same one-character error, reached from the other direction | **158** |
-| `assert_offsets_noop` | `Document.assert_offsets` returns immediately | the §9.7 assertion stops asserting; counts are unaffected, so only tests that slice spans themselves can notice | **5** |
-| `drop_excluded` | `load()` filters out `excluded` spans | §9.1 spans discarded instead of flagged; the canonical count stays a correct 20,538 while the reported exclusion volume becomes unmeasurable | **20** |
+| `assert_offsets_noop` | `Document.assert_offsets` returns immediately | the §9.7 assertion stops asserting; counts are unaffected, so only tests that slice spans themselves can notice | **6** |
+| `drop_excluded` | `load()` filters out `excluded` spans | §9.1 spans discarded instead of flagged; the canonical count stays a correct 20,538 while the reported exclusion volume becomes unmeasurable | **22** |
 | `familiares_as_other` | `FAMILIARES_SUJETO_ASISTENCIA` moves from `EXCLUDED_TYPES` into `TYPE_MAP` as `OTHER` | an excluded type is scored; every span still loads and the total still reconciles to 22,795, so the corruption is entirely in *which* spans count | **33** |
 | `type_in_both_lists` | the same type is added to `TYPE_MAP` while left in `EXCLUDED_TYPES` | `_check_type_map` must reject it at construction. See "What this found", below | **192** |
 | `missing_test_fold` | `SPLIT_DIRS` loses its `test` entry | before the seal: 750 documents loaded instead of 1,000. Now 750 is correct, so what remains visible is that an *authorised* sealed read would return no sealed documents while the log records a completed evaluation | **2** |
-| `bucket_unknown_types` | `classify()` returns `("OTHER", False)` instead of raising | an unmapped type is scored as a residual bucket. Invisible on today's corpus and waiting for the day a re-release adds a type | **3** |
+| `bucket_unknown_types` | `classify()` returns `("OTHER", False)` instead of raising | an unmapped type is scored as a residual bucket. Invisible on today's corpus and waiting for the day a re-release adds a type | **4** |
 
 ## The other two loaders — 2026-09-22, and what was scored before them
 
@@ -2169,6 +2186,16 @@ round's calls and below their sum is not a state any single file exposes.
 `test_the_detection_pass_lands_in_both_blocks` measures what each block *grew by* for this
 reason — an assertion on either number could not tell which block the seconds went to.
 
+That test stopped catching this mutation on 2026-09-22, and the gate noticed by the count falling
+87 → 86 after seven full runs at 87. It compared the two growths against a 2 ms tolerance, and a
+detection pass over its one-document fixture takes about 1 ms here, so "the total grew by nothing"
+sat *inside* the tolerance and the defect passed. The `round_detect > 0` guard did not cover it:
+the round's block did grow, and only the arm's did not. The fix is an assertion that the arm's
+block grew at all, which no machine speed can swallow, and it restored the count to 87 (probed).
+The general shape is worth keeping in mind when writing one of these: a tolerance chosen for
+rounding must be smaller than the signal it is meant to let through, and if the signal is a
+measured duration, nothing in the test guarantees that.
+
 `the_writer_adds_the_rounds_up_itself` is the placement question answered wrongly. The scorer
 adds the round into the total it was handed, so every round is counted twice and an eight-round
 arm publishes roughly double its spend — and the file agrees with itself *more* comfortably than
@@ -3667,7 +3694,7 @@ in prose rather than a number in a table:
 
 | mutation | measured | `min_kills` |
 |---|---|---|
-| `the_folds_seconds_go_to_the_round_and_not_the_arm` | 87 | 1 |
+| `the_folds_seconds_go_to_the_round_and_not_the_arm` | 87 ‡ | 1 |
 | `only_the_score_is_scoped_to_the_round` | 32 | 1 |
 | `the_suite_glob_points_one_level_deep` | 5 | 1 |
 | `the_conftest_suite_glob_points_one_level_deep` | 5 | 1 |
