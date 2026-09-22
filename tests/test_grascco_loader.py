@@ -360,6 +360,44 @@ def test_the_span_inside_the_bom_is_clipped_and_recorded(docs):
         assert not doc.spans[0].surface.startswith(BOM)
 
 
+def test_the_clipped_span_lost_exactly_the_bom_and_nothing_else(docs, annotation_paths):
+    """Which of §9.7's two candidate ends the loader took, asserted rather than argued.
+
+    The test above pins the clipped span's start at 0, and **both** candidate policies
+    produce that. They differ only in the end: the chosen one keeps the shifted end, so
+    the span loses exactly the byte-order mark; the rejected one leaves the end unshifted
+    and preserves the length by pulling one further character of text in. So without this
+    the loader could adopt the rejected policy and every assertion in the file would
+    still pass — which is what `grascco_bom_clip_keeps_the_length` demonstrated.
+
+    Against the shipped CAS extent rather than a constant, and by length rather than by
+    text, so nothing here quotes a surface (CLAUDE.md).
+    """
+    for doc_id, indices in BOM_CLIPPED.items():
+        path = next(
+            p for p in annotation_paths
+            if p.name[: -len(ANNOTATION_SUFFIX)] == doc_id
+        )
+        cas = json.loads(path.read_text(encoding="utf-8"))
+        at_zero = [
+            (fs["begin"], fs["end"])
+            for fs in cas["%FEATURE_STRUCTURES"]
+            if fs.get("%TYPE") == "webanno.custom.PHI" and fs["begin"] == 0
+        ]
+        assert len(at_zero) == len(indices), (
+            f"{doc_id}: {len(at_zero)} annotations begin at 0 and "
+            f"{len(indices)} spans are recorded as clipped"
+        )
+        doc = next(d for d in docs if d.doc_id == doc_id)
+        for (begin, end), index in zip(at_zero, indices):
+            span = doc.spans[index]
+            assert span.start == 0
+            # The BOM is one character, so the shifted end is one less than the CAS end
+            # and the span is one character shorter than the annotation.
+            assert span.end == end - 1
+            assert span.end - span.start == end - begin - 1
+
+
 def test_utf_8_sig_would_move_every_span_in_a_bom_document(grascco_unsplit_loader):
     """Why the loader reads plain utf-8 and shifts, rather than decoding the BOM away.
 

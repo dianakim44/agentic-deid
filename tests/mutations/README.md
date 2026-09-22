@@ -104,6 +104,111 @@ in `docs/notes/mutation-full-runs.md` alongside what that run did **not** measur
 | `missing_test_fold` | `SPLIT_DIRS` loses its `test` entry | before the seal: 750 documents loaded instead of 1,000. Now 750 is correct, so what remains visible is that an *authorised* sealed read would return no sealed documents while the log records a completed evaluation | **2** |
 | `bucket_unknown_types` | `classify()` returns `("OTHER", False)` instead of raising | an unmapped type is scored as a residual bucket. Invisible on today's corpus and waiting for the day a re-release adds a type | **1** |
 
+## The other two loaders — 2026-09-22, and what was scored before them
+
+Until this date the table above was the whole of the loader coverage, and it is one
+loader's. `de-grascco` and `en-deid` were both loaded, split, sealed and **scored** with
+no mutation anchored in either module: `port-oneshot`'s German leak rate of **0.4146**
+and its English **0.7939** were produced on loaders whose tests had never been shown to
+fail. The tests existed and passed; nothing had established that they could do anything
+else. The seventeen mutations below are what settles that, and the answer is the one that
+lets those numbers stand — **17 of 17 caught**, so the two results earn retroactively the
+standing the MEDDOCAN results had by construction. Had one survived, the affected number
+would have had to be re-examined before it was cited anywhere.
+
+**The five families, and which of them exist in each loader.** They are the families the
+MEDDOCAN loader was built with — BOM shift, slice equality, excluded types preserved,
+split-versus-layout, unknown type bucketed — and the point of splitting this into two
+tables is that a loader cannot be mutated in a family its format does not have.
+
+| family | `es-meddocan` (brat standoff) | `de-grascco` (UIMA CAS JSON) | `en-deid` (records inside three files) |
+|---|---|---|---|
+| BOM shift | `utf8_sig`, `no_bom_shift` | present and **redundantly guarded** — the offsets index the CAS `sofaString`, so a decode-time BOM removal is refused before any offset is applied | **absent.** The loader decodes no BOM and sets `had_bom=False`. Its analogue is the body this loader *assembles* out of the framed lines, which is the base every offset counts from |
+| slice equality | real: brat records the surface beside the offsets | **impossible.** A CAS records offsets only, so `Span.surface` is the slice and the comparison compares a value with itself. Two measured invariants replace it and are mutated instead | real: the release records the phrase in `id-phi.phrase`. The mutation here is the one that *gives that up* |
+| excluded types preserved | `familiares_as_other`, `type_in_both_lists` | `NAME_TITLE`, 107 reachable spans (139 corpus-wide) | **inverted.** The release excludes nothing, so the available fault is excluding something that must be scored |
+| split versus layout | `fold_from_directory_not_file`, `split_disagreement_ignored` (both in `base.py`) | no fold directories at all, so what can go wrong is *claiming* a layout | same, and more obviously: there is no file per document |
+| unknown type → OTHER | `bucket_unknown_types` (in `base.py`) | covered by that one | covered by that one |
+
+Three consequences worth stating rather than leaving to the tables. **The shared
+guarantees are mutated once.** `assert_offsets_noop`, `drop_excluded`,
+`bucket_unknown_types`, `fold_from_directory_not_file` and `split_disagreement_ignored`
+are anchored in `src/corpora/base.py`, which all three loaders inherit; duplicating them
+per loader would raise the mutation count by five without covering one additional line.
+**The split-versus-layout family had to change shape rather than be dropped.** Both new
+loaders set `fold_dirs = {}` — the seal is a second *root* and the frozen split file is
+the only authority on the fold — so there is no directory for a file to disagree with,
+and the loader-specific fault is the declaration itself. **And `en-deid` is the only one
+of the three where the slice comparison means anything**, which is why one of its
+mutations exists solely to take that away.
+
+### `de-grascco` — eight
+
+| mutation | changes | breaks | tests that catch it |
+|---|---|---|---|
+| `grascco_utf8_sig` | the text is read with `encoding="utf-8-sig"` | MEDDOCAN's mutation in a layout that sees it coming: the BOM goes at decode time, no offset is shifted, and the decoded file no longer equals the CAS `sofaString` — so the two reachable BOM documents refuse to load instead of loading spans one character early | **20** |
+| `grascco_no_bom_shift` | `start = begin - shift` and `end -= shift` become no-ops | the BOM is stripped and the offsets are left alone. The `sofaString` check passes here — the text *is* the file's text — so this is the form only the offsets can catch, and the clip branch is never reached either | **20** |
+| `grascco_bom_clip_keeps_the_length` | for a span whose extent includes the BOM, the end is left unshifted | adopts the alternative §9.7 rejected: start 0 with the length preserved by pulling one further character in. The clip record is unchanged, so this was invisible until the test written with it | **20**, but see the floor below |
+| `grascco_sofa_check_disabled` | the `sofaString`-vs-`.txt` comparison becomes `if False` | CAS offsets applied to a file that is not the text they index. One half of what replaces the surface comparison, and the half no shipped byte can catch: the corpus satisfies it 51 of 51 times and the test that re-derives it does so without the loader | **1** |
+| `grascco_whitespace_edge_unchecked` | the whitespace-edge invariant becomes `if False` | removes the measured check (1,436 of 1,436 gold spans) that stands in for slicing a recorded surface — the one most likely to notice a one-character slip in a corpus that ships no surface | **1** |
+| `grascco_title_scored_as_name` | `NAME_TITLE` moves out of `EXCLUDED_TYPES` into `TYPE_MAP` as NAME | `familiares_as_other` on this corpus's §9.1 exclusion. All 1,122 reachable spans still load and all three totals still reconcile; 107 change from flagged to scored, a 10% shift in the NAME denominator | **5** |
+| `grascco_title_in_both_lists` | the same type in both lists | `_check_type_map` must refuse at construction. Here as well as on MEDDOCAN because the skip-instead-of-failure defect was a property of a *fixture*, and this loader has its own | **37** |
+| `grascco_layout_claims_folds` | `fold_dirs` gains `train`/`dev`/`test` | the loader claims a layout it does not have, which turns `fold_roots()` from a refusal into an answer and gives the corpus a second authority on the fold beside the frozen file | **2** |
+
+`grascco_bom_clip_keeps_the_length` is the one whose floor is not its count, and the
+reason is measurement rather than caution. Nineteen of its twenty kills arrive because
+the extra character it pulls in **happens to be whitespace** in the one reachable clipped
+span, so the whitespace-edge invariant raises and the module's fixture takes the file down
+with it. That is a fact about `Baastrup`, not about the mutation: in a re-release where
+the neighbouring character is a letter, nineteen of the twenty go away. So `min_kills` is
+**1**, and the one is
+`test_the_clipped_span_lost_exactly_the_bom_and_nothing_else` — written with this
+mutation, because §9.7 argues the choice between the two candidate ends in a docstring at
+length and, until this commit, asserted it nowhere. Both policies produce a span that
+starts at 0 and is recorded as clipped, which is all the older tests looked at.
+
+### `en-deid` — nine
+
+| mutation | changes | breaks | tests that catch it |
+|---|---|---|---|
+| `endeid_body_gains_a_leading_newline` | the assembled record body gains one character at the front | the BOM family's analogue in a corpus with no BOM. There is no encoding artefact to mishandle, but there is a body built from the lines between two markers, and which characters that assembly includes is exactly as load-bearing as a BOM shift: all 1,779 spans land one character late and no total changes | **31** |
+| `endeid_surface_from_the_slice` | `Span.surface` is filled from the slice instead of from the recorded phrase | makes `assert_offsets()` compare a value with itself — GraSCCo's unfalsifiable position, manufactured in the one loader that can avoid it. The shipped corpus cannot notice: the two agree 1,779 of 1,779 times, so every count, every surface and the whitespace-edged five are unchanged. What is lost is that the comparison ever compared anything | **1** |
+| `endeid_reference_files_need_not_agree` | the cross-file extent check becomes `if False` | the type is taken positionally from a second file, so a disagreement means a type attached to the wrong span. A failure form brat cannot have, because it writes one annotation per line | **1** |
+| `endeid_positional_count_unchecked` | the two files need not list the same number of spans | `zip` truncates to the shorter file instead of refusing. A release that lost a record's last span would load with shortened gold and flatter recall, and nothing would say which file moved | **1** |
+| `endeid_uncovered_records_not_counted` | records with no reference header are dropped without being counted | the drop is correct (§9.0) and the count is what makes it a reported nine instead of a silent one. The split file's accounting is built on that number, including the one uncovered record that went to the sealed fold with its patient | **2** |
+| `endeid_annotation_without_text_dropped` | a reference framing records `id.text` does not contain is accepted | those annotations are discarded rather than refused: gold shortened, recall flattered, no message. The three files are one release, and a record present in one and absent from another is a change to the release, not an input to normalise away | **1** |
+| `endeid_age_excluded` | `Age` moves out of `TYPE_MAP` into `EXCLUDED_TYPES` | `drop_excluded` read backwards. This release excludes nothing — §9.1's three exclusions have no counterpart in it — so the fault available is the opposite one, and `n_spans_excluded` stops being a reported 0 while the AGE denominator empties | **4** |
+| `endeid_type_in_both_lists` | the same edit without its second half, so `Age` is in both lists | construction refusal, for `grascco_title_in_both_lists`'s reason: the defect was a property of a fixture and this corpus has its own | **48** |
+| `endeid_layout_claims_folds` | `fold_dirs` gains `train`/`dev`/`test` | the same false claim on the loader where it is more obviously false. Two mutations rather than one because the declaration is a class attribute on each loader, so one edit cannot reach both | **1** |
+
+**How the seventeen were measured, and what that measurement is not.** All seventeen were
+run on 2026-09-22 against a baseline of **2,171 tests** — 2,068 plus the 39 GraSCCo and 64
+en-deid loader tests this commit adds to `TEST_FILES` — as four concurrent invocations of
+`run.py` with explicit names, which is an **impact-scope run and not a full one**. Every
+one of the four reported the same pristine fingerprint and the same baseline count, which
+is what makes the counts comparable to each other; they are not comparable to the sidecar,
+because adding two files to `TEST_FILES` changes the denominator of all 194 recorded
+counts. That is CLAUDE.md's first full-run trigger and
+`test_the_full_run_covered_the_current_test_files` fails until the run happens. **The 194
+older counts are deferred to that run, not exempt from it.**
+
+Floors follow the convention the table above already uses rather than a rule about
+measurement: exact where the catchers are the tests whose subject the mutation is (1, 2, 4
+and 5), and conservative where the count is "every test that shares a fixture the load now
+breaks" (`grascco_utf8_sig` and `grascco_no_bom_shift` at 4 against 20,
+`endeid_body_gains_a_leading_newline` at 3 against 31) or "every test that constructs the
+loader" (both `*_in_both_lists` at 2, which is `type_in_both_lists`'s floor of 2 against a
+measured 191).
+
+**One invariant in both loaders has no mutation, and no test either.** Each raises
+`SealError` when a sealed read was authorised and the sealed root turned out to hold no
+documents — the case where `results/sealed_eval_log.md` records a completed test
+evaluation for numbers that came from the unsealed half. On MEDDOCAN that guarantee is
+`missing_test_fold`'s; here nothing exercises it, so a mutation would survive and the
+honest thing is to say so rather than to add a mutation the gate would fail on. Deferred
+with the reason recorded: writing the test means constructing a loader with an authorised
+but empty sealed root, which is worth doing deliberately rather than as a side effect of
+this commit.
+
 ## The split-file mutations
 
 `splits/es-meddocan.json` is the seal's reference point (CLAUDE.md), so the checks

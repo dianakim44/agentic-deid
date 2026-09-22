@@ -39,6 +39,14 @@ ROOT = Path(__file__).resolve().parents[2]
 #: other half: it is what notices a sealed fold on its way into a public commit.
 TEST_FILES = [
     "tests/test_meddocan_loader.py",
+    #: Added 2026-09-22 with the first mutations anchored in the two new loaders. Until
+    #: then the list held one loader's tests and the gate said nothing about the other
+    #: two — `de-grascco`'s 0.4146 was produced on a loader no mutation had ever been
+    #: applied to. Adding these two files changes the *denominator* of every recorded
+    #: count, which is why the commit that does it owes a full run
+    #: (`test_the_full_run_covered_the_current_test_files`).
+    "tests/test_grascco_loader.py",
+    "tests/test_endeid_loader.py",
     "tests/test_split_file.py",
     "tests/test_seal.py",
     "tests/test_release_screen.py",
@@ -233,6 +241,14 @@ class BrokenSuite(Exception):
 
 BASE = "src/corpora/base.py"
 MEDDOCAN = "src/corpora/meddocan.py"
+#: The second and third loaders. Separate constants rather than a parametrised MEDDOCAN,
+#: because the point of the two blocks below is that the *failure forms differ*: a CAS
+#: carries no surface and a record inside a file has no BOM, so neither loader can be
+#: mutated the way the brat one is. The guarantees they share live in `BASE` and are
+#: mutated once there — duplicating those per loader would inflate the mutation count
+#: without covering one additional line of code.
+GRASCCO = "src/corpora/grascco.py"
+ENDEID = "src/corpora/endeid.py"
 SPLIT = "src/split.py"
 SPLIT_FILE = "splits/es-meddocan.json"
 SEALED_LOG = "src/eval/sealed_log.py"
@@ -418,6 +434,316 @@ MUTATIONS = [
             "Sends an unmapped type to OTHER instead of raising. Invisible on "
             "today's corpus, and on the day a re-release adds a type it would "
             "quietly score that type as a residual bucket."
+        ),
+        min_kills=1,
+    ),
+    # ── the GraSCCo loader (UIMA CAS JSON, DESIGN §9.7) ─────────────────────
+    #
+    # The same five families as above, and only the ones that exist here. The BOM
+    # family does, and it is sharper than MEDDOCAN's: the offsets index the CAS
+    # `sofaString`, so there is a second copy of the text to compare against. The
+    # slice-equality family does *not*: a CAS records offsets with no surface beside
+    # them, so the loader slices the text to fill `Span.surface` and comparing the two
+    # compares a value with itself. Two measured invariants stand in for it and are
+    # mutated instead — `sofaString` against the `.txt`, and no gold span edged with
+    # whitespace. `assert_offsets_noop`, `drop_excluded`, `bucket_unknown_types`,
+    # `fold_from_directory_not_file` and `split_disagreement_ignored` are anchored in
+    # `BASE` and already cover this loader; what is loader-specific about the fold is
+    # only the *declaration* that the layout encodes none, so that is what is mutated.
+    Mutation(
+        name="grascco_utf8_sig",
+        path=GRASCCO,
+        anchor='raw = text_path.read_text(encoding="utf-8")',
+        replacement='raw = text_path.read_text(encoding="utf-8-sig")',
+        breaks=(
+            "MEDDOCAN's `utf8_sig` in a layout that can see it coming. The BOM is "
+            "removed at decode time and no offset is shifted, which is the same "
+            "one-character error — but here the decoded file is compared against the "
+            "CAS sofaString before any offset is applied, so the two reachable BOM "
+            "documents refuse to load rather than loading 30-odd spans one character "
+            "early. The mistake the loader's own comment warns against, and the "
+            "redundancy the brat layout has no equivalent of."
+        ),
+        min_kills=4,
+    ),
+    Mutation(
+        name="grascco_no_bom_shift",
+        path=GRASCCO,
+        # Surgical rather than `shift = 0`: the two arithmetic lines and nothing else,
+        # so `had_bom` still reports the BOM and the mutation is about the offsets
+        # alone. `shift = 0` would also blank the flag and the kill would not say which
+        # of the two broke.
+        anchor="        start = begin - shift",
+        replacement="        start = begin",
+        breaks=(
+            "Strips the BOM and leaves the offsets alone. Every span in the two "
+            "reachable BOM documents is one character late; the clip branch is never "
+            "reached, so §9.7's clipped span is no longer recorded either. Unlike "
+            "`grascco_utf8_sig` the sofaString check passes — the text is the file's "
+            "text — so this is the form of the BOM error that only the offsets can "
+            "catch."
+        ),
+        min_kills=4,
+        also=((GRASCCO, "        end -= shift\n", "        end -= 0\n"),),
+    ),
+    Mutation(
+        name="grascco_bom_clip_keeps_the_length",
+        path=GRASCCO,
+        anchor=(
+            "            start = 0\n"
+            "            clipped = True\n"
+            "        end -= shift"
+        ),
+        replacement=(
+            "            start = 0\n"
+            "            clipped = True\n"
+            "            end += shift\n"
+            "        end -= shift"
+        ),
+        breaks=(
+            "Adopts the alternative §9.7 rejected: for a span whose extent includes "
+            "the byte-order mark, keep the start at 0 and leave the end unshifted. "
+            "The length is preserved by pulling one further character of text into the "
+            "span. Nothing about the clip *record* changes — the span is still clipped, "
+            "still index 0, still starts at 0 — so the assertions that existed before "
+            "2026-09-22 could only notice through the whitespace-edge invariant, and "
+            "measurement says that is how 19 of the 20 kills arrive: in the one "
+            "reachable clipped span the extra character is whitespace, so the load "
+            "raises and the module's fixture takes the file down with it. That is an "
+            "accident of this document, which is why the floor is 1 and not 20 — the "
+            "one test that catches this without the accident is "
+            "`test_the_clipped_span_lost_exactly_the_bom_and_nothing_else`, written "
+            "with this mutation because §9.7's choice between the two ends had been "
+            "argued in a docstring and asserted nowhere."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="grascco_sofa_check_disabled",
+        path=GRASCCO,
+        anchor="        if raw != sofa_string:",
+        replacement="        if False:",
+        breaks=(
+            "Applies CAS offsets to a `.txt` that is not the text they index. One half "
+            "of what replaces the surface comparison here, and the half that no test "
+            "over the shipped bytes can catch: the corpus satisfies the invariant 51 of "
+            "51 times, and the test that re-derives it does so without the loader. So "
+            "only the synthetic document catches this, which is the reason that "
+            "document exists."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="grascco_whitespace_edge_unchecked",
+        path=GRASCCO,
+        anchor="        if surface != surface.strip():",
+        replacement="        if False:",
+        breaks=(
+            "The other half. Removes the measured invariant (1,436 of 1,436 gold spans) "
+            "that stands in for slicing a recorded surface — the check most likely to "
+            "notice a one-character offset slip in a corpus that ships no surface to "
+            "compare against. Invisible on the shipped bytes for the same reason as "
+            "above, and this is exactly why `grascco_no_bom_shift` cannot be assumed "
+            "to be caught by it."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="grascco_title_scored_as_name",
+        path=GRASCCO,
+        anchor='EXCLUDED_TYPES = frozenset({"NAME_TITLE"})',
+        replacement="EXCLUDED_TYPES = frozenset()",
+        breaks=(
+            "`familiares_as_other` on this corpus's §9.1 exclusion: `NAME_TITLE` moves "
+            "out of the excluded set and into the map as NAME. All 1,122 reachable "
+            "spans still load and all three totals still reconcile — 107 of them "
+            "change from flagged to scored, which is a 10% shift in the NAME "
+            "denominator and in nothing a count of spans can see."
+        ),
+        min_kills=5,
+        also=(
+            (
+                GRASCCO,
+                '    "PROFESSION": "PROFESSION",\n',
+                '    "PROFESSION": "PROFESSION",\n    "NAME_TITLE": "NAME",\n',
+            ),
+        ),
+    ),
+    Mutation(
+        name="grascco_title_in_both_lists",
+        path=GRASCCO,
+        anchor='    "PROFESSION": "PROFESSION",\n',
+        replacement='    "PROFESSION": "PROFESSION",\n    "NAME_TITLE": "NAME",\n',
+        breaks=(
+            "The same type in `TYPE_MAP` and in `EXCLUDED_TYPES`, which "
+            "`_check_type_map` must refuse at construction. MEDDOCAN's "
+            "`type_in_both_lists` exists because that case was once reported as a "
+            "skip; this loader has its own fixture and its own construction, so the "
+            "regression has to be covered here too or the skip can come back on one "
+            "corpus and not the other."
+        ),
+        min_kills=2,
+    ),
+    Mutation(
+        name="grascco_layout_claims_folds",
+        path=GRASCCO,
+        anchor="    fold_dirs: dict[str, str] = {}",
+        replacement=(
+            '    fold_dirs: dict[str, str] = {"train": "train", "dev": "dev", '
+            '"test": "test"}'
+        ),
+        breaks=(
+            "The per-loader half of the split-versus-layout family. There are no fold "
+            "directories here, so there is nothing for `split_disagreement_ignored` to "
+            "disagree with — what can go wrong instead is the loader *claiming* a "
+            "layout it does not have, which turns `fold_roots()` from a refusal into an "
+            "answer and gives the corpus a second authority on the fold beside the "
+            "frozen file."
+        ),
+        min_kills=2,
+    ),
+    # ── the en-deid loader (records inside three files, DESIGN §9.2) ─────────
+    #
+    # Two families change shape here and for opposite reasons. There is **no BOM
+    # family**: the loader never decodes one, sets `had_bom=False`, and the thing the
+    # offsets are counted from is the body this loader *constructs* out of the framed
+    # lines — so the one-character-shift mutation is aimed at that construction instead.
+    # And the slice-equality family is real here where it is circular in GraSCCo: this
+    # release records the phrase beside the offsets, so `assert_offsets()` compares two
+    # independent readings. `endeid_surface_from_the_slice` is the mutation that gives
+    # that up, and it is in the list because the tidier-looking loader is the one that
+    # cannot be checked.
+    Mutation(
+        name="endeid_body_gains_a_leading_newline",
+        path=ENDEID,
+        anchor='records[doc_id] = (header[0], "\\n".join(buf))',
+        replacement='records[doc_id] = (header[0], "\\n" + "\\n".join(buf))',
+        breaks=(
+            "Moves the base every reference offset is counted from by one character. "
+            "The BOM family's analogue in a corpus with no BOM: there is no encoding "
+            "artefact to mishandle, but there is a body assembled from the lines "
+            "between two markers, and which characters that assembly includes is "
+            "exactly as load-bearing as a BOM shift. All 1,779 spans land one "
+            "character late; no total changes."
+        ),
+        min_kills=3,
+    ),
+    Mutation(
+        name="endeid_surface_from_the_slice",
+        path=ENDEID,
+        anchor="                        surface=surface,",
+        replacement="                        surface=bodies[doc_id][1][start:end],",
+        breaks=(
+            "Fills `Span.surface` from the slice instead of from the phrase the "
+            "release records, which makes `assert_offsets()` compare a value with "
+            "itself. Manufactures GraSCCo's unfalsifiable position in the one loader "
+            "that can avoid it, and the shipped corpus cannot notice: on disk the two "
+            "agree 1,779 of 1,779 times, so every count, every surface and the "
+            "whitespace-edged five are unchanged. What is lost is that the comparison "
+            "ever compared anything."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="endeid_reference_files_need_not_agree",
+        path=ENDEID,
+        anchor="                if (start, end) != (row_start, row_end):",
+        replacement="                if False:",
+        breaks=(
+            "The reference is split across two files and the type is taken "
+            "positionally, so `id.deid` and `id-phi.phrase` disagreeing means a type is "
+            "attached to the wrong span. With the check gone the extents from one file "
+            "are silently paired with the types from the other — a failure form MEDDOCAN "
+            "cannot have, because brat writes one annotation per line."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="endeid_positional_count_unchecked",
+        path=ENDEID,
+        anchor="            if len(rows) != len(extents):",
+        replacement="            if False:",
+        breaks=(
+            "The same positional pairing, one level up: `zip` then truncates to the "
+            "shorter file instead of refusing. A release that lost the last span of a "
+            "record would load with a shortened gold list and flatter recall, and "
+            "nothing would say which of the two files moved."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="endeid_uncovered_records_not_counted",
+        path=ENDEID,
+        anchor=(
+            "                    self.uncovered.append(doc_id)\n"
+            "                    continue"
+        ),
+        replacement="                    continue",
+        breaks=(
+            "Drops the records with no reference header without counting them. The drop "
+            "itself is correct (§9.0) — a record whose coverage is absent rather than "
+            "empty makes every prediction on it uncheckable — and the count is what "
+            "makes it a reported figure instead of a silent nine. The split file's "
+            "accounting is built on that number, including the one uncovered record "
+            "that went to the sealed fold with its patient."
+        ),
+        min_kills=2,
+    ),
+    Mutation(
+        name="endeid_annotation_without_text_dropped",
+        path=ENDEID,
+        anchor="        unknown = sorted(set(out) - set(bodies))",
+        replacement="        unknown = []",
+        breaks=(
+            "Accepts a reference that frames records `id.text` does not contain, "
+            "discarding those annotations instead of refusing. Gold shortened, recall "
+            "flattered, and no message: the three files are one release and a record "
+            "present in one of them and absent from another is a change to the release, "
+            "not an input a loader may normalise away."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="endeid_age_excluded",
+        path=ENDEID,
+        anchor="EXCLUDED_TYPES: frozenset[str] = frozenset()",
+        replacement='EXCLUDED_TYPES: frozenset[str] = frozenset({"Age"})',
+        breaks=(
+            "`drop_excluded` and `familiares_as_other` read backwards. This release "
+            "excludes nothing — §9.1's three exclusions have no counterpart in it — so "
+            "the fault available here is the opposite one: a type that must be scored "
+            "moves into the excluded set. Every span still loads; `n_spans_excluded` "
+            "stops being a reported 0 and the AGE denominator empties."
+        ),
+        min_kills=4,
+        also=((ENDEID, '    "Age": "AGE",\n', ""),),
+    ),
+    Mutation(
+        name="endeid_type_in_both_lists",
+        path=ENDEID,
+        anchor="EXCLUDED_TYPES: frozenset[str] = frozenset()",
+        replacement='EXCLUDED_TYPES: frozenset[str] = frozenset({"Age"})',
+        breaks=(
+            "The previous mutation without its second edit, so `Age` is in both lists "
+            "and `_check_type_map` must refuse the loader at construction. Here for "
+            "`grascco_title_in_both_lists`'s reason: the skip-instead-of-failure defect "
+            "was a property of a fixture, and this corpus has its own."
+        ),
+        min_kills=2,
+    ),
+    Mutation(
+        name="endeid_layout_claims_folds",
+        path=ENDEID,
+        anchor="    fold_dirs: dict[str, str] = {}",
+        replacement=(
+            '    fold_dirs: dict[str, str] = {"train": "train", "dev": "dev", '
+            '"test": "test"}'
+        ),
+        breaks=(
+            "`grascco_layout_claims_folds` on the loader where the claim is more "
+            "obviously false — there is no directory per fold because there is no file "
+            "per document. Two mutations rather than one because the declaration is a "
+            "class attribute on each loader, so one edit cannot reach both."
         ),
         min_kills=1,
     ),

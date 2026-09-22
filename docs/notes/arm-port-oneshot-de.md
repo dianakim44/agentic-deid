@@ -48,6 +48,15 @@ python3 tools/run_arm.py --corpus de-grascco --lang de \
 CLAUDE.md 의 규약대로 누출률·상보성 분해가 headline 이고 F1 은 아니다. 두 모드의
 차이 19 스팬은 경계가 어긋난 예측이 `relaxed` 에서만 덮인 것이다.
 
+**이 0.4146 은 뮤테이션 검증이 없는 로더 위에서 나왔다 (2026-09-21 실행 시점).**
+`src/corpora/grascco.py` 에는 앵커된 뮤테이션이 한 건도 없었다 — 로더 테스트 38건은
+통과했지만, 그 테스트들이 실패할 수 있다는 것은 어디서도 확인되지 않은 상태였다.
+분모 410 은 그 로더가 읽은 gold 다. **2026-09-22 에 8건을 붙여 측정했고 8/8 caught,
+survived 0 이다** (`tests/mutations/README.md` §"The other two loaders"). 그래서 이 값은
+소급해서 es-meddocan 결과가 처음부터 갖고 있던 지위를 얻는다. 하나라도 생존했다면
+그 뮤테이션이 닿는 칸부터 다시 봐야 했다. 아직 남은 구멍 하나는 기록해 둔다: 봉인
+루트가 비었는데 봉인 읽기가 허가된 경우의 `SealError` 는 테스트도 뮤테이션도 없다.
+
 ### 상보성 분해
 
 태거가 없는 arm 이므로 `tagger_only` · `both` · `joint_only` 는 구조적으로 0 이다.

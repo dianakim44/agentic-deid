@@ -18,7 +18,7 @@ not apply. Two things here need it anyway:
 
 **Deliberately not in `tests/mutations/run.py`'s `TEST_FILES`.** A new member changes the
 denominator of every recorded kill count and forces a full run (CLAUDE.md's second trigger,
-~2.3 h). Nothing here tests `src/`, so it would buy a re-measurement of 194 mutations to cover a
+~2.3 h). Nothing here tests `src/`, so it would buy a re-measurement of all 211 mutations to cover a
 file no mutation targets. `tests/test_mutation_harness.py` and `tests/test_run_loop_cli.py` are out
 for the same reason and are named in CLAUDE.md as being out.
 """

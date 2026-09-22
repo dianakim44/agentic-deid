@@ -28,6 +28,32 @@ CLAUDE.md's rule that re-anchored mutations are re-measured **regardless of whet
 scope** is what this section serves: an anchor edit is a change to the mutation itself, so its old
 count describes a different experiment, and that fact is invisible from the count alone.
 
+### OUTSTANDING — `TEST_FILES` gained the two new loaders' test files (2026-09-22)
+
+**All 194 counts in the record below are owed a re-measurement, and 17 new ones are owed a
+comparable one.** `TEST_FILES` went 30 files → 32 (`tests/test_grascco_loader.py`,
+`tests/test_endeid_loader.py`) and `MUTATIONS` went 194 → 211, which is not 194 counts going stale
+but 194 counts becoming values against **a different denominator**: baseline 2068 → **2171**. That
+is CLAUDE.md's first trigger, and `test_the_full_run_covered_the_current_test_files` fails on this
+commit until the run happens. It is the whole of the debt this entry records; nothing else in the
+commit moves a count, because no anchor was edited and `src/` was not touched at all.
+
+**The seventeen new counts were measured, and by a scope run.** Four concurrent `run.py`
+invocations with explicit names on 2026-09-22, all four reporting the same pristine fingerprint and
+the same 2,171-test baseline: **17 of 17 caught, 0 survived.** Counts and floors are in
+`tests/mutations/README.md` §"The other two loaders". A scope run cannot restate the full run's
+denominator, so per this section's rule these seventeen stay here, marked measured, until a full run
+puts them beside the other 194.
+
+**Why the debt was worth incurring on purpose.** Before this commit the gate covered one loader of
+three. `de-grascco`'s leak rate of 0.4146 and `en-deid`'s 0.7939 were both scored on modules with no
+mutation anchored in them — the paragraph three sections down says exactly that, and this entry is
+what discharges it. 17 of 17 caught is the outcome that lets both numbers stand; a single survivor
+would have made the affected result something to re-examine before citing. What is *not* settled is
+the `SealError` guard both loaders carry for an authorised-but-empty sealed root: no test exercises
+it, so no mutation is registered for it, and that gap is recorded in the README rather than papered
+over with a mutation the gate would fail on.
+
 ### Nothing outstanding — the rung entry settled at `f89de7c2`, deleted one run late
 
 **The entry that stood here was the two new counts of the rung declaration (2026-09-18), measured

@@ -53,6 +53,15 @@ python3 tools/run_arm.py --corpus en-deid --lang en \
 덮이는 gold 가 여기서는 거의 없고, 놓친 것은 대부분 **아무 예측도 닿지 않은** gold 다.
 그 구분이 §1 의 나머지가 말하는 것이다.
 
+**이 0.7939 도 뮤테이션 검증 없는 로더 위에서 나왔고, de 쪽과 같은 날 같은 방식으로
+정리됐다.** `src/corpora/endeid.py` 에 앵커된 뮤테이션은 실행 시점에 0건이었다.
+2026-09-22 에 9건을 붙여 측정했고 **9/9 caught, survived 0** 이다. 분모 359 를 만든
+경로가 특히 로더 고유라는 점에서 중요하다 — 레코드 본문은 이 로더가 조립하고, 참조는
+두 파일에 나뉘어 있고, 참조 없는 레코드 9건은 버려진다. 그 셋 전부에 뮤테이션이
+붙었다(`endeid_body_gains_a_leading_newline` · `endeid_reference_files_need_not_agree` ·
+`endeid_uncovered_records_not_counted`). 세부는 `tests/mutations/README.md`
+§"The other two loaders".
+
 ### 상보성 분해
 
 태거가 없는 arm 이므로 `tagger_only` · `both` · `joint_only` 는 구조적으로 0 이다.
