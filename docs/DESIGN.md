@@ -4337,6 +4337,29 @@ note occupies and refuses any document whose source note `en-deid`'s split does 
 assign. B is preserved exactly: when the Korean corpus arrives, its split is already
 determined and nothing about it remains free.
 
+> **Status, 2026-09-22: the derivation exists, and it arrived one commit late.** The
+> paragraph above says the derivation is what is committed *with* `en-deid`'s split.
+> `splits/en-deid.json` was frozen on 2026-09-21 in commit `e80cc33`, and
+> `tools/derive_aligned_split.py` is not among that commit's ten files — it is committed
+> here, the next day. The ordering this section states was therefore missed, and it is
+> recorded rather than quietly satisfied by rewriting the sentence in the past tense.
+>
+> What the miss did and did not cost. It did not cost B its substance: nothing between the
+> two commits sampled, scored, or read anything on the Korean side, `en-deid`'s split was
+> not re-touched, and the derivation now pins itself to that split's `manifest_digest` and
+> freeze commit, so the function it computes is the same one it would have computed a day
+> earlier. What it did cost is the guarantee this ordering exists to give — that for no
+> interval is an aligned pair's first split frozen while the second's derivation is still
+> free. For one day it was. **The requirement stands as written for any future pair**, and
+> a future pair is the case where the same slip is not recoverable: if the derivation had
+> turned out to be impossible to write against the frozen file, the fix would have been to
+> resample `en-deid`, which is exactly the freeze that had already happened.
+>
+> `splits/ko-surro.json` is still not written, for the reason above and not as a second
+> deferral. `--check` reports what the derivation fixes today: 2,425 assignable source
+> notes (train 1,456 · dev 485 · test 484), 9 refused by construction, key space 2,434,
+> 163 patient groups with 0 crossing the split.
+
 **The ground on which B was refused above does not hold in this configuration, and saying
 why is owed.** That refusal was not expiry but "computing the intersection reads the seal":
 aligning documents requires knowing which fold each counterpart occupies, and for the

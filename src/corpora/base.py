@@ -996,6 +996,37 @@ def check_lexicon_refusal(value: str) -> str:
     return value
 
 
+def alignment_refusals() -> dict[str, str]:
+    """Why a document could not take its counterpart's fold. DESIGN §6.5 option B.
+
+    Three values, and **a refusal drops that one document and lets the derivation continue** —
+    the lexicon's semantics rather than the mapping's, and for a reason specific to what a
+    refusal means here: the corpus whose split is derived does not thereby become
+    half-aligned, it becomes a corpus with one fewer document, which is a countable fact the
+    derivation reports. `en-deid`'s nine reference-less records are the population this exists
+    for, and refusing them puts the *same* nine documents outside both corpora's folds.
+
+    What is **not** a refusal is the case where the derivation itself does not hold — one
+    patient's notes landing in two folds, a split file whose folds are not disjoint. Those
+    raise. A vocabulary value for them would let a corpus pass with half its documents
+    aligned and a count nobody reads, which is the failure DESIGN §6.5 opens with.
+    """
+    return _closed_vocabulary(
+        "alignment_refusal", "why a document could not take its counterpart's fold"
+    )
+
+
+def check_alignment_refusal(value: str) -> str:
+    """Return `value` if it is a declared alignment refusal reason; raise otherwise."""
+    reasons = alignment_refusals()
+    if value not in reasons:
+        raise CorpusError(
+            f"{value!r} is not an alignment refusal reason in config/naming.yaml "
+            f"(have: {sorted(reasons)}). Add it there before a module writes it."
+        )
+    return value
+
+
 def excluded_types() -> dict[str, str]:
     """The types DESIGN §9.1 excluded from the canonical set, with a reason each.
 
