@@ -738,6 +738,12 @@ SPLIT_ORIGIN = {
     # corpus whose units are patients rather than §9.5 steps 1–3's groups. ko-surro's
     # split is derived from this one, not built beside it (DESIGN §6.5).
     "en-deid": "constructed",
+    # A third route, and it samples nothing (DESIGN §6.5 option B, §9.6). ko-surro is the
+    # Korean surrogate of en-deid's own records, so a note's fold role is already decided
+    # by splits/en-deid.json and choosing again here — with any seed — could put a note in
+    # one corpus's dev fold and its surrogate in the other's test fold. Only the fold
+    # *contents* are measured here; membership is `tools/derive_aligned_split.py`'s.
+    "ko-surro": "derived",
 }
 
 
@@ -753,6 +759,8 @@ def build(corpus_id: str) -> dict:
         )
     if origin == "official":
         return _build_official(corpus_id)
+    if origin == "derived":
+        return _build_derived(corpus_id)
     return _build_constructed(corpus_id)
 
 
@@ -1042,6 +1050,194 @@ def _build_constructed(corpus_id: str) -> dict:
     )
 
 
+def _build_derived(corpus_id: str) -> dict:
+    """The split record for a corpus whose fold membership another corpus already fixed.
+
+    DESIGN §6.5 option B, §9.6. Two halves, and the separation is the whole point of the
+    route: **membership** comes from `tools/derive_aligned_split.py` applied to the frozen
+    `splits/en-deid.json`, and **contents** — documents, spans, types, tokens per fold — are
+    measured here from the Korean corpus on disk. Nothing is sampled, so there is no seed and
+    no stratification, and both are written as `null` rather than omitted (§9.6).
+
+    The derivation is re-run here rather than read from a stored artefact. It is a pure
+    function of the frozen split and the corpus's own ids, so re-running it costs nothing and
+    a stored copy could disagree with the split file — which is the one failure this route
+    exists to prevent.
+    """
+    if corpus_id != "ko-surro":
+        raise CorpusError(
+            f"{corpus_id!r} is declared as deriving its split but this function derives "
+            "from splits/en-deid.json, which is a fact about one pair of corpora (DESIGN "
+            "§6.5). A second derived corpus needs its own source declared before it can "
+            "reuse this route."
+        )
+    # Imported here, not at module scope: `tools/` is the layer that calls `src/`, and a
+    # top-level import would make `src.split` fail to load whenever a tool did not.
+    from tools import derive_aligned_split as alignment
+
+    loader = loader_without_split_file(corpus_id)
+    if base.sealed_root(corpus_id) is not None:
+        # Unlike the constructed route, membership would survive the seal — it comes from
+        # another file. The *contents* would not: the loader reads only the unsealed root
+        # here, so the test fold's spans and tokens would be measured from nothing while
+        # every other block of the file looked complete.
+        raise CorpusError(
+            f"{corpus_id}: config/data_paths.local.yaml already declares a sealed root, "
+            "so the test fold's text is not under the corpus root and its fold contents "
+            "cannot be measured. Fold membership would still be derivable, which is "
+            "exactly the danger: the file would carry a test block whose span and token "
+            "counts came from an empty set. Build the split file before sealing "
+            "(DESIGN §6.2)."
+        )
+    docs = loader.load()
+
+    source = alignment.source_split()
+    alignment.self_check(source)
+    # The manifest `read_manifest` parses is for the command line. Here the same records are
+    # already loaded, so the notes are built in memory from each document's own meta and
+    # `line` carries the position in that list — there is no file for a line number to point
+    # into, and the field exists so a refusal can be located.
+    notes = [
+        alignment.SourceNote(
+            document=doc.doc_id,
+            patient=doc.meta["patient_id"],
+            note=doc.meta["note_index"],
+            line=position,
+        )
+        for position, doc in enumerate(sorted(docs, key=lambda d: d.doc_id), 1)
+    ]
+    derivation = alignment.derive(source, notes)
+    _check_derivation(corpus_id, docs, loader, derivation, source)
+
+    by_fold: dict[str, list[Document]] = {}
+    for doc in docs:
+        by_fold.setdefault(derivation.assigned[doc.doc_id], []).append(doc)
+    per_document = {
+        doc.doc_id: digest_material(loader.digest_parts(doc)) for doc in docs
+    }
+    audit, units = grouping(corpus_id, docs, loader)
+
+    narrative = DERIVED_NARRATIVE.get(corpus_id)
+    if narrative is None:
+        raise CorpusError(
+            f"{corpus_id!r} is declared as derived but src/split.py has no entry in "
+            f"DERIVED_NARRATIVE (have: {sorted(DERIVED_NARRATIVE)}). Same reason as the "
+            "constructed route: the blocks a reader needs are corpus facts, and a default "
+            "would describe the wrong corpus plausibly."
+        )
+    described = narrative(docs, units, loader, derivation)
+
+    return _record(
+        corpus_id,
+        docs,
+        by_fold,
+        per_document,
+        hashed=described["hashed"],
+        provenance={
+            "origin": "derived",
+            "note": described["origin_note"],
+            "rationale_ref": "DESIGN.md §6.5, §9.6",
+            "derived_from": {
+                "corpus": alignment.SOURCE_CORPUS,
+                "derivation": "tools/derive_aligned_split.py",
+                "source_manifest_digest": derivation.source_manifest_digest,
+                "source_freeze_commit": derivation.source_commit,
+                "note": (
+                    "Fold membership is this corpus's source split applied per document, "
+                    "not a second sampling. The digest and commit pin which sampling: a "
+                    "resampling of the source corpus is a resampling of this one, "
+                    "permanently, and a derivation made against an older freeze is "
+                    "visible here rather than merely wrong."
+                ),
+            },
+            # Written, not omitted. An absent seed reads as an oversight; `null` beside a
+            # `derived` origin is the claim that no randomness entered, which is the
+            # property that makes this route safe to pair with the source corpus (§9.6).
+            "seed": None,
+            "stratification": None,
+        },
+        group_key={
+            "unit": described["unit"],
+            "basis": described["basis"],
+            "rationale_ref": "DESIGN.md §9.5",
+            "n_groups": len(units),
+            "note": described["group_note"],
+            "grouping_audit": audit,
+            "crosses_split": _crossing_summary(
+                docs, by_fold, units, branch=described["branch"]
+            ),
+        },
+        corpus_specific=described["corpus_specific"],
+    )
+
+
+def _check_derivation(
+    corpus_id: str,
+    docs: Sequence[Document],
+    loader: base.CorpusLoader,
+    derivation,
+    source: dict,
+) -> None:
+    """The derivation placed every loaded document, and left out exactly the right ones.
+
+    Four assertions, each failing for a different reason, and none of them derivable from
+    the others. `derive` already raises when one patient's notes land in two folds; these
+    are the properties of *this* corpus's side of the alignment.
+    """
+    if derivation.refused:
+        # Every loaded document carries a reference, so its source note is one the frozen
+        # split assigns. A refusal here means the two corpora's record sets disagree.
+        by_reason = {
+            name.split(".", 1)[1]: n
+            for name, n in derivation.counts().items()
+            if name.startswith("refused.") and n
+        }
+        raise CorpusError(
+            f"{corpus_id}: the derivation refused {len(derivation.refused)} loaded "
+            f"document(s), by reason {by_reason}. "
+            "Every record this loader yields has a reference on the source side, so its "
+            "source note is one splits/en-deid.json places; a refusal means the pair's "
+            "record sets have drifted apart and the alignment is not the one DESIGN §6.5 "
+            "adopted."
+        )
+    if derivation.unplaced:
+        raise CorpusError(
+            f"{corpus_id}: {len(derivation.unplaced)} document(s) have no fold and no "
+            "patient that says which side of the seal their text belongs on"
+        )
+    if derivation.unclaimed:
+        raise CorpusError(
+            f"{corpus_id}: splits/en-deid.json assigns {len(derivation.unclaimed)} source "
+            "note(s) that no document here claims. The pair is 2,434 of 2,434 by "
+            "construction (DESIGN §6.5), so a missing document is a truncated corpus root "
+            "— and it would produce a split file whose folds are each slightly short with "
+            "nothing saying so."
+        )
+    uncovered = sorted(getattr(loader, "uncovered", []))
+    expected = sorted(alignment_unassigned(source))
+    if uncovered != expected:
+        raise CorpusError(
+            f"{corpus_id}: the loader reports {len(uncovered)} record(s) with no "
+            f"reference and splits/en-deid.json lists {len(expected)}, and they are not "
+            "the same records. The two corpora inherit one reference, so the set outside "
+            "every fold has to be identical on both sides; a disagreement means one side "
+            "dropped a record for a reason the other never recorded."
+        )
+
+
+def alignment_unassigned(source: dict) -> frozenset[str]:
+    """The source split's own list of records in no fold, read through the derivation.
+
+    A one-line wrapper so `_check_derivation` does not reach into the split file's
+    `corpus_specific` itself: the derivation module owns the "which notes are unassigned,
+    and for which recorded reason" question, including the cross-check that the list and
+    its count agree.
+    """
+    from tools import derive_aligned_split as alignment
+
+    return alignment.unassigned_notes(source)
+
+
 # ─── what a constructed split file says about its corpus ────────────────────
 #
 # One function per corpus, returning the blocks `_record` cannot derive: what was
@@ -1228,6 +1424,141 @@ def _endeid_narrative(
 CONSTRUCTED_NARRATIVE = {
     "de-grascco": _grascco_narrative,
     "en-deid": _endeid_narrative,
+}
+
+
+def _kosurro_narrative(
+    docs: Sequence[Document],
+    units: Sequence[Sequence[str]],
+    loader: base.CorpusLoader,
+    derivation,
+) -> dict:
+    if not hasattr(loader, "not_gold_supported"):
+        raise CorpusError(
+            "ko-surro: the loader did not report how many silver spans the human reference "
+            "fails to support. That count is the size of this corpus's scoring decision "
+            "(DESIGN §6.5 (v)) and it belongs in the split file — the spans are in the "
+            "text and in no fold's gold, and a filter no file records is one nobody can "
+            "audit."
+        )
+    uncovered = sorted(loader.uncovered)
+    with_spans = sum(1 for doc in docs if doc.spans)
+    return {
+        "hashed": (
+            "per document, over the record's own bytes: its Korean body, its loaded spans' "
+            "offsets and source tags, and the number of spans the gold-support filter "
+            "denied — named by part and hashed in sorted-name order. The denied spans "
+            "enter as a count and not as offsets, because no measurement depends on where "
+            "one was, and the count is there so that moving the filter changes the digest. "
+            "**Not** over ko-surro.jsonl, which every document shares and which would give "
+            "all 2,425 of them the same digest."
+        ),
+        "origin_note": (
+            "Not sampled. Every fold assignment here is the fold splits/en-deid.json gives "
+            "the source note this record's Korean text was derived from (DESIGN §6.5 "
+            "option B): the two corpora are two halves of one release, and a note in "
+            "en-deid's dev fold whose surrogate sat in ko-surro's test fold would be a leak "
+            "in whichever direction it was read. What is measured here is only what a fold "
+            "contains. The derivation is re-run at build time against the digest recorded "
+            "above and every document it did not place, or placed without this corpus "
+            "claiming it, refuses the build."
+        ),
+        "branch": "patient",
+        "unit": "patient (DESIGN §9.5's first branch, inherited with the fold)",
+        "basis": (
+            "the source release's own patient field, carried through the derived root; the "
+            "identifying-surface rule is not consulted, and the grouping is checked here "
+            "rather than assumed — a patient whose notes landed in two folds refuses"
+        ),
+        "group_note": (
+            f"{len(units)} patients over {len(docs)} notes, the same patients and the same "
+            "partition as splits/en-deid.json. The group figure is recomputed from this "
+            "corpus's own records rather than copied from the source file: copying it "
+            "would make the disjointness a restatement of the source's claim, where "
+            "recomputing it is a check that the derivation reproduced that claim here."
+        ),
+        "corpus_specific": {
+            "reading": (
+                "Two files under one derived root: ko-surro.jsonl holds 2,434 records — a "
+                "Korean surrogate body per source note, with the silver spans' offsets, "
+                "source tags and the per-span verdict of the gold-support filter — and "
+                "reference.json holds that root's own counts, which the loader recounts "
+                "and cross-checks on every load. The source placeholder literal and the "
+                "surrogate value are not written into the derived root at all and the "
+                "loader refuses a record that carries either: 30.5% of placeholder "
+                "payloads are values rather than type names, so the literal is corpus text "
+                "(docs/notes/ko-surro-gold-provenance.md §10.7)."
+            ),
+            "reference": "human-verified silver",
+            "reference_note": (
+                "The only one of the four corpora whose reference is not purely human "
+                "(DESIGN §6.5 (v), §9.3). A Korean silver span is gold here iff the human "
+                "reference of the source release's id.deid supports the English "
+                "placeholder it was injected from, so the set has precision 1.000 against "
+                "that reference by construction and recall 0.907 one-to-one. Leak rates on "
+                "this corpus are on the same scale as the other three; the 3.3% of human "
+                "gold the source tool never tagged is translated into the Korean text "
+                "unmarked and is charged to any arm that finds it, which no filter can fix."
+            ),
+            "n_spans_not_gold_supported": loader.not_gold_supported,
+            "not_gold_supported_note": (
+                f"{loader.not_gold_supported} silver spans are in the Korean text and in "
+                "no fold's gold: the human reference does not support the placeholder they "
+                "were injected from. They are not loaded, so they are in no fold block "
+                "above, and this is a third mechanism — §9.1's exclusion keeps a span and "
+                "flags it, and en-deid's reference-less records drop a document. Recorded "
+                "here because it is the difference between this file's denominators and "
+                "the corpus as published (DESIGN §9.0)."
+            ),
+            "fold_directories": None,
+            "fold_directories_note": (
+                "The layout encodes no fold, and cannot: a document is a record inside a "
+                "file, not a file. This split file is the only authority on which fold a "
+                "note is in, so the seal rewrites the two files rather than moving them "
+                "(tools/prepare_kosurro.py) — as on en-deid, whose records these are."
+            ),
+            "n_records_without_reference": len(uncovered),
+            "records_without_reference": uncovered,
+            "records_without_reference_note": (
+                f"The same {len(uncovered)} records splits/en-deid.json leaves outside "
+                "every fold, and the build refuses if the two lists differ: one reference "
+                "serves both halves of the pair, so the set it says nothing about has to "
+                "be identical on both sides. All of them carry 0 Korean silver spans, "
+                "measured — but absence of coverage is not a claim of PHI-freeness, so "
+                "they are in no fold on this side either."
+            ),
+            "n_documents_with_spans": with_spans,
+            "sparsity_note": (
+                f"{with_spans} of {len(docs)} loaded notes carry at least one in-scope "
+                "span. Lower than en-deid's figure over the same records, and the "
+                "gold-support filter is the whole reason: a note whose only silver spans "
+                "were denied loads with an empty gold list. It is still a note the "
+                "reference speaks about, which is what distinguishes it from the records "
+                "above."
+            ),
+            "tokenizer_note": (
+                "The shared whitespace tokenizer counts eojeol here and words on en-deid, "
+                "so token counts and spans-per-1,000-tokens are not comparable across the "
+                "pair even though the records correspond one to one (DESIGN §9.6). "
+                "Document counts and span counts are."
+            ),
+            "bom_documents": sorted(d.doc_id for d in docs if d.had_bom),
+            "bom_note": (
+                "None: a record is not a file, so there is no per-document byte-order mark "
+                "to strip. Recorded as an empty list rather than omitted so that the §9.7 "
+                "correction is visibly accounted for on every corpus."
+            ),
+        },
+    }
+
+
+#: Separate from `CONSTRUCTED_NARRATIVE` because the signature differs — a derived
+#: narrative is handed the derivation as well — and because the two routes must not be able
+#: to borrow each other's entries: a constructed corpus described as inheriting its folds,
+#: or a derived one described as seeded, would be a file that misstates how its own
+#: partition was chosen.
+DERIVED_NARRATIVE = {
+    "ko-surro": _kosurro_narrative,
 }
 
 

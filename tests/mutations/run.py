@@ -47,6 +47,11 @@ TEST_FILES = [
     #: (`test_the_full_run_covered_the_current_test_files`).
     "tests/test_grascco_loader.py",
     "tests/test_endeid_loader.py",
+    #: Added 2026-09-22 in the loader's own commit, which is the difference between this
+    #: entry and the two above: `src/corpora/kosurro.py` has never existed without mutations
+    #: anchored in it. It moves the denominator the same way, so this commit owes a full run
+    #: too — the one above is why the rule is "the count is a value over the whole list".
+    "tests/test_kosurro_loader.py",
     "tests/test_split_file.py",
     "tests/test_seal.py",
     "tests/test_release_screen.py",
@@ -249,6 +254,12 @@ MEDDOCAN = "src/corpora/meddocan.py"
 #: without covering one additional line of code.
 GRASCCO = "src/corpora/grascco.py"
 ENDEID = "src/corpora/endeid.py"
+#: The fourth loader, and the first that arrived with its mutations rather than after them.
+#: Its block is the largest of the four for one reason: this corpus's reference is
+#: human-verified silver, so the loader *applies a filter* — 544 of 2,158 spans do not load —
+#: and a filter is a mechanism the other three do not have at all. Nothing in MEDDOCAN's or
+#: GraSCCo's block can be pointed at it.
+KOSURRO = "src/corpora/kosurro.py"
 SPLIT = "src/split.py"
 SPLIT_FILE = "splits/es-meddocan.json"
 SEALED_LOG = "src/eval/sealed_log.py"
@@ -744,6 +755,308 @@ MUTATIONS = [
             "obviously false — there is no directory per fold because there is no file "
             "per document. Two mutations rather than one because the declaration is a "
             "class attribute on each loader, so one edit cannot reach both."
+        ),
+        min_kills=1,
+    ),
+    # ── the ko-surro loader (a filter, not just a reading — DESIGN §6.5 (v), §9.0) ──
+    #
+    # These were written with the loader, in its own commit, which the three blocks above
+    # were not: `de-grascco`'s 0.4146 and `en-deid`'s first arm were both produced on loaders
+    # no mutation had ever been applied to. That is the whole reason this block exists on
+    # day one rather than in three weeks.
+    #
+    # One family here has no counterpart in any block above. This corpus's gold set is
+    # *filtered*: silver asserts 2,158 spans, the English human reference supports 1,614, and
+    # the loader is what drops the difference. So the failure forms available are about a
+    # mechanism rather than about a reading — the filter not running, running in the wrong
+    # order, not being counted, or being counted per corpus where the number is per record.
+    # The last of those is not hypothetical: `kosurro_denied_count_is_a_running_total` and
+    # `kosurro_reference_counts_corpus_wide` are both defects this file's tests found in the
+    # loader on the day it was written, kept as mutations because a fixed defect with no
+    # anchor is a defect that returns.
+    #
+    # **The floors here mean something narrower than elsewhere, and it is measured.** Most of
+    # this block's tests build a two-file root in `tmp_path`, so they run on a machine that
+    # has no `ko-surro` checkout at all. Where a mutation's kills were probed, `min_kills` is
+    # the count that does *not* depend on the corpus being present — 4 of 7 for
+    # `kosurro_uncovered_records_loaded`, 1 of 4 for `kosurro_excluded_type_unmapped`, whose
+    # three other kills are the real-corpus tests erroring on an unmapped tag. The five rows
+    # that differ from their measured count say so in README.md; the rest are their measured
+    # count and were not probed one by one.
+    Mutation(
+        name="kosurro_filter_does_nothing",
+        path=KOSURRO,
+        anchor="                if not supported:",
+        replacement="                if False:",
+        breaks=(
+            "Loads every silver span, so the gold set becomes the producing tool's output "
+            "instead of the pre-registered one (§6.5 (v)). 544 spans the human reference "
+            "does not support enter the denominator, the leak rate is computed against them, "
+            "and this corpus's numbers stop being on the scale the other three's are — while "
+            "every file on disk is unchanged."
+        ),
+        min_kills=3,
+    ),
+    Mutation(
+        name="kosurro_filter_before_classify",
+        path=KOSURRO,
+        anchor=(
+            "                phi_type, excluded = self.classify(source_type)\n"
+            '                supported = raw["gold_supported"]\n'
+        ),
+        replacement='                supported = raw["gold_supported"]\n',
+        breaks=(
+            "Classifies only the spans that survive the filter, which makes the type map's "
+            "exhaustiveness a property of the reference's verdicts. Three of this corpus's "
+            "tags occur *only* among the denied spans (§9.0), so an unmapped tag in any of "
+            "them would stop being an error — and the map would be checked against 1,614 "
+            "spans while the corpus carries 2,158."
+        ),
+        min_kills=1,
+        also=(
+            (
+                KOSURRO,
+                '                counted["supported"] += 1\n',
+                '                counted["supported"] += 1\n'
+                "                phi_type, excluded = self.classify(source_type)\n",
+            ),
+        ),
+    ),
+    Mutation(
+        name="kosurro_denied_spans_not_counted",
+        path=KOSURRO,
+        anchor="                    self.not_gold_supported += 1\n",
+        replacement="",
+        breaks=(
+            "The filter still runs and stops reporting what it did. `endeid_uncovered_"
+            "records_not_counted` one mechanism over: the drop is correct and the count is "
+            "what makes 544 a published figure rather than a silent difference between the "
+            "corpus as shipped and the corpus as scored. `src/split.py`'s derived route "
+            "writes this number into the split file's narrative."
+        ),
+        min_kills=2,
+    ),
+    Mutation(
+        name="kosurro_denied_count_is_a_running_total",
+        path=KOSURRO,
+        anchor='                    "n_spans_not_gold_supported": denied_here,',
+        replacement='                    "n_spans_not_gold_supported": counted["denied"],',
+        breaks=(
+            "A real defect, found by these tests on the day the loader was written. The "
+            "per-record count becomes the corpus total so far, and it is in the record's "
+            "digest — so every document's digest depends on every earlier document, and file "
+            "order enters `splits/ko-surro.json` with nothing saying so. Totals unchanged, "
+            "counts unchanged, and the frozen manifest silently means something else."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="kosurro_denied_count_out_of_digest",
+        path=KOSURRO,
+        anchor='            (f"{CORPUS_FILE}:denied", str(denied).encode("ascii")),\n',
+        replacement="",
+        breaks=(
+            "Digests the loaded spans and not the filter's outcome. The denied spans are "
+            "part of what `prepare_kosurro.py` wrote, so a root rebuilt with a different "
+            "verdict for a span would hash identically and the frozen split file would "
+            "keep verifying against a different gold set."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="kosurro_non_boolean_verdict_accepted",
+        path=KOSURRO,
+        anchor="                if not isinstance(supported, bool):",
+        replacement="                if False:",
+        breaks=(
+            "Tests the verdict for truth instead of for being a verdict, so the string "
+            '"false" loads a span the human reference denies and counts it as gold. The '
+            "verdict is the one field that decides whether a span is in the gold set at "
+            "all, which is why it is the one field whose type is checked here."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="kosurro_surface_from_the_slice",
+        path=KOSURRO,
+        anchor="                        surface=raw[\"surface\"],",
+        replacement="                        surface=record[\"text\"][start:end],",
+        breaks=(
+            "`endeid_surface_from_the_slice` on the second loader that can avoid GraSCCo's "
+            "unfalsifiable position and the first where the two readings cross a language: "
+            "the surrogate string was read from the Korean derivation and the slice comes "
+            "from the body, so `assert_offsets()` compares two independent readings. On disk "
+            "they agree 2,158 of 2,158 times, so nothing visible changes — what is lost is "
+            "that the comparison ever compared anything."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="kosurro_uncovered_records_loaded",
+        path=KOSURRO,
+        anchor='            if record["has_reference"] is not True:',
+        replacement="            if False:",
+        breaks=(
+            "Loads the nine records the English reference says nothing about, with empty "
+            "gold lists. `endeid_uncovered_records_not_counted`'s drop read backwards, and "
+            "worse here than there: the filter would additionally make a record whose silver "
+            "spans were all denied indistinguishable from one the reference calls PHI-free, "
+            "so every prediction on nine notes becomes a false positive on no evidence."
+        ),
+        min_kills=4,
+    ),
+    Mutation(
+        name="kosurro_uncovered_records_not_counted",
+        path=KOSURRO,
+        anchor=(
+            "                self.uncovered.append(doc_id)\n"
+            '                counted["without_reference"] += 1\n'
+        ),
+        replacement="",
+        breaks=(
+            "Drops those records without reporting them. The list is what `src/split.py`'s "
+            "derived route compares against the records `splits/en-deid.json` leaves outside "
+            "every fold — the two corpora are halves of one release and that equality is the "
+            "check that they still are — and the per-root count is what each root's sidecar "
+            "is verified against."
+        ),
+        min_kills=3,
+    ),
+    Mutation(
+        name="kosurro_reference_counts_corpus_wide",
+        path=KOSURRO,
+        anchor='            "records_without_reference": counted["without_reference"],',
+        replacement='            "records_without_reference": len(self.uncovered),',
+        breaks=(
+            "The second defect these tests found. `reference.json` is written per root and "
+            "the check would compare the sealed root's sidecar against the corpus-wide list, "
+            "which already holds the unsealed root's records. A sealed evaluation would "
+            "refuse — after the access was logged — for having found exactly the records the "
+            "seal put there, and the unsealed suite would never show it."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="kosurro_text_bearing_fields_accepted",
+        path=KOSURRO,
+        anchor='TEXT_BEARING_FIELDS = ("src_tag", "surrogate")',
+        replacement="TEXT_BEARING_FIELDS = ()",
+        breaks=(
+            "The placeholder literal and the surrogate value become ordinary unknown keys. "
+            "The closed schema still refuses them today, which is the point: the refusal "
+            "stops saying *why*, and the next root that carries them is rejected by a "
+            "message about an unexpected field rather than about corpus text — so the fix "
+            "is to add the key to the schema. 30.5% of placeholder payloads are values "
+            "(`ko-surro-gold-provenance.md` §10.7), and this repository's only defence "
+            "against them is that the loader will not look at them."
+        ),
+        min_kills=2,
+    ),
+    Mutation(
+        name="kosurro_fields_need_not_match",
+        path=KOSURRO,
+        anchor="        if unknown or missing:",
+        replacement="        if False:",
+        breaks=(
+            "Opens the derived root's schema. A field the loader does not know is a field "
+            "nothing checks, and the two fields that matter are keys of the source files — "
+            "so a root that still carried them would be read rather than refused, with the "
+            "text-bearing check above passing on a record it never reached."
+        ),
+        min_kills=2,
+    ),
+    Mutation(
+        name="kosurro_reference_basis_unchecked",
+        path=KOSURRO,
+        anchor="        if basis != REFERENCE_BASIS:",
+        replacement="        if False:",
+        breaks=(
+            "Accepts a root built on any span set. The three candidate references differ by "
+            "a quarter of the spans (§6.5 (v)); a root built on raw silver has the same two "
+            "file names and produces a leak rate that cannot be compared with the other "
+            "corpora's, and the declaration is the only thing that distinguishes them."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="kosurro_reference_counts_unchecked",
+        path=KOSURRO,
+        anchor="        if disagree:",
+        replacement="        if False:",
+        breaks=(
+            "Lets the sidecar drift from the file beside it. The split file's denominators "
+            "come from what the loader read, so a sidecar written before a rebuild would "
+            "describe a filter outcome that is no longer there — and the provenance of the "
+            "gold set would be a stale document nothing checks."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="kosurro_not_phi_restored_scored",
+        path=KOSURRO,
+        anchor=(
+            'EXCLUDED_TYPES: frozenset[str] = frozenset({"NOT_PHI_RESTORED"})'
+        ),
+        replacement="EXCLUDED_TYPES: frozenset[str] = frozenset()",
+        breaks=(
+            "Scores the producing project's restore marks as PHI. `drop_excluded` for this "
+            "corpus's own exclusion: the three surviving spans move into the DATE "
+            "denominator, `n_spans_excluded` stops being a reported 3, and a detector is "
+            "credited or penalised on spans the project explicitly restored."
+        ),
+        min_kills=2,
+        also=(
+            (
+                KOSURRO,
+                '    "UNIT_NUMBER": "ID",\n',
+                '    "UNIT_NUMBER": "ID",\n    "NOT_PHI_RESTORED": "DATE",\n',
+            ),
+        ),
+    ),
+    Mutation(
+        name="kosurro_excluded_type_unmapped",
+        path=KOSURRO,
+        anchor=(
+            'EXCLUDED_TYPES: frozenset[str] = frozenset({"NOT_PHI_RESTORED"})'
+        ),
+        replacement="EXCLUDED_TYPES: frozenset[str] = frozenset()",
+        breaks=(
+            "The previous mutation without its second edit, so the tag is in neither "
+            "collection and `classify()` must refuse it. `endeid_type_in_both_lists`'s "
+            "mirror image — there a type is in both lists, here in neither — and it is here "
+            "because the two collections together are this corpus's exhaustive vocabulary: "
+            "26 tags, 25 mapped and one excluded, checked against all 2,158 spans."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="kosurro_layout_claims_folds",
+        path=KOSURRO,
+        anchor="    fold_dirs: dict[str, str] = {}",
+        replacement=(
+            '    fold_dirs: dict[str, str] = {"train": "train", "dev": "dev", '
+            '"test": "test"}'
+        ),
+        breaks=(
+            "`endeid_layout_claims_folds` on the fourth loader, and a third mutation rather "
+            "than a parametrised one for that block's reason: the declaration is a class "
+            "attribute, so no single edit reaches two loaders. The frozen split file is the "
+            "only authority on which fold a note is in, and a layout that claims folds is a "
+            "second one."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="kosurro_empty_sealed_root_accepted",
+        path=KOSURRO,
+        anchor="        if sealed is not None and from_sealed == 0:",
+        replacement="        if False:",
+        breaks=(
+            "An authorised sealed read that reached no sealed record returns the unsealed "
+            "records instead of failing. `results/sealed_eval_log.md` already has the row, so "
+            "the numbers would be published as a test-fold evaluation of the dev and train "
+            "folds — the worst available outcome, because the record says the opposite of "
+            "what happened and the count of sealed openings is the thing the paper reports."
         ),
         min_kills=1,
     ),

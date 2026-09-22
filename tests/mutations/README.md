@@ -187,6 +187,68 @@ starts at 0 and is recorded as clipped, which is all the older tests looked at.
 | `endeid_type_in_both_lists` | the same edit without its second half, so `Age` is in both lists | construction refusal, for `grascco_title_in_both_lists`'s reason: the defect was a property of a fixture and this corpus has its own | **48** |
 | `endeid_layout_claims_folds` | `fold_dirs` gains `train`/`dev`/`test` | the same false claim on the loader where it is more obviously false. Two mutations rather than one because the declaration is a class attribute on each loader, so one edit cannot reach both | **1** |
 
+### `ko-surro` — eighteen, and the first loader that never existed without them
+
+The three blocks above were written *after* the loaders they mutate, and the section heading
+says what that cost. This one was written in the loader's own commit, so
+`src/corpora/kosurro.py` has never been scored, split or read without mutation coverage —
+which is the whole of what changed procedurally on 2026-09-22.
+
+**A family no other loader has.** This corpus's reference is human-verified silver (DESIGN
+§6.5 (v)): silver asserts 2,158 spans, the English human reference supports 1,614, and **the
+loader is what drops the difference**. So the faults available are about a *mechanism* rather
+than about a reading — the filter not running, running before the classifier instead of
+after, not being counted, or being counted per corpus where the number is per record. Nothing
+in the four-column family table above can be pointed at it, which is why this section states
+the family in prose instead of widening that table: a fifth column would imply the families
+are the same five, and the sixth is the reason this block is the largest of the four.
+
+The two other loader-specific shapes carry over as expected. `kosurro_surface_from_the_slice`
+is `endeid_surface_from_the_slice` on the second loader that can avoid GraSCCo's
+unfalsifiable position, and the first where the two readings **cross a language**: the
+surrogate string was read from the Korean derivation, the slice comes from the body, and they
+agree 2,158 of 2,158 times on disk. `kosurro_layout_claims_folds` is the third copy of a
+class-attribute mutation that no single edit can reach twice.
+
+| mutation | changes | breaks | tests that catch it |
+|---|---|---|---|
+| `kosurro_filter_does_nothing` | the gold-support test becomes `if False` | the gold set becomes the producing tool's output instead of the pre-registered one: 544 unsupported spans enter the denominator, the leak rate is computed against them, and this corpus stops being on the scale the other three are — with every file on disk unchanged | **6** (3 without the corpus) |
+| `kosurro_filter_before_classify` | `classify()` moves after the filter | the type map's exhaustiveness becomes a property of the reference's verdicts. Three of this corpus's tags occur *only* among the denied spans, so an unmapped tag in any of them stops being an error and the map is checked against 1,614 spans of 2,158 | **1** |
+| `kosurro_denied_spans_not_counted` | `self.not_gold_supported += 1` is removed | the filter runs and stops reporting what it did — `endeid_uncovered_records_not_counted` one mechanism over. 544 becomes a silent difference between the corpus as shipped and the corpus as scored, and the split file's narrative is built on that number | **2** |
+| `kosurro_denied_count_is_a_running_total` | the per-record denied count becomes the corpus total so far | **a real defect, found by these tests on the day the loader was written.** The count is in the record's digest, so every document's digest would depend on every earlier document and file order would enter `splits/ko-surro.json` with nothing saying so. No total changes | **1** |
+| `kosurro_denied_count_out_of_digest` | the fourth digest part is dropped | digests the loaded spans and not the filter's outcome, so a root rebuilt with a different verdict for a span hashes identically and the frozen split file keeps verifying against a different gold set | **1** |
+| `kosurro_non_boolean_verdict_accepted` | the `isinstance(supported, bool)` check becomes `if False` | the verdict is tested for truth instead of for being a verdict, so the string `"false"` loads a span the human reference denies and counts it as gold | **1** |
+| `kosurro_surface_from_the_slice` | `Span.surface` is filled from the body slice | `endeid_surface_from_the_slice`, here across a language boundary: the two readings agree 2,158 of 2,158 times, so nothing visible changes and what is lost is that the comparison ever compared anything | **1** |
+| `kosurro_uncovered_records_loaded` | the `has_reference` branch becomes `if False` | the nine records the English reference says nothing about load with empty gold lists. Worse than `en-deid`'s version of this, because the filter additionally makes a record whose silver spans were all denied indistinguishable from one the reference calls PHI-free | **7** (4 without the corpus) |
+| `kosurro_uncovered_records_not_counted` | the append and the per-root count are removed | the list is what `src/split.py`'s derived route compares against the records `splits/en-deid.json` leaves outside every fold — the check that the two corpora are still halves of one release — and the per-root count is what each root's sidecar is verified against | **6** (3 without the corpus) |
+| `kosurro_reference_counts_corpus_wide` | the expected `records_without_reference` is read from the corpus-wide list | **the second defect these tests found.** `reference.json` is per root, so a sealed read would compare the sealed sidecar against a list already holding the unsealed root's records — refusing, *after* the access was logged, for having found exactly what the seal put there. Invisible to any unsealed run | **1** |
+| `kosurro_text_bearing_fields_accepted` | `TEXT_BEARING_FIELDS` becomes empty | the placeholder literal and the surrogate value become ordinary unknown keys. The closed schema still refuses them, which is the point: the refusal stops saying *why*, so the obvious fix is to add the key to the schema. 30.5% of payloads are values, and the only defence is that the loader will not look at them | **2** |
+| `kosurro_fields_need_not_match` | the closed-schema check becomes `if False` | a field the loader does not know is a field nothing checks — and the two that matter are keys of the source files, so a root still carrying them is read rather than refused and the check above never reached | **2** |
+| `kosurro_reference_basis_unchecked` | the basis comparison becomes `if False` | accepts a root built on any span set. The three candidate references differ by a quarter of the spans (§6.5 (v)); a root built on raw silver has the same two file names, and the declaration is all that distinguishes them | **1** |
+| `kosurro_reference_counts_unchecked` | the sidecar recount becomes `if False` | lets `reference.json` drift from the file beside it, so the provenance of the gold set becomes a stale document nothing checks while the split file's denominators come from what was read | **1** |
+| `kosurro_not_phi_restored_scored` | `NOT_PHI_RESTORED` moves out of `EXCLUDED_TYPES` and into `TYPE_MAP` as DATE | `drop_excluded` for this corpus's own exclusion: the three surviving spans move into the DATE denominator, `n_spans_excluded` stops being a reported 3, and a detector is credited or penalised on spans the producing project explicitly restored | **3** (2 without the corpus) |
+| `kosurro_excluded_type_unmapped` | the same first edit without its second half | the tag is in neither collection, so `classify()` must refuse it. `endeid_type_in_both_lists`'s mirror image — there a type is in both lists, here in neither — and it belongs here because the two collections together are this corpus's exhaustive vocabulary: 26 tags, 25 mapped and one excluded | **4** (1 without the corpus) |
+| `kosurro_layout_claims_folds` | `fold_dirs` gains `train`/`dev`/`test` | the third copy of the same false claim, because the declaration is a class attribute and no one edit reaches two loaders. The frozen split file is the only authority on which fold a note is in; a layout that claims folds is a second one | **1** |
+| `kosurro_empty_sealed_root_accepted` | the `from_sealed == 0` invariant becomes `if False` | an authorised sealed read that reached no sealed record returns the unsealed records instead of failing. `results/sealed_eval_log.md` already has the row, so dev and train numbers would be published as a test-fold evaluation — and the count of sealed openings is what the paper reports | **1** |
+
+**What the parenthesised numbers mean, and why this block alone has them.** Most of these
+tests build a two-file root in `tmp_path` and never touch the corpus, so they run on a
+machine that has no `ko-surro` checkout. The five rows above were probed individually
+(`run.py --probe`) and `min_kills` for those is the **corpus-independent** count, not the
+measured one: `kosurro_excluded_type_unmapped`'s floor is 1 because its three other kills are
+the real-corpus tests erroring on an unmapped tag, and a floor of 4 would turn "the corpus is
+not on this machine" into a gate failure. The thirteen unparenthesised rows are their measured
+count and were not probed one by one. Both facts are recorded because the difference between
+them is the only thing that makes a floor interpretable.
+
+**How the eighteen were measured.** 2026-09-22, against a baseline of **2,194 tests** (2,171
+plus this commit's 23 `tests/test_kosurro_loader.py` tests), as four concurrent invocations of
+`run.py` with explicit names — all four reporting pristine tree `360066f800f3bf54` and the
+same baseline count, which is what makes the counts comparable to each other. **18 of 18
+caught.** It is an impact-scope run: adding a file to `TEST_FILES` changes the denominator of
+all 211 older counts, so those are deferred to the next full run and are not exempt from it
+(`test_the_full_run_covered_the_current_test_files` fails until it happens).
+
 **How the seventeen were measured, and what that measurement is not.** All seventeen were
 run on 2026-09-22 against a baseline of **2,171 tests** — 2,068 plus the 39 GraSCCo and 64
 en-deid loader tests this commit adds to `TEST_FILES` — as four concurrent invocations of

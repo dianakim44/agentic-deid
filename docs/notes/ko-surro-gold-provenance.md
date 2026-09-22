@@ -317,3 +317,66 @@ payloads are values rather than type names (1,125 distinct `src_tag` values over
 `ko-surro` must treat `src_tag` as corpus text — never in an exception message, never in a
 log line, and never written into `splits/ko-surro.json`. `type`, the normalised 26-value
 field, is the one safe to name.
+
+## 11. The build, 2026-09-22: the join, the filter, and what each stage counted
+
+Sections 1–10 argue what the reference is. This section records what was built on it and what
+each stage measured, so that a rebuild can be checked rather than trusted. Every number here
+was produced by running the tool named beside it; none is derived from another.
+
+**The join is exact and it is not positional.** `tools/prepare_kosurro.py stage` pairs a
+Korean surrogate span with the English placeholder it was injected from, per record: spans
+sorted by `start`, each claiming the first unclaimed `id.res` placeholder whose normalised
+payload matches (`[**payload**]` or `[**payload **]`, stripped). Position alone would be
+wrong — translation reorders the placeholders in **26** records and drops one in **6** — and
+the payload alone would be ambiguous within a record, so it is the two together. `MIN_LAND =
+0.95` guards the reference parse, and a record where the greedy pass fails to consume every
+span is a refusal rather than a partial join. There were **0** refusals over the whole corpus.
+
+| stage | what it counted | value |
+|---|---|---|
+| `stage` | records written | 2,434 |
+| | records with no English reference header (§9.0's absence-is-not-emptiness) | 9 |
+| | silver spans | 2,158 |
+| | placeholders in `id.res` available to claim | 2,164 |
+| | spans the human reference supports → **gold** | **1,614** |
+| | spans it does not support → dropped by the loader, counted | 544 |
+| | join refusals | 0 |
+| `load` | documents | 2,425 |
+| | spans loaded | 1,614 |
+| | in scope after §9.1's mechanism | **1,611** |
+| | excluded and flagged (`NOT_PHI_RESTORED`) | 3 |
+| | `assert_offsets()` failures | 0 |
+| `split` | train / dev / test documents | 1,456 / 485 / 484 |
+| | patient groups, and groups crossing a fold | 163, **0** |
+
+The per-type table for the 1,611 is in DESIGN §9.0 and is asserted in
+`tests/test_kosurro_loader.py` rather than only written down: NAME 806, DATE 468,
+ORGANISATION 242, LOCATION_AREA 45, CONTACT 44, AGE 3, LOCATION_STREET 2, ID 1. Two rows
+carry a caveat that belongs with the reference rather than with the loader. **ORGANISATION
+242 against 0 on the English side** is a vocabulary difference and not a disagreement: the
+producing tool separates hospital, ward and company where the human reference has one
+`Location`, and they are largely the same physical spans, which is why §7's location and
+organisation rows are not comparable in either direction for this pair. And the single **ID**
+is a span the human reference types `Date`; the row exists for exhaustiveness and carries no
+claim.
+
+**What the loader refuses, and why §10.7 is enforced rather than remembered.** The derived
+root's schema is closed — exactly six record keys and five span keys — and `src_tag` and
+`surrogate` are refused by name with a message that says *corpus text* and quotes neither. A
+closed schema rather than a minimum is the point: the two forbidden keys are keys of the
+source files, so a loader that read what it wanted and ignored the rest would read a root
+that still carried them without anyone noticing. `tests/test_kosurro_loader.py` asserts that
+no refusal in the module quotes a surface or a placeholder literal, which is the form
+`tests/test_meddocan_loader.py` uses for the same rule.
+
+**Two defects the tests found while they were being written**, recorded because both would
+have been invisible in every number the corpus produces. The per-record count of denied spans
+was taken from a corpus-wide running total, and it is part of each record's digest — so every
+document's digest would have depended on every earlier document and file order would have
+entered `splits/ko-surro.json` with nothing saying so. And each root's `reference.json` was
+checked against the corpus-wide uncovered list rather than that root's own count, which would
+have made a sealed evaluation refuse — *after* `results/sealed_eval_log.md` recorded the
+access — for having found exactly the records the seal put there. Both are now mutations
+(`kosurro_denied_count_is_a_running_total`, `kosurro_reference_counts_corpus_wide`), because a
+fixed defect with no anchor is a defect that returns.

@@ -57,6 +57,12 @@ GRASCCO = "de-grascco"
 #: "corpus not here" the other two mean, and it is still answered from the path alone.
 ENDEID = "en-deid"
 
+#: The fourth, since 2026-09-22 (`src/corpora/kosurro.py`). Derived like `en-deid`'s and
+#: built by `tools/prepare_kosurro.py`, which needs *two* read-only directories — the shared
+#: release and the producing project's Korean files — so "absent" covers one more case here
+#: and is still answered from the one configured path.
+KOSURRO = "ko-surro"
+
 #: The arm whose dev record `terminated_arm_record` answers for: the only one in the tree
 #: that has terminated with a reason and a round count, which is what DESIGN §6.4 requires
 #: before a sealed opening. Kept beside the fixture rather than in the test file, because a
@@ -247,6 +253,54 @@ def endeid_unsplit_loader(endeid_present: str):
     from src.corpora.endeid import EndeidLoader
 
     return EndeidLoader(use_split_file=False)
+
+
+@pytest.fixture(scope="session")
+def kosurro_present() -> str:
+    """Availability of the fourth corpus, asked separately for `grascco_present`'s reason."""
+    from src.corpora.base import CorpusError, corpus_root
+
+    try:
+        corpus_root(KOSURRO)
+    except CorpusError as exc:
+        pytest.skip(
+            f"{KOSURRO} not on this machine: {exc} "
+            "(the root is built by tools/prepare_kosurro.py stage)"
+        )
+    return KOSURRO
+
+
+#: There is deliberately no `kosurro_sealed` and no split-file-reading `kosurro_loader` yet.
+#: Both would be fixtures nothing requests, which is the state
+#: `test_every_shared_fixture_is_used_by_something` exists to refuse — a fixture added ahead of
+#: its user is indistinguishable from one whose user was reverted. They arrive with the acts
+#: they are about: `splits/ko-surro.json` being frozen (then `tests/test_split_file.py` wants
+#: the loader that reads it) and the test fold being sealed (then `tests/test_seal.py` wants
+#: the availability fixture). Until then the corpus is read through the unsplit loader below.
+
+
+@pytest.fixture(scope="session")
+def kosurro_unsplit_loader(kosurro_present: str):
+    """The ko-surro loader with no split file, for the tests that check the split file."""
+    from src.corpora.kosurro import KosurroLoader
+
+    return KosurroLoader(use_split_file=False)
+
+
+@pytest.fixture(scope="session")
+def kosurro_docs(kosurro_present: str, kosurro_unsplit_loader):
+    """The corpus, loaded once. 2,434 records is too many to re-read per test.
+
+    Session-scoped and shared, which means no test may mutate what it is handed — the same
+    rule the other corpora's document lists follow. Loaded through the unsplit loader so a
+    test about the split file is not handed documents that read it.
+
+    `kosurro_present` is requested directly as well as transitively, because the rule
+    `test_conftest.py` enforces is about this function's own arguments: a construction
+    fixture that reached availability only through another construction fixture would be one
+    step from the form where the chain is quietly broken.
+    """
+    return kosurro_unsplit_loader.load()
 
 
 @pytest.fixture(scope="session")

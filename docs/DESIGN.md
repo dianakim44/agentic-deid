@@ -4424,6 +4424,81 @@ determined and nothing about it remains free.
 > across the aligned pair even though every other field of the pair is. Document counts and
 > span counts are comparable; token-normalised density is not.
 
+> **(v) is decided: `ko-surro`'s reference is human-verified silver, 1,611 spans —
+> pre-registered 2026-09-22, before any Korean arm runs and before the loader that produces
+> it is written.** The set is the Korean silver spans whose source English placeholder the
+> human gold supports, with the 3 `NOT_PHI_RESTORED` mislabels dropped (1,614 → 1,611). The
+> other two candidates — raw silver (2,158) and the human reference (1,779) — are rejected,
+> and the decision is recorded here rather than in the loader so that the scoring basis is
+> fixed before the code that reads it exists.
+>
+> **Grounds, all four measured in `ko-surro-gold-provenance.md` §10 and none of them an
+> argument from convenience:**
+>
+> 1. **It is the only one of the three sets that has Korean offsets *and* no false positives
+>    against the human standard.** Silver has Korean offsets but is not verified; the human
+>    reference is verified but has no Korean offsets. Human-verified silver has both:
+>    precision 1.000 against the human reference by construction, with Korean spans that
+>    index the Korean text the arms actually read.
+> 2. **Silver includes the tool's 25% over-marking and so inflates the leak rate.** 2,158
+>    silver spans against 1,611 gold-supported ones means roughly a quarter of silver is
+>    something the human standard does not support. Every one of those sits in the leak-rate
+>    *denominator*, so scoring against silver reports a leak on PHI that was never PHI, and
+>    it does so in the headline metric.
+> 3. **Human gold's offsets do not transfer to Korean.** The 1,779 human spans index the
+>    English `id.text`; `ko-surro` is Korean text derived from `id.res` (§7 of the same note).
+>    A span's offsets do not survive the translation even where the span itself does, which is
+>    the same fact §6.5's closing paragraph states as "a document's fold role transfers; a
+>    span's does not".
+> 4. **There is no circularity, because this is not new human gold.** No annotator judges a
+>    Korean span here. An already-measured human reference is used to *filter* silver: a
+>    silver span survives iff the human gold supports the English placeholder it was injected
+>    from. The reference is prior to the filtering and independent of anything the pipeline
+>    produces, so nothing the arms do can move the set.
+>
+> **Limitation, and it is not removable by the choice:** the PHI the de-identification tool
+> missed — 59 of the 1,779 human gold spans, about **3.3%** — is translated into Korean
+> **unmarked**. No Korean-side reference can point at it, so **all three candidates share this
+> floor**; filtering cannot lower it, because the spans were never tagged and so never entered
+> silver at all. The consequence for scoring is asymmetric and must be reported with every
+> Korean precision figure: a detector that correctly finds one of those spans is **counted as a
+> false positive**, which cuts precision. The leak rate is unaffected — its denominator is the
+> reference, and these spans are outside it — so the headline is clean and precision is the
+> figure carrying the damage. This is the same shape as `en-deid`'s unannotated-category
+> problem (`arm-port-oneshot-en.md` §1), and it is reported the same way: the scorer's
+> precision, and a precision with the known-unmarkable class named.
+>
+> **One thing this does not decide.** (i)–(iv) are now unblocked but not answered: the 26-type
+> map, the loader, the third `SPLIT_ORIGIN` route and `prepare_kosurro.py` all still owe their
+> own decisions. What is fixed is only *what the file counts*.
+>
+> **(i)–(iv), 2026-09-22, and what they measured.** All four are now written and each answered
+> the way this section anticipated. **(i)** 25 of the 26 raw tags map to canonical types and the
+> 26th, `NOT_PHI_RESTORED`, is excluded by §9.1's *mechanism* without joining
+> `naming.yaml`'s three-name list; no new `naming.yaml` value was needed. The pending-review
+> date tag is **not** excluded — the gold-support filter answers the question the producing
+> project left open, 9 of its 19 spans supported — and that is the clearest case of (v) doing
+> work (i) would otherwise have had to guess at. **(ii)** `src/corpora/kosurro.py`, and it is
+> the first loader in this repository that has never existed without its mutations: eighteen,
+> 18 of 18 caught, measured the day the loader landed rather than weeks later
+> (`tests/mutations/README.md` §"`ko-surro` — eighteen"). Two of the eighteen are defects the
+> tests found in the loader as it was being written — a per-record count that was a running
+> total, and a per-root sidecar check compared against a corpus-wide list, the second of which
+> would have refused a sealed evaluation *after* the access was logged. **(iii)** the `derived`
+> route in `src/split.py`, membership from `tools/derive_aligned_split.py` over the frozen
+> `splits/en-deid.json` with `seed: null` and `stratification: null` written explicitly, and
+> four build-time refusals (no alignment refusals, nothing unplaced, nothing unclaimed, and the
+> loader's uncovered list equal to `en-deid`'s records without a reference). **(iv)**
+> `tools/prepare_kosurro.py`, whose seal is a rewrite of one file.
+>
+> The measured contents, recorded here because the pre-registration is only worth as much as
+> the numbers it can later be checked against: 2,434 records staged, 9 without an English
+> reference, 2,158 silver spans of which the human reference supports **1,614** and denies 544,
+> with **0** join refusals against `id.res`'s 2,164 placeholders. The loader yields 2,425
+> documents, 1,614 spans, **1,611 in scope** and 3 excluded, and `assert_offsets()` holds for
+> every one. The derived split is train 1,456 / dev 485 / test 484 over **163 patient groups
+> with 0 crossing** — §9.0 holds the per-type table and §9.6 the split file's own declaration.
+
 **The ground on which B was refused above does not hold in this configuration, and saying
 why is owed.** That refusal was not expiry but "computing the intersection reads the seal":
 aligning documents requires knowing which fold each counterpart occupies, and for the
@@ -6161,6 +6236,106 @@ record either has a reference or it does not.
 This is not §9.1's mechanism: §9.1 keeps a span and flags it,
 and here there are no spans to keep.
 
+#### `ko-surro`'s 26 source tags — added 2026-09-22, before the loader
+
+The fourth corpus, and like `en-deid` it gets its own block rather than a column: its span
+set is §6.5 (v)'s human-verified silver, so the counts below are over **1,611** in-scope
+spans and three different mechanisms have already removed something before this table
+starts. Naming them apart is the point of the block.
+
+| | spans | mechanism |
+|---|---|---|
+| Korean silver spans in the corpus | 2,158 | what `ko_surrogate.jsonl` carries |
+| less spans the human gold does not support | −544 | **reference denial**, new here (below) |
+| less `NOT_PHI_RESTORED` | −3 | §9.1's mechanism, kept and flagged |
+| **in scope, and the leak-rate denominator** | **1,611** | |
+
+| canonical | `ko-surro` source tags (in-scope n) | n |
+|---|---|---|
+| `NAME` | `LAST_NAME` 403, `FIRST_NAME` 132, `NAME` 121, `KNOWN_PATIENT_LASTNAME` 46, `DOCTOR_LAST_NAME` 36, `INITIALS` 27, `MALE_FIRST_NAME` 14, `DOCTOR_FIRST_NAME` 13, `KNOWN_PATIENT_FIRSTNAME` 8, `FEMALE_FIRST_NAME` 6, `NAME_INITIAL` 0, `INITIAL` 0 | 806 |
+| `DATE` | `DATE` 445, `DATE_LITERAL` 14, `DATE_LITERAL_PENDING_REVIEW` 9 | 468 |
+| `ORGANISATION` | `HOSPITAL` 174, `WARDNAME` 67, `COMPANY` 1 | 242 |
+| `LOCATION_AREA` | `LOCATION` 45 | 45 |
+| `CONTACT` | `TELEPHONE_FAX` 32, `PAGER_NUMBER` 12, `E-MAIL_ADDRESS` 0 | 44 |
+| `AGE` | `AGE_OVER` 3 | 3 |
+| `LOCATION_STREET` | `STREET_ADDRESS` 2 | 2 |
+| `ID` | `UNIT_NUMBER` 1 | 1 |
+| `PROFESSION`, `OTHER` | — | **0** |
+| **canonical total** | | **1,611** |
+| **excluded (§9.1's mechanism)** | `NOT_PHI_RESTORED` 3 | **3** |
+
+**Three tags with 0 in scope are still in the map, and that is deliberate.**
+`NAME_INITIAL` (3 spans), `INITIAL` (1) and `E-MAIL_ADDRESS` (1) occur in the corpus only
+among the 544 the filter drops. They are mapped because the loader classifies **before** it
+filters: a map covering only the surviving tags would let a tag that appears solely among
+the dropped spans pass unchecked, and then a change to the filter — or to the release —
+would admit an unmapped tag silently. `classify()` is the guard and it has to see all 2,158.
+
+**Reference denial is a third mechanism and is not either of the two we had.** §9.1 keeps a
+span and flags it (`excluded=True`, no `phi_type`) because the corpus asserts a category
+this project does not score. `en-deid`'s nine reference-less records are dropped at
+*document* level because the reference says nothing about them. These 544 are neither: the
+span exists in the Korean text, the silver reference asserts it is PHI, and the human
+reference — which §6.5 (v) makes the authority — does not support it. So the span is not
+loaded at all and the count is reported per fold (`n_spans_not_gold_supported`). It cannot
+be §9.1's mechanism, because `excluded` is decided by *type* and these carry ordinary types
+like `LAST_NAME`; putting them there would mean excluding the type.
+
+**`DATE_LITERAL_PENDING_REVIEW` → `DATE`, decided by the filter rather than beside it.** The
+tag is the producing project's marker for "a date literal whose PHI status is not settled",
+and the obvious reading is that an unsettled span should be excluded. Measured, its 19 spans
+split **9 gold-supported / 10 not**, so the gold-support filter already answers the question
+the tag poses — it keeps the 9 the human reference supports and drops the other 10.
+Excluding the tag would throw away 9 human-gold-supported date spans to avoid a review that
+has, for this set, already happened.
+
+**`NOT_PHI_RESTORED` uses §9.1's mechanism without joining §9.1's list** — see §9.1's note
+below. 142 spans, of which 139 are gold-unsupported and dropped by the filter; the remaining
+**3** are spans the producing project restored as not-PHI where the human reference says a
+date is present (`ko-surro-gold-provenance.md` §8). They are kept and flagged rather than
+dropped, so `n_spans_excluded` is a reported 3 and the label-fidelity defect stays visible.
+
+**`UNIT_NUMBER` → `ID`, and the row supports nothing.** The release types wards separately
+(`WARDNAME`), so a "unit number" here is a numeric identifier and `ID` is the only canonical
+target for a record number. There is **1** such span in scope, and the human reference types
+that very span `Date`. The `ID` row is therefore a single span whose type the reference
+contradicts: it is in the map for exhaustiveness and no per-type claim rests on it.
+
+**The Korean side's location family is finer than the English side's, which is a caveat on
+the pair and not on either corpus.** `ko-surro`'s tags come from the de-identification
+tool, which distinguishes `HOSPITAL`, `WARDNAME`, `LOCATION` and `STREET_ADDRESS`;
+`en-deid`'s human reference has one undifferentiated `Location` (§9.0's `en-deid` block). The
+same physical span is therefore `ORGANISATION` on the Korean side and `LOCATION_AREA` on the
+English side. **§7's aligned pair is comparable in `NAME`, `DATE`, `CONTACT` and `AGE`, and
+is not comparable in the location/organisation family** — the English side has 0 gold
+`ORGANISATION` by construction while the Korean side has 242.
+
+**How much of the typing the human reference actually verifies, measured.** The filter
+matches by *position*, not by type, so human-verified silver is verified for **presence** and
+not for **type**. Comparing the tool's canonical type against the human reference's for all
+1,611 in-scope spans: they agree on **1,349 (83.74%)**. Of the 262 disagreements, **243 are
+the `Location` merge above** (242 `ORGANISATION`, 1 `LOCATION_STREET`, both against gold
+`Location`), which is a known property of the English annotation rather than a tool error.
+That leaves **19 spans — 1.18% — whose type the human reference contradicts** (14
+`NAME`-against-`Location`, and five singletons). So per-type Korean leak rates rest on silver
+typing with a measured 1.2% contradiction rate, plus the location family's structural
+incomparability; the aggregate leak rate does not depend on typing at all.
+
+**Typing from the human reference instead was available and is refused.** Every matched span
+carries a gold type, so `ko-surro` could have taken `en-deid`'s ten types directly, making
+the pair type-identical by construction. That inherits the `Location` merge — it would
+collapse 242 `ORGANISATION` and 2 `LOCATION_STREET` spans into `LOCATION_AREA` and destroy
+a distinction the Korean corpus actually carries — and it would put an English file's label
+on a Korean span for every one of the 1,611. §6.5 (v) decided which spans are counted, not
+whose labels they carry; the corpus's own tag is the label, and the 83.74% is reported beside
+it as the cost.
+
+**No new `naming.yaml` value was needed, which is worth stating because §6.5 (i) expected
+one.** All ten canonical targets already exist on the `phi_type` axis, `ko-surro` is already
+on the `corpus` axis with `corpus_rule_langs: [ko]`, and the 26 tags are `subtype` values —
+one corpus's own vocabulary, which §9.0 has never put in the config. `NOT_PHI_RESTORED`
+specifically does **not** join `naming.yaml`'s `excluded_types` block; §9.1 says why.
+
 ### 9.1 Excluded from the canonical set
 
 `SEXO_SUJETO_ASISTENCIA` (1,841 spans), `FAMILIARES_*` (416 spans), `NAME_TITLE`
@@ -6196,6 +6371,35 @@ cost of the decision and is reported as a limitation, not buried in a footnote.
 Where a leaderboard comparison is wanted, §9.6 provides the route: the official
 split is retained, so a supplementary run on the full MEDDOCAN type set is
 possible without redoing the split.
+
+#### The mechanism and the list are two things — `ko-surro`'s `NOT_PHI_RESTORED`, 2026-09-22
+
+The three names above are a **concept** list: categories that exist in more than one
+annotation scheme, that a detector could reasonably emit, and that the Auditor is therefore
+shown as out of scope (`docs/prompts/auditor.md` §1.1, `config/naming.yaml`'s
+`excluded_types`). The list stays at three.
+
+What §9.1 also owns is a **mechanism**: keep the span, set `excluded=True`, give it no
+`phi_type`, and report it in `n_spans_excluded` and `spans_by_excluded_type`. `ko-surro`'s
+`NOT_PHI_RESTORED` uses that mechanism and does not join the list, and the distinction is
+the reason the loader's `excluded_types` attribute and the config block were separated in
+the first place (`src/corpora/base.py`'s `excluded_types()`).
+
+- It is **not a category of text**. It is a provenance tag: the producing project restored a
+  placeholder's inner value into the published corpus on the judgement that the span was not
+  PHI. No detector can emit it, so showing it to an Auditor would be showing an agent a fact
+  about how the corpus was built.
+- It is **corpus-specific in a way the three are not**. `SEXO`, `FAMILIARES` and `NAME_TITLE`
+  each exist in at least two corpora here; this tag exists in one, and a config list that
+  grew a per-corpus entry would stop being the cross-corpus concept list the Auditor's frame
+  needs.
+- The cost is reported the same way regardless: **3 spans of 1,614 gold-supported**, 0.19%,
+  against §9.1's 9.90% on MEDDOCAN and 9.68% on GraSCCo. The other 139 spans carrying this
+  tag never reach the exclusion, because the gold-support filter drops them first (§9.0).
+
+So `tests/test_excluded_types.py`'s `test_the_three_exclusions_are_the_declared_ones` keeps
+asserting three, and that test is the guard on the list rather than an obstacle to this
+decision. A fourth *concept* still needs an edit here first.
 
 ### 9.2 `TERRITORIO` merges into a single `LOCATION_AREA`
 
@@ -6246,6 +6450,34 @@ prediction cover two adjacent gold spans of different types and would make the
 complementarity breakdown in §5 uninterpretable — "found by rules only" has to mean
 found *as the right kind of thing*. The cost is visible and accepted: a detector that
 finds a date but calls it an ID is scored as both a miss and a false positive.
+
+#### Both modes are defined against a reference, and one corpus's reference is not purely human — 2026-09-22
+
+Everything above says what "covered" means; it says nothing about what the gold spans *are*.
+For three of the four corpora that needs no saying: `es-meddocan`, `de-grascco` and `en-deid`
+are scored against annotations a human produced. **`ko-surro` is not, and it is the only one
+of the four that is not.** Its reference is **human-verified silver** — the Korean spans a
+de-identification tool injected, filtered to those whose source English placeholder a human
+annotator's gold supports (§6.5's decision on (v), 1,611 spans, pre-registered before any
+Korean arm).
+
+Two consequences for reading any `ko-surro` number, and both belong here rather than in the
+split file because they are properties of the reference and not of a fold:
+
+- **The leak rate is a leak rate against that reference.** It is not a claim about all PHI
+  in the Korean text. About **3.3%** of the human gold (59 of 1,779 spans) was never tagged
+  by the tool, is therefore translated into Korean unmarked, and sits outside the denominator
+  of every mode defined above. The leak rate is clean in the sense that its denominator is
+  exactly what the reference asserts; it is incomplete in the sense that the reference is not
+  the whole truth.
+- **Precision carries the damage instead.** A detector that finds one of those unmarked spans
+  is scored a false positive under either matching, because no gold span of the equal type
+  overlaps it. So `ko-surro` precision is a lower bound in a way the other three corpora's is
+  not, and it must be reported as such wherever it is cited.
+
+This does not change the two modes, the two matchings, or which figure is the headline. It
+changes what the reference means for one corpus, and that fact travels with every number
+computed from it.
 
 #### The two matchings, and why one is not enough
 
@@ -6675,6 +6907,43 @@ decides the *partition*; both are frozen before any German rule exists (§6.2).
   test against 34.2 in dev. A dev↔test density difference is therefore not evidence
   about a detector, and the number is in the file so that nobody has to take
   "stratified" as a claim that it is.
+
+**`ko-surro`'s split is `derived`, a third route that samples nothing — declared
+2026-09-22, before the file is written.** §6.5 decided option B: membership is a function of
+`splits/en-deid.json` and nothing else. `src/split.py` therefore has three routes and not
+two, and the third one's defining property is that it holds **no seed and no
+stratification**.
+
+- **Membership comes from `tools/derive_aligned_split.py`, not from this module.** That tool
+  is committed with `en-deid`'s split (§6.5) and is the single answer to "which fold does
+  this Korean note belong in". `_build_derived()` calls it rather than re-deriving the key,
+  because composing `{patient}_{note}` in a second place is how two answers to one question
+  begin. The route is declared in `SPLIT_ORIGIN`, not inferred from the absence of a
+  `config/split.yaml` entry — the same reason `official` is declared.
+- **Only the contents are measured here.** Document counts, token quantiles, in-scope and
+  excluded span counts, `spans_by_phi_type`: those are measurements of the Korean corpus and
+  are what the file adds over the derivation. `provenance` records `origin: "derived"`, the
+  source corpus, and the source split's `manifest_digest` and freeze commit — so a file
+  derived from a resampled `en-deid` is detectable rather than merely wrong.
+- **There is no seed, and the block says so rather than omitting it.** An absent
+  `provenance.seed` would read as an oversight on a corpus whose sibling has one; `"seed":
+  null` with a note that nothing was sampled is the honest field. Likewise
+  `stratification: null` — `en-deid`'s stratification already determined these folds.
+- **The derivation's own invariants are checked at build time, and a failure refuses the
+  file.** Every loaded document must receive a fold (nothing refused, nothing unplaced); no
+  source note the English split assigns may be unclaimed; and the loader's
+  reference-less records must be exactly the nine `splits/en-deid.json` records as
+  `records_without_reference`. That last one is what ties the two corpora to one release: the
+  two lists are derived from different files by different code, and if they ever differ, one
+  of the two corpora moved.
+- **Expected shape, fixed by the derivation and therefore stated before the file exists:**
+  train 1,456 · dev 485 · test 484 documents over 163 patient groups, 0 crossing, with the 9
+  reference-less records in no fold. `en-deid`'s own folds are the same three numbers by
+  construction; that is the point of the pair.
+- **`tokenizer: "whitespace"` counts eojeol on this corpus and words on `en-deid`**, so
+  `spans per 1,000 tokens` is **not** comparable across the pair even though document and
+  span counts are (§6.5). The field stays in the file, because it is comparable *within* the
+  corpus, across its own folds.
 
 ### 9.7 BOM is stripped and offsets are shifted
 

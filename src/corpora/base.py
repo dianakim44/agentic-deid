@@ -1987,12 +1987,13 @@ class CorpusLoader:
 
 def _loaders() -> dict[str, type[CorpusLoader]]:
     """Imported lazily so one broken loader cannot break the others."""
-    from . import endeid, grascco, meddocan
+    from . import endeid, grascco, kosurro, meddocan
 
     return {
         meddocan.MeddocanLoader.corpus_id: meddocan.MeddocanLoader,
         grascco.GrasccoLoader.corpus_id: grascco.GrasccoLoader,
         endeid.EndeidLoader.corpus_id: endeid.EndeidLoader,
+        kosurro.KosurroLoader.corpus_id: kosurro.KosurroLoader,
     }
 
 
