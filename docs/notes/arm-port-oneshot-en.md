@@ -62,6 +62,12 @@ python3 tools/run_arm.py --corpus en-deid --lang en \
 `endeid_uncovered_records_not_counted`). 세부는 `tests/mutations/README.md`
 §"The other two loaders".
 
+이 로더에도 남은 구멍이 하나 있다. 봉인 읽기가 허가됐는데 봉인 루트가 비어 있는
+경우의 `SealError`(`src/corpora/endeid.py`)는 테스트도 뮤테이션도 없다.
+**2026-09-22 에 부채로 등록했다** — `docs/notes/sealed-eval-preflight.md`
+§"Open debt", 항목 14. 이 코퍼스의 봉인 개방 전에 닫는다. 이 실행에는 무관하다:
+아래 §3 대로 이 arm 은 `sealed/` 를 열지 않는다.
+
 ### 상보성 분해
 
 태거가 없는 arm 이므로 `tagger_only` · `both` · `joint_only` 는 구조적으로 0 이다.
@@ -357,6 +363,12 @@ de-grascco 와 같다. 드라이버가 `results/` 밑에 파일을 쓴 뒤 run �
   그 다음 커밋의 내용이다.
 - **AGE 문턱의 §9.1 처리** — §1 의 해당 절이 관찰만 남겼다. DESIGN 결정이다.
 - **`ko-surro` 분할 도출은 끝났다** (`tools/derive_aligned_split.py`, DESIGN §6.5
-  option B, 커밋 `418e17c`). `splits/ko-surro.json` 은 §6.5 의 근거대로 아직 쓰지
-  않는다 — 한국어 텍스트가 없으므로 fold 내용이 미측정 단언이 된다. 도출이 고정하는
-  것: assignable 2,425 · 거부 9 · key space 2,434 · 환자군 163, 교차 0.
+  option B, 커밋 `418e17c`). 도출이 고정하는 것: assignable 2,425 · 거부 9 ·
+  key space 2,434 · 환자군 163, 교차 0.
+  `splits/ko-surro.json` 은 아직 쓰지 않는다. **근거는 2026-09-22 에 바뀌었다** —
+  "한국어 텍스트가 없다" 고 적었던 것은 틀렸고(원천 배포본 옆 `derived/` 에 2,434
+  레코드가 있다), 못 쓰는 이유는 그것을 **읽을 로더·분할 경로·파생 루트가 없어서**
+  fold 내용이 미측정 단언이 된다는 것이다. 대응 자체는 이제 측정됐다: 한국어 `uid`
+  2,434 개와 도출 키 공간 2,434 개가 **같은 집합**이고(양방향 차집합 0, 키를 분해하지
+  않고 문자열 동일성으로 확인), 파생 fold 는 train 1,456 · dev 485 · test 484 다.
+  남은 다섯 가지는 DESIGN §6.5 의 2026-09-22 둘째 status 노트에 있다.

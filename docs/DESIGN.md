@@ -4325,9 +4325,11 @@ and the overlap is not partial and uncertain: it is **total and exactly known**.
 
 **What must be fixed before `en-deid`'s split is committed is the derivation, not a second
 file.** B's stated expiry is that the split defined second has to be derived from the
-first, and a file cannot be derived from one that does not exist yet. `ko-surro`'s text is
+first, and a file cannot be derived from one that does not exist yet. ~~`ko-surro`'s text is
 not on this machine — `corpora.ko-surro` resolves to the source release, which is
-`en-deid`'s root — so a `splits/ko-surro.json` written today would carry fold contents
+`en-deid`'s root~~ **(false; see the second status note below — the text is on this machine
+and nothing in the repository can read it)** — so a `splits/ko-surro.json` written today
+would carry fold contents
 (documents, tokens, spans per fold) that nobody measured, in a schema whose whole purpose
 is that a reader need not re-read the corpus to know what a fold held. Committing that to
 satisfy a procedural reading of B would put an unverified assertion where the seal's
@@ -4359,6 +4361,52 @@ determined and nothing about it remains free.
 > deferral. `--check` reports what the derivation fixes today: 2,425 assignable source
 > notes (train 1,456 · dev 485 · test 484), 9 refused by construction, key space 2,434,
 > 163 patient groups with 0 crossing the split.
+
+> **Status, 2026-09-22, second note: the premise "the Korean text is not on this machine" is
+> false, and the conclusion it was used to reach is not.** The text is on this machine, in a
+> `derived/` directory beside the source release, as three JSONL files of **2,434 records
+> each** (a surrogate-injected corpus, a placeholder corpus, and a tagged intermediate) plus
+> a meta file. The paragraph above is struck where it asserts otherwise.
+>
+> **Where the false premise came from matters more than the fact.** Nothing checked for the
+> Korean text. What was read was `config/data_paths.local.yaml`'s `ko-surro` entry, which
+> pointed at the *source release* — `en-deid`'s own raw root — and a config entry aimed at
+> the wrong directory was taken as evidence about the world. This section, the derivation
+> tool's docstring, and the commit message that introduced it all repeated it. The entry has
+> been repointed (to a **derived root that does not exist yet**, mirroring `en-deid` for
+> §7.1's reason: 2,434 records live in single files, so removing a test fold from a corpus
+> root means rewriting files, and the read-only source release must not be that root).
+>
+> **What the correction changes.** The membership half of option B is no longer an assertion
+> about a corpus nobody had seen: the Korean corpus's 2,434 `uid` values and the derivation's
+> 2,434-key space are now measured to be **the same set** — 0 in either difference, checked
+> by string equality with no key ever decomposed — and the derived folds land at exactly
+> train 1,456 · dev 485 · test 484 with the same 9 refused. B's correspondence is therefore
+> verified, not assumed.
+>
+> **What it does not change: the split file still cannot be written.** Its schema asserts
+> *contents* per fold — documents, whitespace tokens with quantiles, in-scope and excluded
+> span counts, `spans_by_phi_type` — and every one of those is a measurement the repository
+> cannot yet make. Five things stand between here and that file, and each is a decision this
+> document owns rather than a piece of plumbing: (i) a PHI type map for the corpus's 26 raw
+> tag values, declared in `config/naming.yaml` first, including two that are judgements and
+> not translations (a restored-non-PHI tag and a pending-review date tag); (ii) a loader,
+> `src/corpora/kosurro.py`, with the mutation anchors every loader now carries; (iii) a third
+> `SPLIT_ORIGIN` route in `src/split.py` — neither `official` nor `constructed`, because this
+> split is *sampled nowhere*: membership arrives from `tools/derive_aligned_split.py` and only
+> the contents are measured — plus its §9.6 declaration; (iv) a `tools/prepare_kosurro.py`
+> that writes the derived corpus root and the sealed root, since sealing here is a rewrite of
+> files and not a move; and (v) **which span set the file counts**, the one question with no
+> default: the surrogate reference is silver (2,158 spans, injected from the source release's
+> own placeholders), while the human reference's 1,779 spans index the English `id.text` and
+> their offsets do not transfer (`ko-surro-gold-provenance.md` §7). Whatever (v) decides,
+> `ko-surro` is the one corpus of the four whose reference is not human, and that belongs in
+> §9 beside the leak-rate definitions rather than inside a split file.
+>
+> One further consequence of (v) for §7's own comparison: `tokenizer: "whitespace"` counts
+> eojeol in Korean and words in English, so `spans per 1,000 tokens` will not be comparable
+> across the aligned pair even though every other field of the pair is. Document counts and
+> span counts are comparable; token-normalised density is not.
 
 **The ground on which B was refused above does not hold in this configuration, and saying
 why is owed.** That refusal was not expiry but "computing the intersection reads the seal":

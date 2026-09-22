@@ -9,12 +9,20 @@ that makes the second one a function of the first.
 
 **What this tool does not do: write `splits/ko-surro.json`.** §6.5 states the reason and it
 is not procedural. That schema's whole purpose is that a reader need not re-read the corpus
-to know what a fold held — documents, tokens, spans per fold — and the Korean text is not
-on this machine (`corpora.ko-surro` resolves to the source release, which is `en-deid`'s
-root). A file written today would put unmeasured assertions where the seal's reference
-point goes. So what exists before the corpus arrives is the derivation, and when it arrives
-nothing about its split is free: this module supplies the fold membership and
-`src/split.py` measures the contents.
+to know what a fold held — documents, tokens, spans per fold — and nothing in this
+repository can read the Korean text yet, so a file written today would put unmeasured
+assertions where the seal's reference point goes.
+
+*Corrected 2026-09-22*: this docstring, §6.5, and the commit that added this file all said
+the Korean text "is not on this machine." It is. What was checked was
+`config/data_paths.local.yaml`'s `ko-surro` entry, which pointed at the source release —
+`en-deid`'s own root — and an entry pointing at the wrong directory was read as the corpus
+being absent. The three derived JSONL files are beside that release, 2,434 records each,
+keyed by exactly this module's key space. **The conclusion survives the correction and its
+ground changes**: not "there is no text to measure" but "there is no loader, no derived
+corpus root, and no `SPLIT_ORIGIN` route to measure it with." So what exists before the
+corpus is *readable* is the derivation, and when a loader arrives nothing about its split is
+free: this module supplies the fold membership and `src/split.py` measures the contents.
 
 Three properties are what make it a derivation rather than a second sampling:
 
@@ -43,11 +51,11 @@ optional manifest of identifiers, consults no text, and opens no `sealed/` path.
 records that the 2026-08-27 refusal of option B overstated its ground on exactly this
 point.
 
-Usage — today, with no Korean corpus on disk:
+Usage — today, with no loader able to enumerate the Korean corpus:
 
     python3 tools/derive_aligned_split.py --check
 
-and when it arrives, with a manifest its loader emits:
+and once one exists, with a manifest it emits:
 
     python3 tools/derive_aligned_split.py --manifest <path>
 """
