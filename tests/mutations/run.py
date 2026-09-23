@@ -1062,6 +1062,24 @@ MUTATIONS = [
     ),
     # ── the split file (DESIGN §9.6, CLAUDE.md's seal) ──────────────────────
     Mutation(
+        name="sparsity_counts_excluded_spans",
+        path=SPLIT,
+        anchor="    return sum(1 for doc in docs if doc.in_scope_spans)\n",
+        replacement="    return sum(1 for doc in docs if doc.spans)\n",
+        breaks=(
+            "Restores the reading that shipped into splits/ko-surro.json as 727: a note whose "
+            "only span is §9.1-excluded counts as a note carrying gold, so the sparsity figure "
+            "is two higher than the prose beside it says and two higher than en-deid's figure "
+            "is on the same records. Nothing in the suite ran a narrative builder until "
+            "`test_the_frozen_file_is_what_the_builder_produces_today` did, which is how the "
+            "727 got as far as the file being frozen; this mutation is what says that test "
+            "still reaches the builder. Every other figure in the file is recounted from the "
+            "corpus by a second test, so a builder this is the only reader of is exactly "
+            "where the next such number goes wrong."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
         name="split_verify_noop",
         path=SPLIT,
         anchor="    corpus_id = record[\"corpus\"]\n",

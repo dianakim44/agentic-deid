@@ -162,6 +162,21 @@ def manifest_digest(per_document: dict[str, str]) -> str:
     return sha.hexdigest()
 
 
+def _n_documents_with_gold(docs: Sequence[Document]) -> int:
+    """How many documents carry at least one *scored* span.
+
+    `in_scope_spans` rather than `spans`, which is the difference between this figure and
+    what the two narratives that record it say about themselves: a §9.1-excluded span is kept
+    and flagged and is nobody's gold, so a note whose only span is excluded is as PHI-free to
+    a scorer as a note with no span at all. On `en-deid` the two readings give the same 735
+    because nothing there is excluded; on `ko-surro` they give 725 and 727, and the 727 the
+    first reading produced was published beside prose that said "at least one in-scope span".
+    Shared by both narratives so the pair's sparsity figures cannot drift apart in definition
+    — the corpora are the same records and the numbers get compared.
+    """
+    return sum(1 for doc in docs if doc.in_scope_spans)
+
+
 def fold_summary(docs: Sequence[Document]) -> dict:
     """Everything countable about one fold.
 
@@ -1335,7 +1350,7 @@ def _endeid_narrative(
             "and an exclusion no file records is one nobody can audit."
         )
     uncovered = sorted(loader.uncovered)
-    with_spans = sum(1 for doc in docs if doc.spans)
+    with_spans = _n_documents_with_gold(docs)
     return {
         "hashed": (
             "per document, over the record's own bytes: its body from id.text and its "
@@ -1442,7 +1457,7 @@ def _kosurro_narrative(
             "audit."
         )
     uncovered = sorted(loader.uncovered)
-    with_spans = sum(1 for doc in docs if doc.spans)
+    with_spans = _n_documents_with_gold(docs)
     return {
         "hashed": (
             "per document, over the record's own bytes: its Korean body, its loaded spans' "

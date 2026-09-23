@@ -59,6 +59,43 @@ already settled by the full run below, and this run only confirms that the fix d
 them. The 109 mutations outside the traced scope were not measured here and did not need to be:
 nothing this commit changed can be reached from them.
 
+### Twelve outstanding — the freeze of `splits/ko-surro.json`, 2026-09-23
+
+**Eleven counts re-measured above the sidecar, and one mutation the sidecar has never seen.**
+The freeze added 18 tests to `tests/test_kosurro_loader.py` and one mutation
+(`sparsity_counts_excluded_spans`) to `MUTATIONS`. `TEST_FILES` did not move — the file was
+already a member — so the denominator stands and CLAUDE.md asks for an impact-scope run. The
+suite went 2,194 → **2,212**; `MUTATIONS` went 229 → **230**.
+
+**Scope: the 58 mutations anchored in the six `src/` modules the changed tests actually execute**
+(`src/split.py`, `src/corpora/{base,kosurro,endeid,grascco,meddocan}.py`), traced at runtime with
+`sys.setprofile` rather than by matching file names. Run as 8 concurrent `run.py` invocations over
+57 of them plus one earlier single-mutation run for the new one — all 9 reporting the same pristine
+fingerprint `6cb01f6aee33f3ed` and the same **2,212**-test baseline. **58 of 58 caught, 0
+survived.**
+
+**Eleven counts differ from the full run's sidecar and all eleven are higher:** `drop_excluded`
+22 → 27, `kosurro_filter_does_nothing` 6 → 12, `kosurro_uncovered_records_loaded` 7 → 13,
+`kosurro_uncovered_records_not_counted` 6 → 12, `kosurro_excluded_type_unmapped` 4 → 10,
+`kosurro_not_phi_restored_scored` 3 → 6, `kosurro_denied_spans_not_counted` 2 → 3,
+`kosurro_denied_count_is_a_running_total` 1 → 3, `kosurro_denied_count_out_of_digest` 1 → 3,
+`fold_from_directory_not_file` 4 → 5, `sealed_root_falls_back_to_corpus` 1 → 3. The other 46 came
+back identical. Eighteen tests can only raise a count, and the eleven that rose are the ones whose
+guarantees a real-corpus recount of the frozen file reaches. Their README cells carry `‡` for the
+reason the entry above introduced it.
+
+**The twelfth is `sparsity_counts_excluded_spans` at 1, which is not a re-measurement but a first
+measurement.** It has no sidecar entry, so it is neither compared nor marked, and it is held here
+because a scope run cannot put it beside the other 229 under one denominator. What it anchors is
+the reason the freeze needed a mutation at all: no test had ever called `split.build()`, so the
+generator's own figures were unfalsifiable, and `splits/ko-surro.json` was written with
+`n_documents_with_spans: 727` beside prose saying "at least one in-scope span" when 725 carry one.
+`tests/mutations/README.md` §"The split-file mutations" has the rest.
+
+**The 172 mutations outside the traced scope were not measured and are deferred to the next full
+run.** Not exempt — deferred. Nothing the freeze changed can be reached from them, which is why a
+scope run was allowed, and that is a different claim from their counts being current.
+
 ### Nothing outstanding — the `TEST_FILES` change of 2026-09-22 settled by the full run of the same day
 
 **The entry that stood here said all 194 counts below were owed a re-measurement and the 17 new

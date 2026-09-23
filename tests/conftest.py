@@ -270,13 +270,25 @@ def kosurro_present() -> str:
     return KOSURRO
 
 
-#: There is deliberately no `kosurro_sealed` and no split-file-reading `kosurro_loader` yet.
-#: Both would be fixtures nothing requests, which is the state
-#: `test_every_shared_fixture_is_used_by_something` exists to refuse — a fixture added ahead of
-#: its user is indistinguishable from one whose user was reverted. They arrive with the acts
-#: they are about: `splits/ko-surro.json` being frozen (then `tests/test_split_file.py` wants
-#: the loader that reads it) and the test fold being sealed (then `tests/test_seal.py` wants
-#: the availability fixture). Until then the corpus is read through the unsplit loader below.
+#: There is still deliberately no `kosurro_sealed`: it would be a fixture nothing requests,
+#: which is the state `test_every_shared_fixture_is_used_by_something` exists to refuse — a
+#: fixture added ahead of its user is indistinguishable from one whose user was reverted. It
+#: arrives with the act it is about, the test fold being sealed, and then `tests/test_seal.py`
+#: wants it. `kosurro_loader` below arrived the same way, with the freeze of
+#: `splits/ko-surro.json` on 2026-09-23.
+
+
+@pytest.fixture(scope="session")
+def kosurro_loader(kosurro_present: str):
+    """The ko-surro loader as everything outside these tests uses it: reading the split file.
+
+    Constructed bare, for `loader`'s reason exactly. Requested by the tests about the frozen
+    file in `tests/test_kosurro_loader.py` — a fold assignment this loader makes is the file's
+    claim being carried out, and the unsplit loader cannot show that.
+    """
+    from src.corpora.kosurro import KosurroLoader
+
+    return KosurroLoader()
 
 
 @pytest.fixture(scope="session")

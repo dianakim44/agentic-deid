@@ -105,6 +105,27 @@ above: for a ‡ row the sidecar is the older number, and the marker is what kee
 reading the run record as the current value. A ‡ comes off the next full run, like a †, and
 for the same reason — that run measures the row again under one denominator.
 
+**Eleven more `‡` arrived on 2026-09-23, from an impact-scope run rather than a fixed test.**
+The freeze of `splits/ko-surro.json` added 18 tests to `tests/test_kosurro_loader.py` — an
+existing `TEST_FILES` member, so the suite grew 2,194 → 2,212 without the denominator moving
+and without a full run being owed. The scope run that follows such a change (58 mutations, one
+tree fingerprint `6cb01f6aee33f3ed`, 8 concurrent invocations, no survivors) re-measured 57 of
+them and 11 disagreed with `cf51f7eb0530`'s sidecar, all 11 low: `drop_excluded` 22 → 27,
+`kosurro_filter_does_nothing` 6 → 12, `kosurro_uncovered_records_loaded` 7 → 13,
+`kosurro_uncovered_records_not_counted` 6 → 12, `kosurro_excluded_type_unmapped` 4 → 10,
+`kosurro_not_phi_restored_scored` 3 → 6, `kosurro_denied_spans_not_counted` 2 → 3,
+`kosurro_denied_count_is_a_running_total` 1 → 3, `kosurro_denied_count_out_of_digest` 1 → 3,
+`fold_from_directory_not_file` 4 → 5, `sealed_root_falls_back_to_corpus` 1 → 3. They carry `‡`
+rather than being quietly overwritten because the scoped run is *newer* than the sidecar and
+did not measure the other 172 — which is the same asymmetry the marker was invented for.
+
+The five "(N without the corpus)" parentheticals are **unchanged**, and that is an argument
+rather than a measurement, so here it is: 17 of the 18 new tests take `split_record`, which
+depends on `kosurro_present` and therefore skips where the corpus is absent. The eighteenth,
+`test_the_split_route_is_declared`, reads `split.SPLIT_ORIGIN` and no mutation in that group
+touches it. So none of the risen kills can be a corpus-free one, and the floors in `run.py`
+still say what they say.
+
 `tests/test_mutation_harness.py::test_a_readme_count_that_contradicts_the_last_full_run_is_marked`
 holds both halves of that convention — a stale cell without a † fails, and so does a † on
 a cell that now agrees with the sidecar. So the markers cannot outlive the drift they
@@ -122,7 +143,7 @@ in `docs/notes/mutation-full-runs.md` alongside what that run did **not** measur
 | `utf8_sig` | `meddocan.py` reads the text with `encoding="utf-8-sig"` | BOM removed at decode time, so `strip_bom` finds nothing and applies no shift; all 761 spans in the 32 BOM files are off by one. DESIGN §9.7 | **158** |
 | `no_bom_shift` | offsets are not decremented by the BOM length | same one-character error, reached from the other direction | **158** |
 | `assert_offsets_noop` | `Document.assert_offsets` returns immediately | the §9.7 assertion stops asserting; counts are unaffected, so only tests that slice spans themselves can notice | **6** |
-| `drop_excluded` | `load()` filters out `excluded` spans | §9.1 spans discarded instead of flagged; the canonical count stays a correct 20,538 while the reported exclusion volume becomes unmeasurable | **22** |
+| `drop_excluded` | `load()` filters out `excluded` spans | §9.1 spans discarded instead of flagged; the canonical count stays a correct 20,538 while the reported exclusion volume becomes unmeasurable | **27** ‡ |
 | `familiares_as_other` | `FAMILIARES_SUJETO_ASISTENCIA` moves from `EXCLUDED_TYPES` into `TYPE_MAP` as `OTHER` | an excluded type is scored; every span still loads and the total still reconciles to 22,795, so the corruption is entirely in *which* spans count | **33** |
 | `type_in_both_lists` | the same type is added to `TYPE_MAP` while left in `EXCLUDED_TYPES` | `_check_type_map` must reject it at construction. See "What this found", below | **192** |
 | `missing_test_fold` | `SPLIT_DIRS` loses its `test` entry | before the seal: 750 documents loaded instead of 1,000. Now 750 is correct, so what remains visible is that an *authorised* sealed read would return no sealed documents while the log records a completed evaluation | **2** |
@@ -229,22 +250,22 @@ class-attribute mutation that no single edit can reach twice.
 
 | mutation | changes | breaks | tests that catch it |
 |---|---|---|---|
-| `kosurro_filter_does_nothing` | the gold-support test becomes `if False` | the gold set becomes the producing tool's output instead of the pre-registered one: 544 unsupported spans enter the denominator, the leak rate is computed against them, and this corpus stops being on the scale the other three are — with every file on disk unchanged | **6** (3 without the corpus) |
+| `kosurro_filter_does_nothing` | the gold-support test becomes `if False` | the gold set becomes the producing tool's output instead of the pre-registered one: 544 unsupported spans enter the denominator, the leak rate is computed against them, and this corpus stops being on the scale the other three are — with every file on disk unchanged | **12** ‡ (3 without the corpus) |
 | `kosurro_filter_before_classify` | `classify()` moves after the filter | the type map's exhaustiveness becomes a property of the reference's verdicts. Three of this corpus's tags occur *only* among the denied spans, so an unmapped tag in any of them stops being an error and the map is checked against 1,614 spans of 2,158 | **1** |
-| `kosurro_denied_spans_not_counted` | `self.not_gold_supported += 1` is removed | the filter runs and stops reporting what it did — `endeid_uncovered_records_not_counted` one mechanism over. 544 becomes a silent difference between the corpus as shipped and the corpus as scored, and the split file's narrative is built on that number | **2** |
-| `kosurro_denied_count_is_a_running_total` | the per-record denied count becomes the corpus total so far | **a real defect, found by these tests on the day the loader was written.** The count is in the record's digest, so every document's digest would depend on every earlier document and file order would enter `splits/ko-surro.json` with nothing saying so. No total changes | **1** |
-| `kosurro_denied_count_out_of_digest` | the fourth digest part is dropped | digests the loaded spans and not the filter's outcome, so a root rebuilt with a different verdict for a span hashes identically and the frozen split file keeps verifying against a different gold set | **1** |
+| `kosurro_denied_spans_not_counted` | `self.not_gold_supported += 1` is removed | the filter runs and stops reporting what it did — `endeid_uncovered_records_not_counted` one mechanism over. 544 becomes a silent difference between the corpus as shipped and the corpus as scored, and the split file's narrative is built on that number | **3** ‡ |
+| `kosurro_denied_count_is_a_running_total` | the per-record denied count becomes the corpus total so far | **a real defect, found by these tests on the day the loader was written.** The count is in the record's digest, so every document's digest would depend on every earlier document and file order would enter `splits/ko-surro.json` with nothing saying so. No total changes | **3** ‡ |
+| `kosurro_denied_count_out_of_digest` | the fourth digest part is dropped | digests the loaded spans and not the filter's outcome, so a root rebuilt with a different verdict for a span hashes identically and the frozen split file keeps verifying against a different gold set | **3** ‡ |
 | `kosurro_non_boolean_verdict_accepted` | the `isinstance(supported, bool)` check becomes `if False` | the verdict is tested for truth instead of for being a verdict, so the string `"false"` loads a span the human reference denies and counts it as gold | **1** |
 | `kosurro_surface_from_the_slice` | `Span.surface` is filled from the body slice | `endeid_surface_from_the_slice`, here across a language boundary: the two readings agree 2,158 of 2,158 times, so nothing visible changes and what is lost is that the comparison ever compared anything | **1** |
-| `kosurro_uncovered_records_loaded` | the `has_reference` branch becomes `if False` | the nine records the English reference says nothing about load with empty gold lists. Worse than `en-deid`'s version of this, because the filter additionally makes a record whose silver spans were all denied indistinguishable from one the reference calls PHI-free | **7** (4 without the corpus) |
-| `kosurro_uncovered_records_not_counted` | the append and the per-root count are removed | the list is what `src/split.py`'s derived route compares against the records `splits/en-deid.json` leaves outside every fold — the check that the two corpora are still halves of one release — and the per-root count is what each root's sidecar is verified against | **6** (3 without the corpus) |
+| `kosurro_uncovered_records_loaded` | the `has_reference` branch becomes `if False` | the nine records the English reference says nothing about load with empty gold lists. Worse than `en-deid`'s version of this, because the filter additionally makes a record whose silver spans were all denied indistinguishable from one the reference calls PHI-free | **13** ‡ (4 without the corpus) |
+| `kosurro_uncovered_records_not_counted` | the append and the per-root count are removed | the list is what `src/split.py`'s derived route compares against the records `splits/en-deid.json` leaves outside every fold — the check that the two corpora are still halves of one release — and the per-root count is what each root's sidecar is verified against | **12** ‡ (3 without the corpus) |
 | `kosurro_reference_counts_corpus_wide` | the expected `records_without_reference` is read from the corpus-wide list | **the second defect these tests found.** `reference.json` is per root, so a sealed read would compare the sealed sidecar against a list already holding the unsealed root's records — refusing, *after* the access was logged, for having found exactly what the seal put there. Invisible to any unsealed run | **1** |
 | `kosurro_text_bearing_fields_accepted` | `TEXT_BEARING_FIELDS` becomes empty | the placeholder literal and the surrogate value become ordinary unknown keys. The closed schema still refuses them, which is the point: the refusal stops saying *why*, so the obvious fix is to add the key to the schema. 30.5% of payloads are values, and the only defence is that the loader will not look at them | **2** |
 | `kosurro_fields_need_not_match` | the closed-schema check becomes `if False` | a field the loader does not know is a field nothing checks — and the two that matter are keys of the source files, so a root still carrying them is read rather than refused and the check above never reached | **2** |
 | `kosurro_reference_basis_unchecked` | the basis comparison becomes `if False` | accepts a root built on any span set. The three candidate references differ by a quarter of the spans (§6.5 (v)); a root built on raw silver has the same two file names, and the declaration is all that distinguishes them | **1** |
 | `kosurro_reference_counts_unchecked` | the sidecar recount becomes `if False` | lets `reference.json` drift from the file beside it, so the provenance of the gold set becomes a stale document nothing checks while the split file's denominators come from what was read | **1** |
-| `kosurro_not_phi_restored_scored` | `NOT_PHI_RESTORED` moves out of `EXCLUDED_TYPES` and into `TYPE_MAP` as DATE | `drop_excluded` for this corpus's own exclusion: the three surviving spans move into the DATE denominator, `n_spans_excluded` stops being a reported 3, and a detector is credited or penalised on spans the producing project explicitly restored | **3** (2 without the corpus) |
-| `kosurro_excluded_type_unmapped` | the same first edit without its second half | the tag is in neither collection, so `classify()` must refuse it. `endeid_type_in_both_lists`'s mirror image — there a type is in both lists, here in neither — and it belongs here because the two collections together are this corpus's exhaustive vocabulary: 26 tags, 25 mapped and one excluded | **4** (1 without the corpus) |
+| `kosurro_not_phi_restored_scored` | `NOT_PHI_RESTORED` moves out of `EXCLUDED_TYPES` and into `TYPE_MAP` as DATE | `drop_excluded` for this corpus's own exclusion: the three surviving spans move into the DATE denominator, `n_spans_excluded` stops being a reported 3, and a detector is credited or penalised on spans the producing project explicitly restored | **6** ‡ (2 without the corpus) |
+| `kosurro_excluded_type_unmapped` | the same first edit without its second half | the tag is in neither collection, so `classify()` must refuse it. `endeid_type_in_both_lists`'s mirror image — there a type is in both lists, here in neither — and it belongs here because the two collections together are this corpus's exhaustive vocabulary: 26 tags, 25 mapped and one excluded | **10** ‡ (1 without the corpus) |
 | `kosurro_layout_claims_folds` | `fold_dirs` gains `train`/`dev`/`test` | the third copy of the same false claim, because the declaration is a class attribute and no one edit reaches two loaders. The frozen split file is the only authority on which fold a note is in; a layout that claims folds is a second one | **1** |
 | `kosurro_empty_sealed_root_accepted` | the `from_sealed == 0` invariant becomes `if False` | an authorised sealed read that reached no sealed record returns the unsealed records instead of failing. `results/sealed_eval_log.md` already has the row, so dev and train numbers would be published as a test-fold evaluation — and the count of sealed openings is what the paper reports | **1** |
 
@@ -315,18 +336,26 @@ this commit.
 ## The split-file mutations
 
 `splits/es-meddocan.json` is the seal's reference point (CLAUDE.md), so the checks
-around it get the same treatment. These eight are what make the file a claim rather
+around it get the same treatment. These nine are what make the file a claim rather
 than a comment — every one of them leaves all 22,795 spans loading correctly.
+
+Eight of the nine mutate a *check*. The ninth, `sparsity_counts_excluded_spans`, mutates the
+**generator**, and it is here rather than in a loader block because what it breaks is a figure
+in the file rather than anything about loading. It was added on 2026-09-23 with the freeze of
+`splits/ko-surro.json`, in the commit that fixed the defect it restores — until that day no
+test called `split.build()` at all, so every figure only the generator produces was
+unfalsifiable, and one of them was wrong in a file about to be pre-registered.
 
 | mutation | changes | breaks | tests that catch it |
 |---|---|---|---|
 | `split_verify_noop` | `split.verify()` returns immediately | the recorded summaries stop being compared to the corpus, so a stale split file passes | **2** |
 | `split_ignores_membership` | `verify()` checks the counts but not `document_ids` | a file that swapped one dev document for one test document of equal span count would verify. This is the seal violation the aggregates cannot see | **1** |
-| `fold_from_directory_not_file` | `load()` skips `_apply_split_file` | folds come from the directory layout instead of the frozen file. No count changes, because the two agree today; what is lost is that the *file* decides what is sealed | **4** |
+| `fold_from_directory_not_file` | `load()` skips `_apply_split_file` | folds come from the directory layout instead of the frozen file. No count changes, because the two agree today; what is lost is that the *file* decides what is sealed | **5** ‡ |
 | `split_disagreement_ignored` | the corpus-vs-file fold cross-check becomes `if False` | the file silently overrides the disk, so a re-release that moved a document out of `test` is accepted without a word | **1** |
 | `top_level_leak_allowed` | `check_schema` stops rejecting unknown top-level keys | corpus-specific fields may then sit beside the common ones. Nothing fails today; the schema stops being shared the first time GraSCCo's generator adds a key | **1** |
 | `grouping_numeric_suffix_only` | `STEM_RE` becomes the old `^(S\d{4}-\d+)-(\d+)$` | reinstates the §9.5 bug that dropped the 31 ids with a letter in the journal prefix, so the grouping audit covers 969 of 1,000 documents and calls itself complete | **2** |
 | `grouping_name_only` | §9.5 step 2 accepts a name match without a record number or date | the one stem sharing a bare given name across different surnames becomes a group, and two independent units stop being independent | **2** |
+| `sparsity_counts_excluded_spans` | `_n_documents_with_gold()` counts `doc.spans` instead of `doc.in_scope_spans` | restores the 727 that shipped in `splits/ko-surro.json`: a note whose only span is §9.1-excluded is counted as carrying gold, beside prose in the same block saying "at least one in-scope span". 725 carry one. `en-deid` excludes nothing, so it reads 735 either way — which is how the pair's two sparsity figures came to be on definitions two notes apart | **1** |
 | `split_file_span_count` | `"n_spans": 5801` → `5800` **in the committed JSON** | a stale summary — which is what a re-released corpus actually produces. Direction reversed from every other mutation here: the artefact is the suspect and the code is the check | **3** |
 
 ## The seal mutations
@@ -353,7 +382,7 @@ together because neither guard is sufficient alone:
 | `sealed_callable_from_anywhere` | the `SEALED_CALLER` check becomes `if False` | `load(sealed=True)` works from any module — a notebook, a rule-development script. **The log append survives**, so a bypass here still leaves a trace, which is what makes it recoverable rather than merely wrong | **2** |
 | `log_append_disabled` | the `record_access` call is wrapped in `except Exception: pass` | an evaluation proceeds unlogged. The numbers are real and the log says the test fold was never opened. **The caller check survives**, so this needs the allowed script — the counterpart of the mutation above, and the one that leaves nothing behind | **2** |
 | `sealed_flag_not_cleared` | `_sealed_ok` is not reset after the read | one authorised evaluation leaves that loader object permanently able to reach the sealed fold; every later ordinary `load()` silently includes 250 test documents, with no second log row | **1** |
-| `sealed_root_falls_back_to_corpus` | an absent `sealed:` entry resolves to the corpus root | a "sealed evaluation" reads unsealed data and logs itself as a test run. Worse than a refusal: the row is indistinguishable from a real evaluation, so the reported count becomes wrong in the flattering direction | **1** |
+| `sealed_root_falls_back_to_corpus` | an absent `sealed:` entry resolves to the corpus root | a "sealed evaluation" reads unsealed data and logs itself as a test run. Worse than a refusal: the row is indistinguishable from a real evaluation, so the reported count becomes wrong in the flattering direction | **3** ‡ |
 | `unsealed_load_filters_instead_of_not_reaching` | `fold_roots()` hands out the sealed path unconditionally | the sealed fold is read and then discarded downstream. Every count still comes out right; the test fold's text has been read on every ordinary load, unlogged. Defends the distinction that the seal is a path that is not known, not a filter that is applied | **161** |
 
 ### What the guards do once reached

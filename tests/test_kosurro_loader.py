@@ -22,10 +22,13 @@ between the two shows up as a failure rather than as two consistent halves of a 
 from __future__ import annotations
 
 import json
+import re
+from collections import Counter
 from pathlib import Path
 
 import pytest
 
+from src import split
 from src.corpora import base
 from src.corpora.base import CorpusError, SealError
 from src.corpora.kosurro import (
@@ -470,8 +473,6 @@ def test_the_corpus_reproduces_the_pre_registered_span_set(kosurro_docs, kosurro
     rebuilt and any of these moves, the scoring basis moved and the pre-registration is what
     says so.
     """
-    from collections import Counter
-
     loader = kosurro_unsplit_loader
     spans = [s for doc in kosurro_docs for s in doc.spans]
     by_type = Counter(s.phi_type for s in spans if not s.excluded)
@@ -517,3 +518,375 @@ def test_the_patient_key_is_read_from_meta_and_never_split_out_of_the_id(
     assert len(keys) == 163
     for doc in kosurro_docs[:50]:
         assert doc.doc_id == f"{doc.meta['patient_id']}_{doc.meta['note_index']}"
+
+
+# ─── the frozen split file ───────────────────────────────────────────────────
+#
+# `splits/ko-surro.json` was frozen on 2026-09-23 and these tests arrived with it, in this
+# file rather than in `tests/test_split_file.py` — that file is MEDDOCAN's, and each later
+# corpus's split file is checked beside its own loader (`test_endeid_loader.py` §"the split
+# file and the seal" is the shape being followed).
+#
+# The figures below are written out again rather than imported from
+# `tests/test_derive_aligned_split.py`, which pins the same numbers on the *tool*. Two copies
+# of a number that must agree is the point: one edit cannot move both, so a drift between the
+# derivation and the file it produced shows up as a failure instead of as two consistent
+# halves of a wrong split.
+
+#: DESIGN §9.6. Not sampled here — this is `splits/en-deid.json`'s split, per document.
+DERIVED_SPLIT = {"train": 1456, "dev": 485, "test": 484}
+
+#: The split this one is derived from, pinned in the file's provenance. A resampling of
+#: `en-deid` would change its manifest digest and this corpus's file would no longer describe
+#: the split it claims to follow.
+SOURCE_CORPUS = "en-deid"
+SOURCE_MANIFEST_DIGEST = "11849ae2911b4e32b368fb3ae9cd45b4c2db73b97e089cf1b5ce341114469a0e"
+SOURCE_FREEZE_COMMIT = "25c56cbe1bb46ffb6efe5aa835dcde94db4b99c0"
+
+
+@pytest.fixture(scope="module")
+def split_record(kosurro_present):
+    """The frozen split file, parsed. No `try`: a file that does not parse is a defect."""
+    return split.read(kosurro_present)
+
+
+def test_the_split_route_is_declared():
+    """The third route, and the only corpus that takes it (DESIGN §6.5 option B)."""
+    assert split.SPLIT_ORIGIN["ko-surro"] == "derived"
+
+
+def test_the_fold_sizes_are_the_derived_split(split_record):
+    assert {f: b["n_documents"] for f, b in split_record["folds"].items()} == DERIVED_SPLIT
+    assert sum(DERIVED_SPLIT.values()) == split_record["totals"]["n_documents"]
+
+
+def test_the_provenance_says_nothing_was_sampled(split_record):
+    """No seed and no stratification, because there was no draw to record.
+
+    A seed here would be the strongest possible evidence that a second sampling happened:
+    the fold of a `ko-surro` note is a fact about `splits/en-deid.json`, and anything this
+    file could seed would be a way of disagreeing with it.
+    """
+    provenance = split_record["provenance"]
+    assert provenance["origin"] == "derived"
+    assert provenance["seed"] is None
+    assert provenance["stratification"] is None
+
+
+def test_the_file_pins_the_split_it_was_derived_from(split_record):
+    """The derivation names its source and pins the version of it, by digest and by commit."""
+    derived = split_record["provenance"]["derived_from"]
+    assert derived["corpus"] == SOURCE_CORPUS
+    assert derived["derivation"] == "tools/derive_aligned_split.py"
+    assert derived["source_manifest_digest"] == SOURCE_MANIFEST_DIGEST
+    assert derived["source_freeze_commit"] == SOURCE_FREEZE_COMMIT
+    source = split.read(SOURCE_CORPUS)
+    assert source["source"]["manifest_digest"] == SOURCE_MANIFEST_DIGEST
+
+
+def test_every_note_is_in_the_fold_its_source_note_is_in(split_record):
+    """The claim the freeze makes, checked against the other file rather than restated.
+
+    This is what the derived route is *for*: a note and its Korean surrogate carry the same
+    id, and a note whose surrogate sat in another fold would put one corpus's dev text behind
+    the other corpus's seal — which is a leak with a report saying the folds are disjoint. The
+    comparison is document by document, not fold size by fold size: three folds of the right
+    sizes can still be three wrong folds.
+    """
+    ours = split.fold_of(split_record)
+    theirs = split.fold_of(split.read(SOURCE_CORPUS))
+    assert set(ours) == set(theirs)
+    assert {doc_id: fold for doc_id, fold in ours.items() if theirs[doc_id] != fold} == {}
+
+
+def test_the_scoring_basis_is_recorded_with_the_split(split_record):
+    """What the leak rate will be scored against, written into the file being frozen.
+
+    DESIGN §6.5 (v) chose human-verified silver over raw silver and over the human reference,
+    and §9.3 records that this is the one corpus of four whose reference is not purely human.
+    Recording the choice in the split file is what makes it a pre-registration rather than a
+    decision available for revision once the first Korean numbers are in: 1,611 spans is the
+    denominator, and 544 silver spans the human reference does not support are not in it.
+    """
+    specific = split_record["corpus_specific"]
+    assert specific["reference"] == "human-verified silver"
+    assert specific["n_spans_not_gold_supported"] == 544
+    assert split_record["totals"]["n_spans_in_scope"] == 1611
+    assert split_record["totals"]["n_spans"] == 1614
+    assert split_record["totals"]["n_spans_excluded"] == 3
+    assert split_record["totals"]["spans_by_excluded_type"] == {"NOT_PHI_RESTORED": 3}
+    for section in ("§6.5", "§9.3"):
+        assert section in specific["reference_note"], section
+
+
+def test_the_token_counts_are_marked_as_not_comparable_across_the_pair(split_record):
+    """Both corpora record a token total and the two are not on one scale.
+
+    The shared tokenizer splits on whitespace, which counts eojeol in Korean and words in
+    English, so spans-per-1,000-tokens across the pair would be a ratio of two different
+    units. The note is in the file because the numbers are in the file: a reader who has the
+    totals will divide them unless the file says not to.
+    """
+    note = split_record["corpus_specific"]["tokenizer_note"]
+    assert split_record["tokenizer"] == "whitespace"
+    assert "eojeol" in note
+    assert split_record["totals"]["tokens"]["total"] == 293263
+
+
+def test_the_group_key_is_the_patient_carried_with_the_fold(split_record):
+    """163 patients, none crossing, and the §9.5 surface rule recorded as not having run."""
+    group = split_record["group_key"]
+    assert group["n_groups"] == 163
+    assert group["unit"].startswith("patient")
+    assert group["crosses_split"]["n_groups_crossing"] == 0
+    audit = group["grouping_audit"]
+    assert audit["n_patients"] == 163
+    assert audit["n_documents"] == split_record["totals"]["n_documents"]
+    assert "did not run" in audit["identifying_surface_rule"]
+    for key in ("step_1_pattern", "step_2_types", "candidate_stems"):
+        assert key not in audit
+
+
+def test_the_grouping_audit_is_a_partition_of_the_split(split_record):
+    ids = [doc_id for unit in split_record["group_key"]["grouping_audit"]["patients"].values() for doc_id in unit]
+    assert sorted(ids) == sorted(split.fold_of(split_record))
+    assert len(ids) == split_record["totals"]["n_documents"]
+
+
+def test_the_records_without_a_reference_are_in_no_fold(split_record):
+    """The nine, held as the same nine on both sides of the pair.
+
+    `src/split.py`'s derived route refuses unless this list is exactly what
+    `splits/en-deid.json` leaves outside every fold, so the assertion is about the two files
+    agreeing rather than about nine ids being spelled correctly twice.
+    """
+    specific = split_record["corpus_specific"]
+    assert specific["n_records_without_reference"] == 9
+    listed = specific["records_without_reference"]
+    assert len(listed) == 9
+    placed = split.fold_of(split_record)
+    assert [doc_id for doc_id in listed if doc_id in placed] == []
+    source = split.read(SOURCE_CORPUS)
+    assert sorted(listed) == sorted(source["corpus_specific"]["records_without_reference"])
+
+
+def test_the_totals_are_a_recount_of_the_whole_corpus(split_record, kosurro_docs):
+    """Every summary in the file, re-derived from the corpus while the corpus is readable.
+
+    This test can only exist before the seal, which is why it is written on the day of the
+    freeze: the test fold is still in the corpus root, so all 2,425 documents recount and the
+    totals block is a claim that can be falsified outright. Once `sealed/` holds the test
+    fold, this becomes the arithmetic form `test_endeid_loader.py` uses — visible recount plus
+    the file's sealed block equals the totals — which is weaker, and is all that is left.
+    """
+    in_scope = [s for doc in kosurro_docs for s in doc.spans if not s.excluded]
+    excluded = [s for doc in kosurro_docs for s in doc.spans if s.excluded]
+    totals = split_record["totals"]
+    assert len(kosurro_docs) == totals["n_documents"]
+    assert len(in_scope) + len(excluded) == totals["n_spans"]
+    assert len(in_scope) == totals["n_spans_in_scope"]
+    assert dict(Counter(s.phi_type for s in in_scope)) == totals["spans_by_phi_type"]
+    # An excluded span has no canonical type — `phi_type` is None and the source tag it was
+    # excluded for is its `subtype`, which is what §9.1's volume is reported by.
+    assert dict(Counter(s.subtype for s in excluded)) == totals["spans_by_excluded_type"]
+    with_spans = sum(1 for doc in kosurro_docs if any(not s.excluded for s in doc.spans))
+    assert with_spans == split_record["corpus_specific"]["n_documents_with_spans"]
+
+
+def test_each_folds_summaries_are_a_recount_of_that_fold(split_record, kosurro_docs):
+    """And per fold, which the totals cannot check: one fold's spans could sit in another.
+
+    Same window as the test above — before the seal every fold is reachable, so the sealed
+    fold's block is recounted here once and never again.
+    """
+    by_id = {doc.doc_id: doc for doc in kosurro_docs}
+    for fold, block in split_record["folds"].items():
+        docs = [by_id[doc_id] for doc_id in block["document_ids"]]
+        in_scope = [s for doc in docs for s in doc.spans if not s.excluded]
+        excluded = [s for doc in docs for s in doc.spans if s.excluded]
+        assert len(docs) == block["n_documents"], fold
+        assert len(in_scope) == block["n_spans_in_scope"], fold
+        assert len(excluded) == block["n_spans_excluded"], fold
+        assert len(in_scope) + len(excluded) == block["n_spans"], fold
+        assert dict(Counter(s.phi_type for s in in_scope)) == block["spans_by_phi_type"], fold
+
+
+def test_the_folds_partition_the_documents(split_record):
+    """No document in two folds and none in none, from the file alone."""
+    ids = [doc_id for block in split_record["folds"].values() for doc_id in block["document_ids"]]
+    assert len(ids) == len(set(ids)) == split_record["totals"]["n_documents"]
+    assert set(ids) == set(split_record["source"]["documents"])
+
+
+def test_the_loader_takes_every_fold_from_the_file(kosurro_loader, split_record):
+    """The fold on a `Document` is the file's, for every document, with nothing left `None`.
+
+    The layout encodes no fold (`test_the_layout_encodes_no_fold`), so this is the only route
+    a fold can arrive by — and a loader that silently left `split=None` would hand the
+    dev-only rule development the whole corpus.
+    """
+    folds = split.fold_of(split_record)
+    docs = kosurro_loader.load()
+    assert {doc.doc_id: doc.split for doc in docs} == {
+        doc_id: fold for doc_id, fold in folds.items() if doc_id in {d.doc_id for d in docs}
+    }
+    assert None not in {doc.split for doc in docs}
+
+
+def test_the_split_file_records_the_bytes_it_hashed(split_record, kosurro_docs, kosurro_unsplit_loader):
+    """Every reachable document's digest recomputes to what the frozen file recorded.
+
+    Through `digest_parts` — a `ko-surro` document is a record inside a file, so
+    `source_files()` refuses and the default file-hashing hook cannot be used here. The digest
+    covers the Korean body and the loaded spans' offsets and source tags, which is what makes
+    it a check on the corpus as scored rather than on a file's mtime.
+    """
+    recorded = split_record["source"]["documents"]
+    assert len(recorded) == split_record["source"]["n_documents"]
+    for doc in kosurro_docs:
+        assert split.digest_material(kosurro_unsplit_loader.digest_parts(doc)) == recorded[
+            doc.doc_id
+        ], f"{doc.doc_id}'s bytes differ from the frozen split file"
+
+
+#: What `split.build()` cannot reproduce: when it ran and what the tree looked like then.
+#: Listed rather than skipped by prefix, so a new volatile field has to be named here.
+NOT_REPRODUCIBLE = ("generated", "repository")
+
+
+def test_the_frozen_file_is_what_the_builder_produces_today(split_record):
+    """Rebuild the record from the corpus and require every non-volatile field to agree.
+
+    The recount tests above check the file against the corpus; this one checks it against the
+    *code*, which is the other half and the half that nothing else in the suite had. The four
+    narrative builders in `src/split.py` are reached by no other test: `build()` is called by
+    the CLI and by nothing in `tests/`, so every figure only that code produces — the sparsity
+    count, the type-map notes, the per-fold token percentiles — was unfalsifiable until the
+    file was regenerated by hand and diffed.
+
+    That is not hypothetical. `n_documents_with_spans` was written as 727 beside prose saying
+    "at least one in-scope span", and 725 notes carry one: the builder counted `doc.spans`,
+    which includes the three §9.1-excluded spans that are nobody's gold. It was found on the
+    day of the freeze by the recount above, one commit before the file became the
+    pre-registered artefact. This test is what makes the *next* such figure fail immediately,
+    and `sparsity_counts_excluded_spans` in `tests/mutations/run.py` is the check that this
+    test does its job.
+
+    The build is cheap here — one JSONL file, no per-file hashing — so there is no reason for
+    the file to be reproducible only by hand.
+    """
+    built = split.build("ko-surro")
+    for key in NOT_REPRODUCIBLE:
+        assert key in split_record and key in built, key
+        built[key] = split_record[key]
+    assert built == split_record, (
+        "the frozen split file is not what src/split.py produces from the corpus today. "
+        "If the change to the builder is intended, the file is pre-registered: say so and "
+        "regenerate it deliberately (src/split.py refuses to overwrite)."
+    )
+
+
+#: Keys whose values are prose written in this repository — the only strings in this split
+#: file that are neither an id nor a digest. Listed exhaustively and separately from
+#: `test_endeid_loader.py`'s copy: a corpus adding a field that carries free text has to add
+#: it here, and reading it while adding it is the check.
+PROSE_KEYS = frozenset(
+    {
+        "basis",
+        "bom_note",
+        "branch",
+        "commit",
+        "corpus",
+        "derivation",
+        "fold_directories_note",
+        "generated",
+        "generated_by",
+        "hash_algorithm",
+        "hashed",
+        "identifying_surface_rule",
+        "key_source",
+        "not_gold_supported_note",
+        "note",
+        "origin",
+        "rationale_ref",
+        "reading",
+        "records_without_reference_note",
+        "reference",
+        "reference_note",
+        "rule_ref",
+        "source_freeze_commit",
+        "sparsity_note",
+        "surfaces_recorded",
+        "tokenizer",
+        "tokenizer_note",
+        "unit",
+    }
+)
+
+
+def test_every_string_in_the_split_file_is_an_id_a_digest_or_prose(split_record):
+    """The structural half: a Korean surrogate surface has nowhere in this file to be.
+
+    The file is committed to a public repository, so the check is over the shape of the file
+    rather than a search for particular strings — every string value is a document id, a
+    patient id, a hex digest, or sits under one of the `PROSE_KEYS` above. A surface written
+    anywhere else fails here whether or not any test knows what that surface is.
+    """
+    doc_id = re.compile(r"^\d+_\d+$")
+    patient_id = re.compile(r"^\d+$")
+    digest = re.compile(r"^[0-9a-f]{64}$")
+    offenders: list[tuple[str, int]] = []
+
+    def walk(node, key=None):
+        if isinstance(node, dict):
+            for k, v in node.items():
+                if isinstance(k, str) and not (doc_id.match(k) or patient_id.match(k)):
+                    assert k.isidentifier() or k in {"p50", "p90"}, k
+                walk(v, k)
+        elif isinstance(node, list):
+            for v in node:
+                walk(v, key)
+        elif isinstance(node, str):
+            if doc_id.match(node) or patient_id.match(node) or digest.match(node):
+                return
+            if key not in PROSE_KEYS:
+                offenders.append((str(key), len(node)))
+
+    walk(split_record)
+    assert offenders == [], f"free text under unexpected keys: {offenders}"
+
+
+def test_no_prose_in_the_split_file_carries_a_surrogate_surface(split_record, kosurro_docs):
+    """The other half, over the prose that `PROSE_KEYS` permits.
+
+    1,109 of the 1,614 loaded surfaces are searched for. The 505 that are not are one
+    character long, or two or three digits: this file's prose legitimately contains numbers —
+    section references, counts, a timestamp — and a two-digit DATE surrogate matches nine
+    times inside them. Failing on that would be testing arithmetic in English, not the file.
+    No surface is named in a message; a hit reports the document id and the offsets.
+    """
+    prose = "\n".join(_strings_under(split_record, PROSE_KEYS))
+    assert len(prose) > 1000, "the prose search found almost nothing to search"
+    checked = 0
+    for doc in kosurro_docs:
+        for span_ in doc.spans:
+            surface = span_.surface.strip()
+            if len(surface) < 2 or (surface.isdigit() and len(surface) < 4):
+                continue
+            checked += 1
+            assert surface not in prose, (
+                f"{doc.doc_id} span at [{span_.start}, {span_.end}) is in the split file"
+            )
+    assert checked == 1109
+
+
+def _strings_under(node, keys, key=None):
+    """Every string value in `node` whose key is in `keys`."""
+    if isinstance(node, dict):
+        for k, v in node.items():
+            yield from _strings_under(v, keys, k)
+    elif isinstance(node, list):
+        for v in node:
+            yield from _strings_under(v, keys, key)
+    elif isinstance(node, str) and key in keys:
+        yield node

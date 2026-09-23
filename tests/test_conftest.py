@@ -65,6 +65,7 @@ CONSTRUCTION = {
     "grascco_unsplit_loader",
     "endeid_loader",
     "endeid_unsplit_loader",
+    "kosurro_loader",
     "kosurro_unsplit_loader",
     "kosurro_docs",
 }
