@@ -2448,7 +2448,7 @@ detect. Only the per-type view separates them.
 
 This interacts with the per-layer prediction in §7: the layer whose sensitivity to
 orthographic realisation is **none** (regex/checksum) is precisely the layer whose
-target types are 20.0% of one corpus and 0.5% of the other. Without per-type
+target types are 20.0% of one corpus and 3.5% of the other. Without per-type
 reporting a type-mix shift and a realisation effect are indistinguishable in the
 totals, and §7's prediction would not be testable across these two corpora at all.
 
@@ -2456,14 +2456,99 @@ The same discipline applies to every corpus pair, not just this one; MEDDOCAN an
 CARMEN-I are documented here because they are the pair where the confound was
 measured rather than anticipated.
 
-**Documents with no PHI are not free.** CARMEN-I has 462 of them (461 in the
-`replaced` variant), 23% of the corpus, at a median of 96 tokens — they are not empty
+#### CARMEN-I is the most concentrated type mix of the five, and its aggregate is close to unreadable — measured 2026-09-28
+
+The paragraphs above argue the confound from one pair. This one states the position of
+this corpus among all five, because it is the corpus where the rules above stop being a
+precaution and start being the only way to read a result. Measured over each corpus's
+full canonical span set as recorded in §9.0, and for `es-carmen` on the 7,473 total §9.0
+settled the same day:
+
+| corpus | canonical spans | largest type | its share | HHI | nonzero types |
+|---|---|---|---|---|---|
+| **es-carmen** | 7,473 | `DATE` | **72.1%** | **0.538** | 10 |
+| de-grascco | 1,297 | `DATE` | 53.4% | 0.358 | 9 |
+| ko-surro | 1,611 | `NAME` | 50.0% | 0.359 | 8 |
+| en-deid | 1,779 | `NAME` | 46.3% | 0.346 | 6 |
+| es-meddocan | 20,538 | `LOCATION_AREA` | 25.5% | 0.162 | 10 |
+
+HHI is the sum of squared type shares; a uniform ten-type corpus would be 0.100. **On
+both measures `es-carmen` is first and not marginally** — 19 points of largest-type share
+above the next corpus, an HHI 1.50× the next and 3.33× MEDDOCAN's. The two measures
+disagree about second place (de-grascco by share, ko-surro by HHI) and agree about
+first, which is the useful fact: this position does not depend on which concentration
+measure is chosen. It is also not an artefact of having few types — `es-carmen` is one of
+only two corpora here with all ten types nonzero, and it is the most concentrated of the
+five anyway. **Concentration and coverage are independent, and this corpus is extreme on
+one while being the best on the other.**
+
+**`FECHAS` is the whole of it.** One source type, `FECHAS`, is 5,386 spans: **72.1% of
+the canonical set** and 65.4% of the 8,231 raw corpus gold. (It read 74.3% before
+2026-09-28, over the 7,246 total that left `NUMERO_IDENTIF` unplaced; the corpus did not
+change and §9.0 records which figure belongs to which denominator.) Three arithmetic
+consequences, none of them speculative:
+
+- **All nine non-`DATE` types together are 27.9%.** So a detector that was *perfect on
+  every other type in the corpus* and blind to dates would score 27.9% recall — less
+  than half what a date-only detector scores. The aggregate ranks a date detector above
+  a nine-type detector, and both readings are true statements about this corpus.
+- **A one-point move in the aggregate is a statement about dates.** One point is ~75
+  spans, and by construction 72.1% of any randomly-distributed change is dates. To move
+  the aggregate a point through the small types, a detector would have to move about a
+  third of them at once.
+- **The five smallest types together are 4.3%** (`NAME` 151, `PROFESSION` 91, `OTHER` 38,
+  `CONTACT` 22, `LOCATION_STREET` 22 = 324 spans). A detector could go from perfect to
+  *zero* on all five and the aggregate would move 4.3 points — inside the range this
+  experiment treats as an effect. An aggregate that moved 4.3 points is compatible with
+  "five types stopped working entirely" and with "dates improved by six percent", and
+  nothing in the aggregate distinguishes them.
+
+**And the type most of de-identification is judged on is 2.0% here, with no patient
+gold at all.** `NAME` is 151 spans, against 19.5% in MEDDOCAN — a 9.7× difference in
+weight inside a type both corpora annotate. Worse for aggregate reading, the 151 are
+**entirely clinician names**: `NOMBRE_SUJETO_ASISTENCIA` is declared in the corpus's
+`annotation.conf` with zero instances (§9.0), so `es-carmen`'s `NAME` row and MEDDOCAN's
+`NAME` row are not the same measurement, and **patient-name recall here is undefined
+rather than zero** — there is no denominator. An aggregate leak rate for this corpus is
+therefore not merely weighted oddly; it is silent about the role a de-identification
+claim is usually about, and the silence is invisible in the total. §9.0 pre-registers
+the consequences: `NAME` is not merged across roles, and this corpus is a
+precision-only probe for the patient-name role.
+
+**What the aggregate cannot say, stated as prohibitions.** For `es-carmen`
+specifically — and these are reporting rules, not cautions:
+
+- **An aggregate leak rate or F1 for `es-carmen` is never the basis of a porting claim,
+  a cross-corpus claim, or a rung-to-rung claim.** It is reported, because omitting it
+  would be a second kind of distortion, and it is reported with the `DATE` row beside it.
+- **No `es-carmen` aggregate figure is compared against another corpus's aggregate**,
+  including MEDDOCAN's, which shares its language. The comparison is per type or it is
+  not made.
+- **An aggregate movement between two arms on this corpus is not evidence that the
+  second arm ported better** until the per-type rows say which types moved. The
+  arithmetic above gives at least two disjoint explanations for any movement under ~5
+  points.
+- **No claim about patient-name de-identification is made from this corpus in either
+  direction** — recall is undefined and precision alone cannot support one.
+
+This is the corpus that makes §5.1's three rules load-bearing rather than prudent: on
+MEDDOCAN an aggregate is a poor summary, and on CARMEN-I it is a summary of one type
+wearing the corpus's name.
+
+**Documents with no PHI are not free.** CARMEN-I has 462 of them in the `masked` variant
+and 461 in `replaced`, 23% of the corpus, at a median of 96 tokens — they are not empty
 files. They contribute nothing to the leak-rate numerator or denominator, and they do
 contribute false-positive opportunity, so they belong in a precision denominator and
 not in a recall one. Two consequences for reporting: **a fold's effective size is not
 its document count**, and **no per-document leak rate is defined for them** — a
-per-document average over the corpus would be an average over 1,538 documents, not
-2,000, and must say so. Counts are in `docs/notes/corpus-observations.md` §8.5.
+per-document average over the corpus is an average over **1,530** documents, not 2,000,
+and must say so. *1,530 and not 1,538, corrected 2026-09-28:* the set with no
+**in-scope** span is larger than the set with no annotation at all, because 9 documents
+carry only §9.1-excluded spans (470 in `replaced`, 471 in `masked`). Those 9 have gold
+that is real and deliberately outside the canonical set, so they have no leak-rate
+denominator either, and counting them as annotated documents put 8 documents into a
+denominator that cannot contribute to it. Counts are in
+`docs/notes/corpus-observations.md` §8.5.
 
 ### 5.2 Rule files are loaded per language, not selected per document
 

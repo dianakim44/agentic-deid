@@ -994,6 +994,13 @@ Two further facts bear on any split:
   they contribute false-positive opportunity but nothing to the leak-rate numerator or
   denominator. A fold's effective size is not its document count, and 23% of documents
   cannot be assigned a per-document leak rate at all.
+- **470 documents have no *in-scope* span**, which is the larger and operative set,
+  measured 2026-09-28 over the `replaced` variant (471 in `masked`). It is 461 with no
+  annotation at all **plus 9 that carry only §9.1-excluded spans** — real gold,
+  deliberately outside the canonical set, and therefore no leak-rate denominator either.
+  So the count of documents a per-document leak rate is defined for is **1,530**, not the
+  1,538 that 2,000 − 462 gives. The two numbers answer different questions and DESIGN
+  §5.1 now uses the in-scope one; the nine are the whole of the difference.
 - **789 of 2,000 units are clinical *sections*, not whole notes** (`IA` and `IT`
   filenames name `ANTECEDENTES`, `PROCESO_ACTUAL`, `EXPLORACION_*`,
   `PLAN_TERAPEUTICO`, `SEGUIMIENTO`, `EVOL`). A section is not a note type, so
