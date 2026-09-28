@@ -3584,10 +3584,18 @@ MUTATIONS = [
     Mutation(
         name="the_call_is_logged_after_the_response_is_judged",
         path=ORCHESTRATE,
-        anchor="    append_call(\n"
-               "        call_line(ITERATION, prompt_reference=reference, model=model,",
-        replacement="    _deferred = lambda: append_call(\n"
-                    "        call_line(ITERATION, prompt_reference=reference, model=model,",
+        # Re-anchored 2026-09-28: `run_arm`'s body moved inside `for lang in langs:` (DESIGN
+        # §5.6), so every line of it gained four spaces, and `model=model` became
+        # `model=record` — the line logs the call's own record and the arm-wide one is
+        # compared against it afterwards. What the mutation does is unchanged. Note that the
+        # deferred lambda is now rebound each iteration and only the last language's write
+        # survives, which makes this strictly worse on a multilingual arm than it was on a
+        # single-call one; the shape it was written to catch is still the first one it hits.
+        anchor="        append_call(\n"
+               "            call_line(ITERATION, prompt_reference=reference, model=record,",
+        replacement="        _deferred = lambda: append_call(\n"
+                    "            call_line(ITERATION, prompt_reference=reference, "
+                    "model=record,",
         also=((
             ORCHESTRATE,
             "    spans_file, metrics_file, scored = run_fold(",
@@ -3621,13 +3629,20 @@ MUTATIONS = [
     Mutation(
         name="a_format_failure_writes_zeroed_metrics_too",
         path=ORCHESTRATE,
-        anchor="    except RuleError as exc:\n        failure = _write_failure(",
+        # Re-anchored 2026-09-28: the failure branch moved inside `for lang in langs:` and
+        # gained `spent = sum_costs(costs)` ahead of the write (DESIGN §5.6), so the anchor is
+        # that line rather than the `except` — which also makes it the only place in the file
+        # where `sum_costs` appears in the failure branch, so uniqueness no longer rests on
+        # indentation alone.
+        anchor="            spent = sum_costs(costs)\n            failure = _write_failure(",
         replacement=(
-            "    except RuleError as exc:\n"
-            "        run_fold(corpus=corpus, detector=detector, supervision=supervision,\n"
-            "                 porting=porting, split=split, model_record=model, cost=cost,\n"
-            "                 root=ROOT)\n"
-            "        failure = _write_failure("
+            "            spent = sum_costs(costs)\n"
+            "            run_fold(corpus=corpus, detector=detector, "
+            "supervision=supervision,\n"
+            "                     porting=porting, split=split, model_record=model, "
+            "cost=spent,\n"
+            "                     root=ROOT)\n"
+            "            failure = _write_failure("
         ),
         breaks=(
             "**DESIGN §10 A2's central distinction erased.** A format failure now leaves a "
@@ -3652,8 +3667,10 @@ MUTATIONS = [
     Mutation(
         name="the_arm_reports_no_model_and_no_cost_to_the_scorer",
         path=ORCHESTRATE,
-        anchor="        split=split, rules={lang: rules_file}, model_record=model, cost=cost,",
-        replacement="        split=split, rules={lang: rules_file},",
+        # Re-anchored 2026-09-28: the arm passes `rules=rules_files`, the whole mapping it
+        # wrote, rather than a one-entry dict built from the loop variable (DESIGN §5.6).
+        anchor="        split=split, rules=rules_files, model_record=model, cost=cost,",
+        replacement="        split=split, rules=rules_files,",
         breaks=(
             "The success branch stops telling `run_fold` what it called, so the published "
             "`metrics.json` carries `model_id: \"none\"` — the `naming.yaml` value meaning "
@@ -3684,12 +3701,14 @@ MUTATIONS = [
         # (DESIGN §6.8), which moved `error=` onto the next line at both of `run_arm`'s and
         # `loop`'s call sites. The mutation is unchanged in what it does — the anchor is
         # `run_arm`'s call, and this one is unique because `loop.py` is a different file.
-        anchor="            split=split, model=model, response=response.text, "
+        # Re-anchored again 2026-09-28: four more spaces, from the `for lang in langs:` loop
+        # (DESIGN §5.6). Still unique for the same reason — `loop.py` is a different file.
+        anchor="                split=split, model=model, response=response.text, "
                "envelope=wrapper.record(),\n"
-               "            error=str(exc),",
-        replacement="            split=split, model=model, response=response.text, "
+               "                error=str(exc),",
+        replacement="                split=split, model=model, response=response.text, "
                     "envelope=wrapper.record(),\n"
-                    "            error=\"the response was not a valid rule file\",",
+                    "                error=\"the response was not a valid rule file\",",
         breaks=(
             "The validator's own message is replaced by a summary of it, and §10 A2's third "
             "recorded content stops being evidence. \"The response was not a valid rule "
@@ -3751,6 +3770,119 @@ MUTATIONS = [
             "error. That is deliberate: the position `pyyaml` reports and the line it prints "
             "are different lines, so a test asserting on an offset would pass while the "
             "quoted line leaked, and the marker is what makes the assertion about content."
+        ),
+        min_kills=1,
+    ),
+    # ── one call per declared language (DESIGN §5.6, added 2026-09-28) ────────
+    # Three mutations for one defect, because the defect had two halves in two modules and
+    # the visible symptom of each is different. `es-carmen` declares `corpus_rule_langs:
+    # [es, cat]`; the arm made one call, authored one file, and scored — and nothing in the
+    # artefacts said the Catalan half had never been written, because `load_rules` on an
+    # absent path returns zero rules by design. So one mutation restores the silent zero in
+    # `src/rules.py`, one restores the single call in `src/orchestrate.py`, and one keeps the
+    # calls while mis-reporting what they cost. **On a one-language corpus all three are
+    # invisible**, which is why the tests that catch them drive a patched `naming()` rather
+    # than the corpora on disk — and why the defect survived four corpora.
+    Mutation(
+        name="a_declared_language_can_be_missing_again",
+        path=RULES,
+        anchor="        if lang not in part.versions:",
+        replacement="        if lang not in part.sources:",
+        breaks=(
+            "**The silent zero, restored — and the mutation is a one-word change to a field "
+            "name that reads as a fix.** `sources` is filled for every language the loop "
+            "visits, *including* one whose path holds no file: that is what the resolved "
+            "location is read back from two lines down. So `lang not in part.sources` is "
+            "never true, `missing` stays empty, and `load_for_corpus` goes back to returning "
+            "whatever it found.\n"
+            "\n"
+            "What that produces is the defect DESIGN §5.6 was written for. A corpus "
+            "declaring `[es, cat]` and handed one file is scored from one file, and the "
+            "`metrics.json` is not merely wrong but *unfalsifiable from the outside*: "
+            "`rules_version` omits `cat`, which reads identically to a corpus that never "
+            "declared it, and the leak rate is a real number computed over half the rule "
+            "set. `es-carmen`'s first run was this, and the way it was found was reading the "
+            "config, not reading the output.\n"
+            "\n"
+            "`versions` is the right field because it is populated only by a file that was "
+            "actually read, and it distinguishes the case that must *not* be refused: a rule "
+            "author's `rules: []` is the answer \"this language needs no rules\" and has a "
+            "version. Keying on `rules` would refuse that legitimate file; keying on "
+            "`sources` refuses nothing. The middle field is the only one that separates the "
+            "three states, which is the reasoning this mutation pins.\n"
+            "\n"
+            "Caught by `test_a_declared_language_with_no_file_is_refused_and_named` and "
+            "`test_every_missing_language_is_named_in_one_refusal`; "
+            "`test_a_language_that_loads_but_declares_nothing_is_not_confused_with_a_missing_"
+            "one` is the one that fails on the `rules`-keyed variant instead, so the pair "
+            "brackets the choice rather than asserting one side of it."
+        ),
+        min_kills=2,
+    ),
+    Mutation(
+        name="the_arm_calls_only_the_first_declared_language",
+        path=ORCHESTRATE,
+        anchor="    for lang in langs:",
+        replacement="    for lang in langs[:1]:",
+        breaks=(
+            "**The arm's half of the same defect: N declared languages, one call.** This is "
+            "literally what `run_arm` did before 2026-09-28 — it took a `lang` argument and "
+            "made one call — so the mutation is not a hypothetical edit but the restoration "
+            "of shipped behaviour, and on four of the five corpora it changes nothing at all "
+            "because `langs` has one element.\n"
+            "\n"
+            "It is worth noting what it does *not* break, because that is the whole reason "
+            "the original was not caught. The window still freezes once. The call is still "
+            "logged. The response is still validated and written to `iter1/es.yaml`. "
+            "`llm_calls` is still truthful — one call was made and one is reported. The arm "
+            "returns `SCORED` with a complete `metrics.json`. Every property `port-oneshot` "
+            "was specified to have holds; the only false thing is the premise, that the rule "
+            "set scored is the corpus's rule set.\n"
+            "\n"
+            "Since 2026-09-28 the refusal in `load_for_corpus` is a second line of defence: "
+            "the unwritten language's file is absent, so scoring raises rather than "
+            "publishing. That makes this mutation fail loudly on a real two-language corpus "
+            "— which is the point of putting the refusal one rung down from the driver — but "
+            "the arm-level assertion is still the one that says what should have happened, "
+            "and an arm that ends in a `RuleError` from the scorer has still spent a window "
+            "and a call.\n"
+            "\n"
+            "Caught by `test_the_arm_makes_one_call_per_declared_language` and "
+            "`test_two_languages_are_scored_in_one_run_over_both_files`."
+        ),
+        min_kills=2,
+    ),
+    Mutation(
+        name="the_arm_reports_one_call_however_many_it_made",
+        path=ORCHESTRATE,
+        anchor="    cost = sum_costs(costs)\n"
+               "    spans_file, metrics_file, scored = run_fold(",
+        replacement="    cost = costs[0]\n"
+                    "    spans_file, metrics_file, scored = run_fold(",
+        breaks=(
+            "**The calls are all made and the bill is for one of them.** `costs[0]` is a "
+            "real, complete, schema-valid cost block — one call, that call's prompt and "
+            "completion tokens, that call's wall time — so nothing downstream objects, and "
+            "on a one-language arm it is byte-identical to the correct value.\n"
+            "\n"
+            "CLAUDE.md requires cost beside quality for a specific reason: an improvement "
+            "obtained at 2× cost and one obtained at 1.05× are different results. A "
+            "multilingual rung that reports `llm_calls: 1` after two calls halves the "
+            "denominator of every cost-per-point figure in the manuscript, and it does so in "
+            "the direction that flatters the method — the more languages a corpus declares, "
+            "the cheaper its arm appears, which is exactly backwards. The token counts are "
+            "the only tell, and they are the fields nobody reads when `llm_calls` already "
+            "says one.\n"
+            "\n"
+            "`costs[0]` rather than a literal `{\"llm_calls\": 1, …}` because the plausible "
+            "edit is this one: a `sum_costs` import removed as unused, or a loop refactored "
+            "so that `cost` is left holding a single call's block — which is what the "
+            "variable held before the loop existed. The arithmetic belongs to "
+            "`scorer.sum_costs` and the arm's job is to hand it every call it made.\n"
+            "\n"
+            "Caught by `test_the_cost_block_counts_the_calls_and_not_the_arm`, which asserts "
+            "the summed token totals as well as `llm_calls` — the count alone would be "
+            "satisfied by an arm that summed the calls and then overwrote the count."
         ),
         min_kills=1,
     ),

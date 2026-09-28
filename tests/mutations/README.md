@@ -220,6 +220,46 @@ Mutations added *since* the last full run have no sidecar entry, so they are nei
 compared nor marked. Their counts come from an impact-scope run, and which run is recorded
 in `docs/notes/mutation-full-runs.md` alongside what that run did **not** measure.
 
+**Three `‡` more and three new rows on 2026-09-28, from the one-call-per-language repair — and
+this run is explicitly *not* the impact scope the rule asks for.** DESIGN §5.6 made
+`run_arm` author one file per language in `corpus_rule_langs` and made `load_for_corpus` refuse
+a declared language whose file is absent, which is a change in **two** `src/` modules
+(`src/orchestrate.py`, `src/rules.py`). CLAUDE.md's "`src/` 광범위 변경 — 두 개 이상의 모듈"
+makes that a **full-run** trigger, and the runtime reach of the two changed test files
+(`tests/test_orchestrate.py`, `tests/test_rules.py` — both already `TEST_FILES` members, so the
+denominator every recorded count is over is unchanged at 33 files, and the full-run size moves
+only by the three mutations added below, 230 → 233) is most of `src/` anyway. So what was run
+here is narrower than either
+reading: the **seven** mutations whose anchors the edit disturbed or added, measured only to
+establish that they still apply and still kill. Serial, one tree `2397928ac041429d`, baseline
+**2,229** (2,219 → 2,229 from 7 new `test_orchestrate.py` tests and 3 new `test_rules.py`
+tests), **7 of 7 caught, 0 survived.** **The full run is deferred, not waived**, and the 218
+counts it has owed since 2026-09-23 are owed still.
+
+Four of the seven were re-anchored — every line of `run_arm`'s body gained four spaces from the
+`for lang in langs:` loop — and three of those four moved:
+`the_call_is_logged_after_the_response_is_judged` 8 → **10**,
+`a_format_failure_writes_zeroed_metrics_too` 1 → **21**,
+`the_arm_reports_no_model_and_no_cost_to_the_scorer` 4 → **5**.
+`the_failure_record_paraphrases_the_validator` was confirmed at 3 and carries no marker, per the
+rule above. **The 1 → 21 is the one to read**, and it is not the same mutation catching twenty
+more things: its anchor had to move from the `except RuleError` line to
+`spent = sum_costs(costs)`, so the injected `run_fold` call now sits *inside* the language loop
+where the failure branch does. It therefore runs against an incomplete `rules_files` mapping and
+raises, instead of quietly writing a second metrics file — a louder defect, caught by the
+twenty-one tests that merely drive the failure branch rather than by the one test that asserted
+the file's absence. The count rose because the mutation got worse, which is a thing a re-anchor
+can do and a reason a re-anchored mutation is re-measured whatever the scope (CLAUDE.md).
+
+The three new rows are the two mutations this repair was required to come with plus one more.
+`a_declared_language_can_be_missing_again` and `the_arm_reports_one_call_however_many_it_made`
+are the two asked for — a declared language going missing, and `llm_calls` reading 1 instead of
+the language count. `the_arm_calls_only_the_first_declared_language` is the third, added because
+the first two leave the driver's own loop unguarded: a `langs[:1]` that authors one file passes
+both of them and is exactly what shipped. All three are invisible on a one-language corpus, so
+the tests that catch them drive a patched `naming()` rather than the corpora on disk — which is
+the whole reason the defect survived four corpora and was found by reading the config.
+
 ## The loader mutations
 
 | mutation | changes | breaks | tests that catch it |
@@ -1191,10 +1231,13 @@ no enforcement but a field in a log.
 | `the_freeze_record_drops_the_empty_block_marking` | `sections_empty` is dropped from the record | the record stops saying which blocks the call did *not* carry, so a reader must derive it from `INPUT_BLOCKS` — and a reader who knows `INPUT_BLOCKS` is not the reader the field is for. `sampling_applied` survives, so the record still distinguishes the two cases and no longer says what the distinction is about | **4** |
 | `the_freeze_record_claims_the_sampling_parameters_applied` | `sampling_applied` becomes the constant `True` | the field it was added to prevent, restored: a `port-oneshot` record then claims *n*=40 at ±120 characters governed a call that carried no §1.4 at all. §6.3 keeps `sampling_sha256` for comparability with the arms that do use it, which is exactly why the record needs a field saying the hash did not govern this call | **5** |
 | `the_baseline_draws_error_spans` | `orchestrate.freeze_window()` calls `initial_error_pool()` | **DESIGN §4's ladder condition broken in the direction that looks like an improvement.** At iteration 1 the §1.4 pool comes from an empty rule file, so those spans are dev **gold** — the baseline shown 40 of them has dev information `port-loop` call 1 does not, and the two arms differ in two things instead of one. A `port-loop` win is then unattributable at the comparison the paper leads with, and the arm flattered is the rung above. Caught structurally: the plumbing is a two-line addition and a behavioural test notices only once it moves a number | **2** |
-| `the_call_is_logged_after_the_response_is_judged` | `append_call(...)` becomes a lambda, invoked just before `run_fold` | the freeze guard's premise read backwards. The log line is what fixes this arm's window and *n*=1 means there are no per-line hashes to disagree with the record, so between the call and the log the window is still re-freezable. After a successful validation the log is byte-identical, so every assertion about its *contents* passes — what breaks is only the ordering, and only visibly in the branch where the response does not load, which returns having made a call, paid for it, and recorded nothing | **8** |
-| `a_format_failure_writes_zeroed_metrics_too` | the failure branch calls `run_fold` before writing `format_failure.json` | **§10 A2's central distinction erased.** A format failure now also leaves a `metrics.json`, scored over the bootstrap file, and near-zero numbers are indistinguishable from the opposite finding — a rule set that ran and caught almost nothing. This is why the failure is a *file name* and not a `status` field: an aggregation walking `results/` counts the failure as a scored arm with a bad score, understating capability and overstating compliance in one number | **1** |
-| `the_arm_reports_no_model_and_no_cost_to_the_scorer` | `model_record=model, cost=cost` dropped from the arm's `run_fold` call | the published metrics carry `model_id: "none"` — the `naming.yaml` value meaning *no model was used* — and three zeros for cost, for an arm whose whole content is one LLM call. Nothing about the file looks wrong: it is the `R` arm's record written under `port-oneshot`, so the baseline reads as a rules arm that cost nothing. The default is *correct* in `run_fold`, which closes an arm that genuinely calls none, so only a test on this arm's metrics can tell the two apart | **4** |
+| `the_call_is_logged_after_the_response_is_judged` | `append_call(...)` becomes a lambda, invoked just before `run_fold` | the freeze guard's premise read backwards. The log line is what fixes this arm's window and *n*=1 means there are no per-line hashes to disagree with the record, so between the call and the log the window is still re-freezable. After a successful validation the log is byte-identical, so every assertion about its *contents* passes — what breaks is only the ordering, and only visibly in the branch where the response does not load, which returns having made a call, paid for it, and recorded nothing | **10** ‡ |
+| `a_format_failure_writes_zeroed_metrics_too` | the failure branch calls `run_fold` before writing `format_failure.json` | **§10 A2's central distinction erased.** A format failure now also leaves a `metrics.json`, scored over the bootstrap file, and near-zero numbers are indistinguishable from the opposite finding — a rule set that ran and caught almost nothing. This is why the failure is a *file name* and not a `status` field: an aggregation walking `results/` counts the failure as a scored arm with a bad score, understating capability and overstating compliance in one number | **21** ‡ |
+| `the_arm_reports_no_model_and_no_cost_to_the_scorer` | `model_record=model, cost=cost` dropped from the arm's `run_fold` call | the published metrics carry `model_id: "none"` — the `naming.yaml` value meaning *no model was used* — and three zeros for cost, for an arm whose whole content is one LLM call. Nothing about the file looks wrong: it is the `R` arm's record written under `port-oneshot`, so the baseline reads as a rules arm that cost nothing. The default is *correct* in `run_fold`, which closes an arm that genuinely calls none, so only a test on this arm's metrics can tell the two apart | **5** ‡ |
 | `the_failure_record_paraphrases_the_validator` | `error=str(exc)` becomes a fixed summary string | §10 A2's third recorded content stops being evidence. "The response was not a valid rule file" is not checkable and not comparable: a wrong `lang`, a fenced block and an invented matcher key become one row in the appendix. The raw response is still on disk beside it, so a reader can re-derive the message — which is the work the field saved, and the reason nobody notices it is gone | **3** |
+| `a_declared_language_can_be_missing_again` | `load_for_corpus`'s refusal is keyed on `part.sources` instead of `part.versions` | **the silent zero restored by a one-word change to a field name.** `sources` is filled for every language the loop visits, including one whose path holds no file — that is where the resolved location is read back from — so `missing` is never non-empty. A corpus declaring `[es, cat]` and handed one file is then scored from one file, and the metrics are not merely wrong but unfalsifiable from outside: `rules_version` omits `cat`, which reads exactly like a corpus that never declared it. `versions` is the only one of the three candidate fields that separates *no file* from a rule author's legitimate `rules: []` | **2** |
+| `the_arm_calls_only_the_first_declared_language` | `for lang in langs:` becomes `langs[:1]` | the arm's half of the same defect, and **literally the behaviour shipped before 2026-09-28** — `run_arm` took a `lang` and made one call. Note what it does not break: one window, one logged call, a validated file, a truthful `llm_calls: 1`, `SCORED`, a complete `metrics.json`. Every specified property of `port-oneshot` holds; the only false thing is the premise that the rule set scored is the corpus's. On four of five corpora it changes nothing at all, which is why four corpora went by | **7** |
+| `the_arm_reports_one_call_however_many_it_made` | `cost = sum_costs(costs)` becomes `costs[0]` | the calls are all made and the bill is for one. `costs[0]` is a real, complete, schema-valid block, so nothing downstream objects, and on a one-language arm it is byte-identical to the right answer. CLAUDE.md wants cost beside quality because a gain at 2× and a gain at 1.05× are different results — and this halves the denominator of every cost-per-point figure in the direction that flatters the method: the more languages a corpus declares, the cheaper its arm looks | **1** |
 | `the_parse_error_quotes_the_line_it_choked_on` | `safe_load(fh)` → `safe_load(fh.read())`, **and** the picked-out fields → `{exc}` | two edits that only leak together, which is the finding. `MarkedYAMLError` prints the offending source line when its `Mark` carries a buffer, and a stream leaves it null while a string fills it — so the stream/string change is a refactor with no visible effect (and it is what every other loader here does), and `{exc}` is the second half. Together they put an LLM's response, which can echo its own §1.4 block, into a message bound for terminals and CI logs that `release_screen.py` never reaches | **1** |
 | `the_history_is_pre_seeded_with_this_rounds_rate` | the pending history becomes `(*previous_rates, previous_rates[-1])` | the round's own rate is counted twice, so `improvements` gains a `0.0` that is below δ by definition and counts toward stopping — the arm converges a round early with `iterations` one too high and nothing in the file disagreeing with anything else in it. The name says rounds 1..N and the round is N, so handing over a sequence one short is what looks like the bug | **5** |
 | `the_writer_calls_the_stopping_rule_itself` | `run_fold` imports `should_stop` and inlines what `resolve()` does | **no byte of any output changes**, because `resolve()` is exactly that line. §3's pre-registered decision acquires a second home inside the module that publishes it, and the cost is the next edit rather than this one: a writer holding the rule can grow a branch no reader of `src/termination.py` can reproduce. Reads as one indirection removed | **1** |
@@ -4206,8 +4249,21 @@ figure scaled by the suite ratio**, and when the suite has not moved the two are
 That is why the planning figure in `CLAUDE.md` is stated together with the suite it was measured
 against rather than on its own.
 
-A serial row **was** added here, unlike at the ninth and tenth points: 8 × 2.83 h ÷ 1.16 = **19.5 h**
-at 211. The standing reason for withholding one is that a derivation restated from an input move
+**The inputs as they stand on 2026-09-28: 233 mutations, suite 2,229.** Both moved again with the
+one-call-per-language repair — three mutations added (230 → 233) and ten tests added inside two
+existing `TEST_FILES` members (2,219 → 2,229). Applying the rule in the paragraph above rather
+than the shortcut: 50.5 s × (2229 / 2194) = **51.3 s** per mutation, so 233 × 51.3 s = 11,953 s =
+**3.32 h** in eight shards. That is the figure to cost the owed full run at, and it is **derived,
+not measured** — the last measurement is 3.21 h over 229 at suite 2,194. Note the direction the
+last two scorings went: 211 came out 0.9% high with the scale applied, 229 came out 3.5% low, so
+3.32 h is a floor rather than a centre.
+
+No serial row is added for this move. 230 → 233 is a factor of 1.013 and 2,219 → 2,229 is 1.005,
+which is far inside the ±4% noise floor — restating a derivation from inputs that moved by less
+than the noise is the thing this section refuses to do, and it would read as a new measurement.
+
+A serial row **was** added at the eleventh point, unlike at the ninth and tenth: 8 × 2.83 h ÷ 1.16
+= **19.5 h** at 211. The standing reason for withholding one is that a derivation restated from an input move
 smaller than the noise reads as a measurement; this move is 1.088 in mutations and 1.050 in suite,
 and 17.3 h → 19.5 h is 13%, which the noise floor cannot produce. Like every serial row it is
 derived and nobody has spent a serial run to check it.

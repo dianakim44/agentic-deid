@@ -1,10 +1,11 @@
 """Tests for tools/run_arm.py — the one command that spends the arm's single call.
 
-What this tool is for: `run_arm()` is keyword-only over four axis values, a language and a
-model id, and the arm it drives makes one call that freezes the window permanently
-(DESIGN §6.3). Through `python3 -c` every argument is a bare string, and the failure that
-matters is not an exception — it is a typo that *succeeds*, minting `results/…/RR/…` as a
-second detector. So what is tested here is the refusals, and the order they happen in.
+What this tool is for: `run_arm()` is keyword-only over four axis values and a model id, and
+the arm it drives makes one call per language the corpus declares — one on four of the five
+corpora — and freezes the window permanently (DESIGN §6.3, §5.6). Through `python3 -c` every
+argument is a bare string, and the failure that matters is not an exception — it is a typo
+that *succeeds*, minting `results/…/RR/…` as a second detector. So what is tested here is the
+refusals, and the order they happen in.
 
 **Every check must fire before the call, and `--dry-run` must make no call.** A precondition
 discovered after the call is a precondition discovered too late: the window is bound from
@@ -51,6 +52,10 @@ from src.corpora.base import axis                                    # noqa: E40
 
 TOOL = ROOT / "tools" / "run_arm.py"
 CORPUS = "es-meddocan"
+
+#: The one language `es-meddocan` declares. Not passed to the tool — `--lang` is refused as of
+#: 2026-09-28 (DESIGN §5.6) — and kept because the plan's `armrules` line names the file, so a
+#: test of that line needs the language without asserting the tool takes one.
 LANG = "es"
 
 #: The baseline cell, which on this corpus has already spent its one call. Read from the
@@ -112,7 +117,7 @@ def dry(*args, expect: int | None = None) -> subprocess.CompletedProcess:
     an arm that has already called is `called()` below.
     """
     detector, supervision, porting = uncalled_cell()
-    return run("--corpus", CORPUS, "--lang", LANG, "--model-id", ALIAS, "--dry-run",
+    return run("--corpus", CORPUS, "--model-id", ALIAS, "--dry-run",
                "--detector", detector, "--supervision", supervision, "--porting", porting,
                *args, expect=expect)
 
@@ -124,7 +129,7 @@ def called(*args, expect: int | None = None) -> subprocess.CompletedProcess:
     correct outcome, and it is reached before the plan is made.
     """
     detector, supervision, porting = CALLED_CELL
-    return run("--corpus", CORPUS, "--lang", LANG, "--model-id", ALIAS, "--dry-run",
+    return run("--corpus", CORPUS, "--model-id", ALIAS, "--dry-run",
                "--detector", detector, "--supervision", supervision, "--porting", porting,
                *args, expect=expect)
 
@@ -200,19 +205,40 @@ def test_each_axis_flag_is_checked_and_not_only_the_detector():
 
 
 def test_an_unknown_corpus_is_refused():
-    done = run("--corpus", "es-meddocann", "--lang", LANG, "--model-id", ALIAS,
+    done = run("--corpus", "es-meddocann", "--model-id", ALIAS,
                "--dry-run", expect=2)
     assert "corpus" in done.stderr
 
 
-def test_a_language_the_corpus_does_not_load_is_refused():
-    """`--lang de` against a Spanish corpus. One call authors one file, and a file no
-    corpus loads would be scored by nothing (DESIGN §5.2). The message quotes
-    `corpus_rule_langs` rather than the corpus's name, because the mapping is the
-    authority."""
+def test_a_language_on_the_command_line_is_refused_with_a_reason():
+    """`--lang` at all, as of 2026-09-28 (DESIGN §5.6) — and it says why rather than dying.
+
+    This replaces `test_a_language_the_corpus_does_not_load_is_refused`, which checked that a
+    caller-supplied language was one the corpus loads. The finding is that the flag should not
+    exist: `corpus_rule_langs` is the authority on which languages an arm authors, a flag is a
+    second authority, and on `es-carmen` the two came apart into a one-file run of a
+    two-language corpus.
+
+    The flag is still *registered*, and that is the part this test pins. Deleting it outright
+    gives `unrecognized arguments: --lang` to whoever pasted a command out of a note or out of
+    this file's own history — an argparse error that says nothing about why. So it parses, and
+    then refuses with the config named, exit 2, nothing written.
+    """
     done = dry("--lang", "de", expect=2)
+    assert "--lang" in done.stderr and "refused" in done.stderr
     assert "corpus_rule_langs" in done.stderr
-    assert "['es']" in done.stderr
+    assert "['es']" in done.stderr, "the refusal states what the corpus does declare"
+
+
+def test_the_plan_says_how_many_calls_the_arm_will_make():
+    """The number the dry run is read for, and the last moment it can be noticed.
+
+    One line, printed from `rule_langs`: on a one-language corpus it says one call, and on
+    `es-carmen` it will say two. Before §5.6 the plan said nothing about it because the answer
+    was always one — which is why a two-language corpus could be approved as a one-call run.
+    """
+    done = dry()
+    assert "langs        es    (1 call, iteration 1)" in done.stdout
 
 
 # ─── the sealed fold is not reachable from here ─────────────────────────────
@@ -361,7 +387,7 @@ def test_the_model_id_is_required_and_has_no_default():
     """`argparse` refuses the invocation with exit 2 and its own message. The rule is
     DESIGN §10 A2's: a recorded id that came from a default records what the code says
     rather than what was called, and a CLI default is the most inviting place for one."""
-    done = run("--corpus", CORPUS, "--lang", LANG, "--dry-run", expect=2)
+    done = run("--corpus", CORPUS, "--dry-run", expect=2)
     assert "--model-id" in done.stderr
 
 

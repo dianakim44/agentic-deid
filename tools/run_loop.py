@@ -37,7 +37,10 @@ that is the fact that decides whether this round should be run at all.
 are imported from it by path, the way that tool imports `check_bedrock_logging.py` and the way
 `tests/test_structure.py` loads its checker: `tools/` is not a package, and a second copy of
 "a mistyped axis mints a cell" is the copy that will not learn what the first one learns.
-`bedrock._require_logging_check()` inside `invoke()` is still the guarantee.
+`bedrock._require_logging_check()` inside `invoke()` is still the guarantee. The one check that
+is **not** borrowed is `--lang`: DESIGN §5.6 took the language off `run_arm.py` altogether, so
+"is this a language the corpus loads" moved here, to the only tool that still has a language to
+ask it about. See `_run_arm_tool()` for why that rung and this one differ, and for how long.
 
 **No model id is spelled here**, in the code or in the examples, for `tools/run_arm.py`'s
 reason (DESIGN §10 A2): an id written in an example is the id that gets pasted and recorded,
@@ -65,7 +68,7 @@ sys.path.insert(0, str(ROOT))
 
 from src import orchestrate, split                                    # noqa: E402
 from src.corpora.base import (                                        # noqa: E402
-    CorpusError, corpus_root, path_template, termination_params,
+    CorpusError, corpus_root, path_template, rule_langs, termination_params,
 )
 from src.eval import sealed_log                                       # noqa: E402
 from src.eval.run_fold import DEFAULT_SPLIT                           # noqa: E402
@@ -100,6 +103,17 @@ def _run_arm_tool():
     file and used here anyway, deliberately: the alternative is a second copy of the gate
     loader and of the axis refusals, and the copy is the one that will not be updated when the
     axis list or the gate's advice changes.
+
+    **`_check_lang()` is deliberately not one of the two.** DESIGN §5.6 refuses a `--lang` on
+    `run_arm.py` because an arm authors one file per declared language, and it says `port-loop`
+    inherits the same structure per round — N calls per round, one scoring run per round, a
+    round atomic. `src/porting/loop.py` has **not** been ported to that yet, so this rung still
+    takes one language per round and this tool still requires the flag. Sharing the refusal
+    would refuse every invocation here with a message about an arm, which is the wrong rung's
+    rule arriving through a shared helper. The debt is §5.6's and is recorded there; what
+    limits the damage in the meantime is that `rules.load_for_corpus` refuses a declared
+    language with no file on every route to a score, so a silent partial cannot be published
+    from this rung either.
     """
     tool = ROOT / "tools" / "run_arm.py"
     spec = importlib.util.spec_from_file_location("_run_arm", tool)
@@ -124,6 +138,28 @@ def _fold_size(corpus: str, fold: str) -> int:
             "Auditor calls this round would make cannot be stated before it makes them."
         )
     return value
+
+
+def _check_lang(args) -> str | None:
+    """`--lang` must be one the corpus loads. Returns a message or `None`.
+
+    **This check moved here from `run_arm.py`'s `_check_axes` on 2026-09-28**, when DESIGN §5.6
+    took the language off the arm entirely: `port-oneshot` now authors one file per language in
+    `corpus_rule_langs` and refuses the flag, so the shared axis validator has no language to
+    validate. This rung still takes one language per round — §5.6's per-round inheritance is
+    not implemented in `src/porting/loop.py` yet — so the check is still needed, and it is
+    needed *here*, which is the only caller that has a language to check.
+
+    Unchanged in what it does. One call authors one file, and a file no corpus loads would be
+    scored by nothing (DESIGN §5.2), so the refusal quotes `corpus_rule_langs` rather than the
+    corpus's name: the mapping is the authority.
+    """
+    if args.lang not in rule_langs(args.corpus):
+        return (f"--lang {args.lang!r} is not a rule-file language of {args.corpus}. Its "
+                f"corpus_rule_langs is {rule_langs(args.corpus)} (config/naming.yaml, DESIGN "
+                "§5.2), and a file no corpus loads would be authored, paid for and scored by "
+                "nothing.")
+    return None
 
 
 def _check_round(args) -> str | None:
@@ -336,7 +372,8 @@ def main(argv: list[str] | None = None) -> int:
 
     tool = _run_arm_tool()
     try:
-        problem = tool._check_axes(args) or _check_round(args)
+        problem = (tool._check_axes(args) or _check_lang(args)
+                   or _check_round(args))
     except CorpusError as exc:
         print(f"{exc}", file=sys.stderr)
         return 2

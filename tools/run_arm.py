@@ -2,10 +2,10 @@
 """Run one agent porting arm — `src.orchestrate.run_arm()` behind named flags.
 
 **Why this exists rather than a `python -c` one-liner.** `run_arm()` is keyword-only and
-takes four axis values, a language and a model id. Invoked through `python3 -c`, every one
+takes four axis values and a model id. Invoked through `python3 -c`, every one
 of those is a bare string in a shell line, and a single typo does not fail: `--detector RR`
 mints a cell. `paths.armfreeze` and `paths.armrules` template all four axes, so the arm
-would freeze a window, make its one call and write a complete `metrics.json` under
+would freeze a window, make its calls and write a complete `metrics.json` under
 `results/es-meddocan/RR/…` — internally consistent, sitting beside the real arm, and read
 by anything walking those directories as a second detector (CLAUDE.md's naming rule;
 `orchestrate._arm_path` refuses values that are not axis values, which is what catches this
@@ -41,11 +41,16 @@ instruction left in place is one the next person follows. So the placeholder sta
 placeholder, and which id an arm ran on is a decision recorded in that arm's `metrics.json`
 rather than in this file's prose.
 
-Usage:
-    python3 tools/run_arm.py --corpus es-meddocan --lang es \\
-        --model-id MODEL_ID --dry-run
+**No `--lang`, as of 2026-09-28** (DESIGN §5.6). The arm makes one call per language in
+`corpus_rule_langs`, so the count and the order come from the config; the flag is still
+registered and refuses, because a pasted command deserves the reason rather than an argparse
+error. `--dry-run` prints one `armrules` line per language and the call count, which is the
+number to read before spending it.
 
-    python3 tools/run_arm.py --corpus es-meddocan --lang es --model-id MODEL_ID
+Usage:
+    python3 tools/run_arm.py --corpus es-meddocan --model-id MODEL_ID --dry-run
+
+    python3 tools/run_arm.py --corpus es-meddocan --model-id MODEL_ID
 """
 from __future__ import annotations
 
@@ -106,12 +111,13 @@ def _check_axes(args) -> str | None:
     when it fills a template, and that is the guarantee; this is the same check moved
     earlier, because the first template `run_arm()` fills is the freeze record's.
 
-    **`lang` is optional as of 2026-09-02 and is checked only when the caller has one.**
-    `tools/run_multi.py` authors no rule file — one LexiconBuilder call writes every language
-    the corpus loads (`lexicon_builder.md` §1.3) — so there is no single `--lang` for it to
-    pass. Skipped rather than satisfied with `rule_langs(corpus)[0]`: a value invented to make
-    a validator pass is a validator that has stopped checking anything, and a driver with a
-    `--lang` flag and no file behind it would be worse than one without.
+    **Axes only, and `lang` is deliberately not one of them** (DESIGN §5.6). The `--lang`
+    refusal lives in `main()` below rather than here, because `tools/run_loop.py` imports this
+    function — it validates the same five axes — and `port-loop` still takes a `--lang` per
+    round: §5.6 says that rung inherits the N-calls-per-round structure, `src/porting/loop.py`
+    has not been ported to it yet, and that debt is recorded rather than closed by breaking the
+    loop driver. Putting the refusal here refused every `run_loop.py` invocation with a message
+    about an arm, which is the wrong rung's rule applied by accident of a shared helper.
     """
     for name, value in (("corpus", args.corpus), ("detector", args.detector),
                         ("supervision", args.supervision), ("porting", args.porting),
@@ -127,15 +133,33 @@ def _check_axes(args) -> str | None:
                 "through `python3 -m src.eval.run_sealed_eval`, which appends the access "
                 "to results/sealed_eval_log.md before anything is read (CLAUDE.md, "
                 "DESIGN §6.1). An agent arm never reads it.")
+    return None
+
+
+def _check_lang(args) -> str | None:
+    """`--lang` is refused, and the flag is kept only so that passing it says why.
+
+    DESIGN §5.6. An arm authors one file per language in `corpus_rule_langs` and the config is
+    the only authority on which those are; a `--lang` on the command line is a second answer,
+    and it was the one that scored `es-carmen` from a single file. Dropping the flag outright
+    gives `unrecognized arguments: --lang` to whoever pasted a command from a note or from this
+    file's own history, and a refusal that explains itself is the difference between reading
+    §5.6 and guessing.
+
+    Separate from `_check_axes` because that function is shared with `tools/run_loop.py`, which
+    still takes a `--lang` per round — see the note there. `tools/run_multi.py` never passed
+    one, since a single LexiconBuilder call writes every language the corpus loads
+    (`lexicon_builder.md` §1.3), so it is unaffected either way.
+    """
     lang = getattr(args, "lang", None)
     if lang is None:
         return None
-    langs = rule_langs(args.corpus)
-    if lang not in langs:
-        return (f"--lang {lang!r}: {args.corpus} loads {langs} "
-                "(config/naming.yaml corpus_rule_langs). One call authors one file, and a "
-                "file no corpus loads would be scored by nothing (DESIGN §5.2).")
-    return None
+    return (f"--lang {lang!r} is refused. An arm makes one call per language in "
+            f"corpus_rule_langs and {args.corpus} declares {rule_langs(args.corpus)}, so "
+            "the languages are the config's answer and a flag would be a second one "
+            "(DESIGN §5.6). Drop the flag: every declared language is authored and "
+            "scored, and a corpus that should author fewer is a corpus whose "
+            "config/naming.yaml entry is what changes.")
 
 
 def _plan(args) -> list[str]:
@@ -148,9 +172,10 @@ def _plan(args) -> list[str]:
     """
     from src.llm.bedrock import _resolution
 
+    langs = rule_langs(args.corpus)
     components = {"corpus": args.corpus, "detector": args.detector,
                   "supervision": args.supervision, "porting": args.porting,
-                  "lang": args.lang, "iteration": orchestrate.ITERATION}
+                  "iteration": orchestrate.ITERATION}
     commit, tree = sealed_log.tree_state()
     # `_resolution(id, id)` is the real predicate with the response agreeing exactly, which
     # is the accepted form that reaches the datedness line. Asking the module beats copying
@@ -162,15 +187,23 @@ def _plan(args) -> list[str]:
         f"corpus       {args.corpus}",
         f"cell         {args.detector} / {args.supervision} / {args.porting}",
         f"split        {args.split}   (scored fold)",
-        f"lang         {args.lang}    (iteration {orchestrate.ITERATION})",
+        # The call count, printed as one line, because it is the number the plan is read for:
+        # a two-language corpus is two calls at this rung and the dry run is the last place
+        # that can be noticed before the money is spent (DESIGN §5.6).
+        f"langs        {', '.join(langs)}    ({len(langs)} call"
+        f"{'' if len(langs) == 1 else 's'}, iteration {orchestrate.ITERATION})",
         f"model_id     {args.model_id}",
         f"resolution   {resolution}   (what the run block will record if the response "
         "agrees)",
         f"commit       {commit or '(unknown)'}  tree {tree}",
         "",
-        f"{'armrules':14}->  "
-        f"{arm_rules_path(**components, root=ROOT).relative_to(ROOT)}",
     ]
+    # One line per language, because one call authors one file (DESIGN §5.6): a single
+    # `armrules` line would name whichever language happened to be first and read as the
+    # whole of what the arm writes.
+    for lang in langs:
+        lines.append(f"{'armrules':14}->  "
+                     f"{arm_rules_path(**components, lang=lang, root=ROOT).relative_to(ROOT)}")
     for key in PLAN_KEYS:
         template = path_template(key)
         lines.append(f"{key:14}->  {template.format(**components)}")
@@ -183,9 +216,10 @@ def main(argv: list[str] | None = None) -> int:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     ap.add_argument("--corpus", required=True, help="corpus id from naming.yaml")
-    ap.add_argument("--lang", required=True,
-                    help="the rule-file language this call authors; must be one the "
-                         "corpus loads (corpus_rule_langs, DESIGN §5.2)")
+    ap.add_argument("--lang", default=None,
+                    help="refused (DESIGN §5.6). The arm authors one file per language in "
+                         "corpus_rule_langs; the flag is kept so that passing it says why "
+                         "rather than printing an argparse error")
     ap.add_argument("--model-id", required=True,
                     help="the Bedrock id to call. Required and with no default: the id is "
                          "a parameter end to end (DESIGN §10 A2), and a default here is "
@@ -208,7 +242,7 @@ def main(argv: list[str] | None = None) -> int:
     args = ap.parse_args(argv)
 
     try:
-        problem = _check_axes(args)
+        problem = _check_lang(args) or _check_axes(args)
     except CorpusError as exc:
         print(f"{exc}", file=sys.stderr)
         return 2
@@ -268,7 +302,7 @@ def main(argv: list[str] | None = None) -> int:
     print()
     try:
         out = orchestrate.run_arm(
-            corpus=args.corpus, lang=args.lang, model_id=args.model_id,
+            corpus=args.corpus, model_id=args.model_id,
             detector=args.detector, supervision=args.supervision, porting=args.porting,
             split=args.split, max_tokens=args.max_tokens,
         )
@@ -278,10 +312,13 @@ def main(argv: list[str] | None = None) -> int:
 
     cost = out["cost"]
     print(f"outcome      {out['outcome']}")
-    print(f"cost         {cost['llm_calls']} call, {cost['prompt_tokens']} prompt + "
+    print(f"cost         {cost['llm_calls']} call"
+          f"{'' if cost['llm_calls'] == 1 else 's'}, {cost['prompt_tokens']} prompt + "
           f"{cost['completion_tokens']} completion tokens, "
           f"{cost['wall_seconds']}s wall")
-    print(f"rules        {Path(out['rules_path']).relative_to(ROOT)}")
+    for lang, path in out["rules_paths"].items():
+        failed = " (did not load)" if lang == out["failed_lang"] else ""
+        print(f"rules        {Path(path).relative_to(ROOT)}{failed}")
 
     if out["outcome"] == orchestrate.FORMAT_FAILURE:
         # Exit 1 and not 0: the arm ran and this is a result the appendix reports (DESIGN

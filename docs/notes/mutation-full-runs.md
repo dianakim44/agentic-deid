@@ -137,6 +137,56 @@ with no "unchanged" claimed for them.
 **The 184 mutations outside the traced scope were not measured and are deferred to the next full
 run.**
 
+### Three outstanding, and a full run owed on the letter of the rule — the one-call-per-language repair, 2026-09-28
+
+**The third entry of 2026-09-28, and the first where the run that was made is narrower than the
+rule asks for.** DESIGN §5.6 was written and then implemented: `run_arm` authors one file per
+language in `corpus_rule_langs` instead of taking a `lang`, and `load_for_corpus` refuses a
+declared language whose file is absent instead of returning zero rules for it. That is a change
+in **two** `src/` modules — `src/orchestrate.py` and `src/rules.py` — and CLAUDE.md's
+"`src/` 광범위 변경 — 두 개 이상의 모듈" makes two modules a **full-run** trigger. No full run was
+made. **This is a deferral and it is recorded as one; it is not an exemption.**
+
+`TEST_FILES` did not move: `tests/test_orchestrate.py` and `tests/test_rules.py` were already
+members. So the denominator every recorded count is over — those 33 files — is unchanged, and the
+recorded counts stay comparable in principle; what is missing is the measurement, not the basis
+for one. The full-run *size* does move, 230 → **233**, from the three mutations added below, and
+that is a different quantity from the denominator. The suite moved 2,219 → **2,229** (7
+new tests in `test_orchestrate.py`, 3 in `test_rules.py`; `tests/test_run_arm_cli.py` also changed
+and is outside `TEST_FILES`, so it moves nothing).
+
+**What was run: 7 mutations, serial, one tree `2397928ac041429d`, baseline 2,229, 7 of 7 caught,
+0 survived.** Not an impact-scope run by the runtime-reach rule — the reach of the two changed
+test files is most of `src/` — but the seven whose anchors this edit disturbed or added, measured
+to establish that they still apply and still kill.
+
+**Three counts differ from `cf51f7eb0530`'s sidecar and carry `‡`:**
+`the_call_is_logged_after_the_response_is_judged` **8 → 10**,
+`a_format_failure_writes_zeroed_metrics_too` **1 → 21**,
+`the_arm_reports_no_model_and_no_cost_to_the_scorer` **4 → 5**.
+`the_failure_record_paraphrases_the_validator` came back at 3, unchanged, and carries no marker.
+
+**The 1 → 21 is a worse mutation and not a better suite.** Its anchor had to move from the
+`except RuleError as exc:` line — no longer unique at its old indentation — to
+`spent = sum_costs(costs)`, which puts the injected `run_fold` call inside the language loop where
+the failure branch now lives. It runs against an incomplete `rules_files` mapping and raises,
+where before it quietly wrote a second metrics file. So it is caught by every test that drives the
+failure branch rather than by the one that asserted a file's absence. This is the case the
+re-anchoring rule exists for: a re-anchored mutation is re-measured whatever the scope, because
+moving an anchor can change what the mutation *is*.
+
+**Three new mutations, no sidecar entry, so no marker:**
+`a_declared_language_can_be_missing_again` **2**,
+`the_arm_calls_only_the_first_declared_language` **7**,
+`the_arm_reports_one_call_however_many_it_made` **1**.
+The first and third are the two the repair was required to come with. The second was added
+because those two leave the driver's loop unguarded — `langs[:1]` authors one file and passes
+both. All three are invisible on a one-language corpus, which is why their tests drive a patched
+`naming()` rather than the corpora on disk, and why the defect survived four corpora.
+
+**The 218 mutations outside these seven were not measured and are deferred to the next full run,
+which is now owed on two grounds** — the 2026-09-23 debt below and this two-module change.
+
 ### One outstanding — the ko rule-id widening, 2026-09-28
 
 **The same day as the entry above and after it.** `RULE_ID_VOCAB_BY_LANG['ko']` gained four

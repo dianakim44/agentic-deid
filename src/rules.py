@@ -775,10 +775,34 @@ def load_for_corpus(corpus: str, *, paths: dict[str, Path] | None = None,
     language's file, while a `lexicon:` reference names its own language and need not name
     the rule file's (`_read_lexicon`). So the same collection is handed to every language,
     and which list inside it a rule reads is the rule's statement.
+
+    **A declared language whose file is not there is a refusal, not zero rules** (DESIGN
+    §5.6, added 2026-09-28). `load_rules` returns an empty `RuleSet` for an absent path and
+    that is right at the single-file level — "we looked here and it was not there" is a fact
+    worth carrying, and the docstring above says so. At the *corpus* level the same tolerance
+    is a hole: `load_for_corpus("es-carmen", paths={"es": …})` used to return the Spanish
+    rules, `versions {'es': 1}` and a `sources` block naming a `cat` path that does not
+    exist, with no error — so an arm scored a two-language corpus with zero Catalan rules
+    and wrote a `rules_version` that simply omitted the language. Nothing downstream could
+    tell that from a corpus which had never declared `cat`.
+
+    The refusal is here and not in `run_fold` because this is the function that knows both
+    halves — which languages were declared and where each one resolved — and because
+    `run_fold` is not the only caller: `tools/check_rules.py` and `run_sealed_eval` reach
+    this too, and a guard only the scorer enforced would have two ways around it.
+
+    It names every missing language at once rather than the first, because a two-language
+    corpus with neither file present should not need two runs to find out.
     """
     combined = RuleSet()
+    missing: list[str] = []
     for lang in rule_langs(corpus):
         part = load_rules(lang, path=(paths or {}).get(lang), lexicons=lexicons)
+        # `sources` is filled even for an absent path, so it is where the resolved location
+        # is read back from — the alternative, recomputing `paths.rules` here, would be a
+        # second place that decides where a language's file lives.
+        if lang not in part.versions:
+            missing.append(f"{lang} -> {part.sources.get(lang, '(unresolved)')}")
         combined.rules.extend(part.rules)
         combined.versions.update(part.versions)
         combined.sources.update(part.sources)
@@ -786,4 +810,14 @@ def load_for_corpus(corpus: str, *, paths: dict[str, Path] | None = None,
         # the same path — the reference carries its own language, so the key cannot collide
         # across files while meaning two different things.
         combined.lexicon_sources.update(part.lexicon_sources)
+    if missing:
+        raise RuleError(
+            f"{corpus} declares corpus_rule_langs {rule_langs(corpus)} and "
+            f"{len(missing)} of them resolved to a path with no rule file at it: "
+            f"{'; '.join(missing)}. Loading the rest would score this corpus with zero "
+            "rules for that language and write a rules_version omitting it, which reads "
+            "identically to a corpus that never declared it (DESIGN §5.6). Pass the "
+            "language's path in `paths`, or take the language out of config/naming.yaml's "
+            "corpus_rule_langs."
+        )
     return combined

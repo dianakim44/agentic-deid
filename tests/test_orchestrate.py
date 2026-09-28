@@ -75,8 +75,11 @@ MODULE = ROOT / "src" / "orchestrate.py"
 
 ARM = ("es-meddocan", "R", "sup-free")
 
-#: The arm as `run_arm()` takes it, keyword for keyword.
-ARM_KW = dict(corpus="es-meddocan", lang="es", detector="R", supervision="sup-free")
+#: The arm as `run_arm()` takes it, keyword for keyword. **No `lang`**: it carried one until
+#: 2026-09-28, and DESIGN §5.6 took it out — the languages are `corpus_rule_langs`'s answer
+#: and a caller-supplied one was the second answer that let a two-language corpus be scored
+#: from a single file.
+ARM_KW = dict(corpus="es-meddocan", detector="R", supervision="sup-free")
 
 #: Passed to `run_arm(model_id=...)`. Undated on purpose — `alias-unresolved` is what the
 #: real ladder records (`docs/notes/baseline-model-family.md`), so the arm's records are
@@ -125,6 +128,22 @@ AN_ENVELOPE = {"response_chars": 0, "response_sha256": "sha256:0", "envelope": "
 #: Schema-valid YAML that is not a rule file. Fails in `load_rules`' own checks rather than
 #: in the parser, so the two failure kinds are both covered by name.
 WRONG_SHAPE = "version: 1\nlang: fr\nrules: []\n"
+
+#: The second language's file in a two-language arm (DESIGN §5.6). It has to declare its own
+#: `lang` — `load_rules("cat", …)` refuses a file saying `es` — which is what makes the
+#: per-language validation testable rather than assumed. The term is Catalan and matches
+#: nothing in MEDDOCAN, deliberately: this arm's Spanish file is what fires, so a bilingual
+#: run scores on the same spans as a monolingual one and the only thing that moves is the
+#: call count.
+CAT_RULES = """
+version: 1
+lang: cat
+rules:
+  - rule_id: probe_servei
+    layer: gazetteer
+    phi_type: ORGANISATION
+    terms: ["Servei Zzyzx"]
+"""
 
 
 @pytest.fixture
@@ -218,9 +237,67 @@ def arm(tree, monkeypatch):
     return tree
 
 
+@pytest.fixture
+def two_langs(monkeypatch):
+    """`es-meddocan` declared as loading `es` *and* `cat`, for every consumer at once.
+
+    **Why `es-meddocan` and not `es-carmen`.** CARMEN-I is the real two-language corpus and
+    cannot be used here yet: its loader is not written, so there is nothing to score and a
+    test of the driver would skip everywhere. What DESIGN §5.6 fixes is the *driver's*
+    structure — N calls, N files, one window, one scoring run, `llm_calls: N` — and that
+    structure is the same for any N over any corpus. The real corpus is what the loader's own
+    tests will use.
+
+    **Why the patch is at `naming()` and not at `rule_langs()`.** Three modules have to agree
+    or the test measures the patch instead of the code: `orchestrate` asks which languages,
+    `llm.prompt` refuses to assemble a prompt for a language the corpus does not load, and
+    `rules.load_for_corpus` decides which files scoring requires. All three reach
+    `corpus_rule_langs` through `base.rule_langs`, which reads `naming()` as a module global —
+    so one patch there moves all three, and a patch on `rule_langs` in one importing module
+    would give an arm that makes two calls and a prompt assembler that refuses the second.
+    """
+    from src.corpora import base
+
+    real = base.naming()
+    doubled = {**real, "corpus_rule_langs": {**real["corpus_rule_langs"],
+                                             "es-meddocan": ["es", "cat"]}}
+    monkeypatch.setattr(base, "naming", lambda: doubled)
+    from src.corpora.base import rule_langs
+    assert rule_langs("es-meddocan") == ["es", "cat"], (
+        "the patch did not reach rule_langs; every assertion below would be about the "
+        "monolingual arm")
+    return ["es", "cat"]
+
+
 def an_answer(text: str, **kw) -> FakeRuntime:
     """A transport that replies with `text`. Kept to one line at every call site."""
     return FakeRuntime(reply(text, **kw))
+
+
+class Answers:
+    """A transport that replies with each response in turn — `FakeRuntime` with a queue.
+
+    Needed because an arm on a two-language corpus makes two calls and the two responses are
+    different files: the second has to declare `lang: cat` or `load_rules` refuses it, which
+    is the check that makes "one call authors one file" testable at all (DESIGN §5.6).
+
+    The response *shape* is still `reply()`'s, so this is not a second fake of the `converse`
+    contract — it is the same canned response, twice, in an object that hands them out in
+    order. Running off the end raises rather than repeating the last one: an arm that made
+    three calls where the test prepared two is a failure this class must not absorb.
+    """
+
+    def __init__(self, *responses: dict):
+        self.responses = list(responses)
+        self.calls: list[dict] = []
+
+    def converse(self, **kwargs):
+        self.calls.append(kwargs)
+        if len(self.calls) > len(self.responses):
+            raise AssertionError(
+                f"the arm made call {len(self.calls)} and {len(self.responses)} "
+                "response(s) were prepared")
+        return self.responses[len(self.calls) - 1]
 
 
 def sent_text(call: dict) -> str:
@@ -838,7 +915,7 @@ def test_the_rule_file_goes_under_the_arm_and_not_to_the_bootstrap_path(arm,
     `metrics.json` behind, which is worse than an overwritten record because nothing about
     the numbers looks wrong afterwards."""
     out = run_arm(**ARM_KW, model_id=MODEL, client=an_answer(GOOD_RULES))
-    assert out["rules_path"].relative_to(arm).as_posix() == (
+    assert out["rules_paths"]["es"].relative_to(arm).as_posix() == (
         "results/es-meddocan/R/sup-free/port-oneshot/rules/iter1/es.yaml")
     assert not (arm / "rules" / "es.yaml").exists()
 
@@ -858,7 +935,7 @@ def test_the_rule_file_is_round_scoped_and_the_results_are_not(arm, corpus_prese
     `_write_rules` — and each looks like removing an inconsistency.
     """
     out = run_arm(**ARM_KW, model_id=MODEL, client=an_answer(GOOD_RULES))
-    assert "iter1" in out["rules_path"].as_posix()
+    assert "iter1" in out["rules_paths"]["es"].as_posix()
     assert out["metrics_path"].parent.name == "port-oneshot"
     assert out["spans_path"].parent.name == "port-oneshot"
     # And no round directory anywhere under the arm — the error list is the one that matters
@@ -874,7 +951,7 @@ def test_the_response_is_written_verbatim(arm, corpus_present):
     zero — the same edit, with nothing in the record to show it happened."""
     text = GOOD_RULES + "\n# trailing comment the model wrote\n"
     out = run_arm(**ARM_KW, model_id=MODEL, client=an_answer(text))
-    assert out["rules_path"].read_text(encoding="utf-8") == text
+    assert out["rules_paths"]["es"].read_text(encoding="utf-8") == text
 
 
 def test_the_arm_scores_the_file_it_just_wrote(arm, corpus_present):
@@ -1086,7 +1163,7 @@ def test_the_failure_record_names_the_file_it_could_not_load(arm):
     record = failure_record()
     assert record["rules_path"].endswith("rules/iter1/es.yaml")
     assert not record["rules_path"].startswith("/")
-    assert out["rules_path"].read_text(encoding="utf-8") == UNPARSEABLE, (
+    assert out["rules_paths"]["es"].read_text(encoding="utf-8") == UNPARSEABLE, (
         "the response is kept at the path the record names, so the artefact and the "
         "message are both available")
 
@@ -1233,15 +1310,192 @@ def test_an_empty_model_id_is_refused(arm):
     assert "model_id is required" in str(e.value)
 
 
-def test_a_lang_the_corpus_does_not_load_is_refused(arm):
-    """One call authors one file, and a file no corpus loads would be scored by nothing
-    (DESIGN §5.2, `corpus_rule_langs`). Refused before the call, so nothing is paid for a
-    result that cannot be read."""
+def test_the_arm_takes_no_language_and_will_not_be_given_one(arm):
+    """DESIGN §5.6, as the shape of the signature.
+
+    This replaces `test_a_lang_the_corpus_does_not_load_is_refused`, which checked that a
+    caller-supplied language was one the corpus loads. That check was the right one for a
+    function that took a language, and the finding of 2026-09-28 is that it should not: the
+    two authorities agreed for four corpora and `es-carmen` is where they came apart, with
+    `lang="es"` on a corpus declaring `[es, cat]` producing one file and a complete-looking
+    score. So the parameter is gone rather than better validated, and a caller still passing
+    one gets a `TypeError` from Python — not a silently ignored keyword, which is what a
+    `**kwargs` signature would have given.
+    """
     fake = an_answer(GOOD_RULES)
-    with pytest.raises(OrchestrateError) as e:
-        run_arm(**{**ARM_KW, "lang": "de"}, model_id=MODEL, client=fake)
-    assert "corpus_rule_langs" in str(e.value)
+    with pytest.raises(TypeError) as e:
+        run_arm(**ARM_KW, lang="de", model_id=MODEL, client=fake)
+    assert "lang" in str(e.value)
     assert fake.calls == [], "refused after the call is a refusal that costs money"
+
+
+# ─── two languages: N calls, N files, one window, one score (DESIGN §5.6) ───
+
+def test_the_arm_makes_one_call_per_declared_language(arm, two_langs, corpus_present):
+    """The defect this section exists for, stated as a count.
+
+    Before 2026-09-28 an arm made exactly one call and authored exactly one file, whatever
+    the corpus declared. On `es-carmen` — `corpus_rule_langs: [es, cat]` — that produced a
+    scored run whose Catalan half had never been written, and nothing in the artefacts said
+    so: `load_rules` on an absent path returns zero rules without an error, so the metrics
+    read as "Catalan rules caught nothing" rather than as "there were none".
+
+    Two calls is therefore the assertion, and both responses are prepared, so an arm that
+    made one would fail on the second file's absence and an arm that made three would fail
+    inside `Answers`. The Catalan file matches nothing in MEDDOCAN on purpose: the spans are
+    the monolingual arm's spans, so what this test measures is the call structure and not a
+    score that moved.
+    """
+    fake = Answers(reply(GOOD_RULES), reply(CAT_RULES))
+    out = run_arm(**ARM_KW, model_id=MODEL, client=fake)
+
+    assert out["outcome"] == SCORED
+    assert len(fake.calls) == 2
+    assert sorted(out["rules_paths"]) == ["cat", "es"]
+    for lang in two_langs:
+        assert out["rules_paths"][lang].name == f"{lang}.yaml"
+        assert out["rules_paths"][lang].parent.name == "iter1"
+
+
+def test_the_calls_are_in_the_configs_order_and_each_prompt_is_its_own_language(
+        arm, two_langs, corpus_present):
+    """Order from `corpus_rule_langs`, not from a sort or a set.
+
+    It matters for two reasons that are both about reading the record afterwards: the log
+    lines are appended in call order, so a reader pairing line 1 with the first declared
+    language has to be right; and a `dict` of responses keyed by language would have made
+    this test pass for any order at all. So the prompts are checked — each call carries its
+    own language's task prompt — rather than just the count.
+    """
+    fake = Answers(reply(GOOD_RULES), reply(CAT_RULES))
+    run_arm(**ARM_KW, model_id=MODEL, client=fake)
+
+    first, second = (sent_text(c) for c in fake.calls)
+    assert two_langs == ["es", "cat"]
+    # Matched on §1.1's "Target file:" line, which is the prompt's own statement of which
+    # file this call authors — and the only thing that differs between the two prompts. A
+    # bare `"cat" in text` would pass on either prompt: the word occurs in the shared
+    # instructions, which is how the first version of this assertion failed.
+    assert "Target file: rules/es.yaml" in first
+    assert "Target file: rules/cat.yaml" in second
+    assert "Target file: rules/cat.yaml" not in first
+
+
+def test_each_call_gets_its_own_log_line_and_they_are_told_apart_by_the_reference(
+        arm, two_langs, corpus_present):
+    """N calls, N lines, one iteration — and no new field to distinguish them.
+
+    Both lines carry `iteration: 1`, because one arm has one round however many languages it
+    authors. What separates them is already in the prompt reference: `lang`, and a
+    `text_sha256` over that language's own prompt text. Asserted because the alternative was
+    tempting and wrong — adding a top-level `lang` to the log line would put the same fact in
+    two places and make every pre-2026-09-28 line missing a field.
+    """
+    run_arm(**ARM_KW, model_id=MODEL, client=Answers(reply(GOOD_RULES), reply(CAT_RULES)))
+
+    lines = calls()
+    assert len(lines) == 2
+    assert [line["iteration"] for line in lines] == [ITERATION, ITERATION]
+    assert [line["prompt_reference"]["lang"] for line in lines] == two_langs
+    hashes = {line["prompt_reference"]["text_sha256"] for line in lines}
+    assert len(hashes) == 2, "two languages, two prompts, two hashes"
+
+
+def test_the_cost_block_counts_the_calls_and_not_the_arm(arm, two_langs, corpus_present):
+    """`llm_calls` is the number of languages. **This is the second mandatory mutation.**
+
+    CLAUDE.md requires cost beside quality, and the failure mode here is the one that makes a
+    result look cheaper than it was: an arm reporting `llm_calls: 1` after two calls halves
+    the denominator of every cost-per-point comparison in the manuscript, and the tokens are
+    the tell only if someone looks. Summed through `scorer.sum_costs`, so the arithmetic is
+    the scorer's and this asserts the total rather than re-deriving it.
+    """
+    fake = Answers(reply(GOOD_RULES, tokens=(1000, 10)), reply(CAT_RULES, tokens=(2000, 20)))
+    out = run_arm(**ARM_KW, model_id=MODEL, client=fake)
+
+    assert out["cost"]["llm_calls"] == len(two_langs) == 2
+    assert (out["cost"]["prompt_tokens"], out["cost"]["completion_tokens"]) == (3000, 30)
+    cost = json.loads(out["metrics_path"].read_text(encoding="utf-8"))["cost"]
+    assert cost["llm_calls"] == 2, "and the file says so too, which is what gets cited"
+
+
+def test_two_languages_are_scored_in_one_run_over_both_files(arm, two_langs,
+                                                             corpus_present):
+    """One window, one `metrics.json`, both files named in it (DESIGN §5.6).
+
+    The alternative — score per language and write two metrics files — is what a naive loop
+    produces, and it is wrong in a way that cannot be repaired afterwards: the leak rate is a
+    property of the union of predictions over the fold, so a per-language leak rate counts a
+    span the other language caught as a leak. `rules_source` carries both paths, which is
+    what a re-run needs, and `rules_version` carries both files' declared versions.
+    """
+    out = run_arm(**ARM_KW, model_id=MODEL, client=Answers(reply(GOOD_RULES),
+                                                           reply(CAT_RULES)))
+    run = json.loads(out["metrics_path"].read_text(encoding="utf-8"))["run"]
+
+    assert sorted(run["rules_source"]) == ["cat", "es"]
+    assert sorted(run["rules_version"]) == ["cat", "es"]
+    assert run["rules"] == ["cat:probe_servei", "es:probe_org"]
+    # One scoring run: no second metrics file anywhere under the arm.
+    results = arm / "results" / "es-meddocan" / "R" / "sup-free" / "port-oneshot"
+    assert [p.relative_to(results).as_posix()
+            for p in sorted(results.rglob("metrics.json"))] == ["metrics.json"]
+
+
+def test_a_language_that_does_not_load_ends_the_arm_and_the_cost_is_both_calls(
+        arm, two_langs):
+    """The second language fails validation: the arm stops, and the spend is what was spent.
+
+    Two things are asserted together because each is wrong on its own. The arm ends rather
+    than scoring the languages that did load — a run scored from one of two files is the
+    original defect wearing a `FORMAT_FAILURE` label. And the cost block is the sum of *both*
+    calls, not the failing one: §10 A2 fixes format retries at zero, so the first call is
+    money this arm spent and will not spend again, and recording only the failure would make
+    the appendix's cost total depend on which call failed.
+
+    No `corpus_present`: nothing is scored on this path, so the assertions hold on a machine
+    with no MEDDOCAN checkout.
+    """
+    fake = Answers(reply(GOOD_RULES, tokens=(1000, 10)),
+                   reply(WRONG_SHAPE, tokens=(2000, 20)))
+    out = run_arm(**ARM_KW, model_id=MODEL, client=fake)
+
+    assert out["outcome"] == FORMAT_FAILURE
+    assert out["failed_lang"] == "cat"
+    assert out["metrics_path"] is None and not metrics_beside().exists()
+    assert out["cost"]["llm_calls"] == 2
+    assert out["cost"]["prompt_tokens"] == 3000
+    assert failure_record()["cost"]["llm_calls"] == 2
+    # The first language's file stays on disk. It is what the model wrote, the call is
+    # logged, and deleting it would leave a logged call with no artefact behind it.
+    assert out["rules_paths"]["es"].exists()
+
+
+def test_two_calls_disagreeing_about_the_model_are_refused(arm, two_langs):
+    """One arm, one run block, one model triple — so two different answers is a refusal.
+
+    **What the reachable disagreement actually is.** A second call reporting a genuinely
+    different id never gets here: `bedrock` refuses a response naming a model other than the
+    one requested, per call. And `model_id` and `model_id_resolution` are both derived from
+    the *requested* id, which is one argument to the arm. So the one field that can differ
+    across two calls of one arm is `model_id_reported` — present on one call, absent on the
+    other, which is the shape driven here.
+
+    Refused rather than resolved, and the tension with `bedrock`'s own stance is deliberate.
+    That module treats silence as `alias-unresolved` and not as a mismatch, because a field
+    the platform stopped sending should not block a run. At the arm level the question is
+    different: there is one triple in the run block, and filling it from the call that
+    answered would state that resolution for a call that did not. `agent_calls.jsonl` keeps
+    both per-call records either way, so refusing loses no evidence — and the arm is left with
+    nothing scorable, which is the honest outcome for a run that cannot say what produced half
+    of its rules.
+    """
+    fake = Answers(reply(GOOD_RULES), reply(CAT_RULES, model=None))
+    with pytest.raises(OrchestrateError) as e:
+        run_arm(**ARM_KW, model_id=MODEL, client=fake)
+    assert "'es'" in str(e.value) and "'cat'" in str(e.value)
+    assert not metrics_beside().exists()
+    assert len(calls()) == 2, "both calls are logged; it is the run block that is refused"
 
 
 def test_the_arm_refuses_after_its_call_has_been_made(arm):

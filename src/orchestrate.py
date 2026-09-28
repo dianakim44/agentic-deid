@@ -1,10 +1,19 @@
 """The `port-oneshot` orchestrator. This file holds its window freeze.
 
-`port-oneshot` is the baseline rung: one LLM call writes `rules/{lang}.yaml` and the arm
-is over (DESIGN §4). `run_arm()` is the whole arm — freeze the window, assemble §§1.1–1.2,
-call once, validate what came back against the rule schema, and then either score the fold
-or record the format failure. The freeze is written first and everything after it is
-described below in the order it happens.
+`port-oneshot` is the baseline rung: one LLM call per rule-file language writes that
+language's file and the arm is over (DESIGN §4, §5.6). `run_arm()` is the whole arm —
+freeze the window, then for each language the corpus declares assemble §§1.1–1.2, call,
+validate what came back against the rule schema — and then either score the fold once over
+every file or record the format failure. The freeze is written first and everything after
+it is described below in the order it happens.
+
+**One call per declared language, and the count comes from the config** (DESIGN §5.6,
+2026-09-28). Four of the five corpora declare one language and for them this file is what
+it always was; `es-carmen` declares `es` and `cat`, so its arm is two calls, two files, one
+window, one scoring run, and `llm_calls: 2`. There is no `lang` parameter — which languages
+an arm authors is `corpus_rule_langs`'s answer, and the version of this function that took
+one wrote a single file for a two-language corpus and had it accepted by scoring, which is
+the defect §5.6 was written to close.
 
 **Why the freeze is not `human_arm.freeze_window()`.** That function is pinned to
 `paths.humanfreeze` and writes `"porting": "port-human"` as a literal, and DESIGN §6.3
@@ -102,7 +111,11 @@ from .corpora.base import (
     ROOT, CorpusError, axis, check_agent_role, path_template, rule_langs,
 )
 from .eval.run_fold import DEFAULT_SPLIT, run_fold
-from .eval.scorer import check_run
+# `sum_costs` and not a loop over the blocks here: an arm that makes N calls has to add N
+# `REQUIRED_COST` blocks, and DESIGN §11.3's arithmetic lives in the module that publishes
+# and validates the block rather than in the module that decides how many calls to make
+# (`scorer.sum_costs`, its own docstring on why the driver is the wrong home).
+from .eval.scorer import check_run, sum_costs
 from .eval import sealed_log
 from .llm.bedrock import invoke, model_lifecycle
 # The one unwrapper, DESIGN §6.8. Imported here because this module owns the call log's
@@ -202,7 +215,7 @@ OUTCOMES = (CALLED, SCORED, FORMAT_FAILURE)
 #: "was this the block that ran".
 TEXT_KEYS = frozenset({"text", "surface", "context", "snippet"})
 
-#: The role `port-oneshot`'s one call carries. A default on `call_line()` rather than a
+#: The role every `port-oneshot` call carries. A default on `call_line()` rather than a
 #: literal at the call site, and it is the value the whole arm has: this file drives the
 #: RuleAuthor and calls no Auditor (DESIGN §4 — one call, and the Auditor enters at
 #: `port-loop`'s round 2). Read through `check_agent_role()` at write time, so the vocabulary
@@ -747,8 +760,10 @@ def call_line(iteration: int, *, prompt_reference: dict, model: dict,
     line about the wrong *call*, and reporting its `outcome` spelling first would send a reader
     to fix the spelling of a call that should not have been made.
 
-    Defaulted rather than required, and the default is this file's own arm. `port-oneshot`
-    makes one call and it is the RuleAuthor's; `port-loop`'s driver passes both values
+    Defaulted rather than required, and the default is this file's own arm. Every call
+    `port-oneshot` makes is the RuleAuthor's, whether that is one call or one per declared
+    language (DESIGN §5.6 — the language changes, the role does not); `port-loop`'s driver
+    passes both values
     explicitly, which is the asymmetry §5.5 wanted from a shared helper — the baseline's
     driver does not change while the iterating arm is built, and the iterating arm cannot
     inherit a default that happens to be right for one of its two agents.
@@ -1201,38 +1216,68 @@ def _write_failure(*, corpus: str, detector: str, supervision: str, porting: str
     return path
 
 
-def run_arm(*, corpus: str, lang: str, model_id: str,
+def run_arm(*, corpus: str, model_id: str,
             detector: str = DETECTOR, supervision: str = SUPERVISION,
             porting: str = PORTING, split: str = DEFAULT_SPLIT,
             max_tokens: int | None = None, client=None, control_client=None) -> dict:
-    """The whole arm: freeze, assemble, call once, validate, then score or record failure.
+    """The whole arm: freeze, then one call per declared language, then score or record.
 
     Returns what happened, as a mapping with `outcome` (`SCORED` or `FORMAT_FAILURE`), the
     cost block, the run block, and the paths written. Nothing about it is a summary the
     caller has to trust: every value in it is also on disk.
 
+    **One arm makes one call per language in `corpus_rule_langs`, and is scored once over
+    all of them** (DESIGN §5.6, decided 2026-09-28). For the four single-language corpora
+    that is one call and this is the function it always was; for `es-carmen` it is two, and
+    the paragraph below is why there is no `lang` parameter to say which.
+
     The order is fixed and each step's position is load-bearing:
 
-    1. **Freeze the window** (DESIGN §6.3, "freeze last"). Immediately before the call and
-       not at the top of a setup script, because a freeze taken before the surrounding work
-       is settled gets retaken — six times, before `port-human`'s iteration 1.
+    1. **Freeze the window** (DESIGN §6.3, "freeze last"). Once per arm, before any call —
+       the window is the arm's and not the language's, because the same dev evidence is the
+       input to every language's call. Immediately before the call and not at the top of a
+       setup script, because a freeze taken before the surrounding work is settled gets
+       retaken — six times, before `port-human`'s iteration 1.
     2. **Assemble §§1.1–1.2** through `assemble_task_prompt()`, which draws nothing. §§1.3
        and 1.4 are stated empty in the prompt (DESIGN §4), and the freeze record says the
        same thing in its own words so the two can be compared.
-    3. **Probe the model's lifecycle**, then **call once.** `bedrock.invoke()` makes one
-       attempt and this makes one call; there is no loop here to bound. The probe is a
-       control-plane lookup that makes no inference, so it is not in `cost` — counting it in
-       `llm_calls` would make this arm's cost incomparable to `port-loop`'s for a reason
-       having nothing to do with either — and it goes before the call rather than after so
-       that anything surprising it does happens while the arm can still be rerun.
-    4. **Log the call**, before the response is judged. See the module docstring: the log
+    3. **Probe the model's lifecycle**, then **call once per language.** The probe is one
+       per arm: it is a control-plane lookup about the model, it makes no inference, and so
+       it is not in `cost` — counting it in `llm_calls` would make this arm's cost
+       incomparable to `port-loop`'s for a reason having nothing to do with either. It goes
+       before the first call rather than after, so that anything surprising it does happens
+       while the arm can still be rerun. `bedrock.invoke()` makes one attempt per call and
+       there is no retry loop here to bound; the loop that does exist is over a list read
+       from the config, whose length is not this function's to decide.
+    4. **Log each call**, before its response is judged. See the module docstring: the log
        line is what fixes the window, so it is written while the only thing known about the
-       response is that it arrived.
-    5. **Validate by loading.** The response is written to `paths.armrules` and read back
-       through `src/rules.py` — the same loader `run_fold` will use, so "it validated" and
-       "it will load when scored" cannot come apart.
-    6. **Score, or record the failure.** `run_fold` on success; `paths.formatfailure` on a
-       `RuleError`, with `metrics.json` left unwritten (DESIGN §10 A2).
+       response is that it arrived. N calls are N lines, and what tells them apart is the
+       `lang` and the per-language `text_sha256` the prompt's `reference()` already carries.
+    5. **Validate by loading.** Each response is written to that language's `paths.armrules`
+       and read back through `src/rules.py` — the same loader `run_fold` will use, so "it
+       validated" and "it will load when scored" cannot come apart.
+    6. **Score once, over every file, or record the failure.** `run_fold` with all N paths
+       on success (§5.6: the union of the matches is the detection result, so N scoring runs
+       would be N partial results and no arm result); `paths.formatfailure` on a `RuleError`,
+       with `metrics.json` left unwritten (DESIGN §10 A2).
+
+    **A language whose call fails ends the arm, and the cost block is the calls that were
+    made.** There is no scorable state in a half-answered arm — scoring the languages that
+    did answer is the silent partial result §5.6 exists to forbid — so the failure record is
+    written about the response that did not load, with `cost` summed over every call
+    including it. `rules_paths` in the return mapping then holds the files written up to and
+    including the failing one, and `failed_lang` names it.
+
+    **There is no `lang` parameter and adding one back would reopen the defect.** Which
+    languages an arm authors is `config/naming.yaml`'s answer (`corpus_rule_langs`), and a
+    caller-supplied language is a second answer to the same question. The two agreed for as
+    long as every corpus in the study declared one language, which is exactly why the fifth
+    corpus was the first thing to notice they need not: with `lang="es"` on a corpus
+    declaring `[es, cat]`, this function wrote one file and scoring accepted it (DESIGN
+    §5.6's measured defect). The return mapping is `rules_paths`, a mapping of language to
+    path, and not a `rules_path` singular retained as an alias for the N = 1 case: a key
+    that reads correctly for four corpora and wrongly for the fifth is the shape of the
+    defect and not a convenience.
 
     `model_id` is required and keyword-only. It is a parameter the whole way down for A2's
     two-family comparison, and nothing in this file spells one — a recorded id that came from
@@ -1256,76 +1301,127 @@ def run_arm(*, corpus: str, lang: str, model_id: str,
             "top down; a default here would be the place it stopped being one, and the "
             "recorded value would then describe this file rather than the call."
         )
-    if lang not in rule_langs(corpus):
-        raise OrchestrateError(
-            f"{corpus} does not load a {lang!r} rule file (config/naming.yaml "
-            f"corpus_rule_langs: {rule_langs(corpus)}). One call authors one file, and a "
-            "file no corpus loads would be scored by nothing (DESIGN §5.2)."
-        )
+    # Which languages this arm authors, from the config and in the order it declares them
+    # (DESIGN §5.6). Asked once and before the freeze, so that an unknown corpus fails here
+    # rather than after a window has been written.
+    langs = rule_langs(corpus)
 
     freeze_window(corpus, detector, supervision, porting, sections=ONESHOT_SECTIONS)
 
-    # No `rules_path`: this arm's §1.2 is the empty state by definition (DESIGN §4 — one
-    # call, and there is no iteration before it to have written a file). Passing
-    # `rules/{lang}.yaml` would show the agent the committed format example as though it
-    # were the current rule set, which is the bootstrap file doing a job §5.3 took off it.
-    prompt = assemble_task_prompt(lang=lang, corpus=corpus)
-    reference = prompt.reference()
-
-    # Before the call and not after, so that if this probe ever does something surprising it
-    # does so while the arm is still repeatable. It cannot raise (`model_lifecycle` returns an
-    # `unavailable` record for every failure) and it is not counted in `cost` — a control-plane
-    # lookup makes no inference and consumes no tokens, and putting it in `llm_calls` would
-    # make this arm's cost incomparable to `port-loop`'s for a reason unrelated to either.
+    # Before the first call and not after, so that if this probe ever does something
+    # surprising it does so while the arm is still repeatable. It cannot raise
+    # (`model_lifecycle` returns an `unavailable` record for every failure) and it is not
+    # counted in `cost` — a control-plane lookup makes no inference and consumes no tokens,
+    # and putting it in `llm_calls` would make this arm's cost incomparable to `port-loop`'s
+    # for a reason unrelated to either. **Once per arm rather than once per call**: it
+    # describes the model and not the call, so a second probe would be a second answer to
+    # the same question, and it is written onto every line for the reason `role` is — a
+    # field some lines omit cannot be read across lines.
     lifecycle = model_lifecycle(model_id, client=control_client)
 
     kwargs = {} if max_tokens is None else {"max_tokens": max_tokens}
-    response = invoke(prompt, model_id=model_id, client=client, **kwargs)
-    cost = response.cost()
-    model = response.model_record()
+    costs: list[dict] = []
+    rules_files: dict[str, Path] = {}
+    model: dict = {}
+    run: dict | None = None
+    for lang in langs:
+        # No `rules_path`: this arm's §1.2 is the empty state by definition (DESIGN §4 — one
+        # call per language, and there is no iteration before it to have written a file).
+        # Passing `rules/{lang}.yaml` would show the agent the committed format example as
+        # though it were the current rule set, which is the bootstrap file doing a job §5.3
+        # took off it.
+        prompt = assemble_task_prompt(lang=lang, corpus=corpus)
+        reference = prompt.reference()
 
-    # One outer fence off if there is exactly one and what is inside is a YAML mapping;
-    # otherwise the received bytes, unchanged, on their way to a validator that will refuse
-    # them (DESIGN §6.8). This runs before the log line because the line records what was read
-    # as well as what arrived, and it cannot raise — see the module docstring on the ordering.
-    wrapper = unwrap(response.text, parses=parses_yaml)
+        response = invoke(prompt, model_id=model_id, client=client, **kwargs)
+        cost = response.cost()
+        costs.append(cost)
 
-    # Before the response is judged. The `text` never enters the line — two lengths and two
-    # hashes do (`call_line`).
-    append_call(
-        call_line(ITERATION, prompt_reference=reference, model=model,
-                  envelope=wrapper.record(),
-                  outcome=CALLED, cost=cost, model_lifecycle=lifecycle),
-        corpus, detector, supervision, porting,
-    )
+        record = response.model_record()
 
-    run = _run_block(corpus, detector, supervision, porting, split, model)
-    # The payload and not `response.text`: on `bare` and on `refused` they are the same
-    # string, and on `fenced_once` this is the strip taking effect exactly once, at the one
-    # place the file is written. The failure record below still carries the received bytes.
-    rules_file = _write_rules(wrapper.payload, corpus=corpus, detector=detector,
-                              supervision=supervision, porting=porting, lang=lang,
-                              iteration=ITERATION)
-    try:
-        load_rules(lang, path=rules_file)
-    except RuleError as exc:
-        failure = _write_failure(
-            corpus=corpus, detector=detector, supervision=supervision, porting=porting,
-            split=split, model=model, response=response.text, envelope=wrapper.record(),
-            error=str(exc), rules_path=rules_file, cost=cost, prompt_reference=reference,
-            model_lifecycle=lifecycle,
+        # One outer fence off if there is exactly one and what is inside is a YAML mapping;
+        # otherwise the received bytes, unchanged, on their way to a validator that will
+        # refuse them (DESIGN §6.8). This runs before the log line because the line records
+        # what was read as well as what arrived, and it cannot raise — see the module
+        # docstring on the ordering.
+        wrapper = unwrap(response.text, parses=parses_yaml)
+
+        # Before the response is judged. The `text` never enters the line — two lengths and
+        # two hashes do (`call_line`).
+        append_call(
+            call_line(ITERATION, prompt_reference=reference, model=record,
+                      envelope=wrapper.record(),
+                      outcome=CALLED, cost=cost, model_lifecycle=lifecycle),
+            corpus, detector, supervision, porting,
         )
-        return {
-            "outcome": FORMAT_FAILURE,
-            "run": run,
-            "cost": cost,
-            "rules_path": rules_file,
-            "failure_path": failure,
-            # Named as absent rather than omitted, for `sample_reference`'s reason: a
-            # caller branching on a missing key branches on a typo just as readily.
-            "metrics_path": None,
-            "spans_path": None,
-        }
+
+        # One arm, one run block, so one model record — and two calls answering differently is
+        # a refusal rather than a value quietly taken from the first. **After the log line, not
+        # before**: the call was made and paid for, the module's ordering invariant is that a
+        # call is logged before its response is judged, and this is a judgement of the
+        # response. Refused before it raised, the second call was money with no record of it.
+        #
+        # The reachable disagreement is narrower than it looks: `bedrock` already refuses a
+        # response naming a model other than the one requested, and `model_id` and
+        # `model_id_resolution` both come from the requested id, which is one argument. So what
+        # differs in practice is `model_id_reported` — answered on one call, absent on another.
+        # That is still a refusal here, because the run block has one triple and filling it
+        # from the call that answered states that resolution for the call that did not.
+        if model and record != model:
+            raise OrchestrateError(
+                f"the {langs[0]!r} call and the {lang!r} call of one arm report different "
+                f"model records ({model} vs {record}). One arm has one run block and it "
+                "cannot name two models; both calls are in agent_calls.jsonl, and this arm "
+                "has no scorable state (DESIGN §5.6, §10 A2)."
+            )
+        model = record
+
+        if run is None:
+            # Assembled on the first call and **before the first rule file is written**, not
+            # after the loop: the block records the working tree's state, and the files this
+            # arm writes are in that tree. Built after the writes it would report a dirty
+            # tree for an arm that ran on a clean checkout, which is the one thing the field
+            # is for. It is the arm's block and not the language's, which is why the later
+            # languages do not rebuild it.
+            run = _run_block(corpus, detector, supervision, porting, split, model)
+
+        # The payload and not `response.text`: on `bare` and on `refused` they are the same
+        # string, and on `fenced_once` this is the strip taking effect exactly once, at the
+        # one place the file is written. The failure record below still carries the received
+        # bytes.
+        rules_file = _write_rules(wrapper.payload, corpus=corpus, detector=detector,
+                                  supervision=supervision, porting=porting, lang=lang,
+                                  iteration=ITERATION)
+        rules_files[lang] = rules_file
+        try:
+            load_rules(lang, path=rules_file)
+        except RuleError as exc:
+            # `sum_costs` and not `cost`: every call this arm made was made and paid for,
+            # and a failure record carrying only the last one would understate the spend of
+            # exactly the arm that published nothing (§5.6, and `_write_failure`'s reason for
+            # holding a cost block at all).
+            spent = sum_costs(costs)
+            failure = _write_failure(
+                corpus=corpus, detector=detector, supervision=supervision, porting=porting,
+                split=split, model=model, response=response.text, envelope=wrapper.record(),
+                error=str(exc), rules_path=rules_file, cost=spent,
+                prompt_reference=reference, model_lifecycle=lifecycle,
+            )
+            return {
+                "outcome": FORMAT_FAILURE,
+                "run": run,
+                "cost": spent,
+                # Every file written, including the one that did not load. Which language
+                # failed is `failed_lang` and not the last key of this mapping: a reader who
+                # has to know the insertion order is a reader relying on the loop.
+                "rules_paths": rules_files,
+                "failed_lang": lang,
+                "failure_path": failure,
+                # Named as absent rather than omitted, for `sample_reference`'s reason: a
+                # caller branching on a missing key branches on a typo just as readily.
+                "metrics_path": None,
+                "spans_path": None,
+            }
 
     # The model record and the cost go through `run_fold` rather than being written
     # over its metrics afterwards: it owns the one write of metrics.json, and a second
@@ -1341,16 +1437,24 @@ def run_arm(*, corpus: str, lang: str, model_id: str,
     # committed result beside it — DESIGN §5.5's "what a non-iterating arm writes". One
     # path answers "which arm's input is this", the other "which round is this", and this
     # arm has an answer to the first question only.
+    #
+    # **One scoring run over every language's file** (DESIGN §5.6), and the cost is the N
+    # calls added by `scorer.sum_costs` — so `llm_calls` is the number of languages. A
+    # two-language corpus costs twice as many calls at the same rung, which is a real
+    # difference between corpora and not an accounting artefact; an arm reporting 1 would
+    # make the multilingual rung look free.
+    cost = sum_costs(costs)
     spans_file, metrics_file, scored = run_fold(
         corpus=corpus, detector=detector, supervision=supervision, porting=porting,
-        split=split, rules={lang: rules_file}, model_record=model, cost=cost,
+        split=split, rules=rules_files, model_record=model, cost=cost,
         model_lifecycle=lifecycle, root=ROOT,
     )
     return {
         "outcome": SCORED,
         "run": run,
         "cost": cost,
-        "rules_path": rules_file,
+        "rules_paths": rules_files,
+        "failed_lang": None,
         "failure_path": None,
         "metrics_path": metrics_file,
         "spans_path": spans_file,

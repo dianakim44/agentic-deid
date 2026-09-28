@@ -718,6 +718,63 @@ def test_the_same_rule_id_in_two_langs_stays_distinct(tmp_path):
     assert len({r.rule_id for r in rs.rules}) == 2
 
 
+def test_a_declared_language_with_no_file_is_refused_and_named(tmp_path):
+    """DESIGN §5.6. **The first mandatory mutation's target.**
+
+    `load_rules` on an absent path returns zero rules and no error, deliberately, because at
+    the single-file level "no rules yet" is the bootstrap state. One rung up it is not: a
+    corpus that declares two languages and is handed one file gets scored, and the metrics
+    that come out are indistinguishable from a corpus whose second language caught nothing.
+    That is what produced `es-carmen`'s single-file run.
+
+    So this raises, and the message names the language and the path it looked at — the
+    failure is "your `cat` file is not where I looked", and a refusal that does not say where
+    sends the reader to `rule_langs` when the answer is in `paths`.
+    """
+    es = write(tmp_path, [{"rule_id": "inst", "layer": "gazetteer",
+                           "phi_type": "ORGANISATION", "terms": ["Zzyzx"]}], lang="es")
+    with pytest.raises(RuleError) as e:
+        load_for_corpus("es-carmen", paths={"es": es, "cat": tmp_path / "absent" / "cat.yaml"})
+    message = str(e.value)
+    assert "cat" in message and "cat.yaml" in message
+    assert "es-carmen" in message
+
+
+def test_every_missing_language_is_named_in_one_refusal(tmp_path):
+    """All of them at once, not the first one.
+
+    Raising on the first missing language would make a two-file fix a two-run fix, and the
+    second run is the one that gets skipped once the first error is gone. Asserted on a corpus
+    where *both* declared languages are absent, which is also the state
+    `tools/check_rules.py` now reports for `de-grascco`, `en-deid` and `ko-surro` on a
+    checkout holding only `rules/es.yaml` — a silent zero before this change.
+    """
+    with pytest.raises(RuleError) as e:
+        load_for_corpus("es-carmen", paths={"es": tmp_path / "nope-es.yaml",
+                                           "cat": tmp_path / "nope-cat.yaml"})
+    message = str(e.value)
+    assert "2 of them" in message
+    assert "nope-es.yaml" in message and "nope-cat.yaml" in message
+
+
+def test_a_language_that_loads_but_declares_nothing_is_not_confused_with_a_missing_one(
+        tmp_path):
+    """The refusal is keyed on `versions`, and an empty rule list still has a version.
+
+    A file saying `version: 1 / lang: cat / rules: []` is a rule author's answer — "this
+    language needs no rules" — and it is not the same fact as no file. Keying the check on
+    `versions` rather than on whether any rule was collected is what keeps them apart; keying
+    it on `rules` would refuse the legitimate empty file, and keying it on `sources` (which is
+    filled even for an absent path) would never refuse anything, which is the mutation.
+    """
+    es = write(tmp_path, [{"rule_id": "inst", "layer": "gazetteer",
+                           "phi_type": "ORGANISATION", "terms": ["Zzyzx"]}], lang="es")
+    empty = write(tmp_path, [], lang="cat")
+    rs = load_for_corpus("es-carmen", paths={"es": es, "cat": empty})
+    assert [r.rule_id for r in rs.rules] == ["es:inst"]
+    assert set(rs.versions) == {"es", "cat"}, "both files were read; one had nothing to say"
+
+
 # ─── the committed example file ──────────────────────────────────────────────
 
 def test_the_example_rule_file_loads_if_it_exists():
