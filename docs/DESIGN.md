@@ -7160,11 +7160,66 @@ and detector behaviour would be confounded. Stratification is not a grouping cla
 unit is still the document, and no document is linked to another.
 
 The cross of the two strata is ragged and the split code must say so rather than
-silently round: `CC` and `IE` have 5 documents each, `IE` has no bilingual document at
-all, and cells like `CC`/`bi` hold exactly one. Small cells are assigned by a
-deterministic rule recorded in `splits/es-carmen.json` alongside the achieved per-fold
-density and language mix, so a reader can check what the stratification actually
-delivered instead of trusting that it was requested.
+silently round. Measured over the 2,000 documents, 12 of 15 cells are non-empty:
+
+| | `es` | `bi` | `cat` | total |
+|---|---|---|---|---|
+| `IR` | 961 | 221 | 19 | 1,201 |
+| `IA` | 573 | 31 | 13 | 617 |
+| `IT` | 154 | 11 | 7 | 172 |
+| `CC` | 4 | **1** | 0 | 5 |
+| `IE` | 5 | 0 | 0 | 5 |
+| total | 1,697 | 264 | 39 | 2,000 |
+
+**The small-cell rule, pre-registered here before the split is built.** Requested
+proportions are train 0.60 / dev 0.20 / test 0.20 — the binding values are
+`config/split.yaml`'s, stated here so the threshold below can be checked against them;
+dev is 0.20 for en-deid's reason, that the single-call arm costs one LLM call per
+document and 2,000 documents is where that matters.
+
+1. **Threshold.** A cell is too small when the smallest fold's share of it does not
+   reach one document. That is `ceil(1 / min(proportion))`, and with a smallest fold of
+   0.20 the value here is **5**. It is derived, not chosen: a corpus split 70/15/15
+   gets 7 and one split 80/10/10 gets 10, and the number changes if es-carmen's
+   proportions ever change — which they cannot, because the split file is the
+   reference point of the seal (§6). Applying the same formula to de-grascco's
+   0.50/0.30/0.20 also yields 5; that is a coincidence of both having a 0.20 smallest
+   fold, not evidence that 5 is a constant, and no cell rule ran on those splits at
+   all — they stratify on span-count terciles, which are equal-count by construction
+   and cannot produce a ragged cross.
+2. **What collapses: language, inside document type.** When any non-empty cell of a
+   document type falls below the threshold, the language dimension is folded for that
+   document type and its cells merge into one `(doctype, *)` stratum. Document types
+   are never merged with each other. Two reasons, in this order. Document type is the
+   dimension the results are cut on — §7's document-type axis carries 8 labels and
+   per-document-type tables are pre-registered output — so a stratification that
+   stopped balancing it would unbalance the confound that reporting reads. (The
+   filename doctype used here is this release's own statement of its document types and
+   the only doctype-like stratum available at split time; it is deliberately **not**
+   §7's axis, whose labels are derived from text cues that `es-carmen` declares none
+   of. `carmen_doctype_label_named_document_type` exists to keep the two apart.) And
+   the language label survives the collapse: it stays on every document as
+   `meta["language_label"]`, so the achieved per-fold language mix is still measurable
+   and reportable after the fact, where a collapsed document type would be recoverable
+   only by re-deriving it from filenames.
+3. **On this release the rule fires exactly once.** `CC` has cells of 4 and 1, both
+   below 5, so `CC` becomes one stratum of 5. `IE` is already a single non-empty cell
+   of 5 and is untouched; every other cell is 7 or more. 15 cells become **11 strata**:
+   `IR`, `IA` and `IT` keep their three languages each, plus `(CC, *)` and `(IE, es)`.
+   `(CC, bi)` = 1 is the case that makes the rule necessary rather than hypothetical —
+   a stratum of one document has an achieved fold mix of 100/0/0 whatever the
+   assignment does, so the stratification claim would be false of it.
+4. **If a collapsed stratum is still below the threshold** — not the case here — it
+   stays as it is and is assigned by the same rule as every other stratum, and the
+   split file records the shortfall. A document type with fewer than 5 documents in
+   total cannot appear in all three folds, and the honest record of that is a recorded
+   shortfall rather than a merge that hides which document type a fold is missing.
+5. **Both compositions go in `splits/es-carmen.json`:** the **requested** one (the 15
+   cells above, the threshold, and the collapse the rule performs) and the **achieved**
+   one (per fold, per stratum document counts, the language mix, and spans in scope per
+   1,000 tokens). A reader checks what the stratification delivered instead of trusting
+   that it was requested, and the two being recorded separately is what makes the
+   difference visible at all.
 
 **Limitation, stated rather than assumed away:** whether two documents belong to the
 same patient is not knowable from this release. There is no patient key, and the
