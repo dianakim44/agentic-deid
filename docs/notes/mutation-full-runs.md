@@ -96,6 +96,69 @@ generator's own figures were unfalsifiable, and `splits/ko-surro.json` was writt
 run.** Not exempt — deferred. Nothing the freeze changed can be reached from them, which is why a
 scope run was allowed, and that is a different claim from their counts being current.
 
+### Seven outstanding, four written downwards — the seal of `ko-surro`, 2026-09-28
+
+**Recorded late.** The commit that did this work (`901c2cc`) wrote the finding into
+`tests/mutations/README.md` and not here, so for the length of one session the debt existed in the
+narrative and not in the list the next full run reads. That is the failure this section exists to
+prevent and it is left visible rather than backdated.
+
+`tools/prepare_kosurro.py seal` moved 485 of 2,434 records to the sealed root, so every real-corpus
+test in `tests/test_kosurro_loader.py` now sees 1,941 documents and 1,282 gold-supported spans.
+Migrating them changed no `TEST_FILES` membership, so the suite moved 2,212 → **2,218** with the
+denominator at 230. **Scope: 46 mutations by runtime reach** (18 `src/corpora/kosurro.py`, 12
+`base.py`, 7 `config/naming.yaml`, 6 `src/split.py`, 2 `tests/conftest.py`, 1
+`tests/test_conftest.py`); one fingerprint `0b2b930409b3a190`, 8 concurrent invocations, baseline
+2,218, **46 of 46 caught, 0 survived.**
+
+Seven rose and carry `‡`: `drop_excluded` 27 → 28, `kosurro_uncovered_records_loaded` 13 → 16,
+`kosurro_uncovered_records_not_counted` 12 → 15, `kosurro_excluded_type_unmapped` 10 → 14,
+`kosurro_filter_does_nothing` 12 → 13, `kosurro_not_phi_restored_scored` 6 → 7,
+`fold_from_directory_not_file` 5 → 6.
+
+**Four fell, and only three of the four are debt.** `kosurro_denied_spans_not_counted` 3 → 2,
+`kosurro_denied_count_is_a_running_total` 3 → 2 and `kosurro_denied_count_out_of_digest` 3 → 2 each
+lost the same single catcher, `test_the_frozen_file_is_what_the_builder_produces_today`, which
+cannot be kept because `split.build("ko-surro")` now refuses (DESIGN §6.2 — on the derived route
+fold membership survives a seal and fold contents do not). The fourth,
+`sealed_root_falls_back_to_corpus` 3 → 1, is **not** debt: the world that produced the 3 required
+`ko-surro` to have no `sealed:` entry and is unreachable without un-sealing, so 1 — the sidecar's own
+figure — is the current value and that cell carries no marker. `tests/mutations/README.md`
+§"Nine `‡` were re-measured" has the reasoning for all four.
+
+**Two parentheticals are known short in the upward direction and are deferred, not exempt**:
+`kosurro_not_phi_restored_scored`'s "(2 without the corpus)" and `kosurro_excluded_type_unmapped`'s
+"(1 without the corpus)". The new `test_the_sparsity_count_is_in_scope_spans_and_not_every_span`
+runs on a synthetic root and so runs where the corpus is absent, which the 2026-09-23 argument
+assumed no new test did. A corpus-free count can only be measured on a checkout without `ko-surro`,
+this machine has it, and a derived figure is what `‡` exists to prevent — so both stand unchanged
+with no "unchanged" claimed for them.
+
+**The 184 mutations outside the traced scope were not measured and are deferred to the next full
+run.**
+
+### One outstanding — the ko rule-id widening, 2026-09-28
+
+**The same day as the entry above and after it.** `RULE_ID_VOCAB_BY_LANG['ko']` gained four
+address-component suffixes (`ro`, `gil`, `dong`, `gu`) on the precedent of the `de` layer's five
+street-type words and the 2026-09-21 `str` judgement, plus one new test in
+`tests/test_release_screen.py` — an existing `TEST_FILES` member, so the suite moved 2,218 →
+**2,219** with the denominator at 230.
+
+**Scope: the 12 mutations whose runtime reach includes `tools/release_screen.py`.** One fingerprint
+`4530960f5673eb68`, 6 concurrent invocations, baseline 2,219, **12 of 12 caught, 0 survived.**
+Exactly one count differs from `cf51f7eb0530`'s sidecar: `rule_id_vocabulary_not_checked` **25 →
+26**, and it carries `‡`. The new test's three refusal assertions stop holding when the vocabulary
+check is deleted, which is an added assertion raising a count and nothing more.
+
+**The four layer mutations did not move** — `the_language_layer_is_a_substring_test` 3,
+`an_unknown_language_gets_every_layer` 1, `a_disagreeing_prefix_still_opens_the_layer` 1,
+`the_language_layer_is_keyed_on_the_id_the_model_wrote` 3 — and that is the substantive result
+rather than an absence of one: a wider layer is still a closed set keyed on the *path's* language,
+so admitting tokens to it does not give any of those four a new way to be caught. The remaining
+seven in scope also came back identical. **The 218 mutations outside the scope were not measured
+and are deferred to the next full run.**
+
 ### Nothing outstanding — the `TEST_FILES` change of 2026-09-22 settled by the full run of the same day
 
 **The entry that stood here said all 194 counts below were owed a re-measurement and the 17 new

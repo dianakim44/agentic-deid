@@ -260,6 +260,37 @@ def test_a_layer_is_scoped_to_its_own_language():
     assert rs.rule_id_findings("  - rule_id: strasse_cue\n", lang="es")
 
 
+def test_an_address_component_suffix_is_a_mechanism_in_every_layer_that_has_one():
+    """The 2026-09-28 widening, asserted as the property that justified it.
+
+    Four Korean address-component suffixes were admitted on the ground that a suffix
+    naming a *class* of address component is a mechanism name in any language — the de
+    layer having held five street-type words on exactly that ground since 2026-09-21,
+    when the `str` judgement recorded that such a word is a distinct surface cue rather
+    than a shortening of anything. Asserted across three layers at once because the
+    argument was cross-linguistic: if the slot is open for German and Spanish and shut
+    for Korean, the reason can only be which corpus arrived first.
+
+    The second half is the part that keeps the widening from being a hole. A layer word
+    licenses itself and nothing else, so the proper noun a real address puts *in front*
+    of the suffix is still a finding — which is exactly what `city_district_gu` does in
+    the committed ko-surro arm, where `gu` now passes and `district` does not.
+    """
+    for lang, rule_id in (("ko", "street_address_ro"), ("ko", "street_address_gil"),
+                          ("ko", "street_address_dong"), ("ko", "juso_dong_cue"),
+                          ("de", "strasse_suffix_pattern"), ("de", "platz_suffix_cue"),
+                          ("es", "calle_suffix_pattern"), ("cat", "carrer_suffix_cue")):
+        assert rs.rule_id_findings(f"  - rule_id: {rule_id}\n", lang=lang) == [], (
+            f"{rule_id} was refused under the {lang} layer, which holds the suffix")
+
+    # Scoped, like every other layer word: Korean suffixes are not German ones.
+    assert rs.rule_id_findings("  - rule_id: street_address_dong\n", lang="de")
+    assert rs.rule_id_findings("  - rule_id: street_address_gil\n", lang="es")
+
+    # And the suffix does not carry the name in front of it.
+    assert rs.rule_id_findings("  - rule_id: gangnam_gu_cue\n", lang="ko")
+
+
 def test_an_unknown_language_gets_no_layer_at_all():
     """Not the union, and not an error. The pre-layer behaviour."""
     assert rs.rule_id_findings("  - rule_id: paciente_cue\n", lang="xx")

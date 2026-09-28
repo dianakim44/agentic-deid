@@ -183,6 +183,33 @@ figure reasoned into the table is the thing `‡` exists to prevent. **Deferred 
 run on a checkout without `ko-surro`** — not exempt, and with no "unchanged" claimed for them
 in the meantime.
 
+**A tenth `‡` arrived later the same day, 2026-09-28, from the ko rule-id widening, and it is
+the smallest scope run this file records.** Admitting four address-component suffixes
+(`ro`, `gil`, `dong`, `gu`) to `RULE_ID_VOCAB_BY_LANG['ko']` is a one-dict edit plus one new
+test in `tests/test_release_screen.py`, an existing `TEST_FILES` member, so the suite moved
+2,218 → **2,219** with the denominator still at 230. **Scope: the 12 mutations whose runtime
+reach includes `tools/release_screen.py`'s rule-id path or the deny/allow patterns the same
+test file exercises** — `staged_sealed_not_escalated`, `sealed_exempt_from_exit_code`,
+`allowlist_may_name_corpus_paths`, `filled_prompt_paths_allowed`, `rule_id_vocabulary_not_checked`,
+`the_language_layer_is_keyed_on_the_id_the_model_wrote`, `a_disagreeing_prefix_still_opens_the_layer`,
+`an_unknown_language_gets_every_layer`, `the_language_layer_is_a_substring_test`,
+`human_log_allowed_under_any_arm`, `the_audit_report_is_allowed_instead_of_denied`,
+`the_iteration_allow_pattern_covers_the_whole_directory`. One tree fingerprint
+`4530960f5673eb68`, 6 concurrent invocations, baseline 2,219, **12 of 12 caught, 0 survived.**
+
+**Exactly one count moved and it is the blunt one: `rule_id_vocabulary_not_checked` 25 → 26.**
+The new test asserts eight ids that the layers must accept and three that they must still
+refuse, and with the vocabulary check deleted the three refusals stop happening — so the rise
+is the added assertions doing what added assertions can only do. The four layer mutations
+did **not** rise, which is the more informative half: a wider `ko` layer is still a *closed*
+set keyed on the path's language, so widening it gives the substring, the union-fallback and
+the prefix mutations nothing new to be caught by. The widening bought vocabulary, not reach.
+
+`the_audit_report_is_allowed_instead_of_denied` at 4 and
+`the_iteration_allow_pattern_covers_the_whole_directory` at 4 were confirmed rather than
+changed, and carry no marker for the reason stated above — a `‡` on a cell that agrees with
+the sidecar is refused.
+
 `tests/test_mutation_harness.py::test_a_readme_count_that_contradicts_the_last_full_run_is_marked`
 holds both halves of that convention — a stale cell without a † fails, and so does a † on
 a cell that now agrees with the sidecar. So the markers cannot outlive the drift they
@@ -739,7 +766,7 @@ wrong, so that way gets a mutation.
 | `sealed_exempt_from_exit_code` | `if blocked or suspect` becomes `if suspect` | the exit status stops depending on BLOCKED. Its own mutation because the SEALED change moved exactly this line's meaning — SEALED must not affect the exit code and BLOCKED must, and one edit could get the first half right and the second half wrong | **1** |
 | `allowlist_may_name_corpus_paths` | `load_allowlist` stops refusing entries under `data/` and `sealed/` | the allowlist's one hard limit. `deny(p)` below still covers most corpus paths, so the edit looks harmless until `data/README.md` — the single file published out of a denied prefix, and therefore not denied. With this, a four-line JSON entry silences the content sniffer on a file inside the corpus tree | **2** |
 | `filled_prompt_paths_allowed` | the `prompts/(filled|rendered)/` deny pattern stops matching | a filled RuleAuthor prompt at `prompts/filled/iter03.md` — carrying the ±120-character context of every sampled dev error — reads as an ordinary file under `prompts/`, an ALLOW_HINTS prefix. Not merely unblocked: reported clean | **4** |
-| `rule_id_vocabulary_not_checked` | the mechanism-vocabulary check in `rule_id_findings` is removed, leaving the shape rules | the screener returns to its first version, which passes every legitimate name and also passes `es:perez_ruiz` — a surname published through `metrics.json`'s `by_rule` block, which is on the *allow* list | **25** |
+| `rule_id_vocabulary_not_checked` | the mechanism-vocabulary check in `rule_id_findings` is removed, leaving the shape rules | the screener returns to its first version, which passes every legitimate name and also passes `es:perez_ruiz` — a surname published through `metrics.json`'s `by_rule` block, which is on the *allow* list | **26** ‡ |
 
 `allowlist_may_name_corpus_paths` is the same shape as the two rows above it: a mechanism added to *reduce*
 noise, mutated at the point where reducing noise turns into suppressing the signal.
