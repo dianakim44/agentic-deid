@@ -1,0 +1,193 @@
+version: 1
+lang: ko
+
+rules:
+  - rule_id: doctor_prefix_cue
+    layer: context_cue
+    phi_type: NAME
+    cue: ["의사", "Dr.", "Dr", "선생님"]
+    then: capitalised_words
+    comment: clinician names after doctor title or honorific
+
+  - rule_id: nurse_prefix_cue
+    layer: context_cue
+    phi_type: NAME
+    cue: ["간호사"]
+    then: capitalised_words
+    comment: nurse names after nurse title
+
+  - rule_id: patient_name_cue
+    layer: context_cue
+    phi_type: NAME
+    cue: ["환자", "환자명", "성명"]
+    then: capitalised_words
+    comment: patient names after patient label
+
+  - rule_id: professor_prefix_cue
+    layer: context_cue
+    phi_type: NAME
+    cue: ["교수"]
+    then: capitalised_words
+    comment: professor names in clinical context
+
+  - rule_id: date_dot_format
+    layer: regex_checksum
+    phi_type: DATE
+    pattern: '\b\d{4}\.\d{1,2}\.\d{1,2}\b'
+    comment: dates in YYYY.MM.DD format
+
+  - rule_id: date_dash_format
+    layer: regex_checksum
+    phi_type: DATE
+    pattern: '\b\d{4}-\d{1,2}-\d{1,2}\b'
+    comment: dates in YYYY-MM-DD format
+
+  - rule_id: date_slash_format
+    layer: regex_checksum
+    phi_type: DATE
+    pattern: '\b\d{4}/\d{1,2}/\d{1,2}\b'
+    comment: dates in YYYY/MM/DD format
+
+  - rule_id: date_korean_full
+    layer: regex_checksum
+    phi_type: DATE
+    pattern: '\b\d{4}년\s*\d{1,2}월\s*\d{1,2}일\b'
+    comment: dates in Korean format with year month day markers
+
+  - rule_id: date_korean_month_day
+    layer: regex_checksum
+    phi_type: DATE
+    pattern: '\b\d{1,2}월\s*\d{1,2}일\b'
+    comment: dates in Korean format month and day only
+
+  - rule_id: phone_number_dash
+    layer: regex_checksum
+    phi_type: CONTACT
+    pattern: '\b0\d{1,2}-\d{3,4}-\d{4}\b'
+    comment: Korean phone numbers with dashes
+
+  - rule_id: phone_number_nodash
+    layer: regex_checksum
+    phi_type: CONTACT
+    pattern: '\b0\d{9,10}\b'
+    comment: Korean phone numbers without separators
+
+  - rule_id: mobile_number
+    layer: regex_checksum
+    phi_type: CONTACT
+    pattern: '\b01[0-9]-\d{3,4}-\d{4}\b'
+    comment: Korean mobile numbers
+
+  - rule_id: email_address
+    layer: regex_checksum
+    phi_type: CONTACT
+    pattern: '\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b'
+    flags: [ignorecase]
+    comment: email addresses
+
+  - rule_id: resident_registration_number
+    layer: regex_checksum
+    phi_type: ID
+    pattern: '\b\d{6}-?[1-4]\d{6}\b'
+    comment: Korean resident registration number format
+
+  - rule_id: medical_record_number
+    layer: regex_checksum
+    phi_type: ID
+    pattern: '\b[A-Z]{0,2}\d{6,10}\b'
+    comment: medical record numbers with optional letter prefix
+
+  - rule_id: insurance_number_cue
+    layer: context_cue
+    phi_type: ID
+    cue: ["보험번호", "건강보험", "의료보험"]
+    then: digits
+    comment: insurance numbers after insurance label
+
+  - rule_id: age_years_korean
+    layer: regex_checksum
+    phi_type: AGE
+    pattern: '\b\d{1,3}세\b'
+    comment: age in Korean format with se marker
+
+  - rule_id: age_years_slash
+    layer: regex_checksum
+    phi_type: AGE
+    pattern: '\b\d{1,3}\s*/\s*[MFmf]\b'
+    comment: age slash gender format
+
+  - rule_id: hospital_suffix_pattern
+    layer: regex_checksum
+    phi_type: ORGANISATION
+    pattern: '\p{L}+병원'
+    flags: [unicode]
+    comment: institution names ending in hospital
+
+  - rule_id: clinic_suffix_pattern
+    layer: regex_checksum
+    phi_type: ORGANISATION
+    pattern: '\p{L}+의원'
+    flags: [unicode]
+    comment: institution names ending in clinic
+
+  - rule_id: medical_center_suffix
+    layer: regex_checksum
+    phi_type: ORGANISATION
+    pattern: '\p{L}+의료원'
+    flags: [unicode]
+    comment: institution names ending in medical center
+
+  - rule_id: university_hospital_pattern
+    layer: regex_checksum
+    phi_type: ORGANISATION
+    pattern: '\p{L}+대학교?\s*병원'
+    flags: [unicode]
+    comment: university hospital names
+
+  - rule_id: street_address_dong
+    layer: regex_checksum
+    phi_type: LOCATION_STREET
+    pattern: '\p{L}+동\s*\d+번지?'
+    flags: [unicode]
+    comment: Korean addresses with dong and number
+
+  - rule_id: street_address_ro
+    layer: regex_checksum
+    phi_type: LOCATION_STREET
+    pattern: '\p{L}+로\s*\d+'
+    flags: [unicode]
+    comment: Korean addresses with ro street suffix
+
+  - rule_id: street_address_gil
+    layer: regex_checksum
+    phi_type: LOCATION_STREET
+    pattern: '\p{L}+길\s*\d+'
+    flags: [unicode]
+    comment: Korean addresses with gil alley suffix
+
+  - rule_id: city_district_gu
+    layer: regex_checksum
+    phi_type: LOCATION_AREA
+    pattern: '\p{L}+[시군구]\b'
+    flags: [unicode]
+    comment: Korean city or district names with si gun gu suffix
+
+  - rule_id: postal_code
+    layer: regex_checksum
+    phi_type: LOCATION_AREA
+    pattern: '\b\d{5}\b'
+    comment: five digit Korean postal code
+
+  - rule_id: profession_cue
+    layer: context_cue
+    phi_type: PROFESSION
+    cue: ["직업", "직종"]
+    then: word
+    comment: profession after job label
+
+  - rule_id: referring_doctor_cue
+    layer: context_cue
+    phi_type: NAME
+    cue: ["진료의", "담당의", "주치의", "의뢰의"]
+    then: capitalised_words
+    comment: referring or attending physician names
