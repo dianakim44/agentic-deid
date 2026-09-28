@@ -2403,23 +2403,34 @@ them:
 Spanish, both clinical, and share every type name — so a naive reading treats a gap
 between them as a language-held-constant measurement of note-type or corpus
 difficulty. Their type distributions make that reading unsafe. Measured at the canonical level of
-§9.0, after the §9.1 exclusions and leaving out the two CARMEN-I types §9.0 does not
-yet place (`NUMERO_IDENTIF` 227, `URL_WEB` 1):
+§9.0, after the §9.1 exclusions, over all ten canonical types:
 
-| canonical type | MEDDOCAN (20,538) | CARMEN-I (7,246) |
+| canonical type | MEDDOCAN (20,538) | CARMEN-I (7,473) |
 |---|---|---|
-| `DATE` | 12.5% | **74.3%** |
-| `CONTACT` + `ID` — email, fax, phone, every ID subtype | 20.0% | **0.5%** |
-| `NAME` | 19.5% | 2.1% |
+| `DATE` | 12.5% | **72.1%** |
+| `CONTACT` + `ID` — email, fax, phone, every ID subtype | 20.0% | **3.5%** |
+| `NAME` | 19.5% | 2.0% |
 
 MEDDOCAN is synthetic case reports whose generator inserted administrative blocks;
 CARMEN-I is authentic hospital narrative, where those elements are simply not
 written down. The consequence is arithmetic, not speculative: **a detector that
-found nothing but dates, perfectly, would score 12.5% recall on MEDDOCAN and 74.3%
-on CARMEN-I** — 62 points of difference with detector quality identical by
+found nothing but dates, perfectly, would score 12.5% recall on MEDDOCAN and 72.1%
+on CARMEN-I** — 60 points of difference with detector quality identical by
 construction. Symmetrically, the two types regex and checksum rules are best at
-carry 20.0% of MEDDOCAN's spans and 0.5% of CARMEN-I's, so a rule set whose strength
+carry 20.0% of MEDDOCAN's spans and 3.5% of CARMEN-I's, so a rule set whose strength
 lies exactly there has almost nothing left to find in CARMEN-I.
+
+**These three rows moved on 2026-09-28 and the direction matters more than the sizes.** §9.0
+placed CARMEN-I's two unplaced types that day, which took the canonical total from 7,246 to
+7,473 and moved `NUMERO_IDENTIF`'s 227 spans into `ID`. `CONTACT` + `ID` therefore went 0.5% →
+**3.5%** — a sevenfold rise in the row that carries this section's second argument, and the
+argument survives it: 3.5% against 20.0% is still a factor of 5.7, and a rule set whose strength
+is regex and checksum still has almost nothing to find. `DATE` fell 74.3% → 72.1% and the
+date-only gap 62 → 60 points. **The row this most improves is `AGE`**, 10.1% against
+**10.9%** where it was 10.1% against 11.2% — see §7.2, which leans on `AGE` being the one type
+whose weight is close in both Spanish corpora. The earlier figures are left visible here rather
+than silently replaced, because a reader who saw 0.5% should be able to tell that the placement
+decision is what moved it and not a change in the corpus.
 
 **And the common-subset rule does not rescue this pair — which is why per-type
 reporting is the load-bearing requirement.** All ten canonical types are observed
@@ -2488,6 +2499,10 @@ measure, not an unknown we accept.
 One consequence is worth measuring but is **not** part of this decision: because
 CARMEN-I ships a per-document language label, a per-document selector can be scored
 against gold without putting a selector in the pipeline. Recorded as §10 A1.
+
+**How an arm produces the two files this section loads is §5.6**, decided separately and later:
+one call per declared language, one scoring run over all of them, and a refusal when a declared
+language has no file.
 
 ### 5.3 An arm's rule files live under the arm, and `rules/{lang}.yaml` is the format example
 
@@ -3377,6 +3392,94 @@ is still detectable, because a scored round completed its audit and so does have
 And the plan `tools/run_loop.py` prints before any call is paid for shows the round's logged-call
 count whenever the two records disagree, since `draw 1` on its own would read as a round that had
 spent nothing.
+
+### 5.6 A multilingual arm makes one call per declared language and is scored once over all of them — decided 2026-09-28, before `es-carmen`'s first call
+
+§5.2 says which rule files a corpus loads, and §5.3 says where an arm's files live and that
+"`es-carmen` emits `es` and `cat` in one round". Neither says **how one arm produces two files**,
+and until now nothing did. This clause fixes the call structure, and it is written before the
+code because the gap it closes is not a missing feature — it is a silent one.
+
+**The defect, measured 2026-09-28.** `orchestrate.run_arm` took a single `lang`, made one call,
+wrote one file, and then scored with that one path. Probed on `es-carmen`:
+`load_for_corpus("es-carmen", paths={"es": …})` returns 3 rules, `versions {'es': 1}`, and a
+`sources` block naming a `cat` path **that does not exist** — with no exception. At the
+single-file level that is correct and deliberate: `load_rules` on an absent path returns an empty
+`RuleSet` carrying `sources`, because "we looked here and found nothing" is a different fact from
+"we read nothing". At the corpus level it means an arm scores a two-language corpus with zero
+Catalan rules and writes `rules_version: {es: 1}`, and no artefact records that half the
+configuration never existed. **Running the arm twice, once per language, was also unavailable**:
+`called_where()` and `freeze_window()` are keyed on `(corpus, detector, supervision, porting)`
+and not on language, so the second invocation is refused — correctly, because one arm is one
+window. That refusal is exactly why the two calls have to happen *inside* one arm.
+
+**The structure.** For a corpus whose `corpus_rule_langs` has N entries, an arm is:
+
+1. **One window freeze**, before any call, exactly as today. The window is the arm's, not the
+   language's — the same dev errors are the input to every language's call, because a Catalan
+   passage's misses are Catalan evidence and live inside the same sampled window.
+2. **N calls, one per declared language, in the order `naming.yaml` declares** — each authoring
+   exactly one file at `…/rules/iter{i}/{lang}.yaml`. "One call authors one file" is preserved
+   verbatim; what changes is that an arm may make more than one call, not that a call may write
+   more than one file. Declaration order, not an inferred or preferred order, because the order
+   is the record of what was asked for and an ordering rule nobody can read from config is a
+   component whose behaviour nothing measures (§5.2's objection to a language selector, applied
+   to sequencing).
+3. **One scoring run over all N files together**, via `run_fold` with every declared language's
+   path. Not N scoring runs: the union of the matches is the detection result (§5.2), so scoring
+   per language would report N partial results and no arm result, and the `by_rule` block would
+   lose the one thing the prefix convention (§3) was built to show — which language's rule fired
+   where, inside one set of predictions.
+4. **`llm_calls` is the number of languages**, so `es-carmen` reports 2 and the other four report
+   1. This is CLAUDE.md's "report cost beside quality" holding without amendment: a two-language
+   corpus costs twice as many calls at the same rung, that is a real difference between corpora
+   and not an accounting artefact, and an arm that reported 1 would make the multilingual rung
+   look free. Tokens and wall time sum the same way.
+
+**A declared language with no rule file is a refusal, not a zero.** `run_fold` refuses when a
+language in `corpus_rule_langs` has no file at the path it was given, naming the language and the
+path. This is the operative half of the clause: the defect above was not that the arm authored
+one file — a half-finished arm is a thing that can happen — but that scoring **accepted** it and
+produced a complete-looking `metrics.json`. Refusing is also what makes the cost figure
+trustworthy, since `llm_calls: 2` beside a single-file scoring run would be a number contradicted
+by the artefacts beside it. The refusal is on the scorer rather than only on the driver because
+`run_fold` is reachable from `tools/check_rules.py` and from the bootstrap path as well, and a
+guard that only the driver enforces is a guard with two ways around it.
+
+*Implemented 2026-09-28 one function lower than this paragraph says: in `src.rules.load_for_corpus`
+rather than in `run_fold`.* That function is where both halves of the question are already
+known — it is the one that loops `corpus_rule_langs` and the one that is handed `paths` — so the
+comparison needs nothing passed to it, and all three routes to a score go through it (`run_fold`,
+`run_sealed_eval`, `tools/check_rules.py`). Stated here because the clause's requirement is that
+the refusal be unavoidable on every route, and one function three routes share satisfies it more
+strictly than the one named above. Two consequences worth recording: the refusal names **every**
+missing language in one message rather than the first, because a two-file fix should not be a
+two-run fix; and it is keyed on `RuleSet.versions`, which distinguishes *no file* from a rule
+author's legitimate `rules: []` — `sources` is filled even for an absent path and would refuse
+nothing, `rules` would refuse the empty file. On a checkout holding only `rules/es.yaml` this
+turns `tools/check_rules.py`'s silent zero into a refusal for `de-grascco`, `en-deid` and
+`ko-surro` as well, which is the same defect in the same place and was not previously reported.
+
+**All three porting rungs inherit this, and `port-loop` inherits it per round.** `port-oneshot`
+is `port-loop` truncated after the first call (§4), so a structure that held for one and not the
+other would make the rungs differ in a second respect and §4's ladder would have nothing to
+compare. So: `port-loop` makes N calls per **round** and scores once per round, and its δ/k
+termination criterion (§3) is computed over the **per-round** leak rate of the union — the round
+is the unit, as it already is, and a language is not. Two consequences, stated now rather than
+discovered: a round's cost is N calls, so `es-carmen`'s 8-iteration ceiling is 16 calls and not
+8; and a round is atomic — if one language's call fails, the round has no scorable state and is
+an abandoned attempt (§3's `attempts_abandoned`), because scoring the languages that did answer
+is precisely the silent-partial-result this clause exists to forbid. `port-multi` adds its
+auxiliary artefacts per arm and not per language: the Mapper's output is a type mapping, which is
+a property of the corpus's annotation and not of a rule language, and the lexicon likewise
+follows `corpus_rule_langs` only where a lexicon is language-specific. `port-selfdesign` is
+unconstrained in its role design and constrained by this clause in its output shape, which is the
+same boundary §4 already draws around it.
+
+**What this does not change.** The rule-file path (§5.3), the union-of-matches decision (§5.2),
+the `rule_id` prefix convention (§3), the single window per arm (§6.3), and the four single-
+language corpora's arms — for N = 1 every clause above reduces to what already ran, which is the
+test that the generalisation is one.
 
 ---
 
@@ -5624,8 +5727,8 @@ strictly wider. The counts in the table above are therefore kept as what was mea
 CARMEN-I share a language, a clinical domain, and every type name, which makes it
 tempting to read a gap between them as a measurement of note type or of corpus
 difficulty at fixed language. Their type distributions rule that out: `DATE` is 12.5%
-of MEDDOCAN's in-scope spans and 74.3% of CARMEN-I's, while `CONTACT` + `ID` is 20.0%
-against 0.5%. All ten canonical types occur in both corpora, so the mismatch is in the
+of MEDDOCAN's in-scope spans and 72.1% of CARMEN-I's, while `CONTACT` + `ID` is 20.0%
+against 3.5%. All ten canonical types occur in both corpora, so the mismatch is in the
 mixing weights and no subset restriction removes it. §5.1 gives the arithmetic and the
 reporting rules that follow; the measurement is in
 `docs/notes/corpus-observations.md` §8.2.
@@ -5979,11 +6082,12 @@ denominator, and any span our detectors emit there is a false positive by constr
   canonical types would have no row.
 - Priced against the gold we hold, as a share of canonical in-scope spans (§9.0;
   `docs/notes/corpus-observations.md` §8): `AGE` + `PROFESSION` is **2,111 / 20,538 = 10.3%**
-  on es-meddocan, **906 / 7,246 = 12.5%** on es-carmen, and **21 / 1,297 = 1.6%** on
+  on es-meddocan, **906 / 7,473 = 12.1%** on es-carmen, and **21 / 1,297 = 1.6%** on
   de-grascco. §5.1's common-subset rule would therefore drop two of ten types and about a
   tenth of the gold on two of the three corpora that have gold at all.
 - **`AGE` is not an arbitrary tenth of the type set.** It is the one type whose weight is
-  close in both Spanish corpora — 10.1% against 11.2% (§5.1) — i.e. the single row where a
+  close in both Spanish corpora — 10.1% against 10.9% (§5.1, on the 7,473 canonical total
+  §9.0 settled on 2026-09-28; it read 11.2% on the earlier 7,246) — i.e. the single row where a
   MEDDOCAN/CARMEN-I comparison is not dominated by the type-mix confound §5.1 measures.
   Dropping it removes the cleanest cross-corpus row the type set currently has.
 - **An undeclared label is not the same thing as a declared type with zero instances.**
@@ -6336,6 +6440,86 @@ on the `corpus` axis with `corpus_rule_langs: [ko]`, and the 26 tags are `subtyp
 one corpus's own vocabulary, which §9.0 has never put in the config. `NOT_PHI_RESTORED`
 specifically does **not** join `naming.yaml`'s `excluded_types` block; §9.1 says why.
 
+#### `es-carmen`'s 18 observed source types — added 2026-09-28, before the loader
+
+The fifth and last corpus. Like the two blocks above it gets its own rather than a fifth column,
+and for a reason particular to it: **16 of its 18 observed types map by the MEDDOCAN column of
+§9.0's table unchanged**, so a column would repeat that table while hiding the only two entries
+that needed deciding. Those two are decided here. Every count is over the `replaced` variant's
+`anon` layer, measured at the pinned version, and `docs/notes/corpus-observations.md` §8.1 holds
+the options that were open before this block closed them.
+
+| canonical | `es-carmen` source types | n |
+|---|---|---|
+| `DATE` | `FECHAS` | 5,386 |
+| `AGE` | `EDAD_SUJETO_ASISTENCIA` | 815 |
+| `ORGANISATION` | `HOSPITAL` 316, `INSTITUCION` 129, `CENTRO_SALUD` 52 | 497 |
+| `ID` | **`NUMERO_IDENTIF` 227**, `ID_SUJETO_ASISTENCIA` 14, `ID_CONTACTO_ASISTENCIAL` 2 | 243 |
+| `LOCATION_AREA` | `PAIS` 118, `TERRITORIO` 90 | 208 |
+| `NAME` | `NOMBRE_PERSONAL_SANITARIO` | 151 |
+| `PROFESSION` | `PROFESION` | 91 |
+| `OTHER` | `OTROS_SUJETO_ASISTENCIA` | 38 |
+| `CONTACT` | `NUMERO_TELEFONO` | 22 |
+| `LOCATION_STREET` | `CALLE` | 22 |
+| **canonical total** | | **7,473** |
+| **excluded (§9.1)** | `SEXO_SUJETO_ASISTENCIA` 458, `FAMILIARES_SUJETO_ASISTENCIA` 299, `URL_WEB` 1 | **758** |
+| **corpus gold total** | | **8,231** |
+
+7,473 + 758 = 8,231, so the mapping is exhaustive and no span is dropped without a named
+mechanism. **All ten canonical types have nonzero gold here**, which no other corpus in this
+project manages — `de-grascco` has no `OTHER`, `en-deid` and `ko-surro` have four and two
+empty rows respectively.
+
+**`NUMERO_IDENTIF` → `ID`, decided 2026-09-28.** It is a *structural identifier* and falls
+inside `ID`'s definition: an unqualified record number in a hospital note is a HIPAA Safe
+Harbor element, and `ID` is this set's only canonical target for one. What made the case worth
+writing down is that the type names *a number with no role*, where all five MEDDOCAN ID
+subtypes name a role (patient, insurance, clinician licence, clinician employment, contact) —
+so the objection is not that the span is out of scope but that the `subtype` field becomes
+non-comparable in a new way: MEDDOCAN's ID subtypes carry role information and CARMEN-I's
+largest one carries none. That objection is answered by §9.0's own justification for collapsing
+the five in the first place — "the two corpora do not partition the space the same way, and
+forcing agreement there would measure the annotation schema rather than the detector" — which
+describes this case exactly. A role-less subtype is a *coarser* partition, not a different
+space. The two alternatives are both worse: a canonical `ID_UNSPECIFIED` would exist to hold
+one corpus's habit and be structurally empty in the other four, putting a column in every
+per-type table that only one corpus can fill; and excluding 227 spans — **3.0% of CARMEN-I's
+gold, and 93% of its ID spans** — would mean reporting an `ID` row of 16 spans for a corpus
+that has 243, which is the one direction a leak rate must never round. `subtype` keeps
+`NUMERO_IDENTIF` recoverable, so a MEDDOCAN-comparable `ID` analysis restricted to role-bearing
+subtypes remains available and is not the headline.
+
+**`URL_WEB` is out of scope and uses §9.1's mechanism — see §9.1.** It is the one entry that
+does *not* map, and it is placed there rather than here because it is a scope decision and not
+a mapping one.
+
+**No patient-name gold, and it is an assertion rather than a gap.** `NOMBRE_SUJETO_ASISTENCIA`
+is declared in the corpus's `annotation.conf` and has **zero** instances; the only name type
+used is the clinician one. Per §7.2's last bullet that is a *declared type with zero instances*,
+so a patient-name prediction here is a false positive in fact and not a scoring artefact — the
+opposite of `en-deid`'s silence on `ID` and `PROFESSION`. Two consequences are pre-registered:
+patient-name **recall** is reported as undefined for `es-carmen` rather than as a number over an
+empty denominator, and the corpus is a **precision-only probe** for that role. `NAME` is not
+merged across roles to hide this: `es-carmen`'s `NAME` row is a clinician-name row and
+MEDDOCAN's is a mixture, and the role attribute (§9.0) is what keeps the two readable side by
+side.
+
+**Ten further declared types have zero instances** — `CORREO_ELECTRONICO`, `NUMERO_FAX`,
+`DIREC_PROT_INTERNET`, `ID_ASEGURAMIENTO`, `ID_TITULACION_PERSONAL_SANITARIO`,
+`ID_EMPLEO_PERSONAL_SANITARIO`, `IDENTIF_VEHICULOS_NRSERIE_PLACAS`,
+`IDENTIF_DISPOSITIVOS_NRSERIE`, `IDENTIF_BIOMETRICOS` and the patient-name type above. The
+loader's map is built from the **schema** and validated against observations, not the other way
+round: a map built from observed data alone would admit an unmapped type silently on a future
+release that starts using one of the ten. This is the same rule `ko-surro`'s three zero-count
+tags established — `classify()` must see every declared type, because the guard has to run
+before the filter.
+
+**470 of 2,000 documents carry no in-scope span** (461 carry no annotation at all; the other 9
+carry only §9.1-excluded ones). They are **kept**, not dropped. This is not `en-deid`'s
+document-level exclusion: there, nine records had no reference and a prediction in them was
+uncheckable, whereas here the annotation covers the document and asserts it holds no PHI. A
+false positive in those 470 is a real false positive and counts.
+
 ### 9.1 Excluded from the canonical set
 
 `SEXO_SUJETO_ASISTENCIA` (1,841 spans), `FAMILIARES_*` (416 spans), `NAME_TITLE`
@@ -6400,6 +6584,67 @@ the first place (`src/corpora/base.py`'s `excluded_types()`).
 So `tests/test_excluded_types.py`'s `test_the_three_exclusions_are_the_declared_ones` keeps
 asserting three, and that test is the guard on the list rather than an obstacle to this
 decision. A fourth *concept* still needs an edit here first.
+
+#### The second use of the mechanism — `es-carmen`'s `URL_WEB`, 2026-09-28
+
+**`URL_WEB` (1 span) is out of scope.** It uses the mechanism described above — kept, flagged
+`excluded=True`, no `phi_type`, reported in `n_spans_excluded` and `spans_by_excluded_type` — and
+it does **not** join the three-name concept list, for the same structural reason
+`NOT_PHI_RESTORED` did not: the list is cross-corpus concepts an Auditor is shown as out of
+scope, and this type exists in one corpus, once. So the list stays at three and
+`naming.yaml`'s `excluded_types` block is untouched.
+
+Three grounds, and the third is the one that decides it:
+
+- **It cannot move either headline quantity.** One span. Whatever is done with it, the leak rate
+  and the complementarity breakdown are identical to four decimal places — it would be
+  **0.0134%** of a canonical total including it. So no reading of §9.4 is at stake: §9.4 keeps
+  sparse types in the leak-rate *denominator* because a leak is a leak, and that rule is about
+  a **type** with few instances, not about a single span in a category no other corpus in this
+  project annotates. §9.4's own threshold already omits n ≤ 8 types from the per-type view while
+  keeping them in the totals; a type that cannot reach the per-type view in any corpus is not
+  the case it was written for.
+- **Folding it into `CONTACT` would make `CONTACT` mean something different here than
+  elsewhere.** `CONTACT` holds email, phone and fax, and a URL is arguably the same kind of
+  thing (a channel). But **no other corpus here has a URL category at all** — MEDDOCAN declares
+  `URL_WEB` and observes zero, GraSCCo, `en-deid` and `ko-surro` have no counterpart type — so
+  the fold would make `es-carmen`'s `CONTACT` the only `CONTACT` row in the project counting
+  URLs. One corpus's row would be over a wider concept than the other four's.
+- **Per-type comparison is one of the two headline quantities, so that price is higher than
+  the purchase.** §5.1's first rule is that the leak rate and the complementarity breakdown are
+  reported per canonical type, and §5.1's whole argument about this corpus is that a
+  MEDDOCAN↔CARMEN-I gap must be read per type because the aggregate mixes three effects.
+  Buying nothing measurable (ground 1) at the cost of a type that no longer means one thing
+  across corpora (ground 2) is the wrong trade, and it is the *comparison* that pays, not this
+  corpus.
+
+**This is the same judgement §7.2 made about Meddies-PII's `private_url`, now stated in the
+direction §7.2 left implicit.** §7.2 wrote out the one direction — that Meddies' nine labels
+have no counterpart for our `AGE` and `PROFESSION` — and did not write the reverse, that our
+ten canonical types have no target for its `private_url` or `secret`. The reverse was always
+true and this is the first place it is recorded: a URL is **unmatched** against this canonical
+set, in both corpora that carry one, and treating it as `CONTACT` in CARMEN-I while it stays
+unmatched in Meddies would be the same concept given two answers.
+
+**Measured cost, reported the way §9.1 reports the other exclusions** — against the corpus gold
+total of 8,231:
+
+| | excluded | corpus gold | share |
+|---|---|---|---|
+| es-carmen `SEXO_SUJETO_ASISTENCIA` | 458 | | 5.56% |
+| es-carmen `FAMILIARES_SUJETO_ASISTENCIA` | 299 | | 3.63% |
+| es-carmen `URL_WEB` | 1 | | **0.01%** |
+| **es-carmen total** | **758** | 8,231 | **9.21%** |
+
+So the two Spanish corpora lose almost the same share to §9.1 — **9.21% here against 9.90% on
+MEDDOCAN** — and the paper's limitation about Spanish figures being computed on ~90% of the
+available gold applies to both, which is worth stating because the two are the pair §5.1 warns
+is most likely to be compared. `URL_WEB` contributes 0.01 of the 9.21 points; the exclusion is a
+scope decision and not a cost-driven one, and the table says so by size.
+
+**No per-fold table yet.** §9.1's MEDDOCAN entry reports the exclusion per fold; that cannot be
+written for `es-carmen` until `splits/es-carmen.json` is frozen, and it is owed at that point
+rather than omitted.
 
 ### 9.2 `TERRITORIO` merges into a single `LOCATION_AREA`
 

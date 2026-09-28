@@ -676,20 +676,25 @@ two exceptions treated below.
 | `OTHER` | `OTROS_SUJETO_ASISTENCIA` | 38 |
 | **mapped by existing rows** | | **7,246** |
 
-**Not settled by the existing table — the remaining 2 types, decided below or not at
-all:**
+**Not settled by the existing table — the remaining 2 types. Both were decided in DESIGN
+§9.0 and §9.1 on 2026-09-28; the options below are kept as written, with the outcome
+marked on each.**
 
 | source type | n | status |
 |---|---|---|
-| `NUMERO_IDENTIF` | 227 | no §9.0 row covers it; **undecided**, see (i) |
-| `URL_WEB` | 1 | no §9.0 row covers it; **undecided**, see (ii) |
+| `NUMERO_IDENTIF` | 227 | **→ `ID`** (option (b)), DESIGN §9.0's `es-carmen` block |
+| `URL_WEB` | 1 | **→ out of scope**, §9.1's mechanism (option (c)), DESIGN §9.1 |
 | `SEXO_SUJETO_ASISTENCIA` | 458 | §9.1 excluded, same type name as MEDDOCAN's exclusion |
 | `FAMILIARES_SUJETO_ASISTENCIA` | 299 | §9.1 excluded, same type name as MEDDOCAN's exclusion |
 
-7,246 + 227 + 1 + 458 + 299 = 8,231. Reconciles against the corpus gold total, so no
-span is unaccounted for either way the two open types are decided.
+7,246 + 227 + 1 + 458 + 299 = 8,231. Reconciles against the corpus gold total either way
+the two open types are decided. **As decided**: canonical 7,473 (the 7,246 above plus
+`NUMERO_IDENTIF`'s 227) and §9.1-excluded 758 (458 + 299 + 1), which is the pair DESIGN
+§9.0's block carries.
 
-**Types that do not map cleanly. Options only; no conclusion drawn.**
+**Types that do not map cleanly. Options only; no conclusion drawn here — the conclusions
+are in DESIGN, and the reasoning that chose between these options is there rather than
+duplicated below.**
 
 **(i) `NUMERO_IDENTIF` — 227 spans, no MEDDOCAN counterpart.** All five ID subtypes
 MEDDOCAN actually uses name *a role* (`ID_SUJETO_ASISTENCIA` patient,
@@ -704,7 +709,7 @@ there and unused or never existed in that guideline at all.
 - **(a)** add a canonical `ID_UNSPECIFIED`. Honest, but it exists to hold one
   corpus's habit and would be empty for MEDDOCAN and GraSCCo, so per-type tables
   would carry a column that is structurally absent elsewhere.
-- **(b)** merge into `ID`. §9.0 already collapses five MEDDOCAN ID subtypes into one
+- **(b) — chosen.** merge into `ID`. §9.0 already collapses five MEDDOCAN ID subtypes into one
   `ID`, and role survives as `subtype`, so this is the consistent move — the cost is
   that `subtype` becomes non-comparable in a new way: MEDDOCAN's subtypes name roles
   and CARMEN-I's does not. Note that §9.0's stated justification for the collapse is
@@ -721,8 +726,14 @@ internet-address types, `DIREC_PROT_INTERNET` (line 38 of `annotation.conf`) and
   the same kind of thing (a channel), and this keeps the canonical set at ten types.
 - **(b)** own canonical type. At n=1 it cannot be scored either way, so this buys
   nothing measurable.
-- **(c)** exclude as n=1. Conflicts with §9.4, which deliberately keeps n≤8 types in
-  the leak-rate denominator on the grounds that a leak is a leak.
+- **(c) — chosen.** exclude as n=1, via §9.1's mechanism. The §9.4 objection recorded
+  here was examined and rejected in DESIGN §9.1: §9.4 keeps a sparse **type** in the
+  leak-rate denominator, and it already omits n ≤ 8 types from the per-type view while
+  keeping them in the totals, so a category no corpus here can get above 1 is not the case
+  it was written for. The deciding ground turned out to be option (a)'s cost rather than
+  (c)'s: no other corpus in this project has a URL category, so folding it into `CONTACT`
+  would make one corpus's `CONTACT` row count something the other four's do not, and
+  per-type comparison is one of the two headline quantities.
 
 **(iii) `NOMBRE_SUJETO_ASISTENCIA` — declared, ZERO instances.** This is the
 patient-name type. MEDDOCAN has 2,014; GraSCCo has `NAME_PATIENT`. CARMEN-I's only
@@ -809,28 +820,35 @@ is a confound in any MEDDOCAN→CARMEN-I porting result: the corpora differ in
 authenticity and in type mix at the same time.
 
 **How large the confound is, in recall points.** Computed on the §9.1-excluded scope
-(MEDDOCAN 20,538 spans; CARMEN-I 7,474, counting the two undecided types of §8.1):
+(MEDDOCAN 20,538 spans; CARMEN-I **7,473**, the canonical total DESIGN §9.0 settled on
+2026-09-28 — `NUMERO_IDENTIF` in `ID`, `URL_WEB` out of scope):
 
-| canonical type (§9.0) | MEDDOCAN 20,538 | CARMEN-I 7,246 |
-|---|---|---|
-| `DATE` | 12.5% | **74.3%** |
-| `CONTACT` + `ID` — email, fax, phone, all ID subtypes | 20.0% | **0.5%** |
-| `NAME` | 19.5% | 2.1% |
-| `LOCATION_AREA` | 25.5% | 2.9% |
-| `AGE` | 10.1% | 11.2% |
-| `ORGANISATION` | 3.8% | 6.9% |
+| canonical type (§9.0) | MEDDOCAN 20,538 | CARMEN-I 7,473 | earlier, on 7,246 |
+|---|---|---|---|
+| `DATE` | 12.5% | **72.1%** | 74.3% |
+| `CONTACT` + `ID` — email, fax, phone, all ID subtypes | 20.0% | **3.5%** | 0.5% |
+| `NAME` | 19.5% | 2.0% | 2.1% |
+| `LOCATION_AREA` | 25.5% | 2.8% | 2.9% |
+| `AGE` | 10.1% | 10.9% | 11.2% |
+| `ORGANISATION` | 3.8% | 6.7% | 6.9% |
+| `LOCATION_STREET` | 8.3% | 0.3% | 0.3% |
+| `PROFESSION` | 0.2% | 1.2% | 1.3% |
+| `OTHER` | 0.1% | 0.5% | 0.5% |
 
-CARMEN-I's total here is 7,246 rather than 7,474 because the two types §9.0 does not yet
-place (`NUMERO_IDENTIF` 227, `URL_WEB` 1) are left out; folding both into `ID` and
-`CONTACT` would move that row to 3.6%, still far below MEDDOCAN's 20.0%, so the
-conclusion does not depend on how §8.1 is decided.
+**The fourth column is the pre-decision figure and is kept deliberately.** The paragraph
+this table used to carry predicted that folding both types in would move the `CONTACT` + `ID`
+row to 3.6%; measured, it is **3.5%** (265 / 7,473 = 3.546%), and the 3.6% was a rounding
+slip in a figure that was never measured. The prediction's substance held: the row rose
+sevenfold and the conclusion did not depend on it.
 
 So **a detector that found nothing but dates, perfectly, would score 12.5% recall on
-MEDDOCAN and 74.3% on CARMEN-I** — a 62-point difference produced entirely by type mix,
+MEDDOCAN and 72.1% on CARMEN-I** — a 60-point difference produced entirely by type mix,
 with detector quality held identical by construction. In the other direction, the
-regex-and-checksum-friendly types that carry 20.0% of MEDDOCAN's spans carry 0.5% of
-CARMEN-I's, so a rule set whose strength is exactly there has almost nothing to find in
-CARMEN-I. `AGE` is the only type whose weight is close in both (10.1% vs 11.2%).
+regex-and-checksum-friendly types that carry 20.0% of MEDDOCAN's spans carry 3.5% of
+CARMEN-I's — a factor of 5.7 rather than the factor of 40 the earlier figure implied, and
+still enough that a rule set whose strength is exactly there has little to find here.
+`AGE` is the only type whose weight is close in both, and the placement decision brought
+the two closer: **10.1% vs 10.9%**, where it was 10.1% vs 11.2%.
 Aggregate recall cannot separate any of this from genuine porting difficulty, which is
 why DESIGN.md §5.1 requires per-type reporting.
 
