@@ -184,8 +184,11 @@ because those two leave the driver's loop unguarded — `langs[:1]` authors one 
 both. All three are invisible on a one-language corpus, which is why their tests drive a patched
 `naming()` rather than the corpora on disk, and why the defect survived four corpora.
 
-**The 218 mutations outside these seven were not measured and are deferred to the next full run,
-which is now owed on two grounds** — the 2026-09-23 debt below and this two-module change.
+**The 226 mutations outside these seven were not measured and are deferred to the next full run,
+which is now owed on two grounds** — the 2026-09-23 debt below and this two-module change. 226 and
+not 218: the entries below deferred 218 of 230, and this entry's denominator is 233. The three
+figures are three different runs' leftovers and do not add up to anything — the quantity that
+matters is that one full run over 233 discharges all three at once.
 
 ### One outstanding — the ko rule-id widening, 2026-09-28
 

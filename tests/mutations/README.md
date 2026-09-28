@@ -233,8 +233,10 @@ here is narrower than either
 reading: the **seven** mutations whose anchors the edit disturbed or added, measured only to
 establish that they still apply and still kill. Serial, one tree `2397928ac041429d`, baseline
 **2,229** (2,219 → 2,229 from 7 new `test_orchestrate.py` tests and 3 new `test_rules.py`
-tests), **7 of 7 caught, 0 survived.** **The full run is deferred, not waived**, and the 218
-counts it has owed since 2026-09-23 are owed still.
+tests), **7 of 7 caught, 0 survived.** **The full run is deferred, not waived** — **226** of the
+233 go unmeasured here, and the 218 of 230 owed since 2026-09-23 are owed still. The two figures
+are two runs' leftovers over two denominators and are not meant to be added; one full run over
+233 discharges both.
 
 Four of the seven were re-anchored — every line of `run_arm`'s body gained four spaces from the
 `for lang in langs:` loop — and three of those four moved:
