@@ -13,6 +13,25 @@ from `conftest`'s fixtures, and assert the counts DESIGN §9.0 pre-registered �
 spans, 1,614 supported, 1,611 in scope, 3 excluded — which is the one thing a synthetic root
 cannot check.
 
+**These tests now see 1,941 documents, not 2,425 — the seal ran on 2026-09-28.** Three tests
+in this file recounted the whole corpus while the whole corpus was reachable, which was
+possible only between the freeze (2026-09-23) and the seal, and they said so when they were
+written. They have been moved to the arithmetic form `tests/test_endeid_loader.py` uses, which
+is the same shape for the same reason and on the same release: what the loader reaches is
+recounted, the sealed fold's figures are read from the frozen split file, and
+`test_the_split_file_accounts_for_the_seal` requires *visible recount + sealed block = the
+corpus-wide total*, per type as well as in aggregate. That is weaker than the recount it
+replaces — the sealed block is pinned rather than re-derived — and it is what is left. The
+corpus-wide numbers are `FULL_*` below and are no longer independently checkable from here;
+the run that produced them is the one the freeze commit records.
+
+Eight of the nine records with no English reference are reachable; the ninth belongs to a
+patient in the test fold and went behind the seal with that patient's other notes.
+`test_the_ninth_uncovered_record_went_with_its_patient` states that as arithmetic against the
+frozen file rather than by naming the sealed record. The eight are **the same eight
+`en-deid` reaches**, which is what DESIGN §6.5 option B's document-level alignment means and
+is asserted here rather than left as a coincidence.
+
 The valid roots are written through `tools/prepare_kosurro.count_records`, deliberately: the
 loader recounts what that tool wrote, so using the tool's own counter here means a drift
 between the two shows up as a failure rather than as two consistent halves of a wrong number.
@@ -50,6 +69,80 @@ LITERAL = "[**Pxxxxx**]"
 #: A body with `SURFACE` at 4..10. Ordinary ASCII: the point of a synthetic root is that a
 #: refusal can be provoked without clinical text of any language in this file.
 BODY = f"aaa {SURFACE} bbb"
+
+# ─── expected values, visible and corpus-wide (DESIGN §9.0) ──────────────────
+#
+# Two blocks, and the split matters. The first is what the loader can reach after the seal of
+# 2026-09-28 — train + dev — and was measured with the seal in place, which is the only state
+# it describes. The second is the whole corpus, read from the frozen `splits/ko-surro.json`
+# rather than recounted, because recounting it would mean reading the test fold.
+#
+# `en-deid`'s file states the same division for the same corpus; the numbers differ because the
+# reference does. `ko-surro` is scored against human-verified silver (DESIGN §6.5 (v)) and
+# `en-deid` against the release's human reference, so the two halves of one release carry
+# different span sets over the same documents. The document counts agree and are asserted to.
+
+#: What the loader can see: train + dev.
+N_DOCS = 1941
+N_RECORDS_IN_FILE = 1949  # loaded, plus the eight reachable records with no reference
+N_SILVER = 1711  # before the gold-support filter
+N_SPANS = 1282  # after it: the spans the loader yields
+N_IN_SCOPE = 1279
+N_EXCLUDED = 3
+N_NOT_GOLD_SUPPORTED = 429
+N_DOCS_WITH_SPANS = 580
+N_PATIENTS = 129
+CANONICAL_COUNTS = {
+    "NAME": 639,
+    "DATE": 369,
+    "ORGANISATION": 200,
+    "CONTACT": 37,
+    "LOCATION_AREA": 30,
+    "AGE": 3,
+    "ID": 1,
+}
+#: `LOCATION_STREET` is absent rather than zero: both of its spans are in the test fold, so
+#: the visible corpus has no instance of the type at all. Written as an absence because that
+#: is what the recount produces, and a `"LOCATION_STREET": 0` entry here would not compare
+#: equal to it.
+EXCLUDED_SUBTYPE_COUNTS = {"NOT_PHI_RESTORED": 3}
+
+#: Records with a body and no English reference, reachable after the seal. The ninth is behind
+#: it. The same eight `tests/test_endeid_loader.py` lists, and the test below asserts that
+#: rather than leaving two copies of one list to drift.
+UNCOVERED = [
+    "107_8",
+    "110_8",
+    "136_20",
+    "146_8",
+    "147_8",
+    "59_10",
+    "94_1",
+    "9_2",
+]
+
+#: The whole corpus — DESIGN §9.0's `ko-surro` table and what the paper prints. These are the
+#: figures the freeze of 2026-09-23 measured while every fold was reachable; 484 documents are
+#: now sealed and a test that recomputed these would be reading the test fold to do it.
+FULL_N_DOCS = 2425
+FULL_N_RECORDS = 2434
+FULL_N_SILVER = 2158
+FULL_N_SPANS = 1614
+FULL_N_IN_SCOPE = 1611
+FULL_N_EXCLUDED = 3
+FULL_N_NOT_GOLD_SUPPORTED = 544
+FULL_N_UNCOVERED = 9
+FULL_N_PATIENTS = 163
+FULL_CANONICAL_COUNTS = {
+    "NAME": 806,
+    "DATE": 468,
+    "ORGANISATION": 242,
+    "LOCATION_AREA": 45,
+    "CONTACT": 44,
+    "AGE": 3,
+    "LOCATION_STREET": 2,
+    "ID": 1,
+}
 
 
 def span(
@@ -465,33 +558,121 @@ def test_an_empty_sealed_read_raises_rather_than_returning_the_rest(tmp_path):
 # ─── the corpus itself, against the pre-registered counts ────────────────────
 
 
-def test_the_corpus_reproduces_the_pre_registered_span_set(kosurro_docs, kosurro_unsplit_loader):
-    """DESIGN §9.0's `ko-surro` table, recounted from the corpus root.
+def test_the_visible_corpus_reproduces_the_pre_registered_span_set(
+    kosurro_docs, kosurro_unsplit_loader
+):
+    """DESIGN §9.0's `ko-surro` table, recounted over what the seal leaves reachable.
 
-    Written before the first Korean arm runs and asserting the numbers that were
-    pre-registered rather than the numbers a run happens to produce. If the derived root is
-    rebuilt and any of these moves, the scoring basis moved and the pre-registration is what
-    says so.
+    Until 2026-09-28 this recounted all 2,425 documents and asserted the `FULL_*` figures
+    directly, which was possible because the test fold was still in the corpus root. It is not
+    any more. What is asserted here is the visible half, measured independently of the split
+    file — the loader is the unsplit one, so these counts do not come from the file they are
+    later reconciled against. `test_the_split_file_accounts_for_the_seal` is what ties them to
+    the corpus-wide table, and without that test these constants and the `FULL_*` ones would be
+    two unrelated sets of numbers.
+
+    Still the pre-registration check it was written as: if the derived root is rebuilt and any
+    of these moves, the scoring basis moved.
     """
     loader = kosurro_unsplit_loader
     spans = [s for doc in kosurro_docs for s in doc.spans]
     by_type = Counter(s.phi_type for s in spans if not s.excluded)
+    by_excluded = Counter(s.subtype for s in spans if s.excluded)
 
-    assert (len(kosurro_docs), len(loader.uncovered)) == (2425, 9)
-    assert loader.not_gold_supported == 544
-    assert len(spans) == 1614
-    assert sum(1 for s in spans if s.excluded) == 3
-    assert sum(by_type.values()) == 1611
-    assert by_type == {
-        "NAME": 806,
-        "DATE": 468,
-        "ORGANISATION": 242,
-        "LOCATION_AREA": 45,
-        "CONTACT": 44,
-        "AGE": 3,
-        "LOCATION_STREET": 2,
-        "ID": 1,
-    }
+    assert (len(kosurro_docs), len(loader.uncovered)) == (N_DOCS, len(UNCOVERED))
+    assert loader.not_gold_supported == N_NOT_GOLD_SUPPORTED
+    assert len(spans) == N_SPANS
+    assert sum(1 for s in spans if s.excluded) == N_EXCLUDED
+    assert sum(by_type.values()) == N_IN_SCOPE
+    assert dict(by_type) == CANONICAL_COUNTS
+    assert dict(by_excluded) == EXCLUDED_SUBTYPE_COUNTS
+    # The filter's two sides plus the spans it kept account for every silver span in this root,
+    # so `N_SILVER` is not a fourth independent number that could drift on its own.
+    assert len(spans) + loader.not_gold_supported == N_SILVER
+
+
+def test_the_visible_uncovered_records_are_the_ones_en_deid_reaches(kosurro_unsplit_loader):
+    """The eight reachable reference-less records are `en-deid`'s eight, not a second list.
+
+    DESIGN §6.5 option B aligns the two corpora at document level, so which records lack an
+    English reference is a property of the release and must be the same on both sides — and
+    which of the nine went behind the seal is a property of the shared split. Asserted by
+    importing `en-deid`'s list rather than by writing the eight ids out twice: two copies of a
+    list that must agree is useful when one is a claim about a *different* artefact
+    (`test_derive_aligned_split.py` pins the derivation's numbers that way), but here it would
+    just be one list that can drift from itself.
+    """
+    from test_endeid_loader import UNCOVERED as ENDEID_UNCOVERED
+
+    assert sorted(kosurro_unsplit_loader.uncovered) == sorted(UNCOVERED)
+    assert sorted(UNCOVERED) == sorted(ENDEID_UNCOVERED)
+
+
+def test_the_split_file_accounts_for_the_seal(kosurro_sealed, split_record, kosurro_docs):
+    """Visible recount + the file's sealed block = the corpus-wide figures, per type.
+
+    The test this replaces recounted the sealed fold too. Now the sealed block is *pinned by
+    arithmetic* instead: a stale figure in it would have to be compensated somewhere else in
+    the file to survive, and per type as well as in total, which is a narrow escape route. What
+    is given up honestly is that a coordinated error in the file plus a matching error in the
+    corpus would pass — the freeze commit is the only record that the numbers were once
+    recounted directly.
+
+    Without this the `FULL_*` constants would be unfalsifiable: after the seal, nothing
+    reachable could contradict them.
+    """
+    sealed = split_record["folds"]["test"]
+    spans = [s for doc in kosurro_docs for s in doc.spans]
+    in_scope = [s for s in spans if not s.excluded]
+    excluded = [s for s in spans if s.excluded]
+
+    assert len(kosurro_docs) + sealed["n_documents"] == FULL_N_DOCS
+    assert len(spans) + sealed["n_spans"] == FULL_N_SPANS
+    assert len(in_scope) + sealed["n_spans_in_scope"] == FULL_N_IN_SCOPE
+    assert len(excluded) + sealed["n_spans_excluded"] == FULL_N_EXCLUDED
+    assert split_record["totals"]["n_spans"] == FULL_N_SPANS
+    assert split_record["totals"]["n_spans_in_scope"] == FULL_N_IN_SCOPE
+    assert split_record["totals"]["spans_by_phi_type"] == FULL_CANONICAL_COUNTS
+
+    visible = Counter(s.phi_type for s in in_scope)
+    for phi_type, total in FULL_CANONICAL_COUNTS.items():
+        assert visible.get(phi_type, 0) + sealed["spans_by_phi_type"].get(phi_type, 0) == total, (
+            phi_type
+        )
+    # No type appears behind the seal that the corpus-wide table does not have. Without this the
+    # loop above would pass while the sealed block carried an extra type.
+    assert set(sealed["spans_by_phi_type"]) <= set(FULL_CANONICAL_COUNTS)
+
+
+def test_the_ninth_uncovered_record_went_with_its_patient(
+    kosurro_sealed, split_record, kosurro_unsplit_loader
+):
+    """One reference-less record is behind the seal, and it is not named here.
+
+    Arithmetic against the frozen file, the same statement `tests/test_endeid_loader.py` makes
+    about the same record on the other half of the release: the release has 2,434 records and
+    the reference covers 2,425, the split file holds 2,425 documents, and the corpus root now
+    holds 1,949 records for 1,941 documents. Eight of the nine are reachable and one left with
+    the test fold — which is the intended behaviour, because leaving a sealed patient's note
+    where rule development reads it is the other half of the seal.
+    """
+    listed = split_record["corpus_specific"]["records_without_reference"]
+    assert len(listed) == FULL_N_UNCOVERED
+    assert FULL_N_RECORDS - FULL_N_DOCS == FULL_N_UNCOVERED
+    assert len(kosurro_unsplit_loader.uncovered) == len(UNCOVERED)
+    assert FULL_N_UNCOVERED - len(UNCOVERED) == 1
+    # The sealed one is in the file's list and not reachable, and this says so without asking
+    # which id it is: the reachable eight are a strict subset.
+    assert set(UNCOVERED) < set(listed)
+
+
+def test_an_ordinary_load_returns_only_the_unsealed_folds(kosurro_sealed, kosurro_loader):
+    """train and dev, and no `test` — the seal as the loader sees it."""
+    assert {doc.split for doc in kosurro_loader.load()} == {"train", "dev"}
+
+
+def test_the_sealed_root_is_not_reachable_from_an_ordinary_call(kosurro_sealed, kosurro_loader):
+    assert kosurro_loader.sealed_reachable() is None
 
 
 def test_every_loaded_span_agrees_with_the_slice(kosurro_docs):
@@ -506,16 +687,27 @@ def test_every_loaded_span_agrees_with_the_slice(kosurro_docs):
 
 
 def test_the_patient_key_is_read_from_meta_and_never_split_out_of_the_id(
-    kosurro_docs, kosurro_unsplit_loader
+    kosurro_docs, kosurro_unsplit_loader, split_record
 ):
-    """163 patients over 2,425 notes, and the key comes from the record's own field.
+    """129 patients over 1,941 reachable notes, and the key comes from the record's own field.
 
     The composition `{patient}_{note}` is the release's and is made in one direction only, so
     a loader that recovered the patient by splitting `doc_id` would be a second answer to
     which half is the patient — on a corpus whose folds are patient-disjoint.
+
+    Was 163 over 2,425 until the seal of 2026-09-28. The corpus-wide figure is now read from
+    the frozen file rather than recounted, and the two are tied together the only way they can
+    be after the seal: the folds are patient-disjoint, so the visible patients and the sealed
+    fold's patients partition the 163 and cannot overlap. That disjointness is what
+    `test_no_group_crosses_the_split` asserts from the file, so the subtraction below is not a
+    second assumption.
     """
     keys = {kosurro_unsplit_loader.patient_key(doc) for doc in kosurro_docs}
-    assert len(keys) == 163
+    assert len(keys) == N_PATIENTS
+    audit = split_record["group_key"]["grouping_audit"]
+    assert audit["n_patients"] == FULL_N_PATIENTS
+    assert FULL_N_PATIENTS - N_PATIENTS == 34  # the test fold's patients, none of them shared
+    assert keys <= set(audit["patients"])
     for doc in kosurro_docs[:50]:
         assert doc.doc_id == f"{doc.meta['patient_id']}_{doc.meta['note_index']}"
 
@@ -670,37 +862,69 @@ def test_the_records_without_a_reference_are_in_no_fold(split_record):
     assert sorted(listed) == sorted(source["corpus_specific"]["records_without_reference"])
 
 
-def test_the_totals_are_a_recount_of_the_whole_corpus(split_record, kosurro_docs):
-    """Every summary in the file, re-derived from the corpus while the corpus is readable.
+def test_the_totals_are_the_visible_recount_plus_the_sealed_block(
+    kosurro_sealed, split_record, kosurro_docs
+):
+    """Every summary in the file, re-derived as far as the seal allows.
 
-    This test can only exist before the seal, which is why it is written on the day of the
-    freeze: the test fold is still in the corpus root, so all 2,425 documents recount and the
-    totals block is a claim that can be falsified outright. Once `sealed/` holds the test
-    fold, this becomes the arithmetic form `test_endeid_loader.py` uses — visible recount plus
-    the file's sealed block equals the totals — which is weaker, and is all that is left.
+    Until 2026-09-28 this recounted all 2,425 documents and compared the totals block
+    outright — the strongest form, and available only between the freeze and the seal. The
+    totals are now reached by adding the sealed fold's own block to the visible recount, which
+    is `test_endeid_loader.py`'s form. The weakening is exactly this: a wrong figure in the
+    totals can no longer be caught on its own, only a wrong figure that the sealed block does
+    not happen to absorb.
+
+    Two things are recounted here that `test_the_split_file_accounts_for_the_seal` does not
+    cover, which is why both exist: the excluded-span accounting by source tag, and
+    `n_documents_with_spans`. Neither appears in a fold block, so neither can be reconciled
+    per fold — the sealed fold's contribution to each is taken from the totals by subtraction
+    and asserted to be the value the frozen file implies.
     """
     in_scope = [s for doc in kosurro_docs for s in doc.spans if not s.excluded]
     excluded = [s for doc in kosurro_docs for s in doc.spans if s.excluded]
+    sealed = split_record["folds"]["test"]
     totals = split_record["totals"]
-    assert len(kosurro_docs) == totals["n_documents"]
-    assert len(in_scope) + len(excluded) == totals["n_spans"]
-    assert len(in_scope) == totals["n_spans_in_scope"]
-    assert dict(Counter(s.phi_type for s in in_scope)) == totals["spans_by_phi_type"]
+
+    assert len(kosurro_docs) + sealed["n_documents"] == totals["n_documents"]
+    assert len(in_scope) + len(excluded) + sealed["n_spans"] == totals["n_spans"]
+    assert len(in_scope) + sealed["n_spans_in_scope"] == totals["n_spans_in_scope"]
     # An excluded span has no canonical type — `phi_type` is None and the source tag it was
-    # excluded for is its `subtype`, which is what §9.1's volume is reported by.
+    # excluded for is its `subtype`, which is what §9.1's volume is reported by. All three of
+    # the corpus's excluded spans are reachable (the test fold has none), so this one summary
+    # is still recounted outright rather than by arithmetic, and the split file's own
+    # `n_spans_excluded: 0` for the sealed fold is what says so.
+    assert sealed["n_spans_excluded"] == 0
     assert dict(Counter(s.subtype for s in excluded)) == totals["spans_by_excluded_type"]
+
+    # `n_documents_with_spans` is corpus-wide and has no per-fold counterpart, so the sealed
+    # fold's share is a subtraction. It is bounded rather than asserted equal to a constant: a
+    # document behind the seal carries gold or does not, and 484 documents cannot contribute
+    # more than 484 or fewer than 0. That is weak, and it is the honest limit of what is
+    # checkable — the number was recounted directly once, in the freeze commit.
     with_spans = sum(1 for doc in kosurro_docs if any(not s.excluded for s in doc.spans))
-    assert with_spans == split_record["corpus_specific"]["n_documents_with_spans"]
+    assert with_spans == N_DOCS_WITH_SPANS
+    sealed_with_spans = split_record["corpus_specific"]["n_documents_with_spans"] - with_spans
+    assert 0 <= sealed_with_spans <= sealed["n_documents"]
+    # And it cannot exceed the number of spans the sealed fold holds: one document needs one.
+    assert sealed_with_spans <= sealed["n_spans_in_scope"]
 
 
-def test_each_folds_summaries_are_a_recount_of_that_fold(split_record, kosurro_docs):
+def test_each_visible_folds_summaries_are_a_recount_of_that_fold(
+    kosurro_sealed, split_record, kosurro_docs
+):
     """And per fold, which the totals cannot check: one fold's spans could sit in another.
 
-    Same window as the test above — before the seal every fold is reachable, so the sealed
-    fold's block is recounted here once and never again.
+    Before the seal this looped over all three folds and recounted the sealed one too. It now
+    covers dev and train, and the sealed fold is **skipped by construction** rather than by a
+    name check — the documents simply are not in `kosurro_docs`, and the assertion below that
+    every unrecounted fold is a sealed one is what keeps that from silently becoming "skipped
+    because the ids did not match".
     """
     by_id = {doc.doc_id: doc for doc in kosurro_docs}
+    recounted = []
     for fold, block in split_record["folds"].items():
+        if not any(doc_id in by_id for doc_id in block["document_ids"]):
+            continue
         docs = [by_id[doc_id] for doc_id in block["document_ids"]]
         in_scope = [s for doc in docs for s in doc.spans if not s.excluded]
         excluded = [s for doc in docs for s in doc.spans if s.excluded]
@@ -709,6 +933,15 @@ def test_each_folds_summaries_are_a_recount_of_that_fold(split_record, kosurro_d
         assert len(excluded) == block["n_spans_excluded"], fold
         assert len(in_scope) + len(excluded) == block["n_spans"], fold
         assert dict(Counter(s.phi_type for s in in_scope)) == block["spans_by_phi_type"], fold
+        recounted.append(fold)
+
+    # Not `== ["dev", "train"]`: what makes a fold unrecountable is that it is sealed, and
+    # `sealed_splits` is where that is declared. A fold that stopped being recountable for any
+    # other reason — a renamed id, a dropped record — fails here instead of being skipped.
+    assert sorted(recounted) == sorted(
+        set(split_record["folds"]) - set(KosurroLoader.sealed_splits)
+    )
+    assert set(KosurroLoader.sealed_splits) == {"test"}
 
 
 def test_the_folds_partition_the_documents(split_record):
@@ -749,41 +982,79 @@ def test_the_split_file_records_the_bytes_it_hashed(split_record, kosurro_docs, 
         ], f"{doc.doc_id}'s bytes differ from the frozen split file"
 
 
-#: What `split.build()` cannot reproduce: when it ran and what the tree looked like then.
-#: Listed rather than skipped by prefix, so a new volatile field has to be named here.
+#: What `split.build()` could not reproduce: when it ran and what the tree looked like then.
+#: **Dead since the seal of 2026-09-28** — its one reader rebuilt the record and compared every
+#: other field, and `build()` now refuses on this corpus (see the test below). Kept rather than
+#: deleted for one reason: the next derived corpus's split file needs the same list before its
+#: own seal, and a list that was deleted the day it stopped being read is a list the next author
+#: writes again from scratch. If it is still unread when that corpus arrives, delete it there.
 NOT_REPRODUCIBLE = ("generated", "repository")
 
 
-def test_the_frozen_file_is_what_the_builder_produces_today(split_record):
-    """Rebuild the record from the corpus and require every non-volatile field to agree.
+def test_the_builder_refuses_to_rebuild_a_sealed_corpus(kosurro_sealed):
+    """What became of `test_the_frozen_file_is_what_the_builder_produces_today`.
 
-    The recount tests above check the file against the corpus; this one checks it against the
-    *code*, which is the other half and the half that nothing else in the suite had. The four
-    narrative builders in `src/split.py` are reached by no other test: `build()` is called by
-    the CLI and by nothing in `tests/`, so every figure only that code produces — the sparsity
-    count, the type-map notes, the per-fold token percentiles — was unfalsifiable until the
-    file was regenerated by hand and diffed.
+    That test rebuilt the whole record from the corpus and required every non-volatile field to
+    agree — the file checked against the *code* rather than against the corpus, which is the
+    half nothing else in the suite had. **It cannot exist after the seal, and not because of a
+    fixture: `src/split.py` refuses.** The derived route's membership would survive the seal,
+    since it comes from `splits/en-deid.json` rather than from a sample, but the *contents*
+    would not — the loader reads only the unsealed root, so the rebuilt file would carry a
+    `test` block whose span and token counts were measured from an empty set while every other
+    block looked complete. DESIGN §6.2's order (generate → freeze → seal) is what the refusal
+    enforces, and the refusal is the thing worth asserting now.
 
-    That is not hypothetical. `n_documents_with_spans` was written as 727 beside prose saying
-    "at least one in-scope span", and 725 notes carry one: the builder counted `doc.spans`,
-    which includes the three §9.1-excluded spans that are nobody's gold. It was found on the
-    day of the freeze by the recount above, one commit before the file became the
-    pre-registered artefact. This test is what makes the *next* such figure fail immediately,
-    and `sparsity_counts_excluded_spans` in `tests/mutations/run.py` is the check that this
-    test does its job.
-
-    The build is cheap here — one JSONL file, no per-file hashing — so there is no reason for
-    the file to be reproducible only by hand.
+    **What is lost, recorded rather than worked around.** The builder's own figures — the
+    per-fold token percentiles, the type-map notes, the narrative prose — are no longer reached
+    by any test on this corpus, and `build()` is called by the CLI and by nothing else in
+    `tests/`. The one figure that had a mutation anchored on it keeps its catcher through
+    `test_the_sparsity_count_is_in_scope_spans_and_not_every_span` below, which tests the
+    function directly instead of through a whole-file rebuild. The rest is genuinely
+    uncovered here, and the next corpus's split file is where that coverage has to live —
+    before *its* seal, which is the window this corpus has now spent.
     """
-    built = split.build("ko-surro")
-    for key in NOT_REPRODUCIBLE:
-        assert key in split_record and key in built, key
-        built[key] = split_record[key]
-    assert built == split_record, (
-        "the frozen split file is not what src/split.py produces from the corpus today. "
-        "If the change to the builder is intended, the file is pre-registered: say so and "
-        "regenerate it deliberately (src/split.py refuses to overwrite)."
+    with pytest.raises(CorpusError) as exc:
+        split.build("ko-surro")
+    message = str(exc.value)
+    assert "already declares a sealed root" in message
+    assert "DESIGN §6.2" in message or "§6.2" in message
+    # The refusal names no record, no surface and no path — it is about a config key and a
+    # fold. Checked because this message is the one a rebuild attempt puts on a terminal.
+    assert SURFACE not in message and LITERAL not in message
+
+
+def test_the_sparsity_count_is_in_scope_spans_and_not_every_span(tmp_path):
+    """`_n_documents_with_gold` directly, which is what keeps one mutation killable.
+
+    The rebuild test above was `sparsity_counts_excluded_spans`'s only catcher, and the seal
+    removed it. Without a replacement that mutation would survive — the gate would report a
+    surviving mutation on the very figure the freeze commit fixed, which is the outcome
+    CLAUDE.md's "돌리지 않은 것은 면제가 아니다" is about. So the guarantee is tested where it
+    lives instead of through a 2,434-record rebuild, and on a synthetic root, which means it no
+    longer depends on the corpus being present at all.
+
+    The defect being pinned is concrete: `n_documents_with_spans` was written into the frozen
+    file as 727 beside prose saying "at least one in-scope span", and 725 notes carry one. The
+    builder had counted `doc.spans`, which includes the three §9.1-excluded spans that are
+    nobody's gold. Two documents below reproduce that difference in miniature — one whose only
+    span is excluded, one whose span is scored.
+    """
+    from src.split import _n_documents_with_gold
+
+    root = write_root(
+        tmp_path / "root",
+        [
+            record(uid="1_1", patient="1", spans=[span()]),
+            record(uid="2_1", patient="2", spans=[span(type_="NOT_PHI_RESTORED")]),
+            record(uid="3_1", patient="3", spans=[]),
+        ],
     )
+    docs = loader_on(root).load()
+    assert len(docs) == 3
+    # The middle document has a span and no gold. That is the whole distinction: counting
+    # `doc.spans` gives 2 here and is the reading that produced the 727.
+    assert sum(1 for doc in docs if doc.spans) == 2
+    assert _n_documents_with_gold(docs) == 1
 
 
 #: Keys whose values are prose written in this repository — the only strings in this split
@@ -877,7 +1148,11 @@ def test_no_prose_in_the_split_file_carries_a_surrogate_surface(split_record, ko
             assert surface not in prose, (
                 f"{doc.doc_id} span at [{span_.start}, {span_.end}) is in the split file"
             )
-    assert checked == 1109
+    # 869, not the 1,109 this asserted before the seal: the surfaces of the test fold's spans
+    # are no longer reachable to search for. The figure is here so that a loader change that
+    # quietly stopped yielding surfaces turns this test from a check into a tautology and is
+    # caught — which is why it is a count and not a `> 0`.
+    assert checked == 869
 
 
 def _strings_under(node, keys, key=None):

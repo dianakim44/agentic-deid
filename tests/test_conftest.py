@@ -56,6 +56,7 @@ AVAILABILITY = {
     "endeid_present",
     "endeid_sealed",
     "kosurro_present",
+    "kosurro_sealed",
 }
 CONSTRUCTION = {
     "loader",

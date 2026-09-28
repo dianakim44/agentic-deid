@@ -270,12 +270,24 @@ def kosurro_present() -> str:
     return KOSURRO
 
 
-#: There is still deliberately no `kosurro_sealed`: it would be a fixture nothing requests,
-#: which is the state `test_every_shared_fixture_is_used_by_something` exists to refuse — a
-#: fixture added ahead of its user is indistinguishable from one whose user was reverted. It
-#: arrives with the act it is about, the test fold being sealed, and then `tests/test_seal.py`
-#: wants it. `kosurro_loader` below arrived the same way, with the freeze of
-#: `splits/ko-surro.json` on 2026-09-23.
+@pytest.fixture(scope="session")
+def kosurro_sealed(kosurro_present: str) -> str:
+    """Present *and* sealed, asked separately for `sealed_corpus`'s reason exactly.
+
+    Arrived on 2026-09-28 with the act it is about — `tools/prepare_kosurro.py seal`. Until
+    then this was a comment saying why the fixture did not exist yet: a fixture nothing
+    requests is the state `test_every_shared_fixture_is_used_by_something` refuses, because one
+    added ahead of its user is indistinguishable from one whose user was reverted.
+    `kosurro_loader` below arrived the same way, with the freeze of `splits/ko-surro.json` on
+    2026-09-23.
+
+    Nothing is opened — `sealed_root()` answers from the path, like `corpus_root()`.
+    """
+    from src.corpora import base
+
+    if base.sealed_root(kosurro_present) is None:
+        pytest.skip(f"{kosurro_present} is not sealed on this machine")
+    return kosurro_present
 
 
 @pytest.fixture(scope="session")
