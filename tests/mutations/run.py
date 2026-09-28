@@ -52,6 +52,12 @@ TEST_FILES = [
     #: anchored in it. It moves the denominator the same way, so this commit owes a full run
     #: too — the one above is why the rule is "the count is a value over the whole list".
     "tests/test_kosurro_loader.py",
+    #: Added 2026-09-28 in the loader's own commit, the same way `ko-surro`'s entry was:
+    #: `src/corpora/carmen.py` has never existed without mutations anchored in it. The
+    #: fifth and last loader, so this is the last time this list's *membership* moves for
+    #: a corpus — and it moves the denominator of every recorded count one final time,
+    #: which is why this commit owes a full run.
+    "tests/test_carmen_loader.py",
     "tests/test_split_file.py",
     "tests/test_seal.py",
     "tests/test_release_screen.py",
@@ -260,6 +266,13 @@ ENDEID = "src/corpora/endeid.py"
 #: and a filter is a mechanism the other three do not have at all. Nothing in MEDDOCAN's or
 #: GraSCCo's block can be pointed at it.
 KOSURRO = "src/corpora/kosurro.py"
+#: The fifth and last loader, and the second to arrive with its mutations. Its block is
+#: larger than `ko-surro`'s for a different reason than that one is larger than the first
+#: three: this release carries *declarations about itself* — an `annotation.conf`, a
+#: per-document mappings TSV, and a second annotation layer in the same tree — and none
+#: of them is needed to produce a span. A check nothing downstream depends on is one
+#: that can be deleted without a single number moving, so each gets an anchor.
+CARMEN = "src/corpora/carmen.py"
 SPLIT = "src/split.py"
 SPLIT_FILE = "splits/es-meddocan.json"
 SEALED_LOG = "src/eval/sealed_log.py"
@@ -1057,6 +1070,361 @@ MUTATIONS = [
             "the numbers would be published as a test-fold evaluation of the dev and train "
             "folds — the worst available outcome, because the record says the opposite of "
             "what happened and the count of sealed openings is the thing the paper reports."
+        ),
+        min_kills=1,
+    ),
+    # ── the CARMEN-I loader (three declarations and a pin — DESIGN §9.0, §9.5, §9.7) ──
+    #
+    # Written with the loader, in its own commit, like `ko-surro`'s block above and
+    # unlike the three before it. This is the largest of the five blocks, and the reason
+    # is that this release *declares things about itself* where the other four are read
+    # directly: an `annotation.conf` listing 35 entity types, a `CARMEN1_mappings.tsv`
+    # giving every document a language label and a concept-layer flag, and a second
+    # annotation layer in the same directory tree. None of those declarations is needed
+    # to produce a span, which is exactly why each one needs a mutation — a check that
+    # nothing downstream depends on is a check that can be deleted without a single
+    # number moving.
+    #
+    # Two families here have no counterpart in any block above:
+    #
+    #   - **The strata.** §9.5's split is stratified on document type × language, and
+    #     both labels come from *outside* the annotations — the language from the
+    #     mappings file, the document type from the filename. So the failure forms
+    #     include a label that is silently absent, a label under the wrong `meta` key
+    #     (`lang` instead of `language_label`, where `bi` would then be handed to a
+    #     `rules/{lang}.yaml` path that cannot exist), and a label that is not hashed
+    #     into the per-document digest the frozen file rests on.
+    #   - **The pin.** §9.7's one excused span is the only place in this project where a
+    #     loader overwrites a recorded annotation, and three of its four mutations are
+    #     about the pin *widening*: onto another span, onto a release that no longer
+    #     needs it, or onto every mismatch in the document. `carmen_every_mismatch_
+    #     corrected` is the one that matters most and the one that looks most like a
+    #     tidy-up — it is the form the pin was written to not be.
+    #
+    # **The floors here mean what ko-surro's do.** Most of this block's tests build a
+    # synthetic release in `tmp_path`, so they run on a machine with no CARMEN-I
+    # checkout; `min_kills` is the count that does not depend on the corpus being
+    # present. `carmen_masked_variant_read` would otherwise have no floor at all, which
+    # is why `test_the_variant_and_the_layer_are_the_ones_section_9_0_counted` pins the
+    # two names as constants — a variant substitution that only the real corpus can
+    # notice is one a machine without the corpus would call caught.
+    Mutation(
+        name="carmen_masked_variant_read",
+        path=CARMEN,
+        anchor='VARIANT = "replaced"',
+        replacement='VARIANT = "masked"',
+        breaks=(
+            "Reads the release's other rendering, which has the same layout and loads "
+            "cleanly. Its texts substitute placeholders for the identifiers, so a "
+            "detector would be scored on how well it reproduces the masking convention "
+            "and not on de-identification, and the gold total becomes 8,230 against "
+            "§9.0's 8,231. Nothing in a run would say which of the two produced a "
+            "number — which is why the variant is a named constant and a pinned one."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="carmen_schema_unchecked",
+        path=CARMEN,
+        anchor="            self._check_schema(root)\n",
+        replacement="",
+        breaks=(
+            "Stops checking the loader's type map against the release's own "
+            "declaration, leaving `classify()` as the only guard — which fires when a "
+            "span of an undecided type is *annotated*, so the decision would be taken "
+            "against a count that has already moved. Ten of the 28 declared PHI types "
+            "have zero instances (§9.0), so a release that started using one is exactly "
+            "the case with no visible symptom."
+        ),
+        min_kills=2,
+    ),
+    Mutation(
+        name="carmen_schema_containment_not_equality",
+        path=CARMEN,
+        anchor="        if declared != known:",
+        replacement="        if not declared <= known:",
+        breaks=(
+            "Keeps the loud direction and drops the quiet one: a type this loader knows "
+            "and the release does not declare stops being an error. That means the map "
+            "was built against a different release than the one on disk, every count in "
+            "§9.0's block belongs to the other one, and no span of the type exists "
+            "either way — so nothing else can notice."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="carmen_language_label_named_lang",
+        path=CARMEN,
+        anchor='            "language_label": language,',
+        replacement='            "lang": language,',
+        breaks=(
+            "Renames the corpus's own label to the `naming.yaml` axis it is not. 264 "
+            "documents are labelled `bi`, which is not a language and has no "
+            "`rules/bi.yaml`; under this name a caller composing `rules/{lang}.yaml` "
+            "from `meta` asks for a file that cannot exist, and §5.6's "
+            "`corpus_rule_langs: [es, cat]` stops being the only place the arm's two "
+            "languages are declared."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="carmen_doctype_label_named_document_type",
+        path=CARMEN,
+        anchor='            "filename_doctype": doctype,',
+        replacement='            "document_type": doctype,',
+        breaks=(
+            "Puts a filename token under the name of §7's document-type axis, which is "
+            "derived from text cues and which `es-carmen` declares none of. 789 of "
+            "these 2,000 units are clinical sections rather than whole notes (§8.5), so "
+            "the two mean different things — and a stratification or a per-doctype "
+            "table would read whichever one it found."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="carmen_unknown_language_label_accepted",
+        path=CARMEN,
+        anchor="            if language not in LANGUAGE_LABELS:",
+        replacement="            if False:",
+        breaks=(
+            "A fourth language label loads as a stratum the frozen split file does not "
+            "describe. The split's recorded composition would still sum to 2,000 and "
+            "would silently be a composition over different bands."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="carmen_duplicate_mappings_rows_accepted",
+        path=CARMEN,
+        anchor="            if doc_id in labels:",
+        replacement="            if False:",
+        breaks=(
+            "Two rows for one document is two language labels, and the dict keeps the "
+            "last one — so the stratum a document lands in would depend on row order in "
+            "a file the loader is otherwise indifferent to. The label is also hashed "
+            "into the per-document digest, so the frozen split file would verify "
+            "against whichever row happened to be later."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="carmen_concept_flag_not_a_boolean_accepted",
+        path=CARMEN,
+        anchor='            if flag not in ("True", "False"):',
+        replacement="            if False:",
+        breaks=(
+            "`flag == 'True'` then reads every other spelling as False, so a release "
+            "writing `true` would report 0 flagged documents and the cross-check "
+            "against the `ner/` directory would compare 0 against 500 — which fails "
+            "loudly here and, on a release where the directory is also absent, silently."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="carmen_concept_layer_unchecked",
+        path=CARMEN,
+        anchor="        if present != flagged:",
+        replacement="        if False:",
+        breaks=(
+            "Drops the one claim `CARMEN1_mappings.tsv` makes that can be verified "
+            "against the tree, and so the only evidence that the file describes *this* "
+            "release. The language label in the same rows is what §9.5 stratifies on "
+            "and is not independently checkable, so this check is what stands behind it."
+        ),
+        min_kills=2,
+    ),
+    Mutation(
+        name="carmen_documents_without_a_label_accepted",
+        path=CARMEN,
+        anchor="            if stems != set(labels):",
+        replacement="            if False:",
+        breaks=(
+            "A document with no mappings row reaches `labels[doc_id]` and raises a "
+            "`KeyError` from inside the read — or, on a release where the rows are a "
+            "superset, loads a corpus whose recorded composition counts documents that "
+            "are not there. Both are the same missing check, and neither says which "
+            "document or how many."
+        ),
+        min_kills=2,
+    ),
+    Mutation(
+        name="carmen_concept_type_in_phi_layer_mapped",
+        path=CARMEN,
+        anchor="        if corpus_type in CONCEPT_TYPES:",
+        replacement="        if False:",
+        breaks=(
+            "The two layers are declared in one `annotation.conf` with no marker "
+            "between them, so 'this directory is the PHI layer' is the only thing that "
+            "separates them. Without this refusal a mixed release fails as an unmapped "
+            "type — a message pointing at the type map rather than at the layer — and a "
+            "future map entry for any concept type would add 26,360 spans to a gold set "
+            "of 8,231."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="carmen_pin_index_unchecked",
+        path=CARMEN,
+        anchor="            if index >= len(spans):",
+        replacement="            if False:",
+        breaks=(
+            "A pin naming a span the document no longer has raises `IndexError` from "
+            "inside the loader instead of saying that the pin describes a different "
+            "release. §9.7's entry is keyed by span *index*, so a reordered or "
+            "re-annotated release is precisely the case that has to be legible."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="carmen_pin_slides_onto_another_span",
+        path=CARMEN,
+        anchor="            if (span.subtype, span.start, span.end) != pinned:",
+        replacement="            if False:",
+        breaks=(
+            "The pin stops checking *which* span it is excusing, so a reordered release "
+            "would have whatever span landed at index 4 of that document silently "
+            "rewritten to match the text. The pin's type and both offsets exist for "
+            "this one reason: an excuse for one span must not become an excuse for a "
+            "position."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="carmen_pin_outlives_the_defect",
+        path=CARMEN,
+        anchor="            if text[span.start : span.end] == span.surface:",
+        replacement="            if False:",
+        breaks=(
+            "A release that fixed the defect leaves the entry standing, and a standing "
+            "permission to overwrite a surface corrects the *next* data error in that "
+            "document instead of reporting it. This is the refusal that makes §9.7's "
+            "entry a pin with an expiry rather than a tolerance."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="carmen_every_mismatch_corrected",
+        path=CARMEN,
+        anchor="        corrected = self._apply_known_defects(doc_id, spans, text)\n",
+        replacement=(
+            "        corrected = [\n"
+            "            i\n"
+            "            for i, s in enumerate(spans)\n"
+            "            if text[s.start : s.end] != s.surface\n"
+            "        ]\n"
+            "        for i in corrected:\n"
+            "            spans[i] = replace(spans[i], surface=text[spans[i].start : spans[i].end])\n"
+        ),
+        breaks=(
+            "The tidy-up the pin was written to not be: every span whose recorded "
+            "surface disagrees with the text gets the text, and the corpus loads with "
+            "no complaint. On this release it is 1 span and looks identical to the "
+            "pinned behaviour; on the aggregated TSV encoding the same rule would "
+            "silently rewrite 38 spans across 23 documents (§9.7), and on any future "
+            "release it turns an offset error — the failure `assert_offsets()` exists "
+            "for — into a recorded correction nobody decided."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="carmen_correction_not_recorded",
+        path=CARMEN,
+        anchor="        if corrected:\n",
+        replacement="        if False:\n",
+        breaks=(
+            "The overwrite still happens and stops being visible. A correction only the "
+            "loader's source states is one no result file can be audited against, which "
+            "is why `grascco.py` records its BOM-clipped spans the same way — and this "
+            "one is a surface the release recorded and the loader replaced."
+        ),
+        min_kills=2,
+    ),
+    Mutation(
+        name="carmen_language_out_of_digest",
+        path=CARMEN,
+        anchor='        parts.append((f"{MAPPINGS.name}:{doc.doc_id}", payload.encode("utf-8")))\n',
+        replacement="",
+        breaks=(
+            "Digests the two files a detector reads and not the label the split is "
+            "stratified on. A release that reshuffled `CARMEN1_mappings.tsv` would "
+            "leave every `.ann` and `.txt` byte-identical, so every per-document digest "
+            "would verify while the composition recorded in `splits/es-carmen.json` "
+            "became false — the frozen file's own claim about itself."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="carmen_bom_decoded_away",
+        path=CARMEN,
+        anchor='        raw = txt_path.read_text(encoding="utf-8")',
+        replacement='        raw = txt_path.read_text(encoding="utf-8-sig")',
+        breaks=(
+            "`strip_bom()` then finds nothing to strip, so the shift is 0 and every "
+            "offset in a BOM-bearing document is one too high. No document in this "
+            "release carries a BOM, so the mutation is invisible on the corpus — which "
+            "is the whole reason the arithmetic is tested on a synthetic tree. "
+            "MEDDOCAN's 32 BOM files and GraSCCo's 5 are what this looks like when the "
+            "corpus does exercise it."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="carmen_doctype_token_unchecked",
+        path=CARMEN,
+        anchor="        if doctype not in DOCTYPE_TOKENS:",
+        replacement="        if False:",
+        breaks=(
+            "A sixth document-type token loads as a stratum, and §9.5's recorded "
+            "composition would be over bands that no longer mean what the file says. "
+            "The five tokens are declared rather than collected for this reason."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="carmen_unparsable_doc_id_accepted",
+        path=CARMEN,
+        anchor="        if match is None:",
+        replacement="        if False:",
+        breaks=(
+            "An id that does not parse raises `AttributeError` on the next line instead "
+            "of naming the document and the decision it needs. The alternative the "
+            "loader refuses is worse and is what this guards the door against: a "
+            "residual `other` stratum, where a document is stratified on a label "
+            "meaning 'this code did not understand the id' and the split file records "
+            "that as a composition."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="carmen_empty_sealed_root_accepted",
+        path=CARMEN,
+        anchor="        if sealed is not None and root == sealed:",
+        replacement="        if False:",
+        breaks=(
+            "`kosurro_empty_sealed_root_accepted` on the fifth loader and at the "
+            "reachable end of the guard: an authorised sealed read whose sealed root "
+            "holds no annotations reports a configuration error instead of a broken "
+            "seal, so the failure that gets fixed is the path and not the seal — while "
+            "`results/sealed_eval_log.md` already carries the row. `base.fold_roots`, "
+            "`grascco.py` and `endeid.py` still owe this guard; this is the second "
+            "loader to have it."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="carmen_layout_claims_folds",
+        path=CARMEN,
+        anchor="    fold_dirs: dict[str, str] = {}",
+        replacement=(
+            '    fold_dirs: dict[str, str] = {"train": "train", "dev": "dev", '
+            '"test": "test"}'
+        ),
+        breaks=(
+            "`kosurro_layout_claims_folds` on the fifth loader, and a fifth mutation "
+            "rather than a parametrised one for that block's reason: the declaration is "
+            "a class attribute, so no single edit reaches two loaders. The frozen split "
+            "file is the only authority on which fold a document is in, and a layout "
+            "that claims folds is a second one."
         ),
         min_kills=1,
     ),

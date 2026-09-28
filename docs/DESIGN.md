@@ -6599,6 +6599,30 @@ release that starts using one of the ten. This is the same rule `ko-surro`'s thr
 tags established — `classify()` must see every declared type, because the guard has to run
 before the filter.
 
+**So the ten are mapped here, and what they are mapped to is decided now rather than at the
+first instance.** Deciding later is the option that looks cheaper and is not: the release that
+starts using one of them is exactly the release nobody is reading a mapping table during, and
+a decision taken then would be taken under pressure from a number that has already moved.
+
+| declared, n=0 | target | ground |
+|---|---|---|
+| `NOMBRE_SUJETO_ASISTENCIA` | `NAME` | MEDDOCAN column unchanged; the role (patient) survives as `subtype` |
+| `CORREO_ELECTRONICO` | `CONTACT` | MEDDOCAN column unchanged |
+| `NUMERO_FAX` | `CONTACT` | MEDDOCAN column unchanged |
+| `ID_ASEGURAMIENTO` | `ID` | MEDDOCAN column unchanged |
+| `ID_TITULACION_PERSONAL_SANITARIO` | `ID` | MEDDOCAN column unchanged |
+| `ID_EMPLEO_PERSONAL_SANITARIO` | `ID` | MEDDOCAN column unchanged |
+| `IDENTIF_VEHICULOS_NRSERIE_PLACAS` | `ID` | Safe Harbor vehicle identifier; `ID` is this set's only target for a structural identifier, as the `NUMERO_IDENTIF` decision above establishes |
+| `IDENTIF_DISPOSITIVOS_NRSERIE` | `ID` | Safe Harbor device serial number; same ground |
+| `IDENTIF_BIOMETRICOS` | `ID` | Safe Harbor biometric identifier; same ground, and it is the weakest of the three — a fingerprint is not a number — but `OTHER` is MEDDOCAN's residual *patient-attribute* bucket and putting a Safe Harbor identifier there would be worse |
+| `DIREC_PROT_INTERNET` | **out of scope (§9.1)** | the one entry that does not follow the MEDDOCAN column — it follows `URL_WEB` instead, see §9.1 |
+
+Nine of the ten therefore cost nothing to decide: the MEDDOCAN column already answers six, and
+the three Safe Harbor serial-number types take the answer the `NUMERO_IDENTIF` paragraph above
+argues for. Only `DIREC_PROT_INTERNET` needed an argument, and the argument is that it is the
+same concept as `URL_WEB` — an internet address — so the two must not be decided differently
+merely because one of them was observed once and the other never.
+
 **470 of 2,000 documents carry no in-scope span** (461 carry no annotation at all; the other 9
 carry only §9.1-excluded ones). They are **kept**, not dropped. This is not `en-deid`'s
 document-level exclusion: there, nine records had no reference and a prediction in them was
@@ -6726,6 +6750,16 @@ MEDDOCAN** — and the paper's limitation about Spanish figures being computed o
 available gold applies to both, which is worth stating because the two are the pair §5.1 warns
 is most likely to be compared. `URL_WEB` contributes 0.01 of the 9.21 points; the exclusion is a
 scope decision and not a cost-driven one, and the table says so by size.
+
+**`DIREC_PROT_INTERNET` is excluded on the same ground, and it has zero instances.** CARMEN-I
+declares two internet-address types and uses only `URL_WEB`, once (§8.1 (ii)). All three grounds
+above hold for the unused one *more* strongly than for the observed one — it cannot move a
+headline quantity because it has no spans at all, no other corpus has an IP-address category
+either, and folding it into `CONTACT` would widen the same row. It is written down because the
+alternative is a loader whose map answers for one internet-address type and not the other, and
+that asymmetry would be discovered by the release that starts using the second one. **It adds
+nothing to the table below**: 0 spans, so the excluded total stays 758 and the share stays 9.21%.
+An exclusion that costs nothing today is still a decision, and this is where it is recorded.
 
 **No per-fold table yet.** §9.1's MEDDOCAN entry reports the exclusion per fold; that cannot be
 written for `es-carmen` until `splits/es-carmen.json` is frozen, and it is owed at that point
@@ -7302,7 +7336,54 @@ The same assertion runs for every corpus added later, which is the point: the ne
 corpus's encoding surprise should fail loudly on acquisition rather than quietly at
 results time.
 
----
+#### What it caught in `es-carmen` — one span, and the pin that keeps it one — 2026-09-28
+
+The paragraph above predicted the next corpus would fail on acquisition. It did, on the
+first load: **1 of 8,231 spans** in the `replaced` variant's PHI layer has a recorded
+surface that is not the text at its recorded offsets (`CARMEN-I_IA_EVOL_112`, span index
+4, `FECHAS`, `[153, 157)`). No surface is quoted here or in the loader's message; the
+shapes are identical (two digits, a separator, one digit) and the values differ.
+
+**The offsets are right and the surface field is wrong.** Three independent witnesses, none
+of which requires reading the text:
+
+- The recorded surface is *byte-identical to the surface of span 1 of the same document*,
+  at `[72, 76)`. A surrogate generator that wrote one span's replacement string into
+  another's standoff row produces exactly this; wrong offsets do not.
+- The `masked` variant is an independent rendering of the same annotation set and has **0
+  mismatches in 8,230**. In it the two spans that bracket the defect are `[174, 186)` and
+  `[187, 199)` — adjacent, separated by one character — and in `replaced` they are
+  `[150, 152)` and `[153, 157)`, adjacent, separated by one character. The structure the
+  offsets describe is corroborated.
+- The offsets as recorded slice out a string of the *same shape* as every other `FECHAS`
+  span in the document.
+
+**So the span is loaded, the offsets are kept, and the surface is taken from the text.**
+The alternatives are worse in ways that matter to the two headline quantities. Dropping
+the span would remove a real `DATE` from gold, making this corpus's totals 8,230 / 7,472
+and silently contradicting every count in §9.0's `es-carmen` block. Trusting the surface
+and re-finding the offsets would move the span to `[72, 76)`, where span 1 already is —
+two gold annotations on one date, one of them invented by the loader. Relaxing the
+assertion for this corpus is the one option that has to be refused outright: a check that
+is switched off where it fires is not a check, and §9.7's whole argument is that one
+convention must hold for every corpus.
+
+**The correction is pinned, not general.** `carmen.py`'s `KNOWN_SURFACE_DEFECTS` names the
+document, the span index, the source type and both offsets; loading verifies all four
+before substituting, and any *other* mismatch still raises. Two failures are deliberate
+and both are the point of pinning rather than tolerating:
+
+- a mismatch at a span the pin does not name fails, so this is not a licence to disagree.
+- a pinned span whose surface *does* match fails too, with a message saying to remove the
+  entry. A later release that fixes the defect must not leave behind a standing permission
+  to overwrite a surface, because the next data error in that document would then be
+  corrected instead of reported.
+
+**The aggregated TSV encoding is not read, and this is the measurement that decided it.**
+`tsv/{variant}/` ships the same annotations in a single table per variant, and it
+disagrees with the text in **38 of 8,231** rows across 23 documents (3 whitespace-only, 35
+substantive) against the standoff's 1. Reading one encoding rather than two is
+`meddocan.py`'s rule; which one to read is usually a coin toss and here it is not.
 
 ## 10. Secondary analyses
 

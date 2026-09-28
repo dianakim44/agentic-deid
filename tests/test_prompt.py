@@ -2851,8 +2851,19 @@ def test_no_other_module_slices_document_text_for_a_prompt():
 
     `src/corpora/base.py` is exempt: it slices to *validate* a span against its recorded
     surface, which is the loader's own integrity check and reaches no prompt.
+    `src/corpora/carmen.py` is exempt for the same reason and no other — the one pinned
+    §9.7 span whose recorded surface disagrees with the text at its offsets is repaired
+    from the text, and both refusals around that slice exist to stop the pin becoming a
+    general tolerance. Loaders are exempted one file at a time rather than as a directory:
+    a loader is also the module with the corpus text in hand, so "under src/corpora/" is
+    the widest hole this check could be given.
+
+    What this check is not: it matches source *forms*, so a loader that slices as
+    `text[start:end]` (`src/corpora/grascco.py` does, at read time) is outside its reach
+    without being exempt. The forms are the ones the two merged renderers used.
     """
-    exempt = {ROOT / "src" / "corpora" / "base.py", MODULE}
+    exempt = {ROOT / "src" / "corpora" / "base.py",
+              ROOT / "src" / "corpora" / "carmen.py", MODULE}
     offenders = []
     for path in sorted((ROOT / "src").rglob("*.py")) + \
             sorted((ROOT / "tools").glob("*.py")):

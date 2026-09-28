@@ -63,6 +63,11 @@ ENDEID = "en-deid"
 #: and is still answered from the one configured path.
 KOSURRO = "ko-surro"
 
+#: The fifth and last, since 2026-09-28 (`src/corpora/carmen.py`). Not derived — the
+#: PhysioNet release is read where it lies — so "absent" means what it means for
+#: MEDDOCAN and GraSCCo, and is answered from the one configured path.
+CARMEN = "es-carmen"
+
 #: The arm whose dev record `terminated_arm_record` answers for: the only one in the tree
 #: that has terminated with a reason and a round count, which is what DESIGN §6.4 requires
 #: before a sealed opening. Kept beside the fixture rather than in the test file, because a
@@ -325,6 +330,46 @@ def kosurro_docs(kosurro_present: str, kosurro_unsplit_loader):
     step from the form where the chain is quietly broken.
     """
     return kosurro_unsplit_loader.load()
+
+
+@pytest.fixture(scope="session")
+def carmen_present() -> str:
+    """Availability of the fifth corpus, asked separately for `grascco_present`'s reason."""
+    from src.corpora.base import CorpusError, corpus_root
+
+    try:
+        corpus_root(CARMEN)
+    except CorpusError as exc:
+        pytest.skip(f"{CARMEN} not on this machine: {exc}")
+    return CARMEN
+
+
+@pytest.fixture(scope="session")
+def carmen_unsplit_loader(carmen_present: str):
+    """The CARMEN-I loader with no split file.
+
+    There is no `carmen_loader` counterpart yet and its absence is deliberate:
+    `splits/es-carmen.json` is not frozen, so a loader reading it would raise on every
+    test, and a fixture added ahead of its user is what
+    `test_every_shared_fixture_is_used_by_something` refuses. `kosurro_loader`'s
+    docstring records the same sequence from the other side.
+    """
+    from src.corpora.carmen import CarmenLoader
+
+    return CarmenLoader(use_split_file=False)
+
+
+@pytest.fixture(scope="session")
+def carmen_docs(carmen_present: str, carmen_unsplit_loader):
+    """The corpus, loaded once. 2,000 documents and 4,000 file reads per load.
+
+    Session-scoped and shared, so no test may mutate what it is handed — and one test
+    here depends on that more sharply than elsewhere: `_apply_known_defects` rewrites
+    one span's surface in place, so a test that re-sorted a document's span list would
+    move the span the pin names. `carmen_present` is requested directly as well as
+    transitively, for the reason `kosurro_docs` gives.
+    """
+    return carmen_unsplit_loader.load()
 
 
 @pytest.fixture(scope="session")

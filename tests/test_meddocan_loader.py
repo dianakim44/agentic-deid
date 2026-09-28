@@ -38,6 +38,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
 from src.corpora import CorpusError, Document, Span, base  # noqa: E402
+from src.corpora.base import axis  # noqa: E402
 from src.corpora.meddocan import EXCLUDED_TYPES, TYPE_MAP, MeddocanLoader  # noqa: E402
 
 # ─── expected values ────────────────────────────────────────────────────────
@@ -585,13 +586,32 @@ def test_unknown_corpus_id_raises():
         base.load("es-nonexistent")
 
 
+def test_the_registry_implements_every_declared_corpus_but_one():
+    """Which corpus the refusal below stands on, asserted rather than assumed.
+
+    Three tests name one declared-and-unimplemented corpus, and each has had to be moved on
+    as loaders arrived: `de-grascco` until 2026-09-21, `es-carmen` until 2026-09-28. This is
+    the one place that says which id is next, so when `en-n2c2` gets a loader this fails
+    first and names the three files. A registry entry for an undeclared corpus fails here
+    too, in the other direction — that one is a `naming.yaml` omission, not unwritten code.
+    """
+    declared, implemented = set(axis("corpus")), set(base._loaders())
+    assert implemented <= declared, sorted(implemented - declared)
+    assert declared - implemented == {"en-n2c2"}, (
+        "the set of declared corpora with no loader changed. `en-n2c2` is on hold (DESIGN "
+        "§11), and it is what `test_known_corpus_without_a_loader_says_so` here, "
+        "`tests/test_seal_internals.py` and `tests/test_sealed_scoring.py` stand on."
+    )
+
+
 def test_known_corpus_without_a_loader_says_so():
-    """es-carmen is a real corpus id with no loader yet — a distinguishable
+    """en-n2c2 is a real corpus id with no loader yet — a distinguishable
     failure from a typo, because the fix is different.
 
-    This test named `de-grascco` until 2026-09-21, when that corpus got a loader and
-    the test started asserting the opposite of what the registry now says. A test
-    whose subject is "the next corpus" has to be moved on rather than deleted; the
-    registry is `src/corpora/base._loaders`."""
+    This test named `de-grascco` until 2026-09-21 and `es-carmen` until 2026-09-28, each
+    time because that corpus got a loader and the test started asserting the opposite of
+    what the registry now says. A test whose subject is "the next corpus" has to be moved on
+    rather than deleted; the registry is `src/corpora/base._loaders`, and the test above
+    says which id is next."""
     with pytest.raises(CorpusError, match="no loader yet"):
-        base.load("es-carmen")
+        base.load("en-n2c2")

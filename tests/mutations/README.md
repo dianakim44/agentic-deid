@@ -459,6 +459,96 @@ with the reason recorded: writing the test means constructing a loader with an a
 but empty sealed root, which is worth doing deliberately rather than as a side effect of
 this commit.
 
+### `es-carmen` — twenty-two, and the first release that describes itself
+
+Written in the loader's own commit, like `ko-surro`'s block above, so `src/corpora/carmen.py`
+has never been read, scored or split without mutation coverage. It is the largest of the five
+blocks, and the reason is not that the loader is longer: this release makes **claims about
+itself** where the other four are simply read. `annotation.conf` declares 35 entity types.
+`CARMEN1_mappings.tsv` gives every document a language label and a concept-layer flag. A second
+annotation layer (`ner/`) sits in the same tree as the PHI layer (`anon/`). None of the three is
+needed to produce a span — which is exactly why each needs a mutation. A check nothing
+downstream depends on is a check that can be deleted with no number moving.
+
+**Two families here have no counterpart in any block above.**
+
+*The strata.* §9.5 stratifies the split on document type × language, and both labels come from
+outside the annotations — the language from the mappings file, the document type from the
+filename. So the failure forms include a label that is silently absent, a label recorded under
+the wrong `meta` key (`lang` rather than `language_label`, where `bi` would then be handed to a
+`rules/{lang}.yaml` path that cannot exist), a label taken from whichever duplicate row came
+last, and a label that is not hashed into the per-document digest the frozen file rests on. The
+measured cross-tab is the reason this is not theoretical: 12 of 15 cells are non-empty and
+`(CC, bi)` holds one document, so the composition recorded in `splits/es-carmen.json` is the
+only statement of what the strata actually became.
+
+*The pin.* §9.7's one excused span is the only place in this project where a loader overwrites a
+recorded annotation, and three of its four mutations are about the pin **widening** — onto
+another span, onto a release that no longer needs it, or onto every mismatch in the document.
+`carmen_every_mismatch_corrected` is the one that matters most and the one that looks most like
+a tidy-up: it is the form the pin was written not to be. On this release it corrects 1 span and
+is indistinguishable from the pinned behaviour; the same rule over the aggregated TSV encoding
+would rewrite 38 spans across 23 documents.
+
+| mutation | changes | breaks | tests that catch it |
+|---|---|---|---|
+| `carmen_masked_variant_read` | `VARIANT` becomes `"masked"` | reads the release's other rendering, same layout and loads cleanly. Its texts substitute placeholders for the identifiers, so a detector is scored on how well it reproduces the masking convention rather than on de-identification, and the gold total becomes 8,230 against §9.0's 8,231. Nothing in a run would say which of the two produced a number | **33** |
+| `carmen_schema_unchecked` | the `_check_schema(root)` call is removed | leaves `classify()` as the only guard, and it fires when a span of an undecided type is *annotated* — so the decision would be taken against a count that has already moved. Ten of the 28 declared PHI types have zero instances (§9.0), so a release that started using one is the case with no visible symptom | **3** |
+| `carmen_schema_containment_not_equality` | `declared != known` becomes `not declared <= known` | keeps the loud direction and drops the quiet one: a type this loader knows and the release does not declare stops being an error. That means the map was built against a different release than the one on disk, every count in §9.0's block belongs to the other one, and no span of the type exists either way — so nothing else can notice | **1** |
+| `carmen_language_label_named_lang` | `meta["language_label"]` becomes `meta["lang"]` | renames the corpus's own label to the `naming.yaml` axis it is not. 264 documents are labelled `bi`, which is not a language and has no `rules/bi.yaml`; under this name a caller composing `rules/{lang}.yaml` from `meta` asks for a file that cannot exist, and §5.6's `corpus_rule_langs: [es, cat]` stops being the only place the arm's two languages are declared | **4** |
+| `carmen_doctype_label_named_document_type` | `meta["filename_doctype"]` becomes `meta["document_type"]` | puts a filename token under the name of §7's document-type axis, which is derived from text cues and which `es-carmen` declares none of. 789 of these 2,000 units are clinical sections rather than whole notes (§8.5), so the two mean different things — and a stratification or a per-doctype table would read whichever it found | **4** |
+| `carmen_unknown_language_label_accepted` | the `LANGUAGE_LABELS` membership check becomes `if False` | a fourth language label loads as a stratum the frozen split file does not describe. The recorded composition would still sum to 2,000 and would silently be a composition over different bands | **1** |
+| `carmen_duplicate_mappings_rows_accepted` | the duplicate-row refusal becomes `if False` | two rows for one document is two language labels, and the dict keeps the last — so the stratum a document lands in depends on row order in a file the loader is otherwise indifferent to. The label is hashed into the per-document digest, so the frozen split file would verify against whichever row happened to be later | **1** |
+| `carmen_concept_flag_not_a_boolean_accepted` | the `("True", "False")` check becomes `if False` | `flag == "True"` then reads every other spelling as False, so a release writing `true` reports 0 flagged documents and the cross-check against `ner/` compares 0 against 500 — which fails loudly here and, on a release where the directory is also absent, silently | **1** |
+| `carmen_concept_layer_unchecked` | `present != flagged` becomes `if False` | drops the one claim `CARMEN1_mappings.tsv` makes that can be verified against the tree, and so the only evidence that the file describes *this* release. The language label in the same rows is what §9.5 stratifies on and is not independently checkable, so this check is what stands behind it | **2** |
+| `carmen_documents_without_a_label_accepted` | `stems != set(labels)` becomes `if False` | a document with no mappings row reaches `labels[doc_id]` and raises `KeyError` from inside the read — or, where the rows are a superset, loads a corpus whose recorded composition counts documents that are not there. Both are the same missing check, and neither says which document or how many | **2** |
+| `carmen_concept_type_in_phi_layer_mapped` | the `CONCEPT_TYPES` refusal becomes `if False` | the two layers are declared in one `annotation.conf` with no marker between them, so "this directory is the PHI layer" is all that separates them. Without the refusal a mixed release fails as an unmapped type — a message pointing at the type map rather than at the layer — and a future map entry for any concept type would add 26,360 spans to a gold set of 8,231 | **1** |
+| `carmen_pin_index_unchecked` | `index >= len(spans)` becomes `if False` | a pin naming a span the document no longer has raises `IndexError` from inside the loader instead of saying the pin describes a different release. §9.7's entry is keyed by span *index*, so a reordered or re-annotated release is precisely the case that has to be legible | **1** |
+| `carmen_pin_slides_onto_another_span` | the `(subtype, start, end)` identity check becomes `if False` | the pin stops checking *which* span it excuses, so a reordered release has whatever span landed at index 4 of that document silently rewritten to match the text. The pin's type and both offsets exist for this one reason: an excuse for one span must not become an excuse for a position | **1** |
+| `carmen_pin_outlives_the_defect` | the "surface now matches" refusal becomes `if False` | a release that fixed the defect leaves the entry standing, and a standing permission to overwrite a surface corrects the *next* data error in that document instead of reporting it. This is the refusal that makes §9.7's entry a pin with an expiry rather than a tolerance | **1** |
+| `carmen_every_mismatch_corrected` | the pinned correction becomes a loop over every span whose surface disagrees with the text | the tidy-up the pin was written not to be. The corpus loads with no complaint; on this release it is 1 span and looks identical, on the aggregated TSV encoding it would rewrite 38 spans across 23 documents (§9.7), and on any future release it turns an offset error — the failure `assert_offsets()` exists for — into a recorded correction nobody decided | **5** |
+| `carmen_correction_not_recorded` | `if corrected:` becomes `if False:` | the overwrite still happens and stops being visible. A correction only the loader's source states is one no result file can be audited against, which is why `grascco.py` records its BOM-clipped spans the same way — and this one is a surface the release recorded and the loader replaced | **3** |
+| `carmen_language_out_of_digest` | the mappings row is dropped from the per-document digest | digests the two files a detector reads and not the label the split is stratified on. A release that reshuffled `CARMEN1_mappings.tsv` leaves every `.ann` and `.txt` byte-identical, so every per-document digest verifies while the composition recorded in `splits/es-carmen.json` — the frozen file's own claim about itself — became false | **1** |
+| `carmen_bom_decoded_away` | the text is read with `encoding="utf-8-sig"` | `strip_bom()` finds nothing to strip, the shift is 0, and every offset in a BOM-bearing document is one too high. No document in this release carries a BOM, so the mutation is invisible on the corpus — which is the whole reason the arithmetic is tested on a synthetic tree. MEDDOCAN's 32 BOM files and GraSCCo's 5 are what this looks like where the corpus does exercise it | **1** |
+| `carmen_doctype_token_unchecked` | the `DOCTYPE_TOKENS` membership check becomes `if False` | a sixth document-type token loads as a stratum, and §9.5's recorded composition would be over bands that no longer mean what the file says. The five tokens are declared rather than collected for this reason | **1** |
+| `carmen_unparsable_doc_id_accepted` | the `match is None` refusal becomes `if False` | an id that does not parse raises `AttributeError` on the next line instead of naming the document and the decision it needs. The alternative the loader refuses is worse and is what this guards the door against: a residual `other` stratum, where a document is stratified on a label meaning "this code did not understand the id" and the split file records that as a composition | **1** |
+| `carmen_empty_sealed_root_accepted` | the sealed-root branch of the empty-root refusal becomes `if False` | `kosurro_empty_sealed_root_accepted` on the fifth loader and at the reachable end of the guard: an authorised sealed read whose sealed root holds no annotations reports a configuration error instead of a broken seal, so what gets fixed is the path and not the seal — while `results/sealed_eval_log.md` already carries the row | **1** |
+| `carmen_layout_claims_folds` | `fold_dirs` gains `train`/`dev`/`test` | `kosurro_layout_claims_folds` on the fifth loader, and a fifth mutation rather than a parametrised one for that block's reason: the declaration is a class attribute, so no single edit reaches two loaders. The frozen split file is the only authority on which fold a document is in, and a layout that claims folds is a second one | **2** |
+
+**The floors mean what `ko-surro`'s do, and one row needed a test written for it.** Most of
+these tests build a synthetic release in `tmp_path` and run on a machine with no CARMEN-I
+checkout, so `min_kills` is the corpus-independent count rather than the measured one.
+`carmen_masked_variant_read` would have had no corpus-independent catcher at all — a variant
+substitution only the real corpus can notice is one an absent corpus would call caught — which
+is why `test_the_variant_and_the_layer_are_the_ones_section_9_0_counted` pins `VARIANT`,
+`PHI_LAYER` and `CONCEPT_LAYER` as constants. Its 33 measured kills are real-corpus tests
+failing on a directory that is not there and its floor of 1 is that pin, which is a reading of
+the two tests and not a measurement: **no row here carries a parenthesised corpus-independent
+count, because none of the twenty-two was probed individually.** `ko-surro`'s block has five
+such parentheses and they came from five `--probe` runs. The floors are as set in `run.py`;
+where a floor and a measured count differ by thirty, that difference is where a probe would go.
+
+**How the twenty-two were measured.** 2026-09-28, against a baseline of **2,309 tests** — 2,229
+plus this commit's 79 `tests/test_carmen_loader.py` tests and one test added to
+`tests/test_meddocan_loader.py` — as eight concurrent invocations of `run.py` with explicit
+names. All eight reported pristine tree `795d620d249b3615` and the same baseline, which is what
+makes the counts comparable to each other. **22 of 22 caught, 0 survived.**
+
+**One of the twenty-two was STALE on the first pass, and it is the failure mode this harness
+documents twice.** `carmen_duplicate_mappings_rows_accepted` had a replacement indented four
+spaces deeper than its anchor, so the mutated file did not parse and `run.py` reported STALE
+rather than a kill — a mutation that cannot run is not a mutation that was caught. The anchor
+itself had been wrong in the same way earlier in the same commit and was fixed by counting
+occurrences; the *replacement* is the half that check does not cover. Its count above is from a
+single re-run after the fix, against tree `a73c2031ece15e37` and the same 2,309 baseline — one
+invocation rather than eight, and the tree differs from the other twenty-one by the corrected
+line in `run.py` itself.
+
+**It is an impact-scope run, and this time the scope is the whole table.** Adding
+`tests/test_carmen_loader.py` to `TEST_FILES` changes the denominator of all 233 older counts,
+so every one of them is deferred to the next full run and none is exempt from it;
+`test_the_full_run_covered_the_current_test_files` fails until that run happens.
+
 ## The split-file mutations
 
 `splits/es-meddocan.json` is the seal's reference point (CLAUDE.md), so the checks

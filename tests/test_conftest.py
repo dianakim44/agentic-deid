@@ -57,6 +57,7 @@ AVAILABILITY = {
     "endeid_sealed",
     "kosurro_present",
     "kosurro_sealed",
+    "carmen_present",
 }
 CONSTRUCTION = {
     "loader",
@@ -69,6 +70,8 @@ CONSTRUCTION = {
     "kosurro_loader",
     "kosurro_unsplit_loader",
     "kosurro_docs",
+    "carmen_unsplit_loader",
+    "carmen_docs",
 }
 
 #: Calls an availability fixture may make. Both answer from a configured path and can
