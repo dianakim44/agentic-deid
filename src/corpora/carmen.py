@@ -546,7 +546,7 @@ class CarmenLoader(CorpusLoader):
 
         corrected = self._apply_known_defects(doc_id, spans, text)
         language, has_concepts = labels[doc_id]
-        doctype, section = self._filename_parts(doc_id)
+        doctype, section, index = self._filename_parts(doc_id)
         meta: dict[str, object] = {
             # `language_label` and not `lang`: these are the corpus's own labels and
             # `bi` is not a `naming.yaml` language. The name is what stops a call site
@@ -557,6 +557,13 @@ class CarmenLoader(CorpusLoader):
             # sections rather than notes (§8.5).
             "filename_doctype": doctype,
             "filename_section": section,
+            # The trailing number, which is what §9.5 step 1's candidate key for this
+            # corpus pairs with the doctype: `IA_ANTECEDENTES_7` and
+            # `IA_PROCESO_ACTUAL_7` read like two sections of one letter. Recorded here
+            # rather than re-parsed in `src/split.py` because this is the file that owns
+            # the id shape — a second pattern over the same ids is how one of the two
+            # comes to apply a different rule (the same argument `stem_index` makes).
+            "filename_index": index,
             "has_concept_layer": has_concepts,
         }
         if corrected:
@@ -622,14 +629,14 @@ class CarmenLoader(CorpusLoader):
             corrected.append(index)
         return corrected
 
-    def _filename_parts(self, doc_id: str) -> tuple[str, str | None]:
-        """`CARMEN-I_{doctype}[_{section}]_{n}` -> (doctype, section or None).
+    def _filename_parts(self, doc_id: str) -> tuple[str, str | None, int]:
+        """`CARMEN-I_{doctype}[_{section}]_{n}` -> (doctype, section or None, n).
 
-        The split's stratum, so a failure here is a failure to stratify and not a
-        cosmetic one. Both branches raise rather than falling back on a residual
-        label: a document that landed in an `unparsed` or `other` stratum would be
-        stratified on a label meaning "this code did not understand the id", and the
-        split file would record that as a composition.
+        The split's stratum and its §9.5 step-1 candidate key, so a failure here is a
+        failure to stratify and not a cosmetic one. Both branches raise rather than
+        falling back on a residual label: a document that landed in an `unparsed` or
+        `other` stratum would be stratified on a label meaning "this code did not
+        understand the id", and the split file would record that as a composition.
         """
         match = DOC_ID_RE.match(doc_id)
         if match is None:
@@ -647,7 +654,7 @@ class CarmenLoader(CorpusLoader):
                 "frozen split records a composition over those labels and a new one "
                 "would change what that record means."
             )
-        return doctype, match.group("section")
+        return doctype, match.group("section"), int(match.group("n"))
 
     def _parse_line(
         self, line: str, line_no: int, ann_path: Path, shift: int

@@ -105,11 +105,17 @@ def test_an_unconfigured_corpus_is_not_sealed():
     It must not raise: conflating "not sealed" with "misconfigured" would push
     someone towards adding an entry that points at unsealed data.
 
-    `es-carmen` stands for that state. It was `de-grascco` until 2026-09-21, when that
-    corpus was actually sealed — which is the one way this test could have stopped
-    testing anything, since a corpus with an entry answers with a path.
+    `en-n2c2` stands for that state. It was `de-grascco` until 2026-09-21 and
+    `es-carmen` until 2026-09-29, when each corpus was actually sealed — which is the one
+    way this test could have stopped testing anything, since a corpus with an entry
+    answers with a path.
+
+    `en-n2c2` is the last declared corpus without a loader (DESIGN §11), so there is no
+    further id to move to. If it is ever sealed, this test has nothing left to stand on
+    and should assert against a name that is not a declared corpus instead — the
+    assertion is about the absent-entry branch, not about any particular corpus.
     """
-    assert base.sealed_root("es-carmen") is None
+    assert base.sealed_root("en-n2c2") is None
 
 
 # ─── the code gate ──────────────────────────────────────────────────────────

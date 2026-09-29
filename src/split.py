@@ -23,6 +23,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import random
 import re
 import subprocess
@@ -235,6 +236,32 @@ GROUPING_TYPES = {
         # the same clinic share their letter dates routinely.
         "date": ("DATE_BIRTH",),
     },
+    "es-carmen": {
+        # The patient type, exactly as MEDDOCAN's — and it has **zero instances** in
+        # this release (§9.0). So the `name` count in this corpus's audit is 0 for every
+        # candidate group by construction, and the audit says so: "no name agreed" here
+        # is not evidence about surfaces, it is the absence of the type that step 2
+        # requires. That is why the block records the record-number and date counts too
+        # even though the name condition already decides the outcome.
+        "name": ("NOMBRE_SUJETO_ASISTENCIA",),
+        # Wider than a record number, like de-grascco's `ID`: `NUMERO_IDENTIF` is 227
+        # of this corpus's 243 ID spans and names a number with no role (§9.0). Width
+        # can only ever *confirm* a group step 2 already requires a name agreement for,
+        # so it costs nothing — and it is recorded because a reader of the counts would
+        # otherwise read `record` as "record number".
+        "record": (
+            "ID_SUJETO_ASISTENCIA",
+            "ID_CONTACTO_ASISTENCIAL",
+            "ID_ASEGURAMIENTO",
+            "NUMERO_IDENTIF",
+        ),
+        # `FECHAS` is the only date type this release has — there is no birth-date
+        # subtype to narrow to, the way de-grascco narrows to `DATE_BIRTH`. So this role
+        # is wider here than there and that widening is in the direction that forms
+        # groups, which is the reason to say it out loud rather than leave it in the
+        # tuple: two documents from one ward on one day share a date.
+        "date": ("FECHAS",),
+    },
 }
 
 #: `{stem}{sep}{suffix}`, suffix digits **or** letters, stem opaque. DESIGN §9.5
@@ -252,6 +279,39 @@ STEM_RE = re.compile(r"^(?P<stem>.+)[-_](?P<suffix>[0-9]+|[A-Za-z]+)$")
 #: than inferred from how many ids failed, because "most of them parsed" is precisely
 #: the signal a broken pattern also produces.
 ALL_IDS_STRUCTURED = frozenset({"es-meddocan"})
+
+def _carmen_candidate_key(doc: Document) -> str:
+    """`es-carmen`'s §9.5 step-1 key: the document type and the trailing number.
+
+    `STEM_RE` cannot express it. On `CARMEN-I_IA_ANTECEDENTES_7` it yields the stem
+    `CARMEN-I_IA_ANTECEDENTES`, which pairs a document with the *same section of other
+    letters* — and a shared section is not a shared patient in a way no identifier could
+    ever confirm or refute. The question §9.5 actually asks about this corpus is the
+    other pairing: `IA_ANTECEDENTES_7` and `IA_PROCESO_ACTUAL_7` read like two sections
+    of one letter. That candidate set is 189 groups over 775 documents, and step 2
+    rejects every one of them.
+
+    Read out of `meta`, not re-parsed: `carmen.py` owns the id shape, validates it on
+    every document, and refuses an id it cannot parse. A regex here would be a second
+    pattern over the same ids, which is the failure `stem_index` was written to avoid.
+    """
+    return f"{doc.meta['filename_doctype']}_{doc.meta['filename_index']}"
+
+
+#: DESIGN §9.5 step 1, per corpus, where the id shape needs a key `STEM_RE` does not
+#: express. The description is what the split file records as `step_1_pattern`, so the
+#: audit says which question was asked rather than showing a regex that was not used.
+#:
+#: Declared per corpus rather than inferred, for `ALL_IDS_STRUCTURED`'s reason: a corpus
+#: whose ids happen to parse under `STEM_RE` would otherwise be grouped on a candidate
+#: set nobody chose.
+CANDIDATE_KEYS = {
+    "es-carmen": (
+        "the document type and the trailing number, section token ignored: "
+        "CARMEN-I_{doctype}[_{section}]_{n} -> {doctype}_{n} (DESIGN §9.5)",
+        _carmen_candidate_key,
+    ),
+}
 
 #: `d/m/y`, `d.m.y`, `d-m-y`, two- or four-digit year. DESIGN §9.5 step 2 requires
 #: dates to be compared after format normalisation: `Tupolev_1..4`'s one birth date
@@ -316,16 +376,26 @@ def comparable_surfaces(
     return out
 
 
-def stem_index(docs: Sequence[Document]) -> tuple[dict[str, list[str]], list[str]]:
+def stem_index(
+    docs: Sequence[Document], corpus_id: str | None = None
+) -> tuple[dict[str, list[str]], list[str]]:
     """DESIGN §9.5 step 1: document ids grouped by stem, and the ids with no stem.
 
     One implementation for the audit, the crossing summary and the construction of a
     split, because three callers applying the same pattern separately is how one of
     them ends up applying a different one.
+
+    `corpus_id` selects `CANDIDATE_KEYS`' key where one is declared. Omitting it is
+    `STEM_RE`, which is what the two corpora frozen against this function used and what
+    the crossing summary's schema-uniformity figure means.
     """
+    keyed = CANDIDATE_KEYS.get(corpus_id) if corpus_id is not None else None
     by_stem: dict[str, list[str]] = {}
     unparsed: list[str] = []
     for doc in docs:
+        if keyed is not None:
+            by_stem.setdefault(keyed[1](doc), []).append(doc.doc_id)
+            continue
         match = STEM_RE.match(doc.doc_id)
         if match is None:
             unparsed.append(doc.doc_id)
@@ -375,7 +445,7 @@ def grouping_audit(corpus_id: str, docs: Sequence[Document]) -> dict:
         )
 
     by_id = {d.doc_id: d for d in docs}
-    by_stem, unparsed = stem_index(docs)
+    by_stem, unparsed = stem_index(docs, corpus_id)
     if unparsed and corpus_id in ALL_IDS_STRUCTURED:
         raise CorpusError(
             f"{corpus_id}: {len(unparsed)} document ids do not parse as "
@@ -411,9 +481,10 @@ def grouping_audit(corpus_id: str, docs: Sequence[Document]) -> dict:
             ),
         }
 
+    declared = CANDIDATE_KEYS.get(corpus_id)
     return {
         "rule_ref": "DESIGN.md §9.5",
-        "step_1_pattern": STEM_RE.pattern,
+        "step_1_pattern": STEM_RE.pattern if declared is None else declared[0],
         "step_2_types": {k: list(v) for k, v in types.items()},
         "n_candidate_stems": len(candidates),
         "n_stems_confirmed": confirmed,
@@ -565,6 +636,7 @@ def _crossing_summary(
     units: Sequence[Sequence[str]],
     *,
     branch: str = "surface",
+    corpus_id: str | None = None,
 ) -> dict:
     """How many groups, and how many candidate stems, straddle the split.
 
@@ -585,7 +657,7 @@ def _crossing_summary(
             "The split is assigned per group, so this cannot happen by accident — "
             "do not freeze this file."
         )
-    by_stem, _ = stem_index(docs)
+    by_stem, _ = stem_index(docs, corpus_id)
     crossing = {
         stem: sorted({fold_of_doc[i] for i in ids})
         for stem, ids in by_stem.items()
@@ -759,6 +831,11 @@ SPLIT_ORIGIN = {
     # one corpus's dev fold and its surrogate in the other's test fold. Only the fold
     # *contents* are measured here; membership is `tools/derive_aligned_split.py`'s.
     "ko-surro": "derived",
+    # The release ships no split and no patient key, so the units are §9.5 steps 1–3's
+    # and every one of them is a single document. The first corpus stratified on
+    # something other than the span count: the cross of its own two labels, with the
+    # small-cell rule §9.5 pre-registers (DESIGN §9.5, config/split.yaml).
+    "es-carmen": "constructed",
 }
 
 
@@ -843,7 +920,9 @@ def _build_official(corpus_id: str) -> dict:
                 "seen/unseen analysis only (DESIGN §9.6)."
             ),
             "grouping_audit": audit,
-            "crosses_split": _crossing_summary(docs, by_fold, units),
+            "crosses_split": _crossing_summary(
+                docs, by_fold, units, corpus_id=corpus_id
+            ),
         },
         corpus_specific={
             "reading": "brat standoff; the redundant XML encoding is not read",
@@ -866,9 +945,166 @@ def _build_official(corpus_id: str) -> dict:
 # ─── constructing a split ───────────────────────────────────────────────────
 
 
-def _strata(
+#: The stratification variable two constructed splits are frozen against. Named so the
+#: dispatch below reads as a choice between declared variables rather than as a default.
+SPAN_COUNT_VARIABLE = "in_scope_span_count"
+
+#: Cross stratifications: `config/split.yaml`'s `stratify_by` value -> the two `meta`
+#: keys it crosses, primary first. The primary is the dimension that is **never**
+#: collapsed and the secondary is the one that folds into it (DESIGN §9.5's small-cell
+#: rule, item 2). The value names the two keys so that the file and the code cannot
+#: disagree about which labels were crossed — `filename_doctype` is not §7's
+#: `document_type` axis and `language_label` is not naming.yaml's `lang` axis, and a
+#: `stratify_by` value reading `document_type_x_lang` would quietly claim both.
+CROSS_VARIABLES = {
+    "filename_doctype_x_language_label": ("filename_doctype", "language_label"),
+}
+
+
+def small_cell_threshold(proportions: dict[str, float]) -> int:
+    """DESIGN §9.5's small-cell threshold: `ceil(1 / min(proportion))`.
+
+    The smallest cell size at which the smallest fold's share reaches one document. It
+    is derived from the proportions and not stored beside them for the reason
+    `config/split.yaml`'s es-carmen entry gives: two copies of one number can disagree,
+    and the copy that is wrong wins silently. At train 0.60 / dev 0.20 / test 0.20 the
+    value is 5; at 70/15/15 it is 7 and at 80/10/10 it is 10.
+    """
+    return math.ceil(1 / min(proportions.values()))
+
+
+def cross_cells(
+    units: Sequence[Sequence[str]], keys: dict[str, tuple[str, str]]
+) -> dict[tuple[str, str], list[Sequence[str]]]:
+    """The cells of a cross stratification, before the small-cell rule runs.
+
+    A unit whose documents disagree on the cell refuses. It cannot happen on es-carmen,
+    where every unit is one document, but a corpus with both a confirmed §9.5 group and
+    a cross stratification would otherwise have its group assigned to whichever cell its
+    first document happened to name — and the recorded composition would be a
+    composition over cells that some documents are not in.
+    """
+    cells: dict[tuple[str, str], list[Sequence[str]]] = {}
+    for unit in units:
+        distinct = {keys[doc_id] for doc_id in unit}
+        if len(distinct) > 1:
+            raise CorpusError(
+                f"§9.5 unit {unit[0]!r} holds {len(unit)} documents in "
+                f"{len(distinct)} different stratification cells. A unit is assigned "
+                "to one fold, so it must be in one cell; recording it under one of "
+                "them would make the composition false for the rest."
+            )
+        cells.setdefault(distinct.pop(), []).append(unit)
+    return cells
+
+
+def collapse_small_cells(
+    cells: dict[tuple[str, str], list[Sequence[str]]], threshold: int
+) -> tuple[dict[tuple[str, str], list[Sequence[str]]], list[str]]:
+    """DESIGN §9.5's small-cell rule. Returns the strata and which primaries collapsed.
+
+    When any cell of a primary value falls below `threshold`, the **secondary**
+    dimension folds for that primary and its cells become one `(primary, "*")` stratum.
+    Primaries are never merged with each other: on es-carmen the primary is the document
+    type, which is the dimension the results are cut on, and merging two document types
+    would hide which one a fold is short of (§9.5 item 4).
+
+    A collapsed stratum that is still below the threshold is left as it is — see item 4
+    — and the caller records the shortfall. Not reachable on this release: `CC`'s cells
+    of 4 and 1 collapse to exactly 5.
+    """
+    by_primary: dict[str, dict[str, list[Sequence[str]]]] = {}
+    for (primary, secondary), unit_list in cells.items():
+        by_primary.setdefault(primary, {})[secondary] = unit_list
+
+    strata: dict[tuple[str, str], list[Sequence[str]]] = {}
+    collapsed: list[str] = []
+    for primary, secondaries in sorted(by_primary.items()):
+        sizes = {
+            secondary: sum(len(unit) for unit in unit_list)
+            for secondary, unit_list in secondaries.items()
+        }
+        if any(n < threshold for n in sizes.values()):
+            collapsed.append(primary)
+            merged = [
+                unit
+                for _, unit_list in sorted(secondaries.items())
+                for unit in unit_list
+            ]
+            strata[(primary, "*")] = merged
+            continue
+        for secondary, unit_list in sorted(secondaries.items()):
+            strata[(primary, secondary)] = unit_list
+    return strata, collapsed
+
+
+def _cross_strata(
+    units: Sequence[Sequence[str]],
+    keys: dict[str, tuple[str, str]],
+    *,
+    threshold: int,
+    n_strata: int,
+) -> dict[str, list[Sequence[str]]]:
+    """A cross stratification's strata, ordered, with the declared count enforced.
+
+    Largest stratum first, ties by name. Any fixed order gives a deterministic split;
+    this one is chosen because `assign_folds` equalises `assigned/target` at every step,
+    so a small stratum placed late is spread against targets that are already nearly
+    met — which is where its five documents do the most for the balance and the least to
+    it. The order is not the corpus read order and does not depend on it.
+
+    `n_strata` is `config/split.yaml`'s declared count and this is where it is a check
+    rather than a parameter: the number of strata is derived from the data, and a release
+    that gained a label would otherwise be recorded as a composition over the old count.
+    """
+    strata, _ = collapse_small_cells(cross_cells(units, keys), threshold)
+    if len(strata) != n_strata:
+        raise CorpusError(
+            f"the cross stratification yields {len(strata)} strata and "
+            f"config/split.yaml declares n_strata={n_strata}. The count is derived from "
+            "the corpus's own labels, so a disagreement means the labels moved — decide "
+            "what the new composition is (DESIGN §9.5) rather than recording it under "
+            "the old count."
+        )
+    ordered = sorted(
+        strata.items(), key=lambda item: (-sum(len(u) for u in item[1]), item[0])
+    )
+    return {
+        f"{primary}/{secondary}": unit_list
+        for (primary, secondary), unit_list in ordered
+    }
+
+
+def stratum_keys(
+    variable: str, docs: Sequence[Document]
+) -> dict[str, tuple[str, str]] | None:
+    """Per-document cell keys for a cross stratification, or `None` for a band variable.
+
+    Read from `meta` by the names `CROSS_VARIABLES` holds, so a loader that stopped
+    recording one of the two labels fails here — and it fails before a split file claims
+    a composition over a label nothing supplied.
+    """
+    pair = CROSS_VARIABLES.get(variable)
+    if pair is None:
+        return None
+    primary, secondary = pair
+    keys: dict[str, tuple[str, str]] = {}
+    for doc in docs:
+        for key in pair:
+            if key not in doc.meta:
+                raise CorpusError(
+                    f"{doc.corpus_id}: stratifying on {variable!r} needs meta[{key!r}] "
+                    f"and document index {docs.index(doc)} does not carry it. The label "
+                    "is the stratum, so a missing one is a split that was not "
+                    "stratified rather than one stratified approximately."
+                )
+        keys[doc.doc_id] = (str(doc.meta[primary]), str(doc.meta[secondary]))
+    return keys
+
+
+def _band_strata(
     units: Sequence[Sequence[str]], sizes: dict[str, int], n_strata: int
-) -> list[list[Sequence[str]]]:
+) -> dict[str, list[Sequence[str]]]:
     """Units bucketed into `n_strata` bands of equal *unit count* by span count.
 
     Equal count per band, by rank, rather than equal-width bands of the span count:
@@ -885,18 +1121,65 @@ def _strata(
     bands: list[list[Sequence[str]]] = [[] for _ in range(n_strata)]
     for position, unit in enumerate(ordered):
         bands[min(n_strata - 1, position * n_strata // len(ordered))].append(unit)
-    return bands
+    return {f"band_{i + 1}": band for i, band in enumerate(bands)}
 
 
-def assign_folds(
+def strata(
     units: Sequence[Sequence[str]],
     sizes: dict[str, int],
     *,
-    proportions: dict[str, float],
+    variable: str,
     n_strata: int,
+    proportions: dict[str, float],
+    keys: dict[str, tuple[str, str]] | None = None,
+) -> dict[str, list[Sequence[str]]]:
+    """The strata of one constructed split, named and ordered, by declared variable.
+
+    One dispatch point rather than a branch inside `assign_folds`, so that "which
+    variable stratified this corpus" is answered once for the assignment and for the
+    composition the split file records. Two callers deciding it separately is how a file
+    comes to describe a stratification the assignment did not perform.
+    """
+    if variable in CROSS_VARIABLES:
+        if keys is None:
+            raise CorpusError(
+                f"{variable!r} is a cross stratification and no per-document cell keys "
+                "were supplied. The cells come from the corpus's own labels; a fallback "
+                "here would stratify on something and call it this."
+            )
+        return _cross_strata(
+            units,
+            keys,
+            threshold=small_cell_threshold(proportions),
+            n_strata=n_strata,
+        )
+    if variable != SPAN_COUNT_VARIABLE:
+        raise CorpusError(
+            f"config/split.yaml asks to stratify by {variable!r}, which is neither "
+            f"{SPAN_COUNT_VARIABLE!r} nor one of {sorted(CROSS_VARIABLES)}. A variable "
+            "no code implements must not fall through to the one that is already there."
+        )
+    return _band_strata(units, sizes, n_strata)
+
+
+def assign_folds(
+    strata_map: dict[str, list[Sequence[str]]],
+    *,
+    proportions: dict[str, float],
     seed: int,
 ) -> dict[str, str]:
     """DESIGN §9.6's assignment rule: document id -> fold. Deterministic given `seed`.
+
+    Takes the strata rather than computing them, so that the strata a split file
+    describes are by construction the strata the assignment walked. It is also what lets
+    a cross stratification and a band stratification share this function unchanged —
+    the assignment rule never depended on what the bands meant.
+
+    Targets are global, not per stratum, and that is what makes the stratification hold:
+    the rule below equalises `assigned/target` at every step, so each stratum's units are
+    handed out in the fold proportions as it is walked. A stratum too small for the
+    smallest fold's share to reach one document is exactly the case that cannot be, which
+    is what `small_cell_threshold` is the size of.
 
     Targets are counted in documents and assignment happens per unit, which is the
     one place those two differ (a group of four documents is one unit). Each unit goes
@@ -911,12 +1194,14 @@ def assign_folds(
     Ties break in naming.yaml's fold order, which is stable because it is read from
     the config rather than from a set.
     """
-    n_documents = sum(len(unit) for unit in units)
+    n_documents = sum(
+        len(unit) for band in strata_map.values() for unit in band
+    )
     targets = {fold: proportions[fold] * n_documents for fold in base.split_names()}
     assigned: dict[str, int] = {fold: 0 for fold in targets}
     fold_of_doc: dict[str, str] = {}
     rng = random.Random(seed)
-    for band in _strata(units, sizes, n_strata):
+    for band in strata_map.values():
         shuffled = list(band)
         rng.shuffle(shuffled)
         # Largest unit first, ties in the shuffled order (`sort` is stable). A group
@@ -944,6 +1229,9 @@ def _achieved(
     units: Sequence[Sequence[str]],
     fold_of_doc: dict[str, str],
     params: dict,
+    *,
+    strata_map: dict[str, list[Sequence[str]]],
+    keys: dict[str, tuple[str, str]] | None = None,
 ) -> dict:
     """What the stratification delivered, per fold — not what it was asked for.
 
@@ -951,9 +1239,16 @@ def _achieved(
     stratification actually delivered instead of trusting that it was requested".
     Density is in spans per 1,000 whitespace tokens, the same token definition the
     fold summaries use, because two token definitions in one file is one too many.
+
+    For a cross stratification the requested composition is recorded **beside** the
+    achieved one and not in place of it (§9.5 item 5): the cells before the small-cell
+    rule, the threshold and where it fired, against the per-stratum and per-label counts
+    each fold actually received. One block without the other is what makes a difference
+    between the two invisible.
     """
-    return {
-        "variable": params["stratify_by"],
+    variable = params["stratify_by"]
+    block = {
+        "variable": variable,
         "n_strata": params["n_strata"],
         "target_proportions": dict(params["proportions"]),
         "note": (
@@ -964,6 +1259,13 @@ def _achieved(
             "density even though their span shares match their document shares. That "
             "is a limitation of reading one fold's density against another's, stated "
             "here rather than left for a reader to infer from the word 'stratified'."
+            if variable == SPAN_COUNT_VARIABLE
+            else "The variable is the cross of the corpus's own two labels, not the "
+            "span count the other constructed splits use: PHI density varies 4x by "
+            "document type here and 84% of bilingual documents are one document type, "
+            "so an unstratified split would confound corpus composition with detector "
+            "behaviour (DESIGN §9.5). Spans per 1,000 tokens is recorded per fold and "
+            "is not what was balanced — the labels were."
         ),
         "achieved": {
             fold: {
@@ -985,6 +1287,72 @@ def _achieved(
             for fold, docs in sorted(by_fold.items())
         },
     }
+    if keys is None:
+        return block
+
+    primary, secondary = CROSS_VARIABLES[variable]
+    threshold = small_cell_threshold(params["proportions"])
+    cells = cross_cells(units, keys)
+    _, collapsed = collapse_small_cells(cells, threshold)
+    cell_sizes = {
+        f"{a}/{b}": sum(len(unit) for unit in unit_list)
+        for (a, b), unit_list in sorted(cells.items())
+    }
+    block["requested"] = {
+        "labels": {"primary": primary, "secondary": secondary},
+        "cells": cell_sizes,
+        "n_cells_non_empty": len(cell_sizes),
+        "small_cell_threshold": threshold,
+        "threshold_formula": "ceil(1 / min(proportion))",
+        "threshold_note": (
+            "The smallest cell size at which the smallest fold's share reaches one "
+            f"document: min(proportion) is {min(params['proportions'].values())}, so the "
+            f"threshold is {threshold}. Derived from the proportions above and not "
+            "recorded in config/split.yaml, where a second copy could disagree with "
+            "them (DESIGN §9.5 item 1)."
+        ),
+        "cells_below_threshold": {
+            name: n for name, n in cell_sizes.items() if n < threshold
+        },
+        "collapsed_primaries": sorted(collapsed),
+        "collapse_note": (
+            f"The secondary label ({secondary}) folds inside a primary value "
+            f"({primary}) that holds any cell below the threshold, and primary values "
+            "are never merged with each other (DESIGN §9.5 item 2). The secondary label "
+            "survives on every document, so the mix each fold received is recorded "
+            "below and stays reportable after the fact."
+        ),
+        "strata": {
+            name: sum(len(unit) for unit in unit_list)
+            for name, unit_list in strata_map.items()
+        },
+        "strata_still_below_threshold": {
+            name: sum(len(unit) for unit in unit_list)
+            for name, unit_list in strata_map.items()
+            if sum(len(unit) for unit in unit_list) < threshold
+        },
+    }
+    stratum_of_unit = {
+        unit[0]: name for name, unit_list in strata_map.items() for unit in unit_list
+    }
+    for fold, fold_docs in sorted(by_fold.items()):
+        ids = {d.doc_id for d in fold_docs}
+        per_stratum: dict[str, int] = {}
+        for unit in units:
+            if unit[0] in ids:
+                name = stratum_of_unit[unit[0]]
+                per_stratum[name] = per_stratum.get(name, 0) + len(unit)
+        per_label: dict[str, dict[str, int]] = {primary: {}, secondary: {}}
+        for doc_id in sorted(ids):
+            for label, value in zip((primary, secondary), keys[doc_id]):
+                per_label[label][value] = per_label[label].get(value, 0) + 1
+        block["achieved"][fold]["by_stratum"] = {
+            name: per_stratum.get(name, 0) for name in strata_map
+        }
+        block["achieved"][fold]["label_mix"] = {
+            label: dict(sorted(counts.items())) for label, counts in per_label.items()
+        }
+    return block
 
 
 def _build_constructed(corpus_id: str) -> dict:
@@ -1010,11 +1378,18 @@ def _build_constructed(corpus_id: str) -> dict:
 
     audit, units = grouping(corpus_id, docs, loader)
     sizes = {doc.doc_id: len(doc.in_scope_spans) for doc in docs}
-    fold_of_doc = assign_folds(
+    keys = stratum_keys(params["stratify_by"], docs)
+    strata_map = strata(
         units,
         sizes,
-        proportions=params["proportions"],
+        variable=params["stratify_by"],
         n_strata=params["n_strata"],
+        proportions=params["proportions"],
+        keys=keys,
+    )
+    fold_of_doc = assign_folds(
+        strata_map,
+        proportions=params["proportions"],
         seed=params["seed"],
     )
 
@@ -1048,7 +1423,14 @@ def _build_constructed(corpus_id: str) -> dict:
             "note": described["origin_note"],
             "rationale_ref": "DESIGN.md §9.6",
             "seed": params["seed"],
-            "stratification": _achieved(by_fold, units, fold_of_doc, params),
+            "stratification": _achieved(
+                by_fold,
+                units,
+                fold_of_doc,
+                params,
+                strata_map=strata_map,
+                keys=keys,
+            ),
         },
         group_key={
             "unit": described["unit"],
@@ -1058,7 +1440,7 @@ def _build_constructed(corpus_id: str) -> dict:
             "note": described["group_note"],
             "grouping_audit": audit,
             "crosses_split": _crossing_summary(
-                docs, by_fold, units, branch=described["branch"]
+                docs, by_fold, units, branch=described["branch"], corpus_id=corpus_id
             ),
         },
         corpus_specific=described["corpus_specific"],
@@ -1179,7 +1561,7 @@ def _build_derived(corpus_id: str) -> dict:
             "note": described["group_note"],
             "grouping_audit": audit,
             "crosses_split": _crossing_summary(
-                docs, by_fold, units, branch=described["branch"]
+                docs, by_fold, units, branch=described["branch"], corpus_id=corpus_id
             ),
         },
         corpus_specific=described["corpus_specific"],
@@ -1436,9 +1818,125 @@ def _endeid_narrative(
     }
 
 
+def _carmen_narrative(
+    docs: Sequence[Document], units: Sequence[Sequence[str]], loader: base.CorpusLoader
+) -> dict:
+    by_key, _ = stem_index(docs, "es-carmen")
+    candidates = {key: ids for key, ids in by_key.items() if len(ids) > 1}
+    n_candidate_documents = sum(len(ids) for ids in candidates.values())
+    sections = sum(1 for d in docs if d.meta["filename_section"] is not None)
+    flagged = sum(1 for d in docs if d.meta["has_concept_layer"])
+    corrected = {
+        d.doc_id: d.meta["surface_corrected_spans"]
+        for d in sorted(docs, key=lambda d: d.doc_id)
+        if d.meta.get("surface_corrected_spans")
+    }
+    return {
+        "hashed": (
+            "per document, over its .ann and .txt in sorted-name order plus a canonical "
+            "rendering of its CARMEN1_mappings.tsv row (language label and "
+            "concept-layer flag); the manifest digest is derived from the per-document "
+            "digests. The mappings row is in the digest because the stratification is "
+            "over the label it carries, and a release that reshuffled that file would "
+            "otherwise leave every per-document digest intact while making this file's "
+            "recorded composition false."
+        ),
+        "origin_note": (
+            "The release ships no split, so this one was constructed here and is frozen "
+            "before any rule is written for it (DESIGN §6.2). Proportions are counted "
+            "in documents and assigned per §9.5 unit; the seed in this block is "
+            "config/split.yaml's and is the only source of randomness. The stratum is "
+            "the cross of the corpus's own document-type and language labels and the "
+            "small-cell rule §9.5 pre-registers, which is the one thing this corpus's "
+            "construction has that the other two do not — the requested cells, the "
+            "threshold and where it fired are in the stratification block above."
+        ),
+        "branch": "surface",
+        "unit": "document (§9.5 step 3: no grouping confirmed by identifier)",
+        "basis": (
+            "no patient key exists; no grouping confirmed by identifier agreement"
+        ),
+        "group_note": (
+            f"{len(units)} units over {len(docs)} documents — one per document. Step 1's "
+            f"key here is the document type and the trailing number with the section "
+            f"token ignored, which admits {len(candidates)} candidate groups covering "
+            f"{n_candidate_documents} documents: `IA_ANTECEDENTES_7` and "
+            "`IA_PROCESO_ACTUAL_7` read like two sections of one letter, which is "
+            "exactly why a filename may not answer the question. Step 2 rejects every "
+            "one of them — not one candidate group has a single agreeing surface of any "
+            "of the three roles. Two things make that reading honest rather than "
+            "reassuring, and both are recorded in DESIGN §9.5. First, the patient-name "
+            "type this corpus declares has **zero instances** in the release (§9.0), so "
+            "the `name` count step 2 requires is 0 by construction and the rejection "
+            "does not rest on surfaces that were compared and disagreed. Second, the "
+            "numbering is contiguous 1..N within each (document type, section) pair, so "
+            "a shared number is arithmetic and not linkage. Grouping anyway would have "
+            f"collapsed {n_candidate_documents} documents into {len(candidates)} units, "
+            f"discarding {n_candidate_documents - len(candidates)} independent units to "
+            "prevent leakage the annotations contradict. A second candidate grouping — "
+            "transitive closure over shared surfaces — was measured and rejected too: "
+            "it yields one group of 52 documents on three surfaces that are 7, 3 and 9 "
+            "characters of letters with no digits, which is a word and not an "
+            "identifier. Whether two documents are the same patient is not knowable "
+            "from this release, and §9.5 reports that as a limitation of every "
+            "CARMEN-I number rather than as an argument for grouping."
+        ),
+        "corpus_specific": {
+            "reading": (
+                "brat standoff, the `replaced` variant's `anon` layer. The release's "
+                "other rendering substitutes placeholders for the identifiers and is "
+                "not read; the `ner` medical-concept layer in the same tree is checked "
+                "for presence against the mappings file's flag and its annotations are "
+                "not read (DESIGN §9.0)."
+            ),
+            "fold_directories": None,
+            "fold_directories_note": (
+                "The layout encodes no fold: all documents live in one directory, so "
+                "this file is the only authority on which fold a document is in and "
+                "there is no second source to cross-check it against. MEDDOCAN's "
+                "loader has that check and this one cannot."
+            ),
+            "n_section_units": sections,
+            "sections_note": (
+                f"{sections} of {len(docs)} units are clinical *sections* rather than "
+                "whole notes (§8.5), which is why the stratum label is recorded as "
+                "`filename_doctype` and not as §7's `document_type` axis — that axis is "
+                "derived from text cues and this corpus declares none."
+            ),
+            "n_documents_with_concept_layer": flagged,
+            "concept_layer_note": (
+                "The mappings file's own flag, cross-checked against the `ner` "
+                "directory on every load. It is the only claim that file makes which "
+                "can be verified against the tree, and the language label the "
+                "stratification rests on sits in the same rows."
+            ),
+            "bom_documents": sorted(d.doc_id for d in docs if d.had_bom),
+            "bom_note": (
+                "None: no document in this release carries a UTF-8 BOM (measured over "
+                "all 2,000). The loader still applies §9.7's shift arithmetic rather "
+                "than decoding the mark away, because a release that gained one would "
+                "otherwise move every span in that document by one with nothing saying "
+                "so. Recorded as an empty list rather than omitted so the correction is "
+                "visibly accounted for on every corpus."
+            ),
+            "surface_corrected_spans": corrected,
+            "surface_corrected_note": (
+                "DESIGN §9.7's one pinned defect: the span's recorded surface is not "
+                "the text at its recorded offsets, the three witnesses in that section "
+                "say the surface field is what the release got wrong, and the loader "
+                "substitutes the text for that one span. Listed by document and span "
+                "index — the only place in this project where a loader overwrites a "
+                "recorded annotation, so it is auditable without re-reading the corpus "
+                "and without quoting the surface."
+            ),
+        },
+    }
+
+
 CONSTRUCTED_NARRATIVE = {
     "de-grascco": _grascco_narrative,
     "en-deid": _endeid_narrative,
+    "es-carmen": _carmen_narrative,
 }
 
 

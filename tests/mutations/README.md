@@ -268,12 +268,12 @@ the whole reason the defect survived four corpora and was found by reading the c
 |---|---|---|---|
 | `utf8_sig` | `meddocan.py` reads the text with `encoding="utf-8-sig"` | BOM removed at decode time, so `strip_bom` finds nothing and applies no shift; all 761 spans in the 32 BOM files are off by one. DESIGN §9.7 | **158** |
 | `no_bom_shift` | offsets are not decremented by the BOM length | same one-character error, reached from the other direction | **158** |
-| `assert_offsets_noop` | `Document.assert_offsets` returns immediately | the §9.7 assertion stops asserting; counts are unaffected, so only tests that slice spans themselves can notice | **6** |
-| `drop_excluded` | `load()` filters out `excluded` spans | §9.1 spans discarded instead of flagged; the canonical count stays a correct 20,538 while the reported exclusion volume becomes unmeasurable | **28** ‡ |
+| `assert_offsets_noop` | `Document.assert_offsets` returns immediately | the §9.7 assertion stops asserting; counts are unaffected, so only tests that slice spans themselves can notice | **9** ‡ |
+| `drop_excluded` | `load()` filters out `excluded` spans | §9.1 spans discarded instead of flagged; the canonical count stays a correct 20,538 while the reported exclusion volume becomes unmeasurable | **35** ‡ |
 | `familiares_as_other` | `FAMILIARES_SUJETO_ASISTENCIA` moves from `EXCLUDED_TYPES` into `TYPE_MAP` as `OTHER` | an excluded type is scored; every span still loads and the total still reconciles to 22,795, so the corruption is entirely in *which* spans count | **33** |
 | `type_in_both_lists` | the same type is added to `TYPE_MAP` while left in `EXCLUDED_TYPES` | `_check_type_map` must reject it at construction. See "What this found", below | **192** |
 | `missing_test_fold` | `SPLIT_DIRS` loses its `test` entry | before the seal: 750 documents loaded instead of 1,000. Now 750 is correct, so what remains visible is that an *authorised* sealed read would return no sealed documents while the log records a completed evaluation | **2** |
-| `bucket_unknown_types` | `classify()` returns `("OTHER", False)` instead of raising | an unmapped type is scored as a residual bucket. Invisible on today's corpus and waiting for the day a re-release adds a type | **4** |
+| `bucket_unknown_types` | `classify()` returns `("OTHER", False)` instead of raising | an unmapped type is scored as a residual bucket. Invisible on today's corpus and waiting for the day a re-release adds a type | **6** ‡ |
 
 ## The other two loaders — 2026-09-22, and what was scored before them
 
@@ -569,10 +569,91 @@ unfalsifiable, and one of them was wrong in a file about to be pre-registered.
 | `fold_from_directory_not_file` | `load()` skips `_apply_split_file` | folds come from the directory layout instead of the frozen file. No count changes, because the two agree today; what is lost is that the *file* decides what is sealed | **6** ‡ |
 | `split_disagreement_ignored` | the corpus-vs-file fold cross-check becomes `if False` | the file silently overrides the disk, so a re-release that moved a document out of `test` is accepted without a word | **1** |
 | `top_level_leak_allowed` | `check_schema` stops rejecting unknown top-level keys | corpus-specific fields may then sit beside the common ones. Nothing fails today; the schema stops being shared the first time GraSCCo's generator adds a key | **1** |
-| `grouping_numeric_suffix_only` | `STEM_RE` becomes the old `^(S\d{4}-\d+)-(\d+)$` | reinstates the §9.5 bug that dropped the 31 ids with a letter in the journal prefix, so the grouping audit covers 969 of 1,000 documents and calls itself complete | **2** |
+| `grouping_numeric_suffix_only` | `STEM_RE` becomes the old `^(S\d{4}-\d+)-(\d+)$` | reinstates the §9.5 bug that dropped the 31 ids with a letter in the journal prefix, so the grouping audit covers 969 of 1,000 documents and calls itself complete | **3** ‡ |
 | `grouping_name_only` | §9.5 step 2 accepts a name match without a record number or date | the one stem sharing a bare given name across different surnames becomes a group, and two independent units stop being independent | **2** |
 | `sparsity_counts_excluded_spans` | `_n_documents_with_gold()` counts `doc.spans` instead of `doc.in_scope_spans` | restores the 727 that shipped in `splits/ko-surro.json`: a note whose only span is §9.1-excluded is counted as carrying gold, beside prose in the same block saying "at least one in-scope span". 725 carry one. `en-deid` excludes nothing, so it reads 735 either way — which is how the pair's two sparsity figures came to be on definitions two notes apart | **1** |
 | `split_file_span_count` | `"n_spans": 5801` → `5800` **in the committed JSON** | a stale summary — which is what a re-released corpus actually produces. Direction reversed from every other mutation here: the artefact is the suspect and the code is the check | **3** |
+
+## The es-carmen cross-stratification mutations
+
+`es-carmen` is the first corpus stratified on something other than span count, and that is
+the whole reason this block exists separately from the one above. Span-count terciles are
+**equal-count by construction**: they cannot produce a stratum too small to split three
+ways, so `de-grascco` and `en-deid` never needed a small-cell rule and nothing in the
+tercile path can be wrong in the ways below. This corpus's strata are its own two labels
+crossed — filename document type × language label, 12 non-empty cells over 2,000 documents,
+**one of them holding a single document** — and every number involved is derived from the
+corpus and checked against `config/split.yaml`'s declaration rather than chosen.
+
+What these sixteen protect is that derivation. The characteristic failure is not a crash
+and not a wrong count: it is a **split file that records a stratification the assignment
+did not perform**, with every figure in it internally consistent because the same broken
+rule produced both the requested and the achieved composition.
+
+**Two of the sixteen do not move the number of strata at all**, and they are why the count
+of 11 is not the test:
+
+- `carmen_small_cell_rule_collapses_at_the_threshold` — `IE`'s single non-empty cell of
+  exactly 5 collapses too. Collapsing one cell merges nothing, so it is 11 strata either
+  way; only the recorded name changes, `IE/es` → `IE/*`. A file would then report a
+  language collapse on a document type whose language was never in question.
+- `carmen_strata_ordered_alphabetically` — still deterministic, still 11 strata, and a
+  different split. The order the strata are walked in is an input to `assign_folds`, which
+  equalises `assigned/target` at every step, so `CC/*`'s five documents would be handed out
+  against empty targets instead of nearly-met ones.
+
+**Two more are invisible on this corpus, which is the point of pre-registering a formula
+instead of a number.** `1/0.20` is exactly 5, so both `carmen_small_cell_threshold_hardcoded`
+and `carmen_small_cell_threshold_rounds_down` leave `splits/es-carmen.json` byte-identical.
+They are reachable only because the tests state the rule as a **property** over five
+proportion sets (`threshold × smallest ≥ 1`, and one document fewer falls short) and carry
+DESIGN §9.5's other two values, 70/15/15 → 7 and 80/10/10 → 10. A smallest fold of 0.15 is
+the case that separates `ceil` from `floor`.
+
+| mutation | changes | breaks | tests that catch it |
+|---|---|---|---|
+| `carmen_small_cell_threshold_hardcoded` | `small_cell_threshold()` returns a literal `5` | §9.5 item 1's threshold stops being derived from the proportions. es-carmen is unaffected — 1/0.20 is 5 — so the defect waits for a corpus with a different smallest fold and then gives it es-carmen's threshold | **6** |
+| `carmen_small_cell_threshold_rounds_down` | `math.floor` for `math.ceil` | also invisible here, for the same reason. At a smallest fold of 0.15 a cell of 6 would be declared large enough for a fold that gets 0.9 of a document out of it | **3** |
+| `carmen_small_cell_rule_never_fires` | the `any(n < threshold)` test becomes `if False` | no cell ever collapses, so `(CC, bi)` = 1 survives as a stratum of one document. Its achieved fold mix is 100/0/0 whatever the assignment does, so the file's stratification claim is false of it — §9.5 item 3's stated reason the rule is necessary rather than hypothetical. 12 strata, which the declared count refuses | **6** |
+| `carmen_small_cell_rule_collapses_at_the_threshold` | `<=` for `<` | `IE`'s cell of exactly 5 collapses. **The strata count does not move**; only the recorded stratum name does. See above | **3** |
+| `carmen_collapse_folds_the_document_type` | the primary and secondary are swapped inside `collapse_small_cells` | the *document type* folds inside the language (§9.5 item 2 inverted). `es` and `bi` each hold a `CC` cell below 5 and collapse entirely, leaving 5 strata. Document type is the dimension results are cut on and per-document-type tables are pre-registered output, so this unbalances the confound reporting reads — while still looking stratified | **6** |
+| `carmen_crossed_keys_swapped` | `CROSS_VARIABLES`' pair is reversed at the declaration | the same inversion at the site the real construction path reads: every stratum name becomes `es/IR` under a `stratify_by` value that says `filename_doctype` first. Two edit sites with one consequence get two mutations because different code reaches them — one the rule, one the map the config names | **1** |
+| `carmen_declared_strata_count_not_checked` | the `len(strata) != n_strata` refusal becomes `if False` | `n_strata: 11` stops being a check on the derived count. Unlike the tercile splits, where `n_strata` is an instruction, here it is the only thing that notices the corpus's labels moved — a release that gained one would be recorded over 11 strata while the assignment walked 12 | **1** |
+| `carmen_cross_variable_falls_back_to_terciles` | a cross variable with no cell keys returns `_band_strata` instead of raising | the split is stratified on *something*, the file names the cross variable, and the achieved composition is computed from the same absent keys — so nothing in the file disagrees with anything else in it. This is why the refusal is there instead of a fallback | **1** |
+| `carmen_unimplemented_variable_falls_through` | the `variable != SPAN_COUNT_VARIABLE` refusal becomes `if False` | a `stratify_by` value no code implements reaches `_band_strata`, so a typo in `config/split.yaml` produces span-count terciles recorded under whatever the typo said | **1** |
+| `carmen_cross_unit_spanning_cells_allowed` | the mixed-cell unit refusal becomes `if False` | a §9.5 group straddling two cells is filed under whichever cell `set.pop()` returns. Unreachable on es-carmen, where every unit is one document — and that is the point: the recorded composition would be false for the group's other documents, and the next corpus wanting both groups and a cross is the one that finds out | **1** |
+| `carmen_strata_ordered_alphabetically` | largest-first ordering becomes name order | still 11 strata, still deterministic, different split. See above | **1** |
+| `carmen_missing_stratum_label_ignored` | the `key not in doc.meta` guard becomes `if False` | a loader that stopped recording one of the two labels gets a `KeyError` from the dict access below instead of a `CorpusError` naming the key and the document *index*. The message matters beyond its type: CLAUDE.md forbids corpus text in any exception message for every corpus, and this is the path where a helpful message would most obviously have quoted the document id | **1** |
+| `carmen_step_1_key_includes_the_section` | the section token goes back into §9.5 step 1's candidate key | `IA_ANTECEDENTES_7` and `IA_PROCESO_ACTUAL_7` — two sections that read like one letter — stop being a candidate pair. Every document becomes its own group and the audit reports 0 candidate stems **as a completed audit**. The measured 189 groups over 775 documents disappears, in the direction that looks like a clean result | **2** |
+| `carmen_step_1_key_not_consulted` | `CANDIDATE_KEYS` is never looked up, so every corpus uses `STEM_RE` | on these ids `STEM_RE` yields the stem `CARMEN-I_IA_ANTECEDENTES` — the same section across *different* letters, a pairing no identifier could confirm or refute. Both groupings look plausible and they are not the same grouping | **1** |
+| `carmen_audit_records_the_regex_it_did_not_use` | `step_1_pattern` always records `STEM_RE.pattern` | the audit applies the declared key and reports the regex. Worse than recording nothing: the candidate counts printed beside it came from the other rule and read as consistent with the one named | **1** |
+| `carmen_filename_index_is_a_constant` | `meta["filename_index"]` becomes a literal | the trailing number stops reaching the key, so step 1 collapses to the document type and all 1,201 `IR` documents become one candidate group. Step 2 still rejects it — nothing agrees across 1,201 documents — so the split is unchanged and only the audit's recorded shape is wrong, the failure mode a field with one consumer always has | **2** |
+
+**Deferred with a reason, not exempt: the mutations on the *recording* of the two
+compositions.** `_achieved`'s `requested` block and the per-fold `by_stratum` and
+`label_mix` have no mutation here, because nothing could kill one today —
+`splits/es-carmen.json` does not exist yet and the tests that would catch them are the
+recount tests that come with the freeze. They go in the freeze commit, where they are
+killable. Writing them now would have added three survivors and called them a gate.
+
+**How the sixteen were measured.** 2026-09-29, serial, one tree `149028e575f0b18e`,
+baseline **2,338 tests** (2,309 → 2,338 from 28 new `tests/test_split_file.py` tests and one
+new `tests/test_carmen_loader.py` test; both files were already `TEST_FILES` members, so the
+denominator did not move and this commit adds no new reason for a full run). **57 of 57
+caught, 0 survived** — the sixteen above plus everything anchored in `src/split.py`,
+`src/corpora/carmen.py`, `src/corpora/base.py` and `splits/es-meddocan.json`, which is the
+runtime reach of the four changed test files.
+
+**Six `‡` from that run, all low, and two of them are older drift surfacing now.**
+`assert_offsets_noop` 6 → 9, `bucket_unknown_types` 4 → 6, `drop_excluded` 28 → 35,
+`grouping_numeric_suffix_only` 2 → 3, `sealed_flag_not_cleared` 1 → 2,
+`unsealed_load_filters_instead_of_not_reaching` 161 → 166. The first two and the third are
+`base.py` guarantees reached by real-corpus loader tests, and they did not rise because of
+anything in this commit: `tests/test_carmen_loader.py`'s 79 tests arrived on 2026-09-28 and
+that commit's scope run measured **only its own 22**, so these cells have been stale for a
+day with nothing saying so. That is the cost of a scope narrower than the reach, and it is
+recorded here rather than presented as a surprise. **The other 214 mutations are deferred to
+the owed full run, not exempt from it** — and the full-run size is now **271**.
 
 ## The seal mutations
 
@@ -597,9 +678,9 @@ together because neither guard is sufficient alone:
 |---|---|---|---|
 | `sealed_callable_from_anywhere` | the `SEALED_CALLER` check becomes `if False` | `load(sealed=True)` works from any module — a notebook, a rule-development script. **The log append survives**, so a bypass here still leaves a trace, which is what makes it recoverable rather than merely wrong | **2** |
 | `log_append_disabled` | the `record_access` call is wrapped in `except Exception: pass` | an evaluation proceeds unlogged. The numbers are real and the log says the test fold was never opened. **The caller check survives**, so this needs the allowed script — the counterpart of the mutation above, and the one that leaves nothing behind | **2** |
-| `sealed_flag_not_cleared` | `_sealed_ok` is not reset after the read | one authorised evaluation leaves that loader object permanently able to reach the sealed fold; every later ordinary `load()` silently includes 250 test documents, with no second log row | **1** |
+| `sealed_flag_not_cleared` | `_sealed_ok` is not reset after the read | one authorised evaluation leaves that loader object permanently able to reach the sealed fold; every later ordinary `load()` silently includes 250 test documents, with no second log row | **2** ‡ |
 | `sealed_root_falls_back_to_corpus` | an absent `sealed:` entry resolves to the corpus root | a "sealed evaluation" reads unsealed data and logs itself as a test run. Worse than a refusal: the row is indistinguishable from a real evaluation, so the reported count becomes wrong in the flattering direction | **1** |
-| `unsealed_load_filters_instead_of_not_reaching` | `fold_roots()` hands out the sealed path unconditionally | the sealed fold is read and then discarded downstream. Every count still comes out right; the test fold's text has been read on every ordinary load, unlogged. Defends the distinction that the seal is a path that is not known, not a filter that is applied | **161** |
+| `unsealed_load_filters_instead_of_not_reaching` | `fold_roots()` hands out the sealed path unconditionally | the sealed fold is read and then discarded downstream. Every count still comes out right; the test fold's text has been read on every ordinary load, unlogged. Defends the distinction that the seal is a path that is not known, not a filter that is applied | **166** ‡ |
 
 ### What the guards do once reached
 
@@ -4359,6 +4440,30 @@ A serial row **was** added at the eleventh point, unlike at the ninth and tenth:
 smaller than the noise reads as a measurement; this move is 1.088 in mutations and 1.050 in suite,
 and 17.3 h → 19.5 h is 13%, which the noise floor cannot produce. Like every serial row it is
 derived and nobody has spent a serial run to check it.
+
+**The inputs moved twice more, and the second time the suite's *time* was measured instead of
+scaled.** 2026-09-28 added the CARMEN-I loader (233 → 255 mutations, suite 2,229 → 2,309) and
+2026-09-29 added the es-carmen cross stratification (255 → **271**, suite 2,309 → **2,338**).
+Applying the same rule: 50.5 s × (2309/2194) = 53.1 s and 255 × 53.1 s = **3.76 h**; then
+50.5 s × (2338/2194) = **53.8 s** and 271 × 53.8 s = 14,580 s = **4.05 h**. Both derived.
+
+What is new is a datum this section has wanted since the suite ratio was introduced. The
+2026-09-29 scope run's serial baseline is **366.75 s for the 2,338-test `TEST_FILES` suite**,
+which is the same quantity the cost table above records as **271.5 s** at the 170-mutation
+suite. Two readings, in opposite directions, and both belong here:
+
+- **Over one step the count ratio held.** 366.75 s × 1.16 ÷ 8 = **53.2 s** per mutation against
+  the 53.8 s the count ratio gives — 1.2% apart, and for once the count ratio is the *higher* of
+  the two. The planning figure stays 53.8 s because the standing rule is to take the larger
+  value, not to average two measurements of one thing.
+- **Over the whole span it did not.** 271.5 s → 366.75 s is a factor of 1.351 in time. The test
+  count over the same span moved by nothing like that, so the warning in `CLAUDE.md` — that the
+  suite ratio is a ratio of *counts* and real-corpus tests cost more than fixture tests — is
+  confirmed rather than retired. A step small enough to be inside the noise agreeing with the
+  model says very little about the accumulation.
+
+No serial row is added. 8 × 366.75 s × 271 ÷ 1.16 would be a derivation from a derivation, and
+the one measured serial baseline this run produced is already stated above as itself.
 
 One thing that reads as a reversal and is not. The serial derivation for 185 comes out at ~15.2 h,
 which is the number the correction below rejected — but not the same number. The rejected fifteen

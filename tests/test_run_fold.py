@@ -716,9 +716,11 @@ def test_the_writers_refusal_is_not_reimplemented_here(tmp_path, probe_file, cor
 def test_all_of_a_corpus_rule_files_are_loaded(monkeypatch, tmp_path, corpus_present):
     """DESIGN §5.2: `corpus_rule_langs` decides, and every listed file is loaded.
 
-    `es-carmen` loads `es` and `cat`. There is no CARMEN loader yet, so this checks the
-    mechanism on the corpus that exists — the run must go through `load_for_corpus`,
-    which reads that list, rather than assuming one file per corpus.
+    `es-carmen` loads `es` and `cat`. This test checks the mechanism on a one-file corpus
+    — the run must go through `load_for_corpus`, which reads that list, rather than
+    assuming one file per corpus. The two-file case is covered directly now that the
+    CARMEN loader exists: `tests/test_carmen_loader.py` and DESIGN §5.6's per-language
+    call structure.
     """
     seen = {}
     from src.eval import run_fold as module

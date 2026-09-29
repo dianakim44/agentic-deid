@@ -1544,6 +1544,286 @@ MUTATIONS = [
         ),
         min_kills=1,
     ),
+    # ── es-carmen's cross stratification and the small-cell rule (DESIGN §9.5) ──
+    #
+    # The other two constructed splits stratify on span-count terciles, which are
+    # equal-count by construction and cannot produce a cell too small to split three
+    # ways. This corpus's strata are its own labels crossed, 12 non-empty cells of which
+    # one holds a single document, so every number here is derived from the corpus and
+    # checked against `config/split.yaml`'s declaration rather than chosen. What these
+    # mutations protect is that chain: a threshold that stopped being derived, a collapse
+    # that stopped firing or fired on the wrong dimension, and a declared count that
+    # stopped being a check all leave a split file recording a stratification that was
+    # not performed. Two of them (the boundary and the ordering) do not move the number of
+    # strata at all, which is why the count alone is not the test.
+    Mutation(
+        name="carmen_small_cell_threshold_hardcoded",
+        path=SPLIT,
+        anchor="    return math.ceil(1 / min(proportions.values()))\n",
+        replacement="    return 5\n",
+        breaks=(
+            "Freezes §9.5 item 1's threshold at this corpus's value. Nothing about "
+            "es-carmen changes — 1/0.20 is 5 — so the split is identical and the defect "
+            "is invisible until a corpus with a different smallest fold arrives and gets "
+            "a threshold derived from es-carmen's proportions. §9.5 pre-registers the "
+            "formula rather than the number precisely so that this cannot happen "
+            "silently, and the parametrised test carries 70/15/15 -> 7 and 80/10/10 -> 10 "
+            "for no other reason."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="carmen_small_cell_threshold_rounds_down",
+        path=SPLIT,
+        anchor="    return math.ceil(1 / min(proportions.values()))\n",
+        replacement="    return math.floor(1 / min(proportions.values()))\n",
+        breaks=(
+            "`floor` for `ceil`. Again invisible on es-carmen, where 1/0.20 is exactly 5 "
+            "and both round to 5 — the case that separates them is a smallest fold of "
+            "0.15, where a cell of 6 would be declared large enough for a fold that gets "
+            "0.9 of a document out of it. The property test states the rule as "
+            "`threshold x smallest >= 1` over five proportion sets rather than as the "
+            "arithmetic, which is what makes this reachable at all."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="carmen_small_cell_rule_never_fires",
+        path=SPLIT,
+        anchor="        if any(n < threshold for n in sizes.values()):\n",
+        replacement="        if False:\n",
+        breaks=(
+            "No cell ever collapses, so `(CC, bi)` = 1 survives as a stratum of one "
+            "document. Its achieved fold mix is 100/0/0 whatever the assignment does, so "
+            "the split file's stratification claim is false of it — the exact case §9.5 "
+            "item 3 names as the reason the rule is necessary rather than hypothetical. "
+            "12 strata instead of 11, which `config/split.yaml`'s declared count refuses."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="carmen_small_cell_rule_collapses_at_the_threshold",
+        path=SPLIT,
+        anchor="        if any(n < threshold for n in sizes.values()):\n",
+        replacement="        if any(n <= threshold for n in sizes.values()):\n",
+        breaks=(
+            "`<=` for `<`, so a cell of exactly the threshold collapses too. `IE` has one "
+            "non-empty cell of exactly 5 and it is the case: the stratum count does not "
+            "move — 11 either way, because collapsing a single cell merges nothing — and "
+            "only the recorded stratum name changes, from `IE/es` to `IE/*`. A split file "
+            "would then report a language collapse on a document type whose language was "
+            "never in question. Caught by asserting the boundary separately from the "
+            "count, which is why the two are not one test."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="carmen_collapse_folds_the_document_type",
+        path=SPLIT,
+        anchor="        by_primary.setdefault(primary, {})[secondary] = unit_list\n",
+        replacement="        by_primary.setdefault(secondary, {})[primary] = unit_list\n",
+        breaks=(
+            "Swaps the two dimensions inside the rule, so the *document type* folds "
+            "inside the language instead of the other way round (§9.5 item 2). `es` and "
+            "`bi` each hold a `CC` cell below 5 and collapse entirely, leaving 5 strata: "
+            "one per language plus `cat`'s three document types. Document type is the "
+            "dimension the results are cut on and per-document-type tables are "
+            "pre-registered output, so this unbalances the confound that reporting reads "
+            "— and it does it while still looking stratified."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="carmen_crossed_keys_swapped",
+        path=SPLIT,
+        anchor=(
+            '    "filename_doctype_x_language_label": '
+            '("filename_doctype", "language_label"),\n'
+        ),
+        replacement=(
+            '    "filename_doctype_x_language_label": '
+            '("language_label", "filename_doctype"),\n'
+        ),
+        breaks=(
+            "The same inversion as above but at the declaration, which is the site the "
+            "real construction path reads: `stratum_keys` would return "
+            "`(language, doctype)` and every stratum name in the split file would be "
+            "`es/IR` under a `stratify_by` value that says `filename_doctype` first. Two "
+            "edit sites with the same consequence get two mutations because they are "
+            "reached by different code — one by the rule, one by the map the file names."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="carmen_declared_strata_count_not_checked",
+        path=SPLIT,
+        anchor="    if len(strata) != n_strata:\n",
+        replacement="    if False:\n",
+        breaks=(
+            "`config/split.yaml`'s `n_strata: 11` stops being a check on the derived "
+            "count. The count is derived from the corpus's own labels, so a release that "
+            "gained a language or a document type would be recorded as a composition over "
+            "11 strata while the assignment walked 12. Unlike the tercile splits, where "
+            "`n_strata` is an instruction, here it is the only thing that notices the "
+            "labels moved."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="carmen_cross_variable_falls_back_to_terciles",
+        path=SPLIT,
+        anchor=(
+            "    if variable in CROSS_VARIABLES:\n"
+            "        if keys is None:\n"
+        ),
+        replacement=(
+            "    if variable in CROSS_VARIABLES:\n"
+            "        if keys is None:\n"
+            "            return _band_strata(units, sizes, n_strata)\n"
+            "        if keys is None:\n"
+        ),
+        breaks=(
+            "A cross stratification with no per-document cell keys silently becomes "
+            "span-count terciles. The split would be stratified on *something*, the file "
+            "would name the cross variable, and the achieved composition would be "
+            "computed from the same absent keys — so nothing in the file would disagree "
+            "with anything else in it. This is why the refusal is there instead of a "
+            "fallback."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="carmen_unimplemented_variable_falls_through",
+        path=SPLIT,
+        anchor="    if variable != SPAN_COUNT_VARIABLE:\n",
+        replacement="    if False:\n",
+        breaks=(
+            "A `stratify_by` value no code implements reaches `_band_strata` instead of "
+            "raising. A typo in `config/split.yaml` would then produce span-count "
+            "terciles recorded under whatever the typo said — and `es-carmen`'s own "
+            "variable, if it were ever dropped from `CROSS_VARIABLES`, would land here "
+            "rather than failing."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="carmen_cross_unit_spanning_cells_allowed",
+        path=SPLIT,
+        anchor="        if len(distinct) > 1:\n",
+        replacement="        if False:\n",
+        breaks=(
+            "A §9.5 group whose documents fall in different cells is assigned to whichever "
+            "cell `set.pop()` happens to return. Unreachable on es-carmen, where every "
+            "unit is one document, and that is the point: the recorded composition would "
+            "be false for the group's other documents, and the next corpus that wants both "
+            "confirmed groups and a cross stratification is the one that finds out."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="carmen_strata_ordered_alphabetically",
+        path=SPLIT,
+        anchor=(
+            "    ordered = sorted(\n"
+            "        strata.items(), key=lambda item: "
+            "(-sum(len(u) for u in item[1]), item[0])\n"
+            "    )\n"
+        ),
+        replacement="    ordered = sorted(strata.items(), key=lambda item: item[0])\n",
+        breaks=(
+            "Still deterministic, still 11 strata, and a different split: the order the "
+            "strata are walked in is an input to `assign_folds`, which equalises "
+            "`assigned/target` at every step. `CC/*`'s five documents would be handed out "
+            "against empty targets instead of nearly-met ones, which is where they do the "
+            "least for the balance. A split file that does not fix this order is not "
+            "reproducible from the seed alone."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="carmen_missing_stratum_label_ignored",
+        path=SPLIT,
+        anchor="            if key not in doc.meta:\n",
+        replacement="            if False:\n",
+        breaks=(
+            "A loader that stopped recording one of the two labels gets a `KeyError` from "
+            "the dict access below instead of a `CorpusError` naming the key and the "
+            "document index. The message matters beyond its type: CLAUDE.md forbids "
+            "corpus text in any exception message for every corpus, and this is the "
+            "es-carmen path where a helpful message would most obviously have quoted the "
+            "document id."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="carmen_step_1_key_includes_the_section",
+        path=SPLIT,
+        anchor=(
+            "    return f\"{doc.meta['filename_doctype']}"
+            "_{doc.meta['filename_index']}\"\n"
+        ),
+        replacement=(
+            "    return f\"{doc.meta['filename_doctype']}_"
+            "{doc.meta['filename_section']}_{doc.meta['filename_index']}\"\n"
+        ),
+        breaks=(
+            "Puts the section token back into §9.5 step 1's candidate key, so "
+            "`IA_ANTECEDENTES_7` and `IA_PROCESO_ACTUAL_7` — two sections that read like "
+            "one letter — stop being a candidate pair. Every document becomes its own "
+            "group and the audit reports 0 candidate stems as a completed audit. The "
+            "measured 189 groups over 775 documents is the figure that disappears, and it "
+            "disappears in the direction that looks like a clean result."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="carmen_step_1_key_not_consulted",
+        path=SPLIT,
+        anchor=(
+            "    keyed = CANDIDATE_KEYS.get(corpus_id) "
+            "if corpus_id is not None else None\n"
+        ),
+        replacement="    keyed = None\n",
+        breaks=(
+            "Every corpus falls back to `STEM_RE`, which on these ids yields the stem "
+            "`CARMEN-I_IA_ANTECEDENTES` — the same section across *different* letters, a "
+            "pairing no identifier could confirm or refute. Both groupings look plausible "
+            "and they are not the same grouping, which is why the split file records "
+            "which question was asked rather than only its answer."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="carmen_audit_records_the_regex_it_did_not_use",
+        path=SPLIT,
+        anchor=(
+            '        "step_1_pattern": STEM_RE.pattern '
+            "if declared is None else declared[0],\n"
+        ),
+        replacement='        "step_1_pattern": STEM_RE.pattern,\n',
+        breaks=(
+            "The grouping audit applies the declared key and records `STEM_RE`. §9.5 step "
+            "4 exists so a reader can check which rule formed each group; a file naming a "
+            "pattern that was not applied is worse than one naming none, because the "
+            "candidate counts beside it were produced by the other rule and look "
+            "consistent with it."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="carmen_filename_index_is_a_constant",
+        path=CARMEN,
+        anchor='            "filename_index": index,\n',
+        replacement='            "filename_index": 1,\n',
+        breaks=(
+            "The trailing number stops reaching `meta`, so §9.5 step 1's key collapses to "
+            "the document type: all 1,201 `IR` documents become one candidate group of "
+            "1,201. Step 2 still rejects it — no identifier agrees across 1,201 documents "
+            "— so the split is unchanged and only the audit's recorded shape is wrong, "
+            "which is the failure mode a field consumed by one other module always has."
+        ),
+        min_kills=1,
+    ),
     Mutation(
         name="split_file_span_count",
         path=SPLIT_FILE,

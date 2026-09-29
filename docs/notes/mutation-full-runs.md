@@ -212,6 +212,43 @@ so admitting tokens to it does not give any of those four a new way to be caught
 seven in scope also came back identical. **The 218 mutations outside the scope were not measured
 and are deferred to the next full run.**
 
+### Six outstanding, and three of them were already stale — the es-carmen cross stratification, 2026-09-29
+
+`splits/es-carmen.json`'s stratification was built: a cross of the corpus's own two labels with
+DESIGN §9.5's small-cell rule, which is the first stratification in this project that is not
+span-count terciles. 16 mutations added (255 → **271**), 28 tests added to
+`tests/test_split_file.py` and one to `tests/test_carmen_loader.py` — both already `TEST_FILES`
+members, so the suite moved 2,309 → **2,338** with the denominator at 34 files. **No new full-run
+reason**: the three already owed (the suite-only move of 2026-09-23, the two `src/` modules of
+2026-09-28, and the `TEST_FILES` membership change of 2026-09-28) are unchanged, and one run over
+271 discharges all of them.
+
+**Scope: the 57 mutations anchored in `src/split.py` (21), `src/corpora/carmen.py` (23),
+`src/corpora/base.py` (12) and `splits/es-meddocan.json` (1)** — the runtime reach of the four
+changed test files, not a filename match. Serial, one tree `149028e575f0b18e`, baseline **2,338**,
+**57 of 57 caught, 0 survived.** The 16 new ones have no sidecar entry and are therefore neither
+compared nor marked.
+
+**Six counts differ from `cf51f7eb0530`'s sidecar, all low, and they carry `‡`:**
+`assert_offsets_noop` 6 → **9**, `bucket_unknown_types` 4 → **6**, `drop_excluded` 28 → **35**,
+`grouping_numeric_suffix_only` 2 → **3**, `sealed_flag_not_cleared` 1 → **2**,
+`unsealed_load_filters_instead_of_not_reaching` 161 → **166**.
+
+**Three of those six are drift from the day before, not from this commit, and that is the entry's
+substantive finding.** `assert_offsets_noop`, `bucket_unknown_types` and `drop_excluded` are
+`base.py` guarantees reached by real-corpus loader tests. `tests/test_carmen_loader.py`'s 79 tests
+arrived on 2026-09-28 and *that* commit's scope run measured only its own 22 — so these three cells
+have been describing a suite two changes old, with nothing marking them. The entry above for that
+commit says "the scope is the whole table", which was true of the deferral and not of the
+measurement. A scope drawn at the mutations an edit *adds* rather than at the tests it *changes*
+leaves exactly this residue, and the residue is invisible from the counts. It is recorded here
+rather than fixed silently, because the next time the choice comes up the argument has to be
+available.
+
+**The other 214 mutations were not measured and are deferred to the next full run, not exempt from
+it.** Not to be added to the 218 or the 226 above: those are leftovers over denominators of 230 and
+233, and this one is over 271.
+
 ### Nothing outstanding — the `TEST_FILES` change of 2026-09-22 settled by the full run of the same day
 
 **The entry that stood here said all 194 counts below were owed a re-measurement and the 17 new

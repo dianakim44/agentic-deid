@@ -1133,8 +1133,14 @@ def test_an_unknown_document_type_token_raises(tmp_path):
         loader_on(root).load()
 
 
-def test_a_section_bearing_doc_id_parses_into_both_parts(tmp_path):
-    """The section tokens contain `_`, so the id is matched and not split on `_`."""
+def test_a_section_bearing_doc_id_parses_into_three_parts(tmp_path):
+    """The section tokens contain `_`, so the id is matched and not split on `_`.
+
+    All three parts, because `filename_index` is what §9.5 step 1's candidate key for this
+    corpus pairs with the doctype (`src/split.py`'s `_carmen_candidate_key`), and a
+    section token that swallowed the trailing number would make every document its own
+    candidate group without the audit's count changing shape.
+    """
     root = write_root(
         tmp_path / "root",
         [("CARMEN-I_IA_EXPLORACION_COMPLEMENTARIA_7", "cat", False, None)],
@@ -1142,6 +1148,19 @@ def test_a_section_bearing_doc_id_parses_into_both_parts(tmp_path):
     doc = loader_on(root).load()[0]
     assert doc.meta["filename_doctype"] == "IA"
     assert doc.meta["filename_section"] == "EXPLORACION_COMPLEMENTARIA"
+    assert doc.meta["filename_index"] == 7
+
+
+def test_a_sectionless_doc_id_still_carries_the_index(tmp_path):
+    """`filename_section` is `None` and the index is the number, not a re-parse of the id.
+
+    The two id shapes have to agree on what `filename_index` means, or the candidate key
+    pairs a sectionless letter with nothing.
+    """
+    root = write_root(tmp_path / "root", [("CARMEN-I_IR_413", "es", False, None)])
+    doc = loader_on(root).load()[0]
+    assert doc.meta["filename_section"] is None
+    assert doc.meta["filename_index"] == 413
 
 
 def test_a_bom_shifts_every_offset_in_the_document(tmp_path):

@@ -16,6 +16,7 @@ import copy
 import json
 import os
 import sys
+from types import SimpleNamespace
 
 import pytest
 
@@ -40,6 +41,41 @@ N_EXCLUDED = 2257
 N_CANDIDATE_STEMS = 48
 N_CROSSING_STEMS = 34
 N_CROSSING_DOCS = 80
+
+#: DESIGN §9.5's small-cell rule, pre-registered 2026-09-29. The threshold is **derived**
+#: from `config/split.yaml`'s proportions and is deliberately not stored beside them, so
+#: the constant here is a claim about the formula's value at those proportions rather than
+#: a second copy of a setting. `N_CARMEN_STRATA` is the post-collapse count DESIGN §9.5
+#: item 3 states and `config/split.yaml` declares; the code refuses a derived count that
+#: disagrees with the declared one.
+CARMEN = "es-carmen"
+CARMEN_VARIABLE = "filename_doctype_x_language_label"
+SMALL_CELL_THRESHOLD = 5
+N_CARMEN_STRATA = 11
+CARMEN_DOCTYPES = {"IR", "IA", "IT", "CC", "IE"}
+CARMEN_COLLAPSED = ["CC"]
+
+#: The measured cross-tabulation, duplicated from `tests/test_carmen_loader.py` on
+#: purpose, for the reason `OFFICIAL_SPLIT` above is duplicated: `test_carmen_loader.py`
+#: recounts this table against the corpus, and this file checks that the rule applied to
+#: *this shape* yields 11 strata. Sharing one object would make one edit move both and
+#: the agreement would stop being evidence. It also survives the seal — after the test
+#: fold moves out of the corpus root the 12 cells are no longer recountable here, and the
+#: chain corpus → `CROSS` → collapse → 11 is what holds the claim together.
+CARMEN_CROSS = {
+    ("IR", "es"): 961,
+    ("IA", "es"): 573,
+    ("IR", "bi"): 221,
+    ("IT", "es"): 154,
+    ("IA", "bi"): 31,
+    ("IR", "cat"): 19,
+    ("IA", "cat"): 13,
+    ("IT", "bi"): 11,
+    ("IT", "cat"): 7,
+    ("IE", "es"): 5,
+    ("CC", "es"): 4,
+    ("CC", "bi"): 1,
+}
 
 #: The folds still readable after the seal (DESIGN §6). Tests that recount against
 #: the corpus can only cover these; tests about the corpus as a whole read the file,
@@ -448,13 +484,18 @@ def test_a_document_id_that_does_not_parse_stops_the_audit(docs):
 def test_a_corpus_without_grouping_types_raises():
     """A new corpus must define its §9.5 comparison types, not skip the audit.
 
-    `es-carmen` is the corpus that has none yet. This test named `de-grascco` until
-    2026-09-21, when de-grascco got its types and the test began asserting that the
-    corpus it was written for still had none — a test whose subject is "whichever
-    corpus is next" has to be moved on, not deleted.
+    `en-n2c2` is the corpus that has none yet. This test named `de-grascco` until
+    2026-09-21 and `es-carmen` until 2026-09-29, when each got its types and the test
+    began asserting that the corpus it was written for still had none — a test whose
+    subject is "whichever corpus is next" has to be moved on, not deleted.
+
+    `en-n2c2` is declared in naming.yaml and on hold (DESIGN §11), and it is the last id
+    this test can move to. `tests/test_meddocan_loader.py`'s
+    `test_the_registry_implements_every_declared_corpus_but_one` is the one place that
+    says so, and it is where a reader finds the next subject if there ever is one.
     """
     with pytest.raises(CorpusError, match="grouping types"):
-        split.grouping_audit("es-carmen", [])
+        split.grouping_audit("en-n2c2", [])
 
 
 def test_unstructured_document_ids_do_not_stop_the_audit():
@@ -620,3 +661,445 @@ def test_a_missing_split_file_is_a_clear_error(monkeypatch, tmp_path):
     monkeypatch.setattr(split, "split_path", lambda corpus_id: tmp_path / "gone.json")
     with pytest.raises(CorpusError, match="python3 -m src.split"):
         split.read(CORPUS)
+
+
+# ─── the small-cell rule and the cross stratification (DESIGN §9.5) ──────────
+
+
+def _carmen_units():
+    """One document per unit, laid out to match the measured cross-tab exactly.
+
+    Synthetic ids, not the corpus: the numbers this exercises are the *cell sizes*, and
+    `tests/test_carmen_loader.py` is where they are checked against the corpus. Building
+    them here keeps this section runnable with no corpus on disk and after the seal.
+    """
+    units, keys = [], {}
+    for (doctype, lang), n in sorted(CARMEN_CROSS.items()):
+        for i in range(n):
+            doc_id = f"{doctype}-{lang}-{i:04d}"
+            units.append([doc_id])
+            keys[doc_id] = (doctype, lang)
+    return units, keys
+
+
+def test_the_cross_tab_used_here_sums_to_the_corpus():
+    """A transcription error in the table above would make every test below vacuous.
+
+    The first draft of DESIGN §9.5's table had `IA` summing to 517 against a doctype
+    total of 617, and it read as plausible. Both margins are checked because one alone
+    does not catch a figure moved from one cell to another in the same row.
+    """
+    assert sum(CARMEN_CROSS.values()) == 2000
+    by_doctype = {}
+    by_lang = {}
+    for (doctype, lang), n in CARMEN_CROSS.items():
+        by_doctype[doctype] = by_doctype.get(doctype, 0) + n
+        by_lang[lang] = by_lang.get(lang, 0) + n
+    assert by_doctype == {"IR": 1201, "IA": 617, "IT": 172, "CC": 5, "IE": 5}
+    assert by_lang == {"es": 1697, "bi": 264, "cat": 39}
+    assert set(by_doctype) == CARMEN_DOCTYPES
+
+
+# ─── the threshold is derived from the proportions ───────────────────────────
+
+
+def test_the_threshold_comes_out_of_the_committed_proportions():
+    """§9.5 item 1's value of 5, computed from `config/split.yaml` rather than asserted.
+
+    And the entry must not carry a threshold of its own: two copies of one number can
+    disagree, and the config comment promises this one is not there.
+    """
+    params = split.construction_params(CARMEN)
+    assert split.small_cell_threshold(params["proportions"]) == SMALL_CELL_THRESHOLD
+    assert "small_cell_threshold" not in params
+    assert "threshold" not in params
+
+
+@pytest.mark.parametrize(
+    "proportions, expected",
+    [
+        ({"train": 0.60, "dev": 0.20, "test": 0.20}, 5),
+        ({"train": 0.70, "dev": 0.15, "test": 0.15}, 7),
+        ({"train": 0.80, "dev": 0.10, "test": 0.10}, 10),
+        ({"train": 0.50, "dev": 0.30, "test": 0.20}, 5),
+    ],
+)
+def test_the_formula_gives_the_values_design_pre_registers(proportions, expected):
+    """§9.5 item 1: 5 here, 7 at 70/15/15, 10 at 80/10/10 — derived, not a constant.
+
+    The last row is de-grascco's proportions, which also give 5. §9.5 calls that a
+    coincidence of the shared 0.20 smallest fold, and it is in the table so that a
+    reading of 5 as a project-wide constant has to survive the 7 and the 10 next to it.
+    """
+    assert split.small_cell_threshold(proportions) == expected
+
+
+@pytest.mark.parametrize("smallest", [0.20, 0.15, 0.10, 0.30, 0.05])
+def test_the_threshold_is_where_the_smallest_folds_share_reaches_one_document(smallest):
+    """The property §9.5 item 1 defines, not the arithmetic that implements it.
+
+    `threshold × smallest ≥ 1` and one document fewer falls short. This is what separates
+    `ceil` from `floor`: at 0.20 both give 5, because 1/0.20 is exactly 5 — 0.15 is the
+    case where rounding down would declare a cell of 6 large enough for a fold that gets
+    0.9 of a document out of it.
+    """
+    proportions = {"train": 1 - 2 * smallest, "dev": smallest, "test": smallest}
+    threshold = split.small_cell_threshold(proportions)
+    assert threshold * smallest >= 1.0
+    assert (threshold - 1) * smallest < 1.0
+
+
+# ─── the collapse, on the shape the corpus actually has ──────────────────────
+
+
+def test_the_measured_cross_tab_collapses_to_eleven_strata():
+    """§9.5 item 3, re-derived: 12 non-empty cells, one collapse, 11 strata.
+
+    The count is the whole reason `config/split.yaml` can declare `n_strata: 11` as a
+    check rather than as an instruction.
+    """
+    units, keys = _carmen_units()
+    cells = split.cross_cells(units, keys)
+    assert len(cells) == len(CARMEN_CROSS) == 12
+    strata, collapsed = split.collapse_small_cells(cells, SMALL_CELL_THRESHOLD)
+    assert len(strata) == N_CARMEN_STRATA
+    assert collapsed == CARMEN_COLLAPSED
+
+
+def test_the_collapse_fires_on_cc_and_on_nothing_else():
+    """`CC`'s 4 and 1 are the cells below 5; `IE`'s single cell of 5 is exactly at it.
+
+    `IE` is the boundary case and it is asserted separately: a `<=` in place of the `<`
+    would collapse a stratum that needs no collapsing, and since `IE` has one non-empty
+    cell the *count* of strata would not move — 11 either way. Only the stratum's name
+    changes, from `IE/es` to `IE/*`, and that name is what the split file records.
+    """
+    units, keys = _carmen_units()
+    strata, _ = split.collapse_small_cells(
+        split.cross_cells(units, keys), SMALL_CELL_THRESHOLD
+    )
+    assert ("CC", "*") in strata
+    assert sum(len(unit) for unit in strata[("CC", "*")]) == 5
+    assert ("IE", "es") in strata
+    assert ("IE", "*") not in strata
+    # And the three large document types keep all three languages.
+    for doctype in ("IR", "IA", "IT"):
+        assert {
+            secondary for primary, secondary in strata if primary == doctype
+        } == {"es", "bi", "cat"}
+
+
+def test_no_stratum_is_still_below_the_threshold_on_this_release():
+    """§9.5 item 4's terminal case is unreachable here, and this is what says so.
+
+    `CC` collapses to exactly 5. If a re-release made the collapsed stratum smaller the
+    split is still valid — item 4 keeps it as it is — but the shortfall has to be
+    recorded, and the honest way to discover that is here rather than in a reader's
+    reading of the achieved composition.
+    """
+    units, keys = _carmen_units()
+    strata, _ = split.collapse_small_cells(
+        split.cross_cells(units, keys), SMALL_CELL_THRESHOLD
+    )
+    small = {
+        name: sum(len(unit) for unit in unit_list)
+        for name, unit_list in strata.items()
+        if sum(len(unit) for unit in unit_list) < SMALL_CELL_THRESHOLD
+    }
+    assert small == {}
+
+
+def test_language_folds_and_document_type_never_merges():
+    """§9.5 item 2: the secondary dimension is the one that collapses.
+
+    Merging two document types would also reduce the count to 11 from some shapes, so the
+    count alone does not distinguish the two rules. What distinguishes them is that every
+    stratum names exactly one document type and all five are still present.
+    """
+    units, keys = _carmen_units()
+    strata, _ = split.collapse_small_cells(
+        split.cross_cells(units, keys), SMALL_CELL_THRESHOLD
+    )
+    assert {primary for primary, _ in strata} == CARMEN_DOCTYPES
+    for (primary, _), unit_list in strata.items():
+        doctypes = {keys[doc_id][0] for unit in unit_list for doc_id in unit}
+        assert doctypes == {primary}
+
+
+def test_a_collapsed_stratum_below_the_threshold_keeps_its_shape():
+    """§9.5 item 4, on a synthetic shape because es-carmen cannot reach it.
+
+    Two cells of one each collapse to a stratum of two, which is still below 5, and it is
+    left alone rather than merged into the neighbouring document type. The neighbour is
+    there to be dragged in if the rule ever starts merging primaries.
+    """
+    units = [["a"], ["b"]] + [[f"c{i:02d}"] for i in range(9)]
+    keys = {"a": ("XX", "es"), "b": ("XX", "bi")}
+    keys.update({f"c{i:02d}": ("YY", "es") for i in range(9)})
+    strata, collapsed = split.collapse_small_cells(
+        split.cross_cells(units, keys), SMALL_CELL_THRESHOLD
+    )
+    assert collapsed == ["XX"]
+    assert sum(len(unit) for unit in strata[("XX", "*")]) == 2
+    assert ("YY", "es") in strata
+    assert len(strata) == 2
+
+
+def test_a_unit_holding_two_cells_is_refused():
+    """A §9.5 group split across cells would be recorded in a cell it is not all in.
+
+    Unreachable on es-carmen, where every unit is one document. It is checked because the
+    next corpus to want a cross stratification may have confirmed groups, and the failure
+    is silent: the composition would simply be wrong for some of the documents.
+    """
+    keys = {"a": ("IR", "es"), "b": ("IR", "bi")}
+    with pytest.raises(CorpusError, match="different stratification cells"):
+        split.cross_cells([["a", "b"]], keys)
+
+
+# ─── the declared count, and the dispatch ────────────────────────────────────
+
+
+def test_config_declares_the_post_collapse_count_and_the_crossed_keys():
+    """`config/split.yaml`'s es-carmen entry, against §9.5 and against the code's map."""
+    params = split.construction_params(CARMEN)
+    assert params["stratify_by"] == CARMEN_VARIABLE
+    assert params["n_strata"] == N_CARMEN_STRATA
+    assert split.CROSS_VARIABLES[CARMEN_VARIABLE] == (
+        "filename_doctype",
+        "language_label",
+    )
+    assert params["proportions"] == {"train": 0.60, "dev": 0.20, "test": 0.20}
+
+
+def test_the_declared_count_is_checked_against_the_derived_one():
+    """A release that gained a label must not be recorded under the old count.
+
+    The declared 11 passes; 12 fails. Which way round matters: the check exists because
+    the strata come from the corpus's labels, so the config is the assertion and the data
+    is the answer.
+    """
+    units, keys = _carmen_units()
+    params = split.construction_params(CARMEN)
+    ordered = split.strata(
+        units,
+        {},
+        variable=CARMEN_VARIABLE,
+        n_strata=N_CARMEN_STRATA,
+        proportions=params["proportions"],
+        keys=keys,
+    )
+    assert len(ordered) == N_CARMEN_STRATA
+    with pytest.raises(CorpusError, match="n_strata=12"):
+        split.strata(
+            units,
+            {},
+            variable=CARMEN_VARIABLE,
+            n_strata=12,
+            proportions=params["proportions"],
+            keys=keys,
+        )
+
+
+def test_the_strata_are_ordered_largest_first():
+    """A fixed order makes the split deterministic; this one is chosen (see the code).
+
+    Asserted because the order is an input to the assignment: two orders give two splits,
+    and a split file that does not fix it is not reproducible from the seed alone.
+    """
+    units, keys = _carmen_units()
+    params = split.construction_params(CARMEN)
+    ordered = split.strata(
+        units,
+        {},
+        variable=CARMEN_VARIABLE,
+        n_strata=N_CARMEN_STRATA,
+        proportions=params["proportions"],
+        keys=keys,
+    )
+    sizes = [sum(len(u) for u in unit_list) for unit_list in ordered.values()]
+    assert sizes == sorted(sizes, reverse=True)
+    assert list(ordered)[0] == "IR/es"
+    assert list(ordered)[-1] == "IE/es"
+
+
+def test_a_cross_variable_without_keys_does_not_fall_back():
+    """No silent band stratification under a cross variable's name."""
+    units, _ = _carmen_units()
+    with pytest.raises(CorpusError, match="cell keys"):
+        split.strata(
+            units,
+            {},
+            variable=CARMEN_VARIABLE,
+            n_strata=N_CARMEN_STRATA,
+            proportions={"train": 0.60, "dev": 0.20, "test": 0.20},
+        )
+
+
+def test_an_unimplemented_stratification_variable_is_refused():
+    """The dispatch is a choice between declared variables, not a default.
+
+    A typo in `stratify_by` must not deliver span-count terciles under another name.
+    """
+    with pytest.raises(CorpusError, match="which is neither"):
+        split.strata(
+            [["a"]],
+            {"a": 1},
+            variable="document_type",
+            n_strata=3,
+            proportions={"train": 0.60, "dev": 0.20, "test": 0.20},
+        )
+
+
+def test_stratum_keys_are_none_for_a_band_variable():
+    """The two constructed splits that are already frozen take the other branch."""
+    assert split.stratum_keys(split.SPAN_COUNT_VARIABLE, []) is None
+
+
+# ─── the band path is unchanged by all of the above ──────────────────────────
+
+
+#: `assign_folds` was refactored to take strata instead of computing them, and the two
+#: frozen constructed splits cannot be rebuilt to prove it — their test folds are sealed
+#: and `_build_constructed` refuses when a sealed root is declared. So the assignment was
+#: digested on synthetic input *before* the refactor and this is that digest. It is a
+#: golden value with no independent derivation: its only job is to fail if the band path's
+#: output ever moves, whoever moves it.
+GOLDEN_BAND_DIGEST = (
+    "381c0fd35c892261285484584897eb8309b15867acb5071bf10a4dd61ca2564b"
+)
+
+
+def test_the_band_assignment_is_byte_identical_to_before_the_cross_refactor():
+    """300 singletons and 10 pairs, span counts from a fixed seed, de-grascco's shape.
+
+    Pairs are in the input because the multi-document unit is where `assign_folds`'s
+    largest-first rule earns its docstring; a digest over singletons alone would not
+    notice if that rule were dropped.
+    """
+    import hashlib
+    import random as _random
+
+    units = [[f"d{i:04d}"] for i in range(300)]
+    units += [[f"g{i}_1", f"g{i}_2"] for i in range(10)]
+    rng = _random.Random(7)
+    sizes = {doc_id: rng.randrange(0, 60) for unit in units for doc_id in unit}
+    proportions = {"train": 0.5, "dev": 0.3, "test": 0.2}
+
+    bands = split.strata(
+        units,
+        sizes,
+        variable=split.SPAN_COUNT_VARIABLE,
+        n_strata=3,
+        proportions=proportions,
+    )
+    assert [len(band) for band in bands.values()] == [104, 103, 103]
+    assert list(bands) == ["band_1", "band_2", "band_3"]
+
+    assigned = split.assign_folds(bands, proportions=proportions, seed=20260921)
+    digest = hashlib.sha256(
+        json.dumps(assigned, sort_keys=True).encode()
+    ).hexdigest()
+    assert digest == GOLDEN_BAND_DIGEST
+    counts = {fold: 0 for fold in base.split_names()}
+    for fold in assigned.values():
+        counts[fold] += 1
+    assert counts == {"train": 160, "dev": 96, "test": 64}
+
+
+# ─── es-carmen's §9.5 step-1 key (the section token is not part of it) ────────
+
+
+def _carmen_doc(doc_id, doctype, section, index):
+    """A stand-in carrying only what §9.5 step 1 reads: the id, the two meta fields.
+
+    `types.SimpleNamespace` rather than a `Document`: the key is defined as a function of
+    `meta`, and a stub is what says so. A real document would also carry text, and no
+    es-carmen text may enter a committed file or a test fixture (CLAUDE.md).
+    """
+    return SimpleNamespace(
+        doc_id=doc_id,
+        corpus_id=CARMEN,
+        spans=[],
+        meta={
+            "filename_doctype": doctype,
+            "filename_section": section,
+            "filename_index": index,
+            "language_label": "es",
+        },
+    )
+
+
+CARMEN_STEP_1_DOCS = [
+    _carmen_doc("CARMEN-I_IA_ANTECEDENTES_7", "IA", "ANTECEDENTES", 7),
+    _carmen_doc("CARMEN-I_IA_PROCESO_ACTUAL_7", "IA", "PROCESO_ACTUAL", 7),
+    _carmen_doc("CARMEN-I_IA_ANTECEDENTES_8", "IA", "ANTECEDENTES", 8),
+    _carmen_doc("CARMEN-I_IR_7", "IR", None, 7),
+]
+
+
+def test_the_carmen_candidate_key_pairs_sections_of_one_letter():
+    """§9.5 step 1 for es-carmen: `(doctype, trailing number)`, section token ignored.
+
+    `IA_ANTECEDENTES_7` and `IA_PROCESO_ACTUAL_7` are the pair the rule asks about. The
+    same trailing number under a different document type is not a candidate, and the same
+    section under a different number is not either.
+    """
+    by_stem, unparsed = split.stem_index(CARMEN_STEP_1_DOCS, CARMEN)
+    assert unparsed == []
+    assert by_stem == {
+        "IA_7": ["CARMEN-I_IA_ANTECEDENTES_7", "CARMEN-I_IA_PROCESO_ACTUAL_7"],
+        "IA_8": ["CARMEN-I_IA_ANTECEDENTES_8"],
+        "IR_7": ["CARMEN-I_IR_7"],
+    }
+
+
+def test_stem_re_would_ask_a_different_question_on_these_ids():
+    """Why the key is declared rather than left to `STEM_RE`, asserted rather than said.
+
+    `STEM_RE` pairs `ANTECEDENTES_7` with `ANTECEDENTES_8` — the *same section of
+    different letters*, which no identifier could ever confirm or refute. Both groupings
+    are plausible-looking and they are not the same grouping, so the split file records
+    which one was asked.
+    """
+    by_stem, _ = split.stem_index(CARMEN_STEP_1_DOCS)
+    assert "CARMEN-I_IA_ANTECEDENTES" in by_stem
+    assert "IA_7" not in by_stem
+
+
+def test_the_carmen_audit_records_the_declared_key_not_the_regex():
+    """§9.5 step 4: the file says which question was asked.
+
+    Recording `STEM_RE.pattern` here would describe a pattern that was not applied, and
+    the audit's own candidate count would be the evidence against it — which is why both
+    are checked in one test.
+    """
+    audit = split.grouping_audit(CARMEN, CARMEN_STEP_1_DOCS)
+    assert "section token ignored" in audit["step_1_pattern"]
+    assert audit["step_1_pattern"] != split.STEM_RE.pattern
+    assert audit["step_2_types"]["name"] == ["NOMBRE_SUJETO_ASISTENCIA"]
+    assert audit["n_candidate_stems"] == 1
+    assert audit["n_stems_confirmed"] == 0
+    assert audit["n_documents_grouped"] == 0
+
+
+def test_a_missing_stratum_label_stops_the_split_and_names_no_text():
+    """The label is the stratum, so a missing one is an unstratified split.
+
+    The message names the document's *index* and the meta key. CLAUDE.md's rule that no
+    corpus text reaches an exception message applies to every corpus, and this is the
+    es-carmen path where a helpful message would most obviously have quoted the id.
+    """
+    docs = [
+        SimpleNamespace(
+            doc_id="CARMEN-I_IR_1",
+            corpus_id=CARMEN,
+            spans=[],
+            meta={"filename_doctype": "IR"},
+        )
+    ]
+    with pytest.raises(CorpusError) as excinfo:
+        split.stratum_keys(CARMEN_VARIABLE, docs)
+    message = str(excinfo.value)
+    assert "language_label" in message
+    assert "document index 0" in message
