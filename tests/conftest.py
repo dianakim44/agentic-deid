@@ -345,6 +345,27 @@ def carmen_present() -> str:
 
 
 @pytest.fixture(scope="session")
+def carmen_sealed(carmen_present: str) -> str:
+    """Present *and* sealed, asked separately for `sealed_corpus`'s reason exactly.
+
+    Arrived 2026-10-01 with the act it is about — `tools/prepare_carmen.py seal`. The day
+    before, `carmen_loader` below carried a sentence saying why this fixture did not
+    exist yet, which is the same sequence `kosurro_loader` (2026-09-23) and
+    `kosurro_sealed` (2026-09-28) went through: a fixture added ahead of its user is
+    indistinguishable from one whose user was reverted, which is the state
+    `test_every_shared_fixture_is_used_by_something` refuses.
+
+    Nothing is opened — `sealed_root()` answers from the configured path, like
+    `corpus_root()`.
+    """
+    from src.corpora import base
+
+    if base.sealed_root(carmen_present) is None:
+        pytest.skip(f"{carmen_present} is not sealed on this machine")
+    return carmen_present
+
+
+@pytest.fixture(scope="session")
 def carmen_loader(carmen_present: str):
     """The CARMEN-I loader as everything outside these tests uses it: reading the split file.
 
@@ -352,8 +373,8 @@ def carmen_loader(carmen_present: str):
     Until then this was a comment in `carmen_unsplit_loader` saying why it did not exist:
     a loader reading an absent split file raises on every test, and a fixture added ahead
     of its user is the state `test_every_shared_fixture_is_used_by_something` refuses.
-    `kosurro_loader` arrived the same way on the same kind of day, and there is still no
-    `carmen_sealed` for the same reason there was no `carmen_loader` yesterday.
+    `kosurro_loader` arrived the same way on the same kind of day, and `carmen_sealed`
+    above arrived one day later for the same reason — the seal was the act it is about.
 
     Requested by `test_the_loader_gets_its_folds_from_the_split_file`: this corpus's
     layout encodes no fold, so a fold on a document *is* the file's assignment being
@@ -379,13 +400,16 @@ def carmen_unsplit_loader(carmen_present: str):
 
 @pytest.fixture(scope="session")
 def carmen_docs(carmen_present: str, carmen_unsplit_loader):
-    """The corpus, loaded once. 2,000 documents and 4,000 file reads per load.
+    """The corpus, loaded once. 1,600 visible documents and 3,200 file reads per load.
 
-    Session-scoped and shared, so no test may mutate what it is handed — and one test
-    here depends on that more sharply than elsewhere: `_apply_known_defects` rewrites
-    one span's surface in place, so a test that re-sorted a document's span list would
-    move the span the pin names. `carmen_present` is requested directly as well as
-    transitively, for the reason `kosurro_docs` gives.
+    Session-scoped and shared, so no test may mutate what it is handed. That mattered
+    more sharply than elsewhere until 2026-10-01: `_apply_known_defects` rewrites one
+    span's surface in place, so a test that re-sorted a document's span list would move
+    the span the pin names. The one pinned document is in the test fold and went behind
+    the seal, so no document this fixture returns carries a correction now — the rule
+    stands anyway, because the next release's pin need not land in the same fold.
+    `carmen_present` is requested directly as well as transitively, for the reason
+    `kosurro_docs` gives.
     """
     return carmen_unsplit_loader.load()
 

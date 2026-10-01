@@ -350,8 +350,9 @@ class CarmenLoader(CorpusLoader):
     def _check_schema(self, root: Path) -> None:
         """The release's declared entity types must be exactly what this loader knows.
 
-        Read per root, like everything else here: a sealed root is a rewritten corpus
-        slice (§12) and not a directory of leftovers, so it declares its own schema
+        Read per root, like everything else here: a sealed root is a corpus slice with
+        its own declarations (DESIGN §6.1) and not a directory of leftovers, so it
+        declares its own schema
         and is checked against it. Equality rather than containment in either
         direction, because the two failures need different fixes and both are real:
 

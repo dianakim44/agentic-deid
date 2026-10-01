@@ -58,6 +58,7 @@ AVAILABILITY = {
     "kosurro_present",
     "kosurro_sealed",
     "carmen_present",
+    "carmen_sealed",
 }
 CONSTRUCTION = {
     "loader",

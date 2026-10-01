@@ -4634,6 +4634,30 @@ already standing (2026-09-28's two `src/` modules, 2026-09-28's membership chang
 because 1.011 in mutations and 1.003 in suite is exactly the move size the eleventh-point
 paragraph says is too small to restate.
 
+**The inputs moved a fourth time, and this one moved only one of the two factors.** 2026-10-01
+sealed `es-carmen`'s test fold. `MUTATIONS` does not move at all — still **274** — and the suite
+goes 2,346 → **2,350** (`tests/test_carmen_loader.py` gains 8 tests and retires 4). Same rule:
+50.5 s × (2350/2194) = **54.1 s**, and 274 × 54.1 s = 14,823 s = **4.12 h**. Derived. Every
+previous derivation stays above: 54.0 s / 4.11 h at suite 2,346, then 53.8 / 53.1 / 51.3 / 50.9,
+all off the one measured 50.5 s at suite 2,194.
+
+0.01 h is not worth a paragraph on its own. What is worth one is that this is the **only step
+where the two factors moved independently**: mutations held and the suite moved, so the figure
+rose anyway. That is the two-factor model saying out loud what the rule above states — the
+per-mutation cost tracks `TEST_FILES`, not `MUTATIONS` — and until this step every move had
+changed both at once, which is consistent with a one-factor model that happens to fit.
+
+`TEST_FILES` does not move here either: still **34**, so no full-run reason is added and the
+three standing ones are still three. But this move is unlike the previous five in a way that *did* require
+measurement, and it is not about cost. The seal made `_build_constructed` refuse, which killed
+the recount half of the three `_achieved` killers; all three were re-anchored on a direct call
+to `split._achieved`. **Re-anchoring is a change to the mutation, so it is re-measured whether
+or not it fell in scope** — the rule in `CLAUDE.md` says so, and it was re-measured:
+`carmen_requested_block_is_dropped`, `carmen_by_stratum_is_the_stratum_size_not_the_folds_share`
+and `carmen_label_mix_counts_only_the_primary` are **2, 2, 2** on the current suite, the same
+values they held before the re-anchoring. No `‡` on any of them: they were added on 2026-09-30,
+after the last full run, so the sidecar has no entry for them to contradict.
+
 **One number this run did measure, and it is not the planning figure.** The 72-mutation scope
 run below went **four** shards wide rather than eight, and finished in **2.2 h** — about 110 s
 per mutation. That is not evidence against the 54.0 s figure and must not be read as such: 54.0 s
