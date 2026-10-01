@@ -1,0 +1,169 @@
+version: 1
+lang: cat
+rules:
+  - rule_id: dr_prefix
+    layer: context_cue
+    phi_type: NAME
+    cue: ["Dr.", "Dr ", "Dra.", "Dra "]
+    then: capitalised_words
+    comment: clinician names after doctor title prefix
+
+  - rule_id: sra_prefix
+    layer: context_cue
+    phi_type: NAME
+    cue: ["Sr.", "Sr ", "Sra.", "Sra "]
+    then: capitalised_words
+    comment: person names after honorific prefix
+
+  - rule_id: pacient_cue
+    layer: context_cue
+    phi_type: NAME
+    cue: ["pacient:", "Pacient:"]
+    then: capitalised_words
+    comment: patient names following pacient label
+
+  - rule_id: nascut_date_cue
+    layer: context_cue
+    phi_type: DATE
+    cue: ["nascut el", "nascuda el", "nat el", "nada el", "Data naix:"]
+    then: digits
+    comment: birth dates following Catalan birth date cues
+
+  - rule_id: data_cue
+    layer: context_cue
+    phi_type: DATE
+    cue: ["Data:", "data:"]
+    then: digits
+    comment: dates following generic data label
+
+  - rule_id: telefon_cue
+    layer: context_cue
+    phi_type: CONTACT
+    cue: ["Tel:", "Tel.:", "Telèfon:", "Mòbil:", "Fax:"]
+    then: digits
+    comment: phone or fax numbers following contact label
+
+  - rule_id: correu_cue
+    layer: context_cue
+    phi_type: CONTACT
+    cue: ["Correu:", "E-mail:", "Mail:"]
+    then: rest_of_line
+    comment: email addresses following email label
+
+  - rule_id: adreca_cue
+    layer: context_cue
+    phi_type: LOCATION_STREET
+    cue: ["Adreça:", "Domicili:", "C/", "c/", "Carrer", "Avinguda", "Av.", "Passeig", "Pg.", "Plaça", "Pl."]
+    then: rest_of_line
+    comment: street addresses following address cues
+
+  - rule_id: cp_cue
+    layer: context_cue
+    phi_type: LOCATION_AREA
+    cue: ["CP:", "CP"]
+    then: digits
+    comment: postal codes following CP label
+
+  - rule_id: nhc_cue
+    layer: context_cue
+    phi_type: ID
+    cue: ["NHC:", "NHC", "Núm. HC:", "Historia clínica:"]
+    then: digits
+    comment: clinical history numbers following identifier cue
+
+  - rule_id: nif_cue
+    layer: context_cue
+    phi_type: ID
+    cue: ["NIF:", "DNI:", "NIE:"]
+    then: digits
+    comment: national ID numbers following NIF or DNI cue
+
+  - rule_id: dni_pattern
+    layer: regex_checksum
+    phi_type: ID
+    pattern: '\b\d{8}[A-Z]\b'
+    checksum: dni_mod23
+    comment: Spanish DNI format with mod23 validation
+
+  - rule_id: nie_pattern
+    layer: regex_checksum
+    phi_type: ID
+    pattern: '\b[XYZ]\d{7}[A-Z]\b'
+    checksum: nie_mod23
+    comment: Spanish NIE format with mod23 validation
+
+  - rule_id: phone_pattern
+    layer: regex_checksum
+    phi_type: CONTACT
+    pattern: '\b[6789]\d{8}\b'
+    comment: Spanish phone numbers nine digits starting with 6 7 8 or 9
+
+  - rule_id: postal_code_pattern
+    layer: regex_checksum
+    phi_type: LOCATION_AREA
+    pattern: '\b0[1-9]\d{3}\b|\b[1-4]\d{4}\b|\b5[0-2]\d{3}\b'
+    comment: Spanish postal codes 01000 to 52999
+
+  - rule_id: email_pattern
+    layer: regex_checksum
+    phi_type: CONTACT
+    pattern: '\b[\w.+-]+@[\w.-]+\.\w{2,}\b'
+    flags: [ignorecase]
+    comment: email addresses
+
+  - rule_id: date_dmy_slash
+    layer: regex_checksum
+    phi_type: DATE
+    pattern: '\b(0?[1-9]|[12]\d|3[01])/(0?[1-9]|1[0-2])/(\d{2}|\d{4})\b'
+    comment: date in d/m/y or dd/mm/yyyy format
+
+  - rule_id: date_dmy_dash
+    layer: regex_checksum
+    phi_type: DATE
+    pattern: '\b(0?[1-9]|[12]\d|3[01])-(0?[1-9]|1[0-2])-(\d{2}|\d{4})\b'
+    comment: date in d-m-y or dd-mm-yyyy format
+
+  - rule_id: date_dmy_dot
+    layer: regex_checksum
+    phi_type: DATE
+    pattern: '\b(0?[1-9]|[12]\d|3[01])\.(0?[1-9]|1[0-2])\.(\d{2}|\d{4})\b'
+    comment: date in d.m.y or dd.mm.yyyy format
+
+  - rule_id: hospital_gaz
+    layer: gazetteer
+    phi_type: ORGANISATION
+    terms:
+      - "Hospital"
+      - "Hospital Clínic"
+      - "Hospital de la Santa Creu"
+      - "Hospital del Mar"
+      - "Hospital de Bellvitge"
+      - "Hospital Vall d'Hebron"
+      - "Hospital Sant Joan de Déu"
+      - "Hospital Sant Pau"
+      - "Hospital de Barcelona"
+      - "CAP"
+      - "Centre d'Atenció Primària"
+    comment: common Catalan hospital and health centre names
+
+  - rule_id: age_anys_cue
+    layer: context_cue
+    phi_type: AGE
+    cue: ["anys", "any"]
+    then: number
+    gap: 5
+    comment: ages preceding anys indicator
+
+  - rule_id: age_edat_cue
+    layer: context_cue
+    phi_type: AGE
+    cue: ["Edat:", "edat:"]
+    then: number
+    comment: ages following edat label
+
+  - rule_id: professio_cue
+    layer: context_cue
+    phi_type: PROFESSION
+    cue: ["Professió:", "professió:", "Ocupació:", "ocupació:", "Treball:"]
+    then: capitalised_words
+    comment: professions following occupation label

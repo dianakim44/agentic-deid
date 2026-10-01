@@ -438,6 +438,24 @@ RULE_ID_ALLOWED_TOKENS = {
     # lacked. None is a value: an abbreviation names the scheme, and the number it
     # abbreviates never appears in a rule name.
     "cipa", "ncol", "naf", "tsi", "nuhsa", "sip",
+    # NSS (número de la Seguridad Social). 2026-10-01, es-carmen port-oneshot 의
+    # `nss_identifier`. **이 집합이 이미 같은 체계의 약어 셋을 갖고 있다** —
+    # `ss`·`nuss`·`nass` 이고, 위 NUSS/NASS 주석이 그 셋을 들인 근거를 그대로
+    # 적어두었다: 스페인어 임상 텍스트에 여러 표기가 함께 돌아다니므로 하나를
+    # 넣고 하나를 빼는 것은 구별이 아니라 빈틈이다. NSS 는 그 체계의 세 번째
+    # 표기이고, 넷 중 유일하게 빠져 있었다.
+    #
+    # 표현가능성 검사(step 1)가 여기에 닿지 않는 이유를 적어둔다 — `ss` 가
+    # 수용돼 있으므로 `ss_id` 로 말할 수 있다고 읽을 수 있기 때문이다. 그 읽기는
+    # `nuss`·`nass` 를 들일 때 이미 기각됐다: 체계를 이름짓는 약어는 **그 체계가
+    # 무엇인지를 서술**하므로 (위 2026-08-23 주석) 서로 다른 유통 표기는 동의어
+    # 중복이 아니라 별개의 이름이고, 규칙이 읽는 필드 표지가 실제로 어느 표기로
+    # 쓰여 있는지를 가리킨다. 같은 근거로 들어온 둘을 두고 셋째를 step (1) 로
+    # 거부하면 집합이 자기 선례와 어긋난다.
+    #
+    # 값이 아니다. 약어는 체계를 가리키고, 그것이 줄인 번호는 규칙 이름에 오지
+    # 않는다 — 이 집합 전체에 적용되는 조건 그대로다.
+    "nss",
 }
 
 # ─── 언어별 층 ──────────────────────────────────────────────────────────────
@@ -619,6 +637,29 @@ RULE_ID_VOCAB_BY_LANG = {
         "emitido", "dirigido", "elaborado", "cumplimentado", "registrado",
         # 문법어. 복합 이름을 잇는다 (`atendido_por_cue`).
         "por", "del", "de", "la", "el", "los", "las", "en", "y",
+        # 2026-10-01, 일곱 번째 확장. es-carmen port-oneshot 이 `fecha_nacimiento_cue`
+        # 와 `direccion_cue` 를 썼고, 둘 다 **이미 열려 있는 칸의 빈 자리**다.
+        #
+        # 이 확장이 앞의 여섯과 다른 점은 빈 자리가 **cat 층과 나란히 놓고 보면
+        # 보인다**는 것이다. `nacimiento` 는 출생이라는 칸의 명사형이고 이 층에는
+        # 과거분사형 `nacido`·`nacida` 만 있었는데, cat 층에는 거꾸로 명사형
+        # `naixement` 만 있다 — 두 층이 같은 칸을 서로 다른 형태로 하나씩만 채우고
+        # 있었고, 어느 쪽도 의도가 아니다. `direccion` 도 같다: cat 층의 `adreca` 가
+        # 바로 이 낱말이고, 이 층에는 `domicilio` 만 있었다. 두 낱말은 register 가
+        # 다르다 — 서식 표지로 쓰이는 것은 `Dirección:` 쪽이 더 흔하므로
+        # `domicilio` 가 그것을 대신 말해주지 않는다.
+        #
+        # 배제 범주 셋은 그대로다 — 둘 다 서식의 **필드 이름**이고, 어느 개인도
+        # 장소도 지목하지 않는다. 날짜값·주소값은 규칙의 pattern 에 있고 이름에는
+        # 오지 않는다.
+        #
+        # **앞의 여섯 확장과 달리 칸을 넓히지 않고 걸린 두 낱말만 넣는다.** 위
+        # 확장들은 "걸린 낱말이 아니라 칸을 채운다" 를 근거로 썼고 그것이 이 표의
+        # 기본 태도이지만, 여기서 채울 "칸" 은 두 층의 짝 맞추기이고 그 짝은 양쪽
+        # 층을 다 읽어야 보인다 — 짐작으로 더 넣으면 아무 arm 도 쓴 적 없는 낱말을
+        # 안전 검사에 추가하는 것이 된다. 다음 arm 이 짝의 다른 쪽을 쓰면 그때
+        # 같은 근거로 들어온다.
+        "nacimiento", "direccion",
     },
     "cat": {
         "sr", "sra", "senyor", "senyora", "doctor", "doctora", "pacient",
@@ -629,6 +670,25 @@ RULE_ID_VOCAB_BY_LANG = {
         "numero", "pis", "porta", "codi", "postal", "provincia",
         "hospital", "centre", "salut", "clinica",
         "per", "del", "de", "la", "el", "els", "les", "en", "i",
+        # 2026-10-01, 일곱 번째 확장. **cat 층의 첫 확장이고, 이 층이 통째로
+        # 한 번에 쓰인 뒤 실제 arm 이 처음 닿은 자리다.** es-carmen port-oneshot 이
+        # `data_cue`·`correu_cue`·`nascut_date_cue` 를 썼고, 셋 다 바로 위 es 층이
+        # 가진 낱말의 카탈루냐어 쌍이다 — `data`/`fecha`, `correu`/`correo`,
+        # `nascut`/`nacido`. 그 세 쌍 중 es 쪽은 전부 있고 cat 쪽은 전부 없었다.
+        #
+        # **이것은 판정이 아니라 누락이다.** 이 층은 es 층을 보고 한 번에 쓰였고,
+        # 그때 옮겨지지 않은 낱말이 있다는 사실은 arm 이 그것을 쓸 때까지 보이지
+        # 않았다. 그러므로 표현가능성 검사(step 1)가 걸리는 자리가 아니다: `date`·
+        # `email` 이 영어 어휘에 있다는 것으로 거부하면 es 층의 `fecha`·`correo` 도
+        # 같은 이유로 거부해야 했고, 그것들은 창설부터 들어와 있다. 기준은
+        # **대상 언어의 임상 상용구는 그 언어 층에 들어온다**이고, 그 기준이
+        # es 에는 적용되고 cat 에는 적용되지 않을 이유가 없다.
+        #
+        # 배제 범주 셋은 그대로다 — 전부 필드 이름·과거분사이고 개인도 장소도
+        # 지목하지 않는다. 그리고 바로 위 es 블록과 같은 이유로 **걸린 세 낱말만
+        # 넣는다**: 짝이 맞지 않는 자리가 더 있다는 것은 거의 확실하지만, 어느
+        # 자리인지는 arm 이 쓰기 전까지 짐작일 뿐이다.
+        "data", "correu", "nascut",
     },
     "de": {
         "herr", "frau", "doktor", "arzt", "arztin", "patient", "patientin",

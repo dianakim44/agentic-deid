@@ -1,0 +1,197 @@
+version: 1
+lang: es
+rules:
+  - rule_id: dr_prefix_name
+    layer: context_cue
+    phi_type: NAME
+    cue: ["Dr.", "DR.", "Dr ", "DR "]
+    then: capitalised_words
+
+  - rule_id: dra_prefix_name
+    layer: context_cue
+    phi_type: NAME
+    cue: ["Dra.", "DRA.", "Dra ", "DRA "]
+    then: capitalised_words
+
+  - rule_id: don_prefix_name
+    layer: context_cue
+    phi_type: NAME
+    cue: ["D.", "Dª", "Dña.", "Don ", "Doña "]
+    then: capitalised_words
+
+  - rule_id: paciente_cue_name
+    layer: context_cue
+    phi_type: NAME
+    cue: ["Paciente:", "PACIENTE:", "paciente:", "Nombre:", "NOMBRE:", "Nombre del paciente:"]
+    then: capitalised_words
+    gap: 5
+
+  - rule_id: firmado_cue_name
+    layer: context_cue
+    phi_type: NAME
+    cue: ["Fdo:", "Fdo.", "Firmado:", "firmado:"]
+    then: capitalised_words
+    gap: 3
+
+  - rule_id: fecha_nacimiento_cue
+    layer: context_cue
+    phi_type: DATE
+    cue: ["Fecha de nacimiento:", "F. Nacimiento:", "FN:", "Nacido el", "Nacida el", "nacido el", "nacida el", "fecha nac:", "Fecha Nac:"]
+    then: digits
+    gap: 5
+
+  - rule_id: fecha_cue_date
+    layer: context_cue
+    phi_type: DATE
+    cue: ["Fecha:", "FECHA:", "fecha:"]
+    then: digits
+    gap: 3
+
+  - rule_id: date_dmy_slash
+    layer: regex_checksum
+    phi_type: DATE
+    pattern: '\b(0?[1-9]|[12][0-9]|3[01])/(0?[1-9]|1[0-2])/(\d{2}|\d{4})\b'
+
+  - rule_id: date_dmy_dash
+    layer: regex_checksum
+    phi_type: DATE
+    pattern: '\b(0?[1-9]|[12][0-9]|3[01])-(0?[1-9]|1[0-2])-(\d{2}|\d{4})\b'
+
+  - rule_id: date_dmy_dot
+    layer: regex_checksum
+    phi_type: DATE
+    pattern: '\b(0?[1-9]|[12][0-9]|3[01])\.(0?[1-9]|1[0-2])\.(\d{2}|\d{4})\b'
+
+  - rule_id: date_spanish_month
+    layer: regex_checksum
+    phi_type: DATE
+    pattern: '\b(0?[1-9]|[12][0-9]|3[01])[\s\-/]*(de\s+)?(enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre)[\s\-/]*(de\s+)?(\d{2}|\d{4})\b'
+    flags: [ignorecase]
+
+  - rule_id: date_abbrev_month
+    layer: regex_checksum
+    phi_type: DATE
+    pattern: '\b(0?[1-9]|[12][0-9]|3[01])[\s\-/]*(ene|feb|mar|abr|may|jun|jul|ago|sep|oct|nov|dic)[\s\-/]*(\d{2}|\d{4})\b'
+    flags: [ignorecase]
+
+  - rule_id: dni_identifier
+    layer: regex_checksum
+    phi_type: ID
+    pattern: '\b[0-9]{8}[A-Z]\b'
+    checksum: dni_mod23
+
+  - rule_id: nie_identifier
+    layer: regex_checksum
+    phi_type: ID
+    pattern: '\b[XYZ][0-9]{7}[A-Z]\b'
+    checksum: nie_mod23
+
+  - rule_id: nss_identifier
+    layer: regex_checksum
+    phi_type: ID
+    pattern: '\b[0-9]{2}[/-]?[0-9]{8}[/-]?[0-9]{2}\b'
+
+  - rule_id: nhc_cue
+    layer: context_cue
+    phi_type: ID
+    cue: ["NHC:", "N.H.C.:", "Nº Historia:", "Nº HC:", "Historia Clínica:", "HC:"]
+    then: digits
+    gap: 5
+
+  - rule_id: nass_cue
+    layer: context_cue
+    phi_type: ID
+    cue: ["NASS:", "N.A.S.S.:", "Nº Afiliación:", "Nº SS:"]
+    then: digits
+    gap: 5
+
+  - rule_id: cip_cue
+    layer: context_cue
+    phi_type: ID
+    cue: ["CIP:", "C.I.P.:"]
+    then: digits
+    gap: 3
+
+  - rule_id: phone_spanish
+    layer: regex_checksum
+    phi_type: CONTACT
+    pattern: '\b(?:\+34[\s\-]?)?[679][0-9]{2}[\s\-]?[0-9]{3}[\s\-]?[0-9]{3}\b'
+
+  - rule_id: phone_landline
+    layer: regex_checksum
+    phi_type: CONTACT
+    pattern: '\b(?:\+34[\s\-]?)?9[0-9]{2}[\s\-]?[0-9]{3}[\s\-]?[0-9]{3}\b'
+
+  - rule_id: phone_fax_cue
+    layer: context_cue
+    phi_type: CONTACT
+    cue: ["Tel:", "Tel.:", "Teléfono:", "Tfno:", "Tfno.:", "Fax:", "FAX:", "Móvil:"]
+    then: digits
+    gap: 5
+
+  - rule_id: email_pattern
+    layer: regex_checksum
+    phi_type: CONTACT
+    pattern: '\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b'
+
+  - rule_id: age_anos_pattern
+    layer: regex_checksum
+    phi_type: AGE
+    pattern: '\b([1-9][0-9]?|1[01][0-9]|120)\s*(años|años de edad|a\.)\b'
+    flags: [ignorecase]
+
+  - rule_id: edad_cue
+    layer: context_cue
+    phi_type: AGE
+    cue: ["Edad:", "EDAD:", "edad:"]
+    then: number
+    gap: 3
+
+  - rule_id: calle_street
+    layer: context_cue
+    phi_type: LOCATION_STREET
+    cue: ["C/", "c/", "Calle ", "calle ", "CALLE ", "Avda.", "Avda ", "Avenida ", "AVENIDA ", "Pº", "Paseo ", "Plaza ", "Pza.", "Pza "]
+    then: capitalised_words
+    gap: 2
+
+  - rule_id: direccion_cue
+    layer: context_cue
+    phi_type: LOCATION_STREET
+    cue: ["Dirección:", "DIRECCIÓN:", "Domicilio:", "DOMICILIO:"]
+    then: rest_of_line
+    gap: 3
+
+  - rule_id: cp_postal
+    layer: regex_checksum
+    phi_type: LOCATION_AREA
+    pattern: '\b(0[1-9]|[1-4][0-9]|5[0-2])[0-9]{3}\b'
+
+  - rule_id: cp_cue
+    layer: context_cue
+    phi_type: LOCATION_AREA
+    cue: ["C.P.:", "CP:", "Código Postal:"]
+    then: digits
+    gap: 3
+
+  - rule_id: hospital_gazetteer
+    layer: gazetteer
+    phi_type: ORGANISATION
+    terms:
+      - "Hospital"
+      - "Hospital Universitario"
+      - "Hospital General"
+      - "Hospital Clínico"
+      - "Centro de Salud"
+      - "C.S."
+      - "Clínica"
+      - "Ambulatorio"
+      - "Consultorio"
+      - "Centro Médico"
+      - "Servicio de"
+
+  - rule_id: profesion_cue
+    layer: context_cue
+    phi_type: PROFESSION
+    cue: ["Profesión:", "PROFESIÓN:", "Ocupación:", "Trabajo:"]
+    then: capitalised_words
+    gap: 3
