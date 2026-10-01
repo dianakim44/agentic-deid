@@ -16,6 +16,8 @@ import re
 import shutil
 import subprocess
 import sys
+import unicodedata
+from unittest import mock
 
 import pytest
 
@@ -1052,6 +1054,151 @@ def test_git_tracked_sees_a_staged_sealed_file(tmp_path):
 def test_git_tracked_is_empty_for_an_unstaged_file(tmp_path):
     path = _sealed_repo(tmp_path)
     assert rs.git_tracked([path], str(tmp_path)) == set()
+
+
+# ─── git_ignored: the pathnames have to come back the way they went in ──────
+#
+# `git_ignored` asks once with the pathnames on stdin. The one-call-per-path version
+# it replaced carried a warning against `--stdin`, and the warning was half right:
+# the hazard is real but it is about *quoting*, and the form that actually breaks is
+# the obvious way to make the call fast — pathnames on argv. The old code survived
+# argv only because `-q` discards the output and reads the exit code, so the shape
+# that looks like a pure speedup is the shape that silently misclassifies files.
+# These tests exist to make that non-silent.
+#
+# No files are created: `check-ignore` matches patterns, not directory entries, so a
+# path that does not exist still gets an answer. That keeps the round-trip being
+# tested here independent of what the filesystem does to a name on the way to disk.
+
+NFD_LOG = unicodedata.normalize("NFD", "Stölzl.log")
+
+
+def _ignores_logs(tmp_path):
+    """A repository whose only rule is `*.log`. Returns its root as a string."""
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    (tmp_path / ".gitignore").write_text("*.log\n", encoding="utf-8")
+    return str(tmp_path)
+
+
+def test_git_ignored_returns_a_non_ascii_name_byte_identically(tmp_path):
+    """The caller compares by set membership, so anything but verbatim is a wrong answer.
+
+    An NFD name is the case that distinguishes the three ways to ask. On stdin with
+    `-z` the bytes come back unchanged. On stdin without `-z` git C-quotes them
+    (`"Sto\\314\\210lzl.log"`). On argv `core.precomposeunicode` — on by default on
+    macOS — hands back the NFC spelling instead. The last two both mean `p in
+    ignored` is False for a file that git ignores, and the screener reports a
+    quarantined file as a live leak.
+    """
+    root = _ignores_logs(tmp_path)
+    assert rs.git_ignored([NFD_LOG], root) == {NFD_LOG}
+
+
+def test_git_ignored_survives_a_newline_in_a_name(tmp_path):
+    """`-z` rather than splitting lines, tested on the name that makes them differ.
+
+    A newline in a filename is legal and nothing here rejects one, so a line-based
+    parse would split one path into two names that match nothing.
+    """
+    root = _ignores_logs(tmp_path)
+    weird = "we\nird.log"
+    assert rs.git_ignored([weird], root) == {weird}
+
+
+def test_git_ignored_is_empty_when_nothing_matches(tmp_path):
+    """Exit 1 from `check-ignore` is the answer 'none of them', not a failure."""
+    root = _ignores_logs(tmp_path)
+    assert rs.git_ignored(["notes.txt", "src/x.py"], root) == set()
+
+
+def test_git_ignored_refuses_to_report_a_prefix_of_the_truth(tmp_path):
+    """A fatal mid-list leaves git's answer incomplete, and incomplete reads as safe.
+
+    `check-ignore` writes the records it got through before failing, so the natural
+    thing — use what came back — silently turns every path after the bad one into
+    'not ignored', which is the escalation path. The run has to stop instead.
+    """
+    root = _ignores_logs(tmp_path)
+    with pytest.raises(RuntimeError) as exc:
+        rs.git_ignored(["a.log", "/etc/hosts", "b.log"], root)
+    assert "/etc/hosts" not in str(exc.value), (
+        "git's stderr quotes the offending path; exception text reaches CI logs and "
+        "issues, which release_screen.py does not screen"
+    )
+
+
+def test_git_ignored_agrees_with_the_per_path_form(tmp_path):
+    """The batched answer is pinned against the slow one it replaced, as code.
+
+    Measured once over the real tree as well (20,999 denied paths, identical sets),
+    but a measurement in a commit message is not a check. Mixed ASCII and non-ASCII,
+    ignored and not, existing and not.
+    """
+    root = _ignores_logs(tmp_path)
+    paths = ["a.log", "notes.txt", NFD_LOG, "deep/b.log", "deep/c.md",
+             unicodedata.normalize("NFC", "Stölzl.txt")]
+
+    per_path = set()
+    for p in paths:
+        r = subprocess.run(["git", "-C", root, "check-ignore", "-q", "--", p],
+                           capture_output=True)
+        if r.returncode == 0:
+            per_path.add(p)
+
+    assert rs.git_ignored(paths, root) == per_path
+    assert per_path, "the fixture stopped exercising the ignored side"
+
+
+def test_git_ignored_is_empty_outside_a_repository(tmp_path):
+    """No git means nothing is *proven* ignored, so every path stays visible.
+
+    `screen_tree` is pointed at bare directories throughout this file and the answer
+    has to be the loud one: a denied file in a directory git knows nothing about is
+    BLOCKED, not quarantined. The opposite reading — no rules found, so nothing is
+    ignored... so treat them all as ignored — is the one shape of this function that
+    hides a leak outright.
+    """
+    assert not (tmp_path / ".git").exists()
+    (tmp_path / ".gitignore").write_text("*.log\n", encoding="utf-8")
+    assert rs.git_ignored(["a.log", "notes.txt"], str(tmp_path)) == set()
+
+
+def test_git_ignored_asks_check_ignore_once_however_many_paths(tmp_path):
+    """The cost property, stated as a test because a loop is the readable version.
+
+    One `git check-ignore` per path is ~16.5 ms, and the screener puts every denied
+    path through here: 20,999 of them is 332 s, twice per run of this file, and the
+    screener is what `CLAUDE.md` requires before every commit. The correctness of a
+    loop is exactly why this needs saying out loud.
+
+    Two subprocesses, not one: the repository question is asked separately and once,
+    and it is pinned here so that a third call cannot appear unnoticed.
+    """
+    root = _ignores_logs(tmp_path)
+    calls = []
+    real = subprocess.run
+
+    def counting(argv, **kw):
+        calls.append(argv)
+        return real(argv, **kw)
+
+    with mock.patch.object(rs.subprocess, "run", counting):
+        got = rs.git_ignored([f"f{i}.log" for i in range(50)], root)
+
+    assert len(got) == 50
+    subcommands = [argv[3] for argv in calls]
+    assert subcommands.count("check-ignore") == 1, (
+        f"one check-ignore for any number of paths, not {subcommands.count('check-ignore')}"
+    )
+    assert subcommands == ["rev-parse", "check-ignore"], subcommands
+
+
+def test_git_ignored_asks_nothing_for_an_empty_list(tmp_path):
+    """`check-ignore --stdin` exits 1 on empty input, which is right but needless."""
+    root = _ignores_logs(tmp_path)
+    with mock.patch.object(rs.subprocess, "run") as run:
+        assert rs.git_ignored([], root) == set()
+    assert run.call_count == 0
 
 
 def test_sealed_exits_zero_and_blocked_exits_one(tmp_path):

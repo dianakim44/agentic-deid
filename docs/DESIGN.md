@@ -334,18 +334,48 @@ in-scope canonical gold span count of that corpus's dev fold as recorded in
 | de-grascco | 432 (⅓) | **0.0602** | 6.02 | 26.0 |
 | de-grascco | 519 (40%) | **0.0501** | 5.01 | 26.0 |
 | de-grascco | 648 (50%) | **0.0401** | 4.01 | 26.0 |
-| es-carmen · ko-surro · en-n2c2 | not yet split | computed at split time | — | 26.0 |
+| en-n2c2 | not acquired | computed at split time | — | 26.0 |
 
-**de-grascco appears at four fractions because its split does not exist yet, and the fraction
-is not this block's decision.** Nothing in this document or `src/split.py` fixes fold
-proportions — es-meddocan's came from that corpus's own official split, adopted unchanged
-(`splits/es-meddocan.json`: `seed: None`, `stratification: None`). Whichever fraction the
-GraSCCo split takes, δ follows from the formula, and **the binding value is the one computed
-from the split file, not a number chosen alongside it.** The rows above are the formula
-evaluated in advance so that no fraction can later be picked for the δ it produces. The same
-holds for es-carmen, ko-surro and en-n2c2: their δ is computed **at split time** from
-`n_spans_in_scope`, recorded in the run's `metrics.json` beside the leak rate, and not
-selected.
+**The rows above were written before the splits existed; these are the splits.** Four of the
+five corpora are now split and frozen, so δ is no longer a formula awaiting an input. The
+achieved values, each read from its split file's `folds.dev.n_spans_in_scope`:
+
+| Corpus | `n_dev` | δ_corpus | as pp | as spans | split frozen |
+|--------|---------|----------|-------|----------|--------------|
+| es-meddocan | 5,254 | **0.005** (floor branch) | 0.50 | 26.3 | official split, adopted unchanged |
+| es-carmen | 1,429 | **0.0182** | 1.82 | 26.0 | 2026-09-30 |
+| de-grascco | 410 | **0.0634** | 6.34 | 26.0 | 2026-09-21 |
+| en-deid | 359 | **0.0724** | 7.24 | 26.0 | 2026-09-21 |
+| ko-surro | 319 | **0.0815** | 8.15 | 26.0 | 2026-09-23 |
+
+**The pre-registered rows stay above rather than being replaced by this one.** That is the
+whole point of having written them: de-grascco appears at four fractions because its split did
+not exist yet and the fraction was not this block's decision, and the achieved split took
+**none of the four**. Two reasons, and both are the kind of thing a replaced row would hide.
+The split targeted a dev proportion of **0.30** (`splits/de-grascco.json`:
+`target_proportions`), which is not among the 25% / ⅓ / 40% / 50% the rows evaluated. And even
+0.30 would not have produced one of them: the rows applied their fraction to the corpus's
+1,297 in-scope spans, while the split applies its proportion to **documents** — 19 of 63, 30.2%
+— and 19 documents carry 410 spans, 31.6%. Stratifying on in-scope span count narrows that gap
+without closing it, because the strata are documents too. Deleting the four rows would delete
+the evidence that no fraction was picked for the δ it produced, which is the only thing they
+were for. Nothing in
+this document or `src/split.py` fixes fold proportions — es-meddocan's came from that corpus's
+own official split, adopted unchanged (`splits/es-meddocan.json`: `seed: None`,
+`stratification: None`) — and **the binding value is the one computed from the split file, not a
+number chosen alongside it.**
+
+**en-deid is in the table for the first time here.** It was absent while the row read "not yet
+split", which is how a corpus goes missing from a parameter table: the placeholder row named
+three corpora and en-deid was not one of them, so acquiring and splitting it did not make
+anything look incomplete. δ is still computed from the split file at report time, so no run
+ever used a wrong value — what was missing was the written record, and that is the part this
+block exists to be.
+
+δ is recorded in the run's `metrics.json` beside the leak rate and is **not** stored in the
+split files: `splits/*.json` carry `n_spans_in_scope` and nothing derived from it, so the
+formula has exactly one evaluation site and this table is a reading of it rather than a second
+source. For en-n2c2 the computation still waits on a split, which still waits on the portal.
 
 **26 spans is the invariant; the rate is the derived value.** Every ratio-branch row above
 lands on exactly 26.0 spans — that is the point of the formula rather than a coincidence of
@@ -6761,9 +6791,36 @@ that asymmetry would be discovered by the release that starts using the second o
 nothing to the table below**: 0 spans, so the excluded total stays 758 and the share stays 9.21%.
 An exclusion that costs nothing today is still a decision, and this is where it is recorded.
 
-**No per-fold table yet.** §9.1's MEDDOCAN entry reports the exclusion per fold; that cannot be
-written for `es-carmen` until `splits/es-carmen.json` is frozen, and it is owed at that point
-rather than omitted.
+**Per fold, owed since the freeze of 2026-09-30 and paid here.** Every number below is read
+from `splits/es-carmen.json` rather than recounted. That is not a convenience: the test fold
+left the corpus root on 2026-10-01 (§6.1), so the frozen file is the only place its column can
+come from, and taking the other two columns from a recount while taking that one from the file
+would be three numbers that happen to agree rather than one table.
+
+| fold | gold | in scope | excluded | share | `SEXO` | `FAMILIARES` | `URL_WEB` |
+|---|---|---|---|---|---|---|---|
+| train | 4,971 | 4,505 | −466 | 9.37% | 283 | 182 | 1 |
+| dev | 1,561 | 1,429 | −132 | 8.46% | 82 | 50 | 0 |
+| test | 1,699 | 1,539 | −160 | 9.42% | 93 | 67 | 0 |
+| **corpus** | **8,231** | **7,473** | **−758** | **9.21%** | **458** | **299** | **1** |
+
+**The dev fold loses the least, so the 9.21% above overstates what rule development is scored
+on.** 8.46% against the corpus's 9.21%, and against test's 9.42% — the fold the headline
+numbers will come from excludes a slightly larger share than the fold the rules were written
+against. The spread is unplanned: §9.5's stratification is on document type crossed with
+language label, and excluded-type density is not a stratification variable on any of the five
+corpora, so where `SEXO` and `FAMILIARES` spans landed is an outcome and not a target. It is
+reported rather than corrected, because correcting it would mean stratifying on a quantity
+chosen after seeing its distribution. MEDDOCAN's spread has the same shape — dev lowest — and
+is slightly narrower: 0.88pp there (10.31 / 9.43 / 9.57) against 0.96pp here.
+
+**The one `URL_WEB` span is in train.** So dev and test exclude nothing on that ground and
+`spans_by_excluded_type` carries no `URL_WEB` key in either fold; the 0.01pp the block above
+measures corpus-wide is 0.02% of train and exactly zero of every number this project reports.
+The decision above still had to be made — the type is declared, a detector can emit a URL, and
+which fold the single instance would fall into was not knowable when §8.1 (ii) was written —
+but it is worth recording that it turned out to cost nothing where it could have been seen,
+rather than leaving a reader to assume the 0.01pp is spread thinly across three folds.
 
 ### 9.2 `TERRITORIO` merges into a single `LOCATION_AREA`
 

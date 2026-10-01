@@ -2012,6 +2012,140 @@ MUTATIONS = [
         ),
         min_kills=1,
     ),
+    # `git_ignored` decides, for every denied path, whether git can see it — so a
+    # wrong answer there is the difference between Quarantined and BLOCKED on all
+    # 20,999 of them. It was one subprocess per path and is now one for the lot,
+    # which is a 346 s → 0.09 s change and therefore the kind of edit that gets
+    # made again by someone optimising it the obvious way. The obvious way is argv,
+    # and argv is the one form that cannot work. These four mutations verify the
+    # mechanism rather than the screener's output: each one is a shape the function
+    # could plausibly have, and each returns a *silently* wrong set.
+    Mutation(
+        name="ignored_paths_handed_over_on_argv",
+        path=SCREEN,
+        anchor=(
+            '    blob = b"".join(os.fsencode(p) + b"\\0" for p in paths)\n'
+            '    r = subprocess.run(["git", "-C", root, "check-ignore", "-z", "--stdin"],\n'
+            "                       input=blob, capture_output=True)\n"
+            '    ignored = {os.fsdecode(p) for p in r.stdout.split(b"\\0") if p}'
+        ),
+        replacement=(
+            '    r = subprocess.run(["git", "-C", root, "-c", "core.quotePath=false",\n'
+            '                        "check-ignore", "--", *paths], capture_output=True)\n'
+            '    ignored = {os.fsdecode(p) for p in r.stdout.split(b"\\n") if p}'
+        ),
+        breaks=(
+            "The batching that looks right: pathnames as arguments, quoting turned "
+            "off so the bytes come back raw. `core.precomposeunicode` is on by "
+            "default on macOS and applies to pathnames git takes as arguments, so an "
+            "NFD name from readdir comes back in NFC and matches nothing the caller "
+            "holds. The file is ignored and gets reported as a live leak. Nothing in "
+            "the output says a name was rewritten, and the repository's own six "
+            "non-ASCII denied paths are all NFC today, so the tree cannot be relied "
+            "on to notice."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="ignored_names_come_back_c_quoted",
+        path=SCREEN,
+        anchor=(
+            '    r = subprocess.run(["git", "-C", root, "check-ignore", "-z", "--stdin"],\n'
+            "                       input=blob, capture_output=True)\n"
+            '    ignored = {os.fsdecode(p) for p in r.stdout.split(b"\\0") if p}'
+        ),
+        replacement=(
+            '    r = subprocess.run(["git", "-C", root, "check-ignore", "--stdin"],\n'
+            '                       input=blob.replace(b"\\0", b"\\n"), capture_output=True)\n'
+            '    ignored = {os.fsdecode(p) for p in r.stdout.split(b"\\n") if p}'
+        ),
+        breaks=(
+            "Drops `-z` while staying on stdin, which is the half of the old warning "
+            "that was true. git C-quotes any name outside ASCII on the way out "
+            "(`\"Sto\\\\314\\\\210lzl.log\"`), so the comparison fails for exactly "
+            "the names a de-identification corpus is most likely to carry, and a "
+            "newline in a name is split into two paths that match nothing."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="a_fatal_check_ignore_is_read_as_unignored",
+        path=SCREEN,
+        anchor=(
+            "    if r.returncode not in (0, 1):\n"
+            "        raise RuntimeError("
+        ),
+        replacement=(
+            "    if False:\n"
+            "        raise RuntimeError("
+        ),
+        breaks=(
+            "git writes the records it got through before a fatal, so the result is a "
+            "prefix of the truth rather than empty — and every path it never reached "
+            "reads as not-ignored, which is `visible()` and therefore BLOCKED. A "
+            "20,999-path report where one bad argument escalates everything after it "
+            "is worse than a crash, because it looks like a finding."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="ignored_asked_one_path_at_a_time",
+        path=SCREEN,
+        anchor=(
+            '    blob = b"".join(os.fsencode(p) + b"\\0" for p in paths)\n'
+            '    r = subprocess.run(["git", "-C", root, "check-ignore", "-z", "--stdin"],\n'
+            "                       input=blob, capture_output=True)\n"
+            '    ignored = {os.fsdecode(p) for p in r.stdout.split(b"\\0") if p}\n'
+            "    if r.returncode not in (0, 1):"
+        ),
+        replacement=(
+            "    ignored = set()\n"
+            "    for p in paths:\n"
+            '        r = subprocess.run(["git", "-C", root, "check-ignore", "-q", "--", p],\n'
+            "                           capture_output=True)\n"
+            "        if r.returncode == 0:\n"
+            "            ignored.add(p)\n"
+            "    if False:"
+        ),
+        breaks=(
+            "The version this replaced, restored. It is *correct* — that is the point. "
+            "Nothing about the screener's output changes and the cost of one call goes "
+            "from 0.09 s to 332 s on 20,999 denied paths: twice per in-repository run "
+            "of `test_release_screen.py`, and once per `tools/release_screen.py` run, "
+            "which CLAUDE.md requires before every commit. Note where it is *not* paid: "
+            "`make_tree` symlinks `data/raw` and `sealed`, `os.walk` does not follow "
+            "symlinks, and a mutation tree therefore has 25 denied paths rather than "
+            "20,999 — so the gate's own wall time barely moves and the gate is the one "
+            "place this regression would hide. A cost regression no test can see is one "
+            "that comes back, so the one-call property is asserted rather than left to "
+            "a comment."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="no_repository_means_everything_is_ignored",
+        path=SCREEN,
+        anchor=(
+            '    if subprocess.run(["git", "-C", root, "rev-parse", "--git-dir"],\n'
+            "                      capture_output=True).returncode != 0:\n"
+            "        return set()"
+        ),
+        replacement=(
+            '    if subprocess.run(["git", "-C", root, "rev-parse", "--git-dir"],\n'
+            "                      capture_output=True).returncode != 0:\n"
+            "        return set(paths)"
+        ),
+        breaks=(
+            "Inverts what the absence of git means. `visible()` asks for proof that git "
+            "*cannot* see a file, and no repository is the absence of proof, not proof "
+            "of absence — so the one-character difference between `set()` and "
+            "`set(paths)` moves every denied path out of BLOCKED and into Quarantined "
+            "on any tree that is not a git repository. A release tarball unpacked beside "
+            "the code is exactly that tree, and the screener would report it as expected "
+            "and exit 0."
+        ),
+        min_kills=1,
+    ),
     Mutation(
         name="staged_sealed_not_escalated",
         path=SCREEN,

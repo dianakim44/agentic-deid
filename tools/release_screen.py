@@ -1131,22 +1131,73 @@ def sniff(path, blob=None, force=False):
 
 
 def git_ignored(paths, root):
-    """Subset of paths that git ignores. Checked one call per path.
+    """Subset of paths that git ignores. One call, pathnames handed over on stdin.
 
     A denied file that git cannot see is quarantined; one that git CAN see is a
     live risk. Conflating the two makes 'BLOCKED must be 0' unusable as soon as a
     corpus is downloaded, which is exactly when the check matters most.
 
-    Deliberately not using `git check-ignore --stdin`: on macOS the filesystem
-    hands back NFD-normalised names (Stölzl) that do not match on stdin, and a
-    false 'not ignored' here would be reported as a live leak.
+    `--stdin -z`, which is the opposite of `git_tracked` below and of what the
+    one-call-per-path version this replaced warned against. Both halves of that
+    warning were measured on git 2.54 before the change, and it was half right:
+
+      * The hazard is real, and it is about *quoting* rather than about stdin.
+        Given a newline-separated list, `check-ignore` writes non-ASCII names back
+        C-quoted — an NFD `Stölzl.log` comes back as `"Sto\\314\\210lzl.log"`,
+        which matches nothing in `paths` and so would be reported as a live leak.
+        `-z` turns the quoting off and the bytes come back verbatim; a name
+        containing a newline survives it too, which no line-based parse does.
+      * argv is the form that actually breaks. macOS hands NFD names out of
+        readdir, `core.precomposeunicode` is on by default there, and it applies
+        to pathnames git takes as arguments: NFD goes in and NFC comes out, so no
+        `p in ignored` test can match. The replaced version escaped this only
+        because `-q` discards the output and reads the exit code. Batching it on
+        argv — the obvious way to make it fast — would have walked straight in.
+
+    So the pathnames cannot be compared unless they come back byte-identical, and
+    `os.fsencode`/`os.fsdecode` carry them across unchanged in both directions.
+    No chunking: the argument-length limit `git_tracked` chunks for is an argv
+    limit, and there is no argv here.
+
+    Three exit statuses and they are three different things.
+
+    Exit 1 means nothing matched, which is an answer and not an error.
+
+    Exit 128 with a repository present is fatal *mid-list* — a pathspec outside the
+    work tree, or one reaching past a symlink. git writes the records it got through
+    before failing, so the result is a prefix of the truth rather than empty, and
+    raising beats returning it: every path git never reached would read as
+    not-ignored. git's own stderr is deliberately not interpolated into the message —
+    it echoes the offending pathname, exception text reaches CI logs and issues, and
+    `release_screen.py` does not screen its own crash output.
+
+    **No repository is not an error either, and it is not the same as the above.**
+    `screen_tree` is pointed at bare directories on purpose — most of the tests here
+    do it, and a release tarball unpacked somewhere is the realistic case — and git
+    then fails before looking at any path. The answer is that nothing is proven
+    ignored, so every denied file counts as visible and lands in BLOCKED. That is the
+    loud direction and it is the same answer the one-call-per-path version gave, which
+    is why it is kept rather than tightened: `visible()` requires proof that git
+    cannot see a file, and the absence of git is the absence of proof. Asked as its
+    own question rather than inferred from an empty result, because 'git produced no
+    records' is also what a fatal on the very first path looks like.
     """
-    ignored = set()
-    for p in paths:
-        r = subprocess.run(["git", "-C", root, "check-ignore", "-q", "--", p],
-                           capture_output=True)
-        if r.returncode == 0:
-            ignored.add(p)
+    paths = list(paths)
+    if not paths:
+        return set()
+    if subprocess.run(["git", "-C", root, "rev-parse", "--git-dir"],
+                      capture_output=True).returncode != 0:
+        return set()
+    blob = b"".join(os.fsencode(p) + b"\0" for p in paths)
+    r = subprocess.run(["git", "-C", root, "check-ignore", "-z", "--stdin"],
+                       input=blob, capture_output=True)
+    ignored = {os.fsdecode(p) for p in r.stdout.split(b"\0") if p}
+    if r.returncode not in (0, 1):
+        raise RuntimeError(
+            f"git check-ignore exited {r.returncode} after answering for "
+            f"{len(ignored)} of {len(paths)} paths; the rest are unknown, not "
+            f"unignored. stderr withheld because it quotes the path."
+        )
     return ignored
 
 

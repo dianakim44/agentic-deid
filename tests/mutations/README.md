@@ -742,7 +742,7 @@ survivor, and such a mutation could only live in `src/split.py` or `src/corpora/
 fully in scope. Nothing fell and nothing survived, so it was never anybody's only killer. Worth
 one sentence because "72 of 72" is the same output whether that was checked or assumed.
 
-The full-run size is now **274**.
+The full-run size is now **279**.
 
 ## The seal mutations
 
@@ -1175,6 +1175,69 @@ the function is redundancy, not a load-bearing check. It is kept because the
 escalation it guarantees is too consequential to rest on the behaviour of one command
 on one version, and it is listed here as untested-because-redundant rather than
 quietly omitted.
+
+### `git_ignored`: five mutations on a batching change, and the opposite case to `git_tracked` — 2026-10-01
+
+`git_ignored()` is the function the paragraph above is not about. `git_tracked` is
+redundancy; `git_ignored` is the **sole** source of the answer to "can git see this path",
+and `visible(p) = p in tracked or p not in ignored` turns that answer into the difference
+between a Quarantined line and a BLOCKED one on all **20,999** denied paths. There is no
+second opinion to fall back on, so unlike `git_tracked` every mutation of it is caught.
+
+It was rewritten from one `git check-ignore` call per path to a single
+`git check-ignore -z --stdin`. The cost it was paying is not an estimate: the per-path form
+screened the real repository in **332.18 s**, the batched form in **0.09 s** — 3,703×, and the
+two produced **set-identical** results on all 20,999 denied paths, which is how the rewrite was
+accepted rather than argued for. The screener's externally visible output is unchanged:
+BLOCKED 0 / SEALED 3,613 / Quarantined 17,386 / SUSPECT 32 / Allowed 110 / exit 0, in 2.861 s
+rather than ~350 s.
+
+**The hazard is quoting, not stdin**, and that correction matters because the earlier note in
+this file warning about this function named stdin as the risk. Three interrogation forms were
+measured on git 2.54.0 (Apple Git-157) / macOS 27.2:
+
+| form | round-trips a pathname? |
+|---|---|
+| `--stdin -z` | **yes, byte-verbatim** — the form adopted |
+| `--stdin` (LF-separated) | no — git C-quotes non-ASCII names |
+| argv (`check-ignore -- <paths>`) | no — `core.precomposeunicode`, **default true on macOS**, applies to argv pathnames and returns NFC for an NFD input |
+
+So the form that looks like the obvious optimisation — hand the paths over on argv, the way
+`git_tracked` already chunks them at 400 for `git ls-files` — is the one form that cannot
+work, and it fails by *renaming* the path it answers about. There is no chunking in the batched
+version because the limit `git_tracked` chunks for is an argv limit and stdin does not have it.
+One more measured detail, recorded because it invalidated the first plan written for this
+change: `-z` is **rejected** without `--stdin` (`fatal: -z only makes sense with --stdin`), with
+or without `-v`.
+
+**The hazard is real and currently untriggered, which is why the tests carry it rather than the
+tree.** Of the 20,999 denied paths, **six** have non-ASCII names and all six are NFC today, so
+an argv implementation would pass every screen this repository can currently run. (The forms
+were classified without printing any name; one of the six is under `sealed/`, listed by the same
+`os.walk` the screener already performs, and nothing was opened.) The five mutations are
+therefore the only thing standing between a silent regression and a noticed one.
+
+| mutation | changes | breaks | tests that catch it |
+|---|---|---|---|
+| `ignored_paths_handed_over_on_argv` | paths go on argv with `-c core.quotePath=false`, output split on `\n` | the NFD case, invisibly. The flag disables quoting, so the obvious defence is present and the name still comes back NFC — a path that *is* ignored is reported as not ignored, which escalates it to BLOCKED, or the reverse if the comparison goes the other way | **4** |
+| `ignored_names_come_back_c_quoted` | `-z` dropped, NUL-separated input replaced by newlines | both a non-ASCII name and a name containing a newline. The second is worse than the first: one pathname becomes two output lines, so the set gains an entry that is not a path | **3** |
+| `a_fatal_check_ignore_is_read_as_unignored` | the `returncode not in (0, 1)` guard becomes `if False` | the distinction between three exit statuses. 0 and 1 are both *answers*; ≥ 2 means git answered for a prefix and stopped, and treating the prefix as the whole answer reports unignored — the quiet direction — for every path git never reached | **1** |
+| `ignored_asked_one_path_at_a_time` | the old per-path loop is restored | nothing about correctness, and that is the point. This is the regression the **gate alone would never feel**: `make_tree` symlinks `data/raw` and `sealed/`, `os.walk` does not follow symlinks, so a mutation tree has 25 denied paths rather than 20,999 and the per-path form costs 0.52 s there | **2** |
+| `no_repository_means_everything_is_ignored` | the no-`.git` fallback returns `set(paths)` instead of `set()` | the direction of the fallback. Absence of git is absence of *proof* that git cannot see a file, so the fallback has to be the loud answer; returning everything-ignored makes a repository-less screen report clean | **1** |
+
+The last row exists because the change broke a test, not because the case was foreseen.
+`test_disguised_sh_is_flagged_end_to_end` screens a bare `tmp_path` with no `git init`, and the
+first batched draft raised `RuntimeError: git check-ignore exited 128 after answering for 0 of
+1 paths`. Asking `git rev-parse --git-dir` first and returning `set()` is the fix; the mutation
+is there so that the next person who finds the extra subprocess wasteful and inverts the
+fallback to "nothing is visible, so nothing blocks" fails instead.
+
+Two conventions this section keeps. The `RuntimeError` message reports **counts** — "answered
+for N of M paths" — and says explicitly that git's stderr is withheld *because it quotes the
+path*; an exception message travels to terminals, CI logs and stack traces, none of which
+`release_screen.py` screens. And no test here creates any of the files it asks about, because
+`check-ignore` matches patterns rather than directory entries; the only non-ASCII name used
+anywhere in the eight new tests is `Stölzl.log`.
 
 ## The vocabulary mutations
 
@@ -4665,6 +4728,78 @@ is the per-mutation wall cost amortised over *eight* shards, so half the width i
 the per-mutation wall time, and 110 s ÷ 2 = 55 s lands within 2% of it. Recorded because the
 raw wall figure looks like a 2× miss until the shard count is put back in, and a reader who
 finds only "2.2 h for 72" in a log has no way to recover that.
+
+**The inputs moved a fifth time, and this is the first move where the two ratios pointed in
+opposite directions.** 2026-10-01 batched `git_ignored` in `tools/release_screen.py` — one
+`git check-ignore -z --stdin` call instead of one call per path. `MUTATIONS` goes
+274 → **279** (five new, below) and the suite goes 2,350 → **2,358**
+(`tests/test_release_screen.py` goes 203 → 211). Count ratio as always:
+50.5 s × (2358/2194) = **54.3 s**, and 279 × 54.3 s = 15,150 s = **4.21 h**.
+
+But this run also measured the tree suite directly, so there are two derivations and they do
+not agree. An uncontended `run_suite` on a `make_tree` tree at suite 2,358 is **397.03 s**
+(`outcomes: 2358`), and 397.03 s × 1.16 ÷ 8 = **57.6 s** per mutation, which puts 279 at
+16,070 s = **4.46 h**. The count ratio is **6.1% lower** than the measured one. Both are kept
+and **the planning figure is the larger, 57.6 s / 4.46 h**, by the same rule that refused to
+average 2.43 and 2.51: the spread between two ways of getting at one quantity is the
+uncertainty, and an average deletes it.
+
+The two time measurements now bracket the count model from both sides. 2026-09-29's 366.75 s
+(suite 2,338) made the count ratio look 1.2% *high*; scaling that datum forward by counts
+alone predicts 366.75 × (2358/2338) = 369.9 s, and the measurement came in at 397.03 s —
+**7.3% high** in the other direction. So the count ratio's error does not have a fixed sign,
+and the two points are not even measured under identical conditions: 2026-09-29's was the
+baseline step of a scope run, 2026-10-01's a standalone uncontended run. The 27 s gap is
+**not decomposed** and nothing here attributes it. What survives both points is only the
+two-factor claim — per-mutation cost tracks `TEST_FILES`, and test *count* is a proxy for
+`TEST_FILES` *time*, not the thing itself.
+
+What makes this move unlike the other five is the direction. The suite's test count rose 0.3%
+while the suite's measured time **in the repository** fell from **1,175 s to 387 s**. Every
+previous move pushed both the same way. Two tests in `tests/test_release_screen.py` were
+costing 388.74 s and 387.84 s by themselves, because each screened the real repository and the
+per-path form asked `git check-ignore` 20,999 times.
+
+**And the drop is not a saving the gate was paying.** This is the part that had to be measured
+rather than reasoned, because the obvious inference — 776 s × 274 mutations ≈ 59 h of gate
+cost removed — is wrong, and an earlier note in this session's report asserted it before
+measuring. `make_tree` symlinks `data/raw` and `sealed/`, and `os.walk` does not follow
+symlinks, so the screener inside a mutation tree sees **25** denied paths, not 20,999. Measured
+on a tree: **0.52 s**. The gate never paid the 776 s, which is also why the tree baseline did
+not fall: 366.75 s → 397.03 s went *up*. The clue available before any measurement was that a
+366.75 s serial baseline cannot contain two tests that cost 776 s between them.
+
+`TEST_FILES` does not move: still **34**. A one-function change in `tools/` is an impact-scope
+reason, and so is adding mutations, so this adds **no full-run reason** and the three standing
+ones (2026-09-28's two `src/` modules, 2026-09-28's membership change, 2026-09-29's suite-only
+move) are still three — across seven moves now.
+
+The scope run covered **17** mutations: the 12 standing `SCREEN` ones plus the 5 new. Two
+concurrent invocations, one tree fingerprint `ef23c4e501d6a7b9`, baseline `2358 passed` in
+both. **17/17 caught, 0 survived.** The five new counts:
+
+| mutation | kills | what the count says |
+| --- | --- | --- |
+| `ignored_paths_handed_over_on_argv` | 4 | the obvious optimisation; `core.precomposeunicode` applies to argv pathnames, so an NFD name comes back NFC and no longer matches the path asked about |
+| `ignored_names_come_back_c_quoted` | 3 | dropping `-z` makes git C-quote non-ASCII and newline-bearing names |
+| `a_fatal_check_ignore_is_read_as_unignored` | 1 | exit ≥ 2 answered for a prefix; the rest are unknown, not unignored |
+| `ignored_asked_one_path_at_a_time` | 2 | the regression back to 20,999 calls, which the gate alone would never feel |
+| `no_repository_means_everything_is_ignored` | 1 | absence of git is absence of proof, so the fallback must be the loud answer |
+
+The twelve standing `SCREEN` counts are **unchanged**: 26, 3, 1, 1, 3, 1, 4, 4, 2, 1, 2, 4. No
+`‡` is added or removed. And **no `‡` goes on the five new ones** — they were added today, after
+the last full run, so the sidecar has no entry for them to contradict. (One earlier attempt
+marked every moved count in a run `‡` and
+`test_a_readme_count_that_contradicts_the_last_full_run_is_marked` rejected it for exactly
+this reason.)
+
+The deferral grows: **202 → 262**, and it ties out as **202 + 72 − 12**. The 72 measured on
+2026-09-30 were measured at suite 2,346 and the suite has moved twice since, so their values
+are no longer comparable and go back into the column; 12 of today's 17 are previously-counted
+mutations leaving it; the 5 new ones were measured on arrival and never entered it. The number
+rising is not a backslide — it is the rule above working, the one that forbids writing "no
+change" as an expectation for a value the current suite has not re-measured. A deferral that
+only ever shrank would mean partial runs were being banked as full ones.
 
 One thing that reads as a reversal and is not. The serial derivation for 185 comes out at ~15.2 h,
 which is the number the correction below rejected — but not the same number. The rejected fifteen
