@@ -70,6 +70,7 @@ CONSTRUCTION = {
     "kosurro_loader",
     "kosurro_unsplit_loader",
     "kosurro_docs",
+    "carmen_loader",
     "carmen_unsplit_loader",
     "carmen_docs",
 }

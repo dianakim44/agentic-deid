@@ -1810,6 +1810,72 @@ MUTATIONS = [
         ),
         min_kills=1,
     ),
+    #: The three deferred on 2026-09-29 and killable from 2026-09-30, which is the whole
+    #: reason they were deferred: they are about what `_achieved` *records*, and until
+    #: `splits/es-carmen.json` existed nothing could read the record back. Writing them a
+    #: day early would have added three survivors to the gate and called it coverage
+    #: (`tests/mutations/README.md`, "Deferred with a reason, not exempt"). The three
+    #: killers arrive in the same commit, in `tests/test_carmen_loader.py`'s new
+    #: "what was asked for, beside what was delivered" section.
+    #:
+    #: All three leave a file that parses, passes `check_schema`, and reports eleven
+    #: well-balanced strata. That is the shape of the defect §9.5 item 5 exists to
+    #: prevent: not a wrong split, a split whose composition cannot be read back.
+    Mutation(
+        name="carmen_requested_block_is_dropped",
+        path=SPLIT,
+        anchor='    block["requested"] = {\n',
+        replacement="    _requested = {\n",
+        breaks=(
+            "The `requested` block is computed and thrown away — the one-token slip a "
+            "rename leaves behind, and silent, because nothing downstream reads the key. "
+            "The file then records what the stratification delivered and nothing about "
+            "what was asked for: the twelve cells before the collapse, the derived "
+            "threshold, which cells were under it, and that `CC` is the primary the "
+            "language folded inside all disappear. §9.5 item 5 and `_achieved`'s "
+            "docstring both state the consequence — one block without the other makes a "
+            "difference between the two invisible, so eleven balanced strata read as a "
+            "corpus that had eleven balanced strata to begin with."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="carmen_by_stratum_is_the_stratum_size_not_the_folds_share",
+        path=SPLIT,
+        anchor=(
+            '        block["achieved"][fold]["by_stratum"] = {\n'
+            "            name: per_stratum.get(name, 0) for name in strata_map\n"
+        ),
+        replacement=(
+            '        block["achieved"][fold]["by_stratum"] = {\n'
+            "            name: sum(len(u) for u in strata_map[name]) "
+            "for name in strata_map\n"
+        ),
+        breaks=(
+            "Every fold reports each stratum's whole size instead of its own share, so "
+            "the three folds carry three identical tables summing to 2,000 beside an "
+            "`n_documents` of 400. It reads as perfect balance and reconciles with "
+            "nothing — `CC/*` appears as 5 in each fold rather than 3/1/1, which is the "
+            "one stratum whose existence the small-cell rule caused and therefore the "
+            "one whose delivery most needs reading."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="carmen_label_mix_counts_only_the_primary",
+        path=SPLIT,
+        anchor="            for label, value in zip((primary, secondary), keys[doc_id]):\n",
+        replacement="            for label, value in zip((primary,), keys[doc_id]):\n",
+        breaks=(
+            "`label_mix` records the document-type mix per fold and an **empty** language "
+            "mix — empty rather than absent, so it reads as measured-and-none-found. The "
+            "language is the half §9.5 crossed the variables for: PHI density varies 4x "
+            "by document type and 84% of bilingual documents are one document type, so "
+            "the label whose confound the stratification exists to control is the label "
+            "the file stops reporting, while still reporting the other one correctly."
+        ),
+        min_kills=1,
+    ),
     Mutation(
         name="carmen_filename_index_is_a_constant",
         path=CARMEN,

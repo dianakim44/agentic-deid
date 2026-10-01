@@ -345,14 +345,32 @@ def carmen_present() -> str:
 
 
 @pytest.fixture(scope="session")
-def carmen_unsplit_loader(carmen_present: str):
-    """The CARMEN-I loader with no split file.
+def carmen_loader(carmen_present: str):
+    """The CARMEN-I loader as everything outside these tests uses it: reading the split file.
 
-    There is no `carmen_loader` counterpart yet and its absence is deliberate:
-    `splits/es-carmen.json` is not frozen, so a loader reading it would raise on every
-    test, and a fixture added ahead of its user is what
-    `test_every_shared_fixture_is_used_by_something` refuses. `kosurro_loader`'s
-    docstring records the same sequence from the other side.
+    Arrived 2026-09-30 with the act it is about — the freeze of `splits/es-carmen.json`.
+    Until then this was a comment in `carmen_unsplit_loader` saying why it did not exist:
+    a loader reading an absent split file raises on every test, and a fixture added ahead
+    of its user is the state `test_every_shared_fixture_is_used_by_something` refuses.
+    `kosurro_loader` arrived the same way on the same kind of day, and there is still no
+    `carmen_sealed` for the same reason there was no `carmen_loader` yesterday.
+
+    Requested by `test_the_loader_gets_its_folds_from_the_split_file`: this corpus's
+    layout encodes no fold, so a fold on a document *is* the file's assignment being
+    carried out, and the unsplit loader cannot show that.
+    """
+    from src.corpora.carmen import CarmenLoader
+
+    return CarmenLoader()
+
+
+@pytest.fixture(scope="session")
+def carmen_unsplit_loader(carmen_present: str):
+    """The CARMEN-I loader with no split file, for the tests that check the split file.
+
+    Loading with the file and then checking the file against the result would be
+    circular, which is why `carmen_docs` is built from this one and not from
+    `carmen_loader` above.
     """
     from src.corpora.carmen import CarmenLoader
 

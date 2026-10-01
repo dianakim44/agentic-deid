@@ -25,11 +25,17 @@ message. That constrains how the tests below are written:
     document id, span index, type and offsets. Its text is not in this file, not in the
     loader, and not in DESIGN.
 
-**These tests see all 2,000 documents.** `splits/es-carmen.json` is not frozen yet, so
-nothing is sealed and the split-file half of the GraSCCo and ko-surro files has no
-counterpart here — the constants below are the corpus-wide ones. The three tests about
-the composition the split will stratify on (§9.5) are here *before* the freeze on
-purpose: they are what the deterministic small-cell rule will be written against.
+**These tests see all 2,000 documents, and that is now a fact about the *seal* rather
+than about the split file.** `splits/es-carmen.json` was frozen on 2026-09-30 and the
+section "the frozen split file" below reads it; nothing is sealed yet, so the visible
+corpus is still the whole corpus and the constants below are still the corpus-wide ones.
+When `sealed/es-carmen/` is built they have to come apart into a visible and a
+corpus-wide set the way the GraSCCo and ko-surro files' do, and
+`test_nothing_is_sealed_yet` is what fails on that day rather than leaving it to the git
+log. The three tests about the composition the split stratifies on (§9.5) predate the
+freeze on purpose: they are what the deterministic small-cell rule was written against,
+and a file recording an achieved composition means nothing unless the requested one is
+pinned somewhere that fails when the corpus moves.
 
     python3 -m pytest tests/test_carmen_loader.py -q
 """
@@ -44,6 +50,7 @@ import pytest
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
+from src import split  # noqa: E402
 from src.corpora import CorpusError, base  # noqa: E402
 from src.corpora.base import SealError  # noqa: E402
 from src.corpora.carmen import (  # noqa: E402
@@ -67,8 +74,10 @@ from src.corpora.carmen import (  # noqa: E402
 )
 
 # ─── expected values (DESIGN §9.0, §9.1, §9.5, §9.7) ────────────────────────
-# Measured 2026-09-28 over the whole release. Nothing is sealed yet, so unlike the
-# GraSCCo and ko-surro files there is no visible/corpus-wide split in these constants.
+# Measured 2026-09-28 over the whole release, except for the stratification block, which
+# is 2026-09-30 and the freeze's. Nothing is sealed yet, so unlike the GraSCCo and
+# ko-surro files there is no visible/corpus-wide split in these constants — see the
+# module docstring for what has to happen to them at the seal.
 
 N_DOCS = 2000
 N_SPANS = 8231
@@ -158,6 +167,43 @@ CROSS = {
     ("CC", "bi"): 1,
 }
 SMALLEST_CELL = ("CC", "bi")
+
+#: The corpus id, so the three `split` lookups below do not each spell it again.
+CARMEN = "es-carmen"
+
+#: What the cross above becomes once §9.5's small-cell rule has run, and what
+#: `config/split.yaml` declares. Eleven strata, largest first — the order is an input to
+#: `assign_folds`, so it is pinned as a sequence and not as a set. `CC/*` is the folded
+#: one: `(CC, es)` = 4 and `(CC, bi)` = 1 are both under the threshold, so the language
+#: folds inside the document type and the two become one stratum of five. `IE/es` sits
+#: at exactly 5 and does **not** collapse, which is the `<` / `<=` boundary.
+N_STRATA = 11
+SMALL_CELL_THRESHOLD = 5
+STRATA = {
+    "IR/es": 961,
+    "IA/es": 573,
+    "IR/bi": 221,
+    "IT/es": 154,
+    "IA/bi": 31,
+    "IR/cat": 19,
+    "IA/cat": 13,
+    "IT/bi": 11,
+    "IT/cat": 7,
+    "CC/*": 5,
+    "IE/es": 5,
+}
+CARMEN_VARIABLE = "filename_doctype_x_language_label"
+CARMEN_COLLAPSED = ["CC"]
+
+#: The frozen split, in documents (DESIGN §9.5, `config/split.yaml` 0.60/0.20/0.20).
+CONSTRUCTED_SPLIT = {"train": 1200, "dev": 400, "test": 400}
+
+#: How the collapsed stratum's five documents were dealt out. Pinned because it is the
+#: one stratum whose *existence* is the small-cell rule's doing: five documents is the
+#: smallest size at which 0.60/0.20/0.20 gives every fold at least one, so 3/1/1 is the
+#: only shape that honours the proportions and a different one means the rule collapsed
+#: the wrong thing or nothing at all.
+CC_SHARE = {"train": 3, "dev": 1, "test": 1}
 
 #: §8.5: 789 of the 2,000 units are clinical sections rather than whole notes, which is
 #: why `meta` says `filename_doctype` and not `document_type`. Nine section tokens plus
@@ -750,16 +796,218 @@ def test_there_is_no_patient_key(carmen_docs, carmen_unsplit_loader):
         carmen_unsplit_loader.patient_key(carmen_docs[0])
 
 
-def test_the_split_file_is_not_frozen_yet():
-    """The state these constants describe, asserted so it cannot change silently.
+# ─── the frozen split file (DESIGN §9.5, §6.2) ───────────────────────────────
+# Added 2026-09-30 with the freeze itself. What stood here until then was
+# `test_the_split_file_is_not_frozen_yet`, a test whose whole job was to fail on this
+# commit and name the work it owed: "a `carmen_loader` fixture, a
+# `test_only_the_unsealed_folds_load`, and corpus-wide figures read from the file
+# instead of recounted". Two of the three arrive here. The third cannot: nothing is
+# sealed yet, so `test_only_the_unsealed_folds_load` has no state to assert and would
+# pass over a corpus where every fold is visible. It arrives with the seal, which is
+# the sequence `kosurro_loader` (freeze, 2026-09-23) and `kosurro_sealed`
+# (seal, 2026-09-28) already went through from the other side.
+#
+# The constants above are still the corpus-wide ones and every test above still sees
+# all 2,000 documents, because with no sealed root the visible corpus *is* the corpus.
+# That stops being true at the seal, and `test_nothing_is_sealed_yet` below is what
+# fails when it does.
 
-    When `splits/es-carmen.json` is frozen this test fails, and what it is asking for is
-    the work the other four loader files carry and this one does not: a `carmen_loader`
-    fixture, a `test_only_the_unsealed_folds_load`, and corpus-wide figures read from
-    the file instead of recounted. Until then these tests see all 2,000 documents, and a
-    reader needs to know that from the tests rather than from the git log.
+
+@pytest.fixture(scope="module")
+def record(carmen_present):
+    """The frozen split file, parsed. No `try`: a file that does not parse is a defect."""
+    return split.read(carmen_present)
+
+
+def test_the_split_route_is_declared():
+    assert split.SPLIT_ORIGIN[CARMEN] == "constructed"
+    assert CARMEN in split.CONSTRUCTED_NARRATIVE
+
+
+def test_fold_sizes_are_the_constructed_split(record):
+    assert {f: b["n_documents"] for f, b in record["folds"].items()} == CONSTRUCTED_SPLIT
+    assert sum(CONSTRUCTED_SPLIT.values()) == N_DOCS
+
+
+def test_the_loader_gets_its_folds_from_the_split_file(carmen_loader):
+    """The file's claim carried out, which the unsplit loader cannot show.
+
+    `carmen_loader` reads `splits/es-carmen.json`; `carmen_unsplit_loader` does not. The
+    layout encodes no fold (`fold_dirs == {}`), so a fold on a document is the split
+    file's assignment and nothing else's, and the per-fold counts have to come back out
+    the same way they went in.
     """
-    assert not (Path(ROOT) / "splits" / "es-carmen.json").exists()
+    by_fold = collections.Counter(doc.split for doc in carmen_loader.load())
+    assert dict(by_fold) == CONSTRUCTED_SPLIT
+
+
+def test_nothing_is_sealed_yet(carmen_present):
+    """The state the section header above describes, asserted so it cannot change quietly.
+
+    When `sealed/es-carmen/` is built this test fails, and what it is asking for is the
+    third owed item: a `carmen_sealed` availability fixture, a
+    `test_only_the_unsealed_folds_load`, and the visible/corpus-wide split in the
+    constants at the top of this file. Nothing is opened — `sealed_root()` answers from
+    the configured path.
+    """
+    assert base.sealed_root(carmen_present) is None
+
+
+def test_the_seed_is_recorded_with_the_split(record):
+    assert record["provenance"]["seed"] == split.construction_params(CARMEN)["seed"]
+
+
+# ─── what was asked for, beside what was delivered (§9.5 item 5) ──────────────
+# The tests below are the killers for the three mutations that 2026-09-29 deliberately
+# deferred to this commit (`tests/mutations/README.md`, "Deferred with a reason, not
+# exempt"). They had no killer then because `splits/es-carmen.json` did not exist; the
+# mutations and these tests arrive together, which is the condition that deferral set.
+#
+# **Each one has two halves, and it needs both.** The *constant* half reads the frozen
+# file and pins the numbers §9.5 was written against. The *recount* half rebuilds the
+# block from the corpus through `split.build` and compares. The constant half alone
+# cannot be a killer and the first draft of these tests found that out the hard way: a
+# mutation to `_achieved` does not touch a file that is already on disk, so all three
+# survived a suite that read only the record. What reaches the generator is rebuilding
+# it, which is the same shape `test_grouping_audit_is_reproducible_from_the_corpus`
+# has for the audit.
+
+
+@pytest.fixture(scope="module")
+def rebuilt(carmen_present):
+    """The split record rebuilt from the corpus, for comparison against the frozen one.
+
+    `split.build` is the function that wrote `splits/es-carmen.json` and it is
+    deterministic — the seed is in `config/split.yaml` and is the only randomness — so
+    the rebuild is a recount and not an approximation. Nothing is written: `build`
+    returns the record and only `src.split.main` puts it on disk.
+
+    **This fixture stops working at the seal, on purpose.** `_build_constructed` refuses
+    once a sealed root is declared, because a split constructed then would cover 1,600 of
+    2,000 documents (DESIGN §6.2). So the whole-corpus recount below is available exactly
+    while the whole corpus is on disk, and the day it is not is the day
+    `test_nothing_is_sealed_yet` fails and these tests are re-shaped into the
+    visible-plus-arithmetic form `tests/test_endeid_loader.py` uses.
+    """
+    return split.build(carmen_present)
+
+
+def test_the_stratification_block_is_reproducible_from_the_corpus(record, rebuilt):
+    """The frozen block, re-derived. The broad statement the three below narrow.
+
+    Equality over the whole block rather than over the fields the next three name, so a
+    part of the record that no test mentions by name is still covered — the recorded
+    composition is the file's only account of what the stratification did, and a field
+    added later would otherwise arrive uncompared.
+    """
+    assert (
+        rebuilt["provenance"]["stratification"]
+        == record["provenance"]["stratification"]
+    )
+    # And the fold assignment it is a description of, so the two cannot agree about a
+    # composition while disagreeing about which documents produced it.
+    assert split.fold_of(rebuilt) == split.fold_of(record)
+
+
+def test_the_requested_composition_is_recorded_beside_the_achieved_one(record, rebuilt):
+    """Both blocks, or a reader cannot tell 11 strata from 12 cells.
+
+    §9.5 item 5 is the requirement and `_achieved`'s docstring states the reason: "One
+    block without the other is what makes a difference between the two invisible." The
+    `achieved` half alone would show eleven well-balanced strata and say nothing about
+    the cell of one document that had to be folded into another to get there.
+    """
+    strat = record["provenance"]["stratification"]
+    assert strat["variable"] == CARMEN_VARIABLE
+    assert strat["n_strata"] == N_STRATA
+    assert set(strat) >= {"requested", "achieved"}
+    requested = strat["requested"]
+    assert requested["labels"] == {
+        "primary": "filename_doctype",
+        "secondary": "language_label",
+    }
+    # The cells *before* the collapse: twelve, and the smallest holds one document.
+    assert {
+        tuple(name.split("/")): n for name, n in requested["cells"].items()
+    } == CROSS
+    assert requested["n_cells_non_empty"] == len(CROSS) == 12
+    assert requested["small_cell_threshold"] == SMALL_CELL_THRESHOLD
+    assert requested["cells_below_threshold"] == {"CC/bi": 1, "CC/es": 4}
+    assert requested["collapsed_primaries"] == CARMEN_COLLAPSED
+    # And the strata after it: eleven, none of them still short.
+    assert set(requested["strata"]) == set(STRATA)
+    assert requested["strata"] == STRATA
+    assert len(requested["strata"]) == N_STRATA
+    assert requested["strata_still_below_threshold"] == {}
+    # `IE/es` is exactly at the threshold and did not collapse — the boundary the rule
+    # is `<` and not `<=`, asserted on the file rather than only on the function.
+    assert requested["strata"]["IE/es"] == SMALL_CELL_THRESHOLD
+    assert "IE" not in requested["collapsed_primaries"]
+    # The recount half: the block above came out of the corpus and not out of a literal.
+    # A `requested` key absent from the rebuild fails here as a KeyError, which is the
+    # form the mutation that drops the block takes.
+    assert rebuilt["provenance"]["stratification"]["requested"] == requested
+
+
+def test_each_fold_reports_its_own_share_of_every_stratum(record, rebuilt):
+    """`by_stratum` is the fold's share, not the stratum's size.
+
+    The failure this pins is one where all three folds report the same table — which
+    reads as perfect balance and reconciles with nothing. So the assertions are
+    arithmetic: each fold's shares sum to that fold's document count, the three folds
+    sum to each stratum's size, and the collapsed `CC/*` stratum's five documents come
+    apart 3/1/1 rather than appearing five times.
+    """
+    achieved = record["provenance"]["stratification"]["achieved"]
+    assert set(achieved) == set(CONSTRUCTED_SPLIT)
+    for fold, block in achieved.items():
+        assert set(block["by_stratum"]) == set(STRATA)
+        assert sum(block["by_stratum"].values()) == CONSTRUCTED_SPLIT[fold]
+        assert block["n_documents"] == CONSTRUCTED_SPLIT[fold]
+        assert block["n_units"] == CONSTRUCTED_SPLIT[fold]  # one unit per document
+    for name, size in STRATA.items():
+        assert sum(b["by_stratum"][name] for b in achieved.values()) == size
+    assert {f: b["by_stratum"]["CC/*"] for f, b in achieved.items()} == CC_SHARE
+    assert sum(CC_SHARE.values()) == STRATA["CC/*"]
+    # The recount half. Reading the frozen file cannot tell the fold's share from the
+    # stratum's size — both reconcile with *something* — so the table is re-derived. The
+    # substitution that reports `strata_map` sizes instead gives every fold 961 for
+    # `IR/es`, which the arithmetic above would catch only after the rebuild reaches it.
+    rebuilt_achieved = rebuilt["provenance"]["stratification"]["achieved"]
+    for fold, block in achieved.items():
+        assert rebuilt_achieved[fold]["by_stratum"] == block["by_stratum"]
+
+
+def test_the_label_mix_records_both_labels(record, rebuilt):
+    """Both margins per fold, because the language is the confound being controlled.
+
+    §9.5's reason for crossing at all is that 84% of bilingual documents are one
+    document type, so a file recording the document-type mix and an empty language mix
+    would omit exactly the half the stratification exists for — and record it as
+    measured-and-none-found rather than as absent.
+    """
+    achieved = record["provenance"]["stratification"]["achieved"]
+    for fold, block in achieved.items():
+        mix = block["label_mix"]
+        assert set(mix) == {"filename_doctype", "language_label"}
+        for label, counts in mix.items():
+            assert counts, f"{fold}/{label} is empty"
+            assert sum(counts.values()) == CONSTRUCTED_SPLIT[fold]
+    # The margins recount to the corpus-wide compositions, both dimensions.
+    for label, expected in (
+        ("filename_doctype", DOCTYPE_DOCS),
+        ("language_label", LANGUAGE_DOCS),
+    ):
+        total: collections.Counter = collections.Counter()
+        for block in achieved.values():
+            total.update(block["label_mix"][label])
+        assert dict(total) == expected
+    # The recount half. `language_label` present-and-empty is the failure this names, and
+    # the frozen file cannot distinguish "measured, none found" from "never measured" —
+    # only re-deriving it can, because the mutation that counts one label leaves the key.
+    rebuilt_achieved = rebuilt["provenance"]["stratification"]["achieved"]
+    for fold, block in achieved.items():
+        assert rebuilt_achieved[fold]["label_mix"] == block["label_mix"]
 
 
 # ─── failure modes, on synthetic trees ──────────────────────────────────────

@@ -492,11 +492,11 @@ would rewrite 38 spans across 23 documents.
 
 | mutation | changes | breaks | tests that catch it |
 |---|---|---|---|
-| `carmen_masked_variant_read` | `VARIANT` becomes `"masked"` | reads the release's other rendering, same layout and loads cleanly. Its texts substitute placeholders for the identifiers, so a detector is scored on how well it reproduces the masking convention rather than on de-identification, and the gold total becomes 8,230 against §9.0's 8,231. Nothing in a run would say which of the two produced a number | **33** |
+| `carmen_masked_variant_read` | `VARIANT` becomes `"masked"` | reads the release's other rendering, same layout and loads cleanly. Its texts substitute placeholders for the identifiers, so a detector is scored on how well it reproduces the masking convention rather than on de-identification, and the gold total becomes 8,230 against §9.0's 8,231. Nothing in a run would say which of the two produced a number | **38** |
 | `carmen_schema_unchecked` | the `_check_schema(root)` call is removed | leaves `classify()` as the only guard, and it fires when a span of an undecided type is *annotated* — so the decision would be taken against a count that has already moved. Ten of the 28 declared PHI types have zero instances (§9.0), so a release that started using one is the case with no visible symptom | **3** |
 | `carmen_schema_containment_not_equality` | `declared != known` becomes `not declared <= known` | keeps the loud direction and drops the quiet one: a type this loader knows and the release does not declare stops being an error. That means the map was built against a different release than the one on disk, every count in §9.0's block belongs to the other one, and no span of the type exists either way — so nothing else can notice | **1** |
-| `carmen_language_label_named_lang` | `meta["language_label"]` becomes `meta["lang"]` | renames the corpus's own label to the `naming.yaml` axis it is not. 264 documents are labelled `bi`, which is not a language and has no `rules/bi.yaml`; under this name a caller composing `rules/{lang}.yaml` from `meta` asks for a file that cannot exist, and §5.6's `corpus_rule_langs: [es, cat]` stops being the only place the arm's two languages are declared | **4** |
-| `carmen_doctype_label_named_document_type` | `meta["filename_doctype"]` becomes `meta["document_type"]` | puts a filename token under the name of §7's document-type axis, which is derived from text cues and which `es-carmen` declares none of. 789 of these 2,000 units are clinical sections rather than whole notes (§8.5), so the two mean different things — and a stratification or a per-doctype table would read whichever it found | **4** |
+| `carmen_language_label_named_lang` | `meta["language_label"]` becomes `meta["lang"]` | renames the corpus's own label to the `naming.yaml` axis it is not. 264 documents are labelled `bi`, which is not a language and has no `rules/bi.yaml`; under this name a caller composing `rules/{lang}.yaml` from `meta` asks for a file that cannot exist, and §5.6's `corpus_rule_langs: [es, cat]` stops being the only place the arm's two languages are declared | **8** |
+| `carmen_doctype_label_named_document_type` | `meta["filename_doctype"]` becomes `meta["document_type"]` | puts a filename token under the name of §7's document-type axis, which is derived from text cues and which `es-carmen` declares none of. 789 of these 2,000 units are clinical sections rather than whole notes (§8.5), so the two mean different things — and a stratification or a per-doctype table would read whichever it found | **8** |
 | `carmen_unknown_language_label_accepted` | the `LANGUAGE_LABELS` membership check becomes `if False` | a fourth language label loads as a stratum the frozen split file does not describe. The recorded composition would still sum to 2,000 and would silently be a composition over different bands | **1** |
 | `carmen_duplicate_mappings_rows_accepted` | the duplicate-row refusal becomes `if False` | two rows for one document is two language labels, and the dict keeps the last — so the stratum a document lands in depends on row order in a file the loader is otherwise indifferent to. The label is hashed into the per-document digest, so the frozen split file would verify against whichever row happened to be later | **1** |
 | `carmen_concept_flag_not_a_boolean_accepted` | the `("True", "False")` check becomes `if False` | `flag == "True"` then reads every other spelling as False, so a release writing `true` reports 0 flagged documents and the cross-check against `ner/` compares 0 against 500 — which fails loudly here and, on a release where the directory is also absent, silently | **1** |
@@ -566,7 +566,7 @@ unfalsifiable, and one of them was wrong in a file about to be pre-registered.
 |---|---|---|---|
 | `split_verify_noop` | `split.verify()` returns immediately | the recorded summaries stop being compared to the corpus, so a stale split file passes | **2** |
 | `split_ignores_membership` | `verify()` checks the counts but not `document_ids` | a file that swapped one dev document for one test document of equal span count would verify. This is the seal violation the aggregates cannot see | **1** |
-| `fold_from_directory_not_file` | `load()` skips `_apply_split_file` | folds come from the directory layout instead of the frozen file. No count changes, because the two agree today; what is lost is that the *file* decides what is sealed | **6** ‡ |
+| `fold_from_directory_not_file` | `load()` skips `_apply_split_file` | folds come from the directory layout instead of the frozen file. No count changes, because the two agree today; what is lost is that the *file* decides what is sealed | **7** ‡ |
 | `split_disagreement_ignored` | the corpus-vs-file fold cross-check becomes `if False` | the file silently overrides the disk, so a re-release that moved a document out of `test` is accepted without a word | **1** |
 | `top_level_leak_allowed` | `check_schema` stops rejecting unknown top-level keys | corpus-specific fields may then sit beside the common ones. Nothing fails today; the schema stops being shared the first time GraSCCo's generator adds a key | **1** |
 | `grouping_numeric_suffix_only` | `STEM_RE` becomes the old `^(S\d{4}-\d+)-(\d+)$` | reinstates the §9.5 bug that dropped the 31 ids with a letter in the journal prefix, so the grouping audit covers 969 of 1,000 documents and calls itself complete | **3** ‡ |
@@ -614,27 +614,61 @@ the case that separates `ceil` from `floor`.
 |---|---|---|---|
 | `carmen_small_cell_threshold_hardcoded` | `small_cell_threshold()` returns a literal `5` | §9.5 item 1's threshold stops being derived from the proportions. es-carmen is unaffected — 1/0.20 is 5 — so the defect waits for a corpus with a different smallest fold and then gives it es-carmen's threshold | **6** |
 | `carmen_small_cell_threshold_rounds_down` | `math.floor` for `math.ceil` | also invisible here, for the same reason. At a smallest fold of 0.15 a cell of 6 would be declared large enough for a fold that gets 0.9 of a document out of it | **3** |
-| `carmen_small_cell_rule_never_fires` | the `any(n < threshold)` test becomes `if False` | no cell ever collapses, so `(CC, bi)` = 1 survives as a stratum of one document. Its achieved fold mix is 100/0/0 whatever the assignment does, so the file's stratification claim is false of it — §9.5 item 3's stated reason the rule is necessary rather than hypothetical. 12 strata, which the declared count refuses | **6** |
-| `carmen_small_cell_rule_collapses_at_the_threshold` | `<=` for `<` | `IE`'s cell of exactly 5 collapses. **The strata count does not move**; only the recorded stratum name does. See above | **3** |
-| `carmen_collapse_folds_the_document_type` | the primary and secondary are swapped inside `collapse_small_cells` | the *document type* folds inside the language (§9.5 item 2 inverted). `es` and `bi` each hold a `CC` cell below 5 and collapse entirely, leaving 5 strata. Document type is the dimension results are cut on and per-document-type tables are pre-registered output, so this unbalances the confound reporting reads — while still looking stratified | **6** |
-| `carmen_crossed_keys_swapped` | `CROSS_VARIABLES`' pair is reversed at the declaration | the same inversion at the site the real construction path reads: every stratum name becomes `es/IR` under a `stratify_by` value that says `filename_doctype` first. Two edit sites with one consequence get two mutations because different code reaches them — one the rule, one the map the config names | **1** |
+| `carmen_small_cell_rule_never_fires` | the `any(n < threshold)` test becomes `if False` | no cell ever collapses, so `(CC, bi)` = 1 survives as a stratum of one document. Its achieved fold mix is 100/0/0 whatever the assignment does, so the file's stratification claim is false of it — §9.5 item 3's stated reason the rule is necessary rather than hypothetical. 12 strata, which the declared count refuses | **10** |
+| `carmen_small_cell_rule_collapses_at_the_threshold` | `<=` for `<` | `IE`'s cell of exactly 5 collapses. **The strata count does not move**; only the recorded stratum name does. See above | **6** |
+| `carmen_collapse_folds_the_document_type` | the primary and secondary are swapped inside `collapse_small_cells` | the *document type* folds inside the language (§9.5 item 2 inverted). `es` and `bi` each hold a `CC` cell below 5 and collapse entirely, leaving 5 strata. Document type is the dimension results are cut on and per-document-type tables are pre-registered output, so this unbalances the confound reporting reads — while still looking stratified | **10** |
+| `carmen_crossed_keys_swapped` | `CROSS_VARIABLES`' pair is reversed at the declaration | the same inversion at the site the real construction path reads: every stratum name becomes `es/IR` under a `stratify_by` value that says `filename_doctype` first. Two edit sites with one consequence get two mutations because different code reaches them — one the rule, one the map the config names | **5** |
 | `carmen_declared_strata_count_not_checked` | the `len(strata) != n_strata` refusal becomes `if False` | `n_strata: 11` stops being a check on the derived count. Unlike the tercile splits, where `n_strata` is an instruction, here it is the only thing that notices the corpus's labels moved — a release that gained one would be recorded over 11 strata while the assignment walked 12 | **1** |
 | `carmen_cross_variable_falls_back_to_terciles` | a cross variable with no cell keys returns `_band_strata` instead of raising | the split is stratified on *something*, the file names the cross variable, and the achieved composition is computed from the same absent keys — so nothing in the file disagrees with anything else in it. This is why the refusal is there instead of a fallback | **1** |
 | `carmen_unimplemented_variable_falls_through` | the `variable != SPAN_COUNT_VARIABLE` refusal becomes `if False` | a `stratify_by` value no code implements reaches `_band_strata`, so a typo in `config/split.yaml` produces span-count terciles recorded under whatever the typo said | **1** |
 | `carmen_cross_unit_spanning_cells_allowed` | the mixed-cell unit refusal becomes `if False` | a §9.5 group straddling two cells is filed under whichever cell `set.pop()` returns. Unreachable on es-carmen, where every unit is one document — and that is the point: the recorded composition would be false for the group's other documents, and the next corpus wanting both groups and a cross is the one that finds out | **1** |
-| `carmen_strata_ordered_alphabetically` | largest-first ordering becomes name order | still 11 strata, still deterministic, different split. See above | **1** |
+| `carmen_strata_ordered_alphabetically` | largest-first ordering becomes name order | still 11 strata, still deterministic, different split. See above | **4** |
 | `carmen_missing_stratum_label_ignored` | the `key not in doc.meta` guard becomes `if False` | a loader that stopped recording one of the two labels gets a `KeyError` from the dict access below instead of a `CorpusError` naming the key and the document *index*. The message matters beyond its type: CLAUDE.md forbids corpus text in any exception message for every corpus, and this is the path where a helpful message would most obviously have quoted the document id | **1** |
 | `carmen_step_1_key_includes_the_section` | the section token goes back into §9.5 step 1's candidate key | `IA_ANTECEDENTES_7` and `IA_PROCESO_ACTUAL_7` — two sections that read like one letter — stop being a candidate pair. Every document becomes its own group and the audit reports 0 candidate stems **as a completed audit**. The measured 189 groups over 775 documents disappears, in the direction that looks like a clean result | **2** |
 | `carmen_step_1_key_not_consulted` | `CANDIDATE_KEYS` is never looked up, so every corpus uses `STEM_RE` | on these ids `STEM_RE` yields the stem `CARMEN-I_IA_ANTECEDENTES` — the same section across *different* letters, a pairing no identifier could confirm or refute. Both groupings look plausible and they are not the same grouping | **1** |
 | `carmen_audit_records_the_regex_it_did_not_use` | `step_1_pattern` always records `STEM_RE.pattern` | the audit applies the declared key and reports the regex. Worse than recording nothing: the candidate counts printed beside it came from the other rule and read as consistent with the one named | **1** |
 | `carmen_filename_index_is_a_constant` | `meta["filename_index"]` becomes a literal | the trailing number stops reaching the key, so step 1 collapses to the document type and all 1,201 `IR` documents become one candidate group. Step 2 still rejects it — nothing agrees across 1,201 documents — so the split is unchanged and only the audit's recorded shape is wrong, the failure mode a field with one consumer always has | **2** |
 
-**Deferred with a reason, not exempt: the mutations on the *recording* of the two
-compositions.** `_achieved`'s `requested` block and the per-fold `by_stratum` and
-`label_mix` have no mutation here, because nothing could kill one today —
+### The three that were deferred, and what the deferral was actually about — 2026-09-30
+
+The paragraph this replaces said: "`_achieved`'s `requested` block and the per-fold
+`by_stratum` and `label_mix` have no mutation here, because nothing could kill one today —
 `splits/es-carmen.json` does not exist yet and the tests that would catch them are the
-recount tests that come with the freeze. They go in the freeze commit, where they are
-killable. Writing them now would have added three survivors and called them a gate.
+**recount** tests that come with the freeze. They go in the freeze commit, where they are
+killable. Writing them now would have added three survivors and called them a gate." The freeze
+commit is this one, so here they are.
+
+| mutation | changes | breaks | tests that catch it |
+|---|---|---|---|
+| `carmen_requested_block_is_dropped` | `block["requested"] = {` becomes an assignment to a local `_requested` | §9.5 item 5's whole point: the `achieved` half alone shows eleven well-balanced strata and says nothing about the 12 cells behind them or the one-document cell that had to be folded in to get there. A reader cannot tell a corpus that arrived with 11 clean strata from one that was made to have them | **2** |
+| `carmen_by_stratum_is_the_stratum_size_not_the_folds_share` | the per-fold comprehension reports `strata_map` sizes instead of the fold's own counts | all three folds print the same table, which reads as *perfect* balance and reconciles with nothing. `IR/es` becomes 961 in each of three folds of 400 documents | **2** |
+| `carmen_label_mix_counts_only_the_primary` | `zip((primary, secondary), …)` loses the secondary | `language_label` is recorded present-and-empty. §9.5 crosses at all because 84% of bilingual documents are one document type, so this omits exactly the half the stratification exists for — and files it as measured-and-none-found rather than as absent | **2** |
+
+**The deferral's condition was met only on the second attempt, and the miss is worth recording
+because the word that carried it was in the sentence all along.** The first three tests written
+for these read the frozen `splits/es-carmen.json` off disk and asserted on its contents. All
+three mutations **survived**: a mutation to `_achieved` cannot be seen by a test that reads a
+file already written. "Recount" was doing real work in that sentence and was read as a synonym
+for "the freeze's tests". The shape has three older members and a section of its own —
+§"The third axis: verifying the artefact instead of the mechanism that writes it".
+
+Each of the three now has two halves — a **constant** half that pins the frozen numbers, and a
+**recount** half that rebuilds the record through `split.build` (deterministic; the seed is the
+only randomness) and compares. The second `‡` catcher in each row is
+`test_the_stratification_block_is_reproducible_from_the_corpus`, which asserts the *whole*
+stratification block and the fold assignment reproduce — so a field added to the block later is
+compared even though no test will name it. `min_kills` is 1 for all three against a measured 2:
+the honest floor is the recount half, and the broad test is a backstop rather than a second
+independent check.
+
+**These three stop being killable at the seal, and that is by construction, not neglect.**
+`_build_constructed` refuses once a sealed root is declared, because a split constructed then
+would cover 1,600 of 2,000 documents (DESIGN §6.2). So the whole-corpus recount is available
+exactly while the whole corpus is on disk. `test_nothing_is_sealed_yet` fails on the day it is
+not, which is the signal to re-shape these into the visible-folds-plus-arithmetic form
+`tests/test_endeid_loader.py` uses — the same two-step `kosurro_loader` / `kosurro_sealed`
+already has. Stated here because a mutation whose killer quietly stops running is worse than one
+with no killer at all.
 
 **How the sixteen were measured.** 2026-09-29, serial, one tree `149028e575f0b18e`,
 baseline **2,338 tests** (2,309 → 2,338 from 28 new `tests/test_split_file.py` tests and one
@@ -653,7 +687,62 @@ anything in this commit: `tests/test_carmen_loader.py`'s 79 tests arrived on 202
 that commit's scope run measured **only its own 22**, so these cells have been stale for a
 day with nothing saying so. That is the cost of a scope narrower than the reach, and it is
 recorded here rather than presented as a surprise. **The other 214 mutations are deferred to
-the owed full run, not exempt from it** — and the full-run size is now **271**.
+the owed full run, not exempt from it** — and the full-run size was then **271**.
+
+**How the three and the 72 around them were measured — 2026-09-30, the freeze.** Four
+concurrent shards of 18, **2.2 h**, baseline **2,346 tests** (2,338 → 2,346: nine new
+`tests/test_carmen_loader.py` tests less the retired `test_the_split_file_is_not_frozen_yet`).
+`TEST_FILES` stays at 34, so the denominator does not move and this commit adds no new full-run
+reason. **72 of 72 caught, 0 survived.**
+
+The scope was **measured rather than named**, because the rule is runtime reach and the two
+obvious instruments both failed: `coverage` is not installed, and `trace.Trace` around
+`pytest.main` reported `src/corpora/base.py` as untouched — it attributes nothing to modules
+imported before the trace begins, and a bare-import control confirmed `base.py` traces fine
+outside pytest. What worked was `sys.modules` after the session plus an `sys.addaudithook` on
+`open` for repo data files. Reach came out as `src/split.py`, `src/corpora/base.py`,
+`src/corpora/carmen.py`, `config/naming.yaml`, and — because their *input* changed —
+`tests/conftest.py`, `tests/test_conftest.py`, `tests/test_structure.py`. That is 24 + 12 + 23 +
+7 + 2 + 1 + 3 = **72**. The four sibling loaders are **import-reached only**: the registry
+imports them, no changed test executes a line of their bodies, so their 40 mutations are
+deferred with the other 162.
+
+**Fourteen cells moved, and every one of them moved up.** `arm_rules_path_drops_the_axes`
+84 → 91, `arm_rules_path_drops_the_iteration` 10 → 11,
+`carmen_collapse_folds_the_document_type` 6 → 10, `carmen_crossed_keys_swapped` 1 → 5,
+`carmen_doctype_label_named_document_type` 4 → 8, `carmen_language_label_named_lang` 4 → 8,
+`carmen_masked_variant_read` 33 → 38, `carmen_small_cell_rule_collapses_at_the_threshold` 3 → 6,
+`carmen_small_cell_rule_never_fires` 6 → 10, `carmen_strata_ordered_alphabetically` 1 → 4,
+`fold_from_directory_not_file` 6 → 7, `sealed_root_falls_back_to_corpus` 1 → 7,
+`the_per_iteration_key_replaces_the_arm_level_one` 164 → 169,
+`the_arm_axis_comes_back_off_an_auxiliary_input` 5 → 6.
+
+**Only five of the fourteen take a `‡`, and finding out which was not a judgement call — the
+suite made it.** `test_a_readme_count_that_contradicts_the_last_full_run_is_marked` failed on the
+first attempt, which had marked all fourteen: a `‡` claims the cell *contradicts the last full
+run*, so it is meaningless on a mutation the 2026-09-22 run never saw. All ten carmen cells and
+the three new ones above are in that class — added after that run, no sidecar entry, nothing to
+contradict — and `docs/notes/mutation-full-runs.md` is where the scope run behind them is
+recorded instead. The five that do contradict the sidecar are `arm_rules_path_drops_the_axes`
+(84), `arm_rules_path_drops_the_iteration` (10), `fold_from_directory_not_file` (4),
+`sealed_root_falls_back_to_corpus` (1) and `the_per_iteration_key_replaces_the_arm_level_one`
+(164).
+
+`the_arm_axis_comes_back_off_an_auxiliary_input` is the fourteenth and is a different animal: the
+sidecar recorded **6**, the prose here said "a measured 5", and this run measured 6. So the cell
+was simply *stale and low* and now agrees with the full run again. It takes no marker, and the
+same test would have rejected one — a `‡` on a cell that agrees is what its `over_remeasured`
+list is for.
+
+**The direction is the thing to check, and it is the direction that clears a specific worry.**
+A commit that only *adds* tests can only raise a count — but this one also **retired** one,
+`test_the_split_file_is_not_frozen_yet`, and a retired test is the one way an impact-scope run
+can legitimately produce a *fall*. Any mutation it had been the sole killer of would now be a
+survivor, and such a mutation could only live in `src/split.py` or `src/corpora/carmen.py`, both
+fully in scope. Nothing fell and nothing survived, so it was never anybody's only killer. Worth
+one sentence because "72 of 72" is the same output whether that was checked or assumed.
+
+The full-run size is now **274**.
 
 ## The seal mutations
 
@@ -679,7 +768,7 @@ together because neither guard is sufficient alone:
 | `sealed_callable_from_anywhere` | the `SEALED_CALLER` check becomes `if False` | `load(sealed=True)` works from any module — a notebook, a rule-development script. **The log append survives**, so a bypass here still leaves a trace, which is what makes it recoverable rather than merely wrong | **2** |
 | `log_append_disabled` | the `record_access` call is wrapped in `except Exception: pass` | an evaluation proceeds unlogged. The numbers are real and the log says the test fold was never opened. **The caller check survives**, so this needs the allowed script — the counterpart of the mutation above, and the one that leaves nothing behind | **2** |
 | `sealed_flag_not_cleared` | `_sealed_ok` is not reset after the read | one authorised evaluation leaves that loader object permanently able to reach the sealed fold; every later ordinary `load()` silently includes 250 test documents, with no second log row | **2** ‡ |
-| `sealed_root_falls_back_to_corpus` | an absent `sealed:` entry resolves to the corpus root | a "sealed evaluation" reads unsealed data and logs itself as a test run. Worse than a refusal: the row is indistinguishable from a real evaluation, so the reported count becomes wrong in the flattering direction | **1** |
+| `sealed_root_falls_back_to_corpus` | an absent `sealed:` entry resolves to the corpus root | a "sealed evaluation" reads unsealed data and logs itself as a test run. Worse than a refusal: the row is indistinguishable from a real evaluation, so the reported count becomes wrong in the flattering direction | **7** ‡ |
 | `unsealed_load_filters_instead_of_not_reaching` | `fold_roots()` hands out the sealed path unconditionally | the sealed fold is read and then discarded downstream. Every count still comes out right; the test fold's text has been read on every ordinary load, unlogged. Defends the distinction that the seal is a path that is not known, not a filter that is applied | **166** ‡ |
 
 ### What the guards do once reached
@@ -1378,8 +1467,8 @@ no enforcement but a field in a log.
 | `run_fold_hardcodes_the_absent_value` | `"none"` is written as a literal instead of read from naming.yaml | breaks nothing today — that is why it is here. CLAUDE.md requires config-defined vocabulary in results files, and the cost is paid on the day the config moves and one of the two spellings does not | **1** |
 | `run_fold_skips_axis_validation` | `spans.jsonl` is written without `check_run` | a misspelled axis value mints a results directory no axis defines. `write_metrics` still validates, so the failure is an orphan spans file beside no metrics — the halfway state validate-before-write exists to prevent | **1** |
 | `run_fold_writes_unsorted_spans` | the sort before writing is removed | stable today, for an upstream reason rather than a stated one. Reorder the rules in the file and a committed results file gets a diff a reviewer cannot tell from a change in what was detected | **3** |
-| `arm_rules_path_drops_the_axes` | `paths.armrules` becomes `rules/{lang}.yaml` — the state before DESIGN §5.3 | `port-oneshot` and `port-loop` then write the same file and the second arm to run overwrites the first's rules. `str.format` ignores unused keys, so nothing raises: every arm's path collapses to one silently. Worse than the `armfreeze` collision it repeats — an overwritten record is visibly gone, an overwritten *input* leaves a complete, consistent metrics.json whose premise no longer exists | **84** |
-| `arm_rules_path_drops_the_iteration` | the four axes stay, `iter{N}/` goes | the collision stays closed and the history does not. `port-loop` rewrites its file every round, and that sequence is what δ/k was computed over and the only answer to "which rules existed at iteration 4". Keeps the last round, discards the arm's process — §5.1's objection to aggregates, applied to inputs | **10** |
+| `arm_rules_path_drops_the_axes` | `paths.armrules` becomes `rules/{lang}.yaml` — the state before DESIGN §5.3 | `port-oneshot` and `port-loop` then write the same file and the second arm to run overwrites the first's rules. `str.format` ignores unused keys, so nothing raises: every arm's path collapses to one silently. Worse than the `armfreeze` collision it repeats — an overwritten record is visibly gone, an overwritten *input* leaves a complete, consistent metrics.json whose premise no longer exists | **91** ‡ |
+| `arm_rules_path_drops_the_iteration` | the four axes stay, `iter{N}/` goes | the collision stays closed and the history does not. `port-loop` rewrites its file every round, and that sequence is what δ/k was computed over and the only answer to "which rules existed at iteration 4". Keeps the last round, discards the arm's process — §5.1's objection to aggregates, applied to inputs | **11** ‡ |
 | `arm_rules_path_loses_the_rules_component` | `.../{porting}/iter3/es.yaml` instead of `.../{porting}/rules/iter3/es.yaml` | every axis is present and the overwrite argument is untouched. What breaks is invisible from the path: the screener's `rule_id` mechanism-vocabulary check matches `rules/*.yaml`, and it is Prohibition 2's only enforcement. Unmatched is not rejected — the check never runs and the file is reported clean | **7** |
 | `run_fold_infers_its_own_rule_path` | `run_fold` builds `arm_rules_path()` from its own axis arguments instead of being told | behaviourally invisible on the happy path, which is why the assertion is structural. The cost is that the module has one possible input, so a trial file and the bootstrap each need a special case, and the input becomes a function of the run block — the coupling that lets a run read its own results directory. The hardcoded `iteration=1` is the tell: an inferring version has to invent a round it was never given | **1** |
 | `rule_source_not_recorded` | `rules_source` is dropped from the run block, `rules_version` stays | the version is whatever the author declared, so it survives an overwrite looking correct; only the path names the arm and the iteration. Without it §5.3's decision is undetectable from the published record — the reader sees a well-formed metrics.json either way | **2** |
@@ -2354,7 +2443,7 @@ the one that makes the sixth key legible as deliberate rather than duplicated.
 `test_an_auxiliary_input_path_carries_no_iteration[armprofile]` catches it from the other side,
 over the template's own fields: the four axes must still be there, and asserting the round's
 absence and the axes' presence in one place is what stops the fix for one from breaking the
-other. `min_kills` is 4 against a measured 5.
+other. `min_kills` is 4 against a measured 6. The cell read 5 until 2026-09-30, when a scope run measured 6 — which is what the 2026-09-22 full-run sidecar had recorded all along, so this is a stale prose value corrected rather than a count that moved, and it takes no `‡`.
 
 ### Two on the call log's new field, where one is a value and the other is only an order
 
@@ -3980,6 +4069,73 @@ paths* rather than *mentions of them*. The first draft used a substring ban and 
 the test that forbids the thing and on a docstring that explains why a test exists.
 Mentioning a control is how it stays understood; calling it is the risk.
 
+### The third axis: verifying the artefact instead of the mechanism that writes it
+
+A family, written up here rather than inside one corpus's section, because it has members in
+four different parts of this file and the newest one was walked into by someone who had read
+the other three.
+
+**The shape.** A mutation's subject is a function that *writes* a file. The test's subject is
+the file. The file is already on disk, written by the unmutated function before the mutation
+existed, so the mutated code never runs inside the test and the mutation survives — while the
+test itself looks exactly like a test of the thing that was mutated. It asserts on the right
+field, with the right number, in the right file. It is not a wrong test. It is a **regression
+pin**: it fails if the artefact changes, and the artefact does not change when the generator
+does, because nobody regenerated it.
+
+The two axes in the table above are about a test doing too much and a test taking too much
+away. This one is a test **looking in the wrong place**, and it hides differently from either:
+no skip, no missing guarantee, no suspicious number. The count simply reads 0, which is the one
+outcome the harness reports loudly — so the family is caught by construction *for mutations*,
+by the `--probe` that the scope rule already requires when a mutation is added. It is not
+caught anywhere for a test added without one.
+
+**The members.**
+
+- **The three `_achieved` mutations — 2026-09-30, and the most literal form of it.**
+  `carmen_requested_block_is_dropped`, `carmen_by_stratum_is_the_stratum_size_not_the_folds_share`
+  and `carmen_label_mix_counts_only_the_primary` all survived at 0 on their first probe. Their
+  tests opened the frozen `splits/es-carmen.json` and asserted on it. The section above has the
+  detail; what belongs here is that the deferral note had already named the fix — the killers
+  "are the **recount** tests that come with the freeze" — and *recount* was read as a synonym
+  for *the freeze's tests*. The word was the whole instruction.
+- **`the_audit_report_is_read_as_the_previous_rounds_file` — the same shape one level up, in
+  shipped code rather than in a test.** `audit.report()` validated `iteration` and
+  `masked_from_iteration` against each other, so both files were internally consistent and
+  neither was checked against the round that was about to read it. A validator that asks the
+  artefact about itself accepts a stale artefact, which is the thing it existed to reject.
+- **`kosurro_reference_counts_unchecked` at 1 kill.** The single killer is the sidecar
+  recount; every test that reads `reference.json` and compares it to the split file passes
+  with the check turned off, because both were written by the same unmutated run. Listed at 1
+  rather than padded, for the reason the thin-coverage paragraph gives — and the 1 is a
+  recount.
+- **`missing_test_fold`, 16 → 1, and the seal as the structural cause.** This is the family
+  arriving by force rather than by oversight. Once a fold is sealed the suite *cannot*
+  recount it, so artefact-reading is all that is left, and 15 of 16 killers went with it.
+  What makes that entry honest is that the number was lowered and the loss written down
+  instead of being preserved by a test that breaches the seal.
+
+**The inverse exists, so this is not a rule that the mechanism is always the subject.**
+`split_file_span_count` mutates the **committed JSON** and is killed by the code: there the
+artefact is the suspect and the recount is the check, which is what a re-released corpus
+actually produces. Both directions are needed. What is not allowed is to mutate one and test
+the other.
+
+**The diagnostic, for the next mutation anchored in a generator.** Ask which file the killing
+test opens. If it opens the artefact and nothing in the test calls the generator, the kill
+count is a fact about the artefact's contents and not about the mutated line. The fix that
+worked is two halves per test — a **constant** half that pins the frozen numbers and a
+**recount** half that rebuilds through the generator and compares — and it is two halves
+rather than one because the constant half is what catches a *regenerated* artefact drifting,
+which the recount half by construction cannot.
+
+**And the family has a scheduled recurrence.** The es-carmen recount halves stop working at
+the seal, by construction and not by neglect: `_build_constructed` refuses once a sealed root
+is declared. `test_nothing_is_sealed_yet` fails on that day, and the three tests go back to
+the artefact-only form with arithmetic over the visible folds carrying what the recount used
+to. That is the fourth member arriving on a known date, which is the most that can be done
+about it.
+
 ### The impact-scope run of 2026-08-19, and the thirteen hours it declined to spend
 
 **What ran.** 71 of 170 mutations: the four added by the two commits above
@@ -4465,6 +4621,27 @@ suite. Two readings, in opposite directions, and both belong here:
 No serial row is added. 8 × 366.75 s × 271 ÷ 1.16 would be a derivation from a derivation, and
 the one measured serial baseline this run produced is already stated above as itself.
 
+**The inputs moved a third time, and the move is the smallest yet.** 2026-09-30 froze
+`splits/es-carmen.json` and brought the three deferred `_achieved` mutations with it:
+271 → **274**, suite 2,338 → **2,346**. Same rule: 50.5 s × (2346/2194) = **54.0 s**, and
+274 × 54.0 s = 14,796 s = **4.11 h**. Derived, and the previous derivations are kept above
+rather than replaced — 53.8 s / 4.05 h at 271, 53.1 s / 3.76 h at 255, 51.3 s / 3.32 h at 233,
+50.9 s / 3.25 h at 230, all off the one measured 50.5 s at suite 2,194.
+
+`TEST_FILES` does not move: still **34**. So this adds no full-run reason, and the three
+already standing (2026-09-28's two `src/` modules, 2026-09-28's membership change, and
+2026-09-29's suite-only move) are unchanged in number. No serial row, for the reason above and
+because 1.011 in mutations and 1.003 in suite is exactly the move size the eleventh-point
+paragraph says is too small to restate.
+
+**One number this run did measure, and it is not the planning figure.** The 72-mutation scope
+run below went **four** shards wide rather than eight, and finished in **2.2 h** — about 110 s
+per mutation. That is not evidence against the 54.0 s figure and must not be read as such: 54.0 s
+is the per-mutation wall cost amortised over *eight* shards, so half the width is roughly twice
+the per-mutation wall time, and 110 s ÷ 2 = 55 s lands within 2% of it. Recorded because the
+raw wall figure looks like a 2× miss until the shard count is put back in, and a reader who
+finds only "2.2 h for 72" in a log has no way to recover that.
+
 One thing that reads as a reversal and is not. The serial derivation for 185 comes out at ~15.2 h,
 which is the number the correction below rejected — but not the same number. The rejected fifteen
 was the *whole repo* suite mistaken for `TEST_FILES` at 170 mutations; this one is `TEST_FILES` as
@@ -4746,7 +4923,7 @@ Thirty-four mutations had no recorded count anywhere in this file, their section
 
 | mutation | measured | `min_kills` |
 |---|---|---|
-| `the_per_iteration_key_replaces_the_arm_level_one` | 164 | 2 |
+| `the_per_iteration_key_replaces_the_arm_level_one` | 169 ‡ | 2 |
 | `the_mask_tags_are_emitted_in_the_order_they_were_applied` | 91 | 3 |
 | `the_audit_report_is_read_as_the_previous_rounds_file` | 75 | 1 |
 | `k_drops_to_one_so_consecutive_means_nothing` | 11 | 3 |
