@@ -143,9 +143,11 @@ FULLY_COVERED = "fully_covered"
 RELAXED = "relaxed"
 MODES = (FULLY_COVERED, RELAXED)
 
-#: DESIGN §9.4: types with n <= 8 corpus-wide stay in every denominator and are
-#: omitted only from per-type tables. The scorer flags them and omits nothing — a
-#: reporting layer cannot restore a row the scorer deleted.
+#: DESIGN §9.4: types with n <= 8 *on the scored fold* stay in every denominator and
+#: are omitted only from per-type tables. The scorer flags them and omits nothing — a
+#: reporting layer cannot restore a row the scorer deleted. The fold is the basis
+#: because the leak rate the flag protects is computed on the fold; this comment said
+#: "corpus-wide" until 2026-10-02, which described §9.4's prose and never this code.
 SPARSE_MAX = 8
 
 #: Which mode is the headline for which metric (DESIGN §9.3). Recorded in the output

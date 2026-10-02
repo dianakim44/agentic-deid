@@ -6219,14 +6219,15 @@ is the type's share of that fold's in-scope gold.
 A pair of cells in one row may be compared only if **all five** conditions hold. They are
 independent, and failing one is enough:
 
-1. **Tabulable gold on both sides** — n > 8 per §9.4. The scorer's `sparse` flag is computed
-   over the scored fold and §9.4 says corpus-wide, and the gap is **not** forced by the seal:
-   each `splits/{corpus}.json` carries `totals.spans_by_phi_type` over all folds, frozen
-   before sealing, so the corpus-wide denominator is in the repository and readable from
-   `src/` without touching sealed text. Which denominator §9.4 means is therefore an open
-   decision and not a limitation (the two readings disagree on six of the nine flagged cells
-   across these five arms, and on nothing that is computed). Until it is taken, **read the
-   flag as fold-sparse**, because that is what the code writes.
+1. **Tabulable gold on both sides** — n > 8 **on the scored fold**, per §9.4 as decided
+   2026-10-02. The flag is fold-based because the leak rate it protects is fold-based; the
+   corpus-wide denominator exists in each `splits/{corpus}.json` (`totals.spans_by_phi_type`,
+   frozen pre-seal) and is not what the flag reads. An earlier version of this condition said
+   the seal had made the corpus-wide reading impossible, which was wrong; what rules it out is
+   §9.4's decision, not the seal. The reading is load-bearing here — it decides six of the
+   nine flagged cells across these five arms, and one of them is this row's own `AGE` — so it
+   is stated rather than assumed, and §9.4 records that the decision was taken on the flag's
+   purpose and not on which reading suits the ordering.
 2. **The type is instantiated in both references.** A dash is not a zero leak rate; it is a
    type the reference never uses. `ID` and `LOCATION_STREET` are absent from both English and
    Korean, `ORGANISATION` from English, `OTHER` and `PROFESSION` from most.
@@ -7539,23 +7540,67 @@ presented, not a recomputation — and no result already written becomes unreada
 
 ### 9.4 Sparse types are in the leak-rate denominator
 
-Types with n ≤ 8 corpus-wide stay in the denominator for leak rate and overall
-P/R/F1. They are omitted only from per-type tables, where a single instance yields
-a meaningless 0% or 100%.
+Types with n ≤ 8 **on the scored fold** stay in the denominator for leak rate and
+overall P/R/F1. They are omitted only from per-type tables, where a single instance
+yields a meaningless 0% or 100%.
 
-**Why.** A leak is a leak regardless of how often its type occurs; dropping rare
-types from the denominator would hide real misses and make the headline number
-better by definition. The affected volume is small enough that there is no
-efficiency argument for excluding them: in GraSCCo, 7 kinds after the §9.1
-exclusions, 18 of 1,436 spans (1.3%) — `NAME_EXT` 1, `CONTACT_EMAIL` 1,
-`PROFESSION` 2, `LOCATION_ORGANIZATION` 2, `LOCATION_COUNTRY` 2, `NAME_USERNAME`
-2, `CONTACT_FAX` 8. MEDDOCAN's `OTHER` (22 spans, a residual bucket holding
-ethnicity, marital status, a tattoo and a spearfishing gun) stays in for the same
-reason, and is explicitly **not** a rule-development target: it is reported as an
-irreducible floor on the leak rate.
+**Which n — decided 2026-10-02, and the prose moved to the code rather than the
+reverse.** This section said "corpus-wide" from its founding, and
+`src/eval/scorer.py` has always computed the flag over the scored fold. The fold is
+now the definition, for the flag's own reason: the flag exists to keep a leak rate
+computed on n ≤ 8 out of a per-type table, because at that n the rate is too
+unstable to report — and **the leak rate it is protecting is computed on the scored
+fold**. A flag has to look at the denominator of the number it guards. The
+corpus-wide reading was *available* and was not refused as impossible: each
+`splits/{corpus}.json` carries `totals.spans_by_phi_type` over all three folds,
+frozen before the seal, aggregates rather than text, in a file the scorer already
+reads to resolve folds. §7's comparability condition (1) claimed the seal had
+removed that denominator; that claim was wrong and was corrected the same day.
+
+Two consequences follow from the fold basis and are not defects of it. A flagged
+row is a property of **an arm**, not of a corpus, so it moves if the split is
+refrozen — which is why the flag is written into each `metrics.json` beside the
+figures it governs rather than kept in one table about the corpus. And the
+`0 < len(rows)` guard matters: a type with no gold on the fold is not flagged,
+because it is already absent from the per-type table for a different reason, and
+a flag there would say "too rare to tabulate" about a row that has nothing to
+tabulate.
+
+**The choice has a stake in §7 and was not made for it.** Under the corpus-wide
+reading, six of the nine flagged cells across the five arms stop being flagged,
+among them de-grascco's `AGE` (5 on the dev fold, 19 corpus-wide) and es-carmen's
+`CONTACT` (1 on the fold, 22 corpus-wide). Those are the two cells that §7's
+fourth type-mix standardisation needs, so the corpus-wide reading would make that
+row admissible and with it the inversion at the German end, where de's five-type
+macro (0.574) runs above es (0.397) and es-carmen (0.399) while the three-type
+macro has de lowest. **That is a consequence of the decision and not its reason.**
+The decision is the paragraph above — the flag's purpose — and it would be the same
+if the stake ran the other way. The five-aggregate block in §7 keeps both
+standardisations on record and makes neither the headline; this section does not
+change that, and a reader who prefers the corpus-wide reading has the per-type
+corpus-wide counts in the split files to redo the table with.
+
+**Why they stay in the denominator.** A leak is a leak regardless of how often its
+type occurs; dropping rare types from the denominator would hide real misses and
+make the headline number better by definition. The affected volume is small enough
+that there is no efficiency argument for excluding them, on either basis. On the
+fold basis, which is the one the flag uses, the flagged volume per arm is:
+de-grascco 5 of 410 (1.2%), es-meddocan 10 of 5,254 (0.19%), es-carmen 14 of 1,429
+(0.98%), en-deid 5 of 359 (1.4%), ko-surro 3 of 319 (0.94%) — at most 1.4% of any
+arm's denominator. For reference and at a different granularity, GraSCCo
+corpus-wide in the release's own labels has 7 kinds after the §9.1 exclusions,
+18 of 1,436 spans (1.3%) — `NAME_EXT` 1, `CONTACT_EMAIL` 1, `PROFESSION` 2,
+`LOCATION_ORGANIZATION` 2, `LOCATION_COUNTRY` 2, `NAME_USERNAME` 2, `CONTACT_FAX`
+8. Those are native labels and the flag works on the canonical types of §9.0, so
+that list is the volume argument and not an instance of the rule. MEDDOCAN's
+`OTHER` (**6 on the dev fold**, 22 corpus-wide; a residual bucket of four unrelated
+content categories) stays in for the same reason, and is explicitly **not** a
+rule-development target: it is reported as an irreducible floor on the leak rate.
 
 Per-type tables state the omission and the omitted count, so a reader can see that
-the totals do not sum to the per-type rows.
+the totals do not sum to the per-type rows. Quoting the corpus-wide n beside an
+omitted row is allowed and is the clearest way to show why a row is missing; what
+is not allowed is computing the flag from it.
 
 ### 9.5 Grouping requires identifier agreement, not a filename pattern
 
