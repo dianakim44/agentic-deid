@@ -6175,7 +6175,12 @@ survives mix standardisation over every type where all five folds have tabulable
 does not survive one that admits two blocks of n = 5 and n = 1.** Both computations are kept.
 Neither is a headline — §9.3's headline is the aggregate `fully_covered` leak rate, and these
 are a sensitivity check on reading its *order* across corpora, which is not a thing the
-headline claims.
+headline claims. **The five columns here are not five comparable cells.** These rows
+re-weight the same unattributed draw of five numbers, under the four disqualifications just
+listed; they are not the per-type comparison the block below governs, where conditions (4)
+and (5) take `ko-surro` and `es-meddocan` out of every row. Row 4's inversion is therefore a
+statement about weights and not a German-versus-Spanish result, and condition (1) is the only
+one of the five it turns on.
 
 **The prediction this section actually makes is still untested, and now the reason is
 measurable.** It is per-layer, and `complementarity.layers.covered` on the five arms is:
@@ -6242,33 +6247,54 @@ independent, and failing one is enough:
    same quantity as the other four corpora's.
 4. **The references are the same kind.** Four are human gold; `ko-surro`'s is human-verified
    silver (§9, 2026-09-22). Comparisons across that line survive as comparisons and not as
-   absolute levels.
-5. **The arms match.** Only de / en / ko are the same `porting` value at one call. Any cell
-   compared across the two Spanish arms also varies the arm.
+   absolute levels. This condition is **type-independent**: `ko-surro` is the only silver arm,
+   so the only pair it could enter is one with another silver arm, and there is none. It is
+   excluded from **every** row of the table below, which is why the table names it on every
+   row and not only on the rows where some other condition also catches it.
+5. **The arms match.** Four arms carry the same `porting` value, `port-oneshot`;
+   `es-meddocan`'s is `port-oneshot-nofence`, so this condition is type-independent in the
+   same way and blocks every pair `es-meddocan` could enter. `es-carmen`'s **two** LLM calls
+   are not a failure of it — the `porting` value is the same and the call count is the §5.6
+   per-language cost difference, which is reported beside the quality numbers (§11) rather
+   than used to deny comparability. The second `es-meddocan` arm, `port-loop`, is outside this
+   table for the same reason the condition exists at all.
 
-Applying the five:
+Applying conditions (1)–(4). Condition (5) is held out and applied in the paragraph after the
+table, because it removes a whole column rather than particular cells:
 
 | type | comparable across | blocked by |
 |---|---|---|
-| **DATE** | all five (arm caveat on the two Spanish arms) | — |
-| **NAME** | de-grascco, es-meddocan, en-deid, ko-surro | (3) for es-carmen |
-| CONTACT | de-grascco, es-meddocan, en-deid, ko-surro | (1) for es-carmen (n = 1) |
-| ID | de-grascco, es-meddocan, es-carmen | (2) for en-deid, ko-surro |
-| LOCATION_STREET | de-grascco, es-meddocan | (1) for es-carmen, (2) for en-deid and ko-surro |
-| AGE | es-meddocan, es-carmen | (1) for the other three; and (5) for the pair that is left |
-| LOCATION_AREA | nothing | (3), demonstrated |
-| ORGANISATION | nothing | (3), same demonstration; (2) for en-deid |
-| OTHER | nothing | (3) **categorically** — a residual class holds whatever each guideline declined to name, so its content is corpus-specific by definition |
-| PROFESSION | nothing | (1) |
+| **DATE** | de-grascco, es-meddocan, es-carmen, en-deid (**four**) | (4) for ko-surro |
+| **NAME** | de-grascco, es-meddocan, en-deid (**three**) | (3) for es-carmen, (4) for ko-surro |
+| CONTACT | de-grascco, es-meddocan, en-deid | (1) for es-carmen (n = 1), (4) for ko-surro |
+| ID | de-grascco, es-meddocan, es-carmen | (2) for en-deid and ko-surro, (4) for ko-surro |
+| LOCATION_STREET | de-grascco, es-meddocan | (1) for es-carmen (n = 6), (2) for en-deid and ko-surro, (4) for ko-surro |
+| AGE | es-meddocan, es-carmen | (1) for de-grascco (n = 5), en-deid (n = 4) and ko-surro (n = 3), (4) for ko-surro |
+| LOCATION_AREA | nothing | (3), demonstrated; (4) for ko-surro |
+| ORGANISATION | nothing | (3), same demonstration; (2) for en-deid; (4) for ko-surro |
+| OTHER | nothing | (3) **categorically** — a residual class holds whatever each guideline declined to name, so its content is corpus-specific by definition; and (1) for all three arms that instantiate it (n = 6, 7, 1) |
+| PROFESSION | nothing | (1) for es-meddocan (n = 4), (2) for de-grascco, en-deid and ko-surro — which leaves es-carmen without a partner |
 
-**`DATE` is the only row readable across all five, and it is the row the hypothesis has
-least to say about.** The layer table grades structural form at sensitivity **none** — a date
-is shaped the same in a nursing note as in a discharge letter — so a 0.258 → 0.943 range
-across the five corpora is not a realisation effect. It is a statement about which *formats*
-each rule file's author anticipated, which is the author-availability axis the 2026-08-24
-block added and not either axis of the product. **`NAME` is the row the hypothesis is
-about**, it is readable across four, and §7.1's block below is where that reading is
-bounded. Nothing above licenses a per-type ranking of the five corpora; what it licenses is
+Where conditions overlap they are listed overlapping. `ko-surro` is out of every row on (4),
+and the rows that also fail (1) or (2) for it say so, because naming one condition per cell
+reads as though relaxing that one would open the cell.
+
+**Condition (5) then removes the `es-meddocan` column from every row.** What survives both
+type-independent conditions is `DATE` across de-grascco, es-carmen and en-deid; `NAME` and
+`CONTACT` across de-grascco and en-deid; `ID` across de-grascco and es-carmen; and
+**`LOCATION_STREET` and `AGE` with no pair at all**, each reduced to one arm. The table is
+stated with (5) held out so that the condition is applied once — at the aggregate ordering
+above, where the arm difference is a property of the whole column — rather than restated in
+ten rows. Any per-type table published from this has to say which of the two states it is in.
+
+**`DATE` is the widest row — four arms, three under (5) — and it is the row the hypothesis
+has least to say about.** The layer table grades structural form at sensitivity **none** — a
+date is shaped the same in a nursing note as in a discharge letter — so the 0.258 → 0.921
+range over the four readable arms (0.943 counting `ko-surro`, which (4) excludes) is not a
+realisation effect. It is a statement about which *formats* each rule file's author
+anticipated, which is the author-availability axis the 2026-08-24 block added and not either
+axis of the product. **`NAME` is the row the hypothesis is about**, it is readable across
+three and across two under (5), and §7.1's block below is where that reading is bounded. Nothing above licenses a per-type ranking of the five corpora; what it licenses is
 two rows, each with its own exclusion.
 
 #### `en-deid` × `ko-surro` is the one contrast with no corpus confound, and it is still not a test of the prediction — recorded 2026-10-02
@@ -6306,8 +6332,13 @@ hard for the tool are the ones most likely to be leaked, so the measured Korean 
 if anything an **under**-statement — the direction is favourable to the comparison below
 rather than against it.
 
-**On the two rows that pass the conditions, the pair agrees with the prediction where the
-prediction is weakest and disagrees where it is strongest.**
+**On the two rows that pass the other conditions, the pair agrees with the prediction where
+the prediction is weakest and disagrees where it is strongest.** Condition (4) fails here by
+construction and at every type — one side is human gold and the other verified silver, which
+is what makes the pair a language contrast at all — so what follows is read the only way that
+condition permits: as a comparison and not as two absolute levels. The direction of that
+confound is the one quantified two paragraphs above, and it runs toward understating Korean
+leakage rather than inflating it.
 
 | | `en-deid` | `ko-surro` | gap |
 |---|---|---|---|
