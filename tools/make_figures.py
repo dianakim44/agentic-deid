@@ -32,10 +32,14 @@ load-bearing anywhere.
 
 Usage
 -----
-    python tools/make_figures.py [--out DIR]
+    python tools/make_figures.py [--out DIR] [--captions]
 
 Default output directory is `~/Desktop/figures` — outside the repository,
 because figures built from DUA-covered corpora are not committed (CLAUDE.md).
+
+The captions are in the manuscript, so a default run does not write a second
+copy of them: `--captions` re-derives the draft when a caption's numbers need
+checking against the files.
 """
 
 from __future__ import annotations
@@ -287,14 +291,17 @@ def figure_one(paths: dict, out: Path) -> dict:
         ax.plot([bx, bx + cap], [y, y], color="black", linewidth=1.1, zorder=3)
         ax.plot([bx + cap, to_x], [y, y], color="0.45", linewidth=0.7,
                 linestyle=(0, (1, 2)), zorder=1)
+    # The label sits in the empty band above the bracket and points down at its
+    # top cap, so the leader is short and crosses neither series: both lines are
+    # below the bracket from round 2 onwards, and `relaxed` is below it at round 1
+    # too.
     ax.annotate(
         f"two runs of identical prompt bytes:\ndifference {difference:.3f} (n = 2)",
-        xy=(bx - 0.03, (lo + hi) / 2),
-        xytext=(xs[0] - 0.46, 0.085),
-        fontsize=7.5, ha="left", va="center",
+        xy=(bx, hi),
+        xytext=(xs[0] - 0.80, 0.655),
+        fontsize=7.5, ha="left", va="bottom",
         # Grey and thin, so a leader cannot be mistaken for one of the two series.
-        arrowprops=dict(arrowstyle="->", linewidth=0.7, color="0.35",
-                        shrinkB=2, connectionstyle="arc3,rad=-0.16"),
+        arrowprops=dict(arrowstyle="->", linewidth=0.7, color="0.35", shrinkB=3),
     )
 
     # Reason and convergence both come off the record; the sentence is plain
@@ -570,6 +577,14 @@ def save(fig, out: Path, stem: str) -> None:
 
 
 def captions(out: Path, f1: dict, f2: dict, f3: dict) -> None:
+    """Write the caption drafts, which is **not** part of a default run.
+
+    The captions are in the manuscript now, and a second copy drifts from the
+    first the moment either is edited. This stays reachable behind `--captions`
+    for one use: re-deriving every number a caption states from the files, so a
+    caption in the manuscript can be checked against them rather than trusted.
+    The prose here is a draft of record, not the live text.
+    """
     kinds = sorted(set(f2["reference"].values()))
     silver = [k for k in kinds if k != HUMAN_REFERENCE]
     silver_corpora = [c for c, k in f2["reference"].items() if k != HUMAN_REFERENCE]
@@ -700,6 +715,11 @@ def main() -> None:
         "--out", default=str(Path.home() / "Desktop" / "figures"),
         help="output directory; defaults outside the repository (CLAUDE.md)",
     )
+    ap.add_argument(
+        "--captions", action="store_true",
+        help="also write captions.md; off by default because the captions live "
+             "in the manuscript and two copies drift apart",
+    )
     args = ap.parse_args()
     out = Path(args.out).expanduser()
     out.mkdir(parents=True, exist_ok=True)
@@ -716,9 +736,11 @@ def main() -> None:
     f1 = figure_one(paths, out)
     f2 = figure_two(paths, out)
     f3 = figure_three(paths, out)
-    captions(out, f1, f2, f3)
+    if args.captions:
+        captions(out, f1, f2, f3)
 
-    print(f"wrote 3 figures (pdf + png 300dpi) and captions.md to {out}")
+    print(f"wrote 3 figures (pdf + png 300dpi"
+          f"{' and captions.md' if args.captions else ''}) to {out}")
     print(f"  fig 1: {f1['corpus']} {f1['porting']}, {f1['rounds']} rounds, "
           f"difference {f1['difference']:.3f}, sealed {f1['sealed_fc']:.3f}")
     print(f"  fig 2: {', '.join(f2['order'])}")
