@@ -15,10 +15,18 @@ The third thing tested here is the rounding, which is the checker's one real
 piece of arithmetic: the draft rounds and the files do not, so a disagreement
 has to be the draft's and not the tool's convention.
 
+The fourth is Table 4's source. The Auditor's reports are a **denied** path and
+are not in this repository, so the checker reads them where they were produced
+and withholds their values: the tests below hold it to both halves of that —
+nothing from a report reaches the printed line, and nothing is opened for
+writing anywhere.
+
     python3 -m pytest tests/ -q
 """
+import builtins
 import os
 import sys
+from pathlib import Path
 
 import pytest
 
@@ -161,6 +169,166 @@ def test_the_layer_columns_name_declared_layers():
     cmn.check_layer_columns()
     declared = set(cmn.naming()["axes"]["layer"])
     assert set(cmn.LAYER_COLUMN.values()) <= declared
+
+
+# ─── Table 4 comes from a denied path, and stays there ──────────────────────
+
+def first_report(s):
+    """A round's audit report, or a skip: a clone of the repo has none."""
+    for index in range(1, len(s.rounds) + 1):
+        report = cmn.audit_report(s, index)
+        if report is not None:
+            return index, report
+    pytest.skip("no audit report on this filesystem; the path is denied")
+
+
+def test_the_audit_columns_name_fields_the_report_has():
+    """The one hand-written mapping for Table 4, against a real report.
+
+    Presence only: the values are what the checker refuses to publish, and a
+    test that asserted them would publish them in its own source.
+    """
+    _, report = first_report(cmn.subject())
+    for keys in cmn.AUDIT_COLUMN.values():
+        assert cmn.dig(report, keys) is not None, f"no {'.'.join(keys)} in the report"
+
+
+def test_a_withheld_mismatch_states_the_disagreement_and_not_the_value():
+    rep = cmn.Report()
+    rep.number("Table 4 · round 3", "counts.refused", "999", 351, withhold=True)
+    assert len(rep.mismatches) == 1
+    line = rep.mismatches[0]
+    assert "withheld" in line
+    assert "999" in line          # the draft's own number, which the draft owns
+    assert "351" not in line
+
+
+def test_a_withheld_agreement_is_counted_like_any_other():
+    rep = cmn.Report()
+    rep.number("Table 4 · round 3", "counts.refused", "351", 351, withhold=True)
+    assert rep.mismatches == []
+    assert rep.checks == 1
+
+
+def test_table_four_puts_no_number_from_the_reports_in_its_output():
+    """Every cell is wrong, so every column reports — and none of them tells."""
+    s = cmn.subject()
+    index, report = first_report(s)
+    columns = list(cmn.AUDIT_COLUMN)
+    draft = (
+        "**Table 4.** t\n\n"
+        f"| Round | {' | '.join(columns)} |\n"
+        "|---|" + "---|" * len(columns) + "\n"
+        f"| {index} | " + " | ".join("999999" for _ in columns) + " |\n"
+    )
+    rep = cmn.Report()
+    cmn.check_table_four(draft, s, rep)
+
+    assert len(rep.mismatches) == len(columns)
+    truth = [str(cmn.dig(report, keys)) for keys in cmn.AUDIT_COLUMN.values()]
+    for line in rep.mismatches:
+        assert "withheld" in line
+        for value in truth:
+            assert value not in line
+
+
+def test_a_round_without_an_audit_report_is_unchecked_and_not_silent(monkeypatch):
+    """What a clone of this public repository sees: gaps, not agreement."""
+    monkeypatch.setattr(cmn, "audit_report", lambda s, i: None)
+    s = cmn.subject()
+    draft = (
+        "**Table 4.** t\n\n"
+        "| Round | Flags kept | Refused | Malformed | Documents with no flags |\n"
+        "|---|---|---|---|---|\n"
+        "| 3 | 185 | 351 | 141 | 160 |\n"
+    )
+    rep = cmn.Report()
+    cmn.check_table_four(draft, s, rep)
+    assert rep.checks == 0
+    assert any("denied" in line for line in rep.unchecked)
+
+
+def test_the_checker_opens_nothing_for_writing(monkeypatch):
+    """Rule 4 is about what is printed; a written file is the other way out.
+
+    The reports are read on a filesystem that holds DUA-covered material, so
+    "withheld from the output" is only half of it: a cache, a scratch file or a
+    rewritten draft would carry the same values somewhere `release_screen.py`
+    does not look.
+    """
+    real_open, real_path_open = builtins.open, Path.open
+
+    def read_only(real, name):
+        def wrapper(*args, **kwargs):
+            mode = kwargs.get("mode", args[1] if len(args) > 1 else "r")
+            if set(str(mode)) & set("wxa+"):
+                raise AssertionError(f"{name} was called with mode {mode!r}")
+            return real(*args, **kwargs)
+        return wrapper
+
+    def refuse(name):
+        def wrapper(*args, **kwargs):
+            raise AssertionError(f"{name} was called")
+        return wrapper
+
+    monkeypatch.setattr(builtins, "open", read_only(real_open, "open"))
+    monkeypatch.setattr(Path, "open", read_only(real_path_open, "Path.open"))
+    monkeypatch.setattr(Path, "write_text", refuse("Path.write_text"))
+    monkeypatch.setattr(Path, "write_bytes", refuse("Path.write_bytes"))
+
+    s = cmn.subject()
+    index, _ = first_report(s)
+    draft = (
+        "**Table 4.** t\n\n"
+        "| Round | Flags kept | Refused | Malformed | Documents with no flags |\n"
+        "|---|---|---|---|---|\n"
+        f"| {index} | 999999 | 999999 | 999999 | 999999 |\n"
+    )
+    rep = cmn.Report()
+    cmn.check_table_four(draft, s, rep)
+    assert rep.mismatches, "the run has to have read the reports to prove anything"
+
+
+# ─── Table 2's two rows of rows, and the layers no table has a column for ───
+
+def test_the_row_table_two_starts_from_is_found_by_not_naming_a_round():
+    """The baseline row is identified by shape, so the draft may name it freely."""
+    s = cmn.subject()
+    draft = (
+        "**Table 2.** t\n\n"
+        "| Round | Context cues | Gazetteer | Pattern rules |\n"
+        "|---|---|---|---|\n"
+        "| Where it started | 999999 | 0 | 0 |\n"
+    )
+    rep = cmn.Report()
+    cmn.check_table_two(draft, s, rep)
+    assert any("started from" in line for line in rep.mismatches)
+
+
+def test_two_rows_that_name_no_round_are_unchecked_rather_than_guessed_between():
+    s = cmn.subject()
+    draft = (
+        "**Table 2.** t\n\n"
+        "| Round | Context cues | Gazetteer | Pattern rules |\n"
+        "|---|---|---|---|\n"
+        "| Baseline | 914 | 6 | 1,639 |\n"
+        "| Also baseline | 914 | 6 | 1,639 |\n"
+    )
+    rep = cmn.Report()
+    cmn.check_table_two(draft, s, rep)
+    assert rep.checks == 0
+    assert any("name no round" in line for line in rep.unchecked)
+
+
+def test_a_layer_with_no_column_is_checked_as_having_covered_nothing():
+    """Dropping a column is a claim, and a non-zero layer contradicts it."""
+    rep = cmn.Report()
+    cells = {"Context cues": "1", "Gazetteer": "0", "Pattern rules": "0"}
+    cmn.check_covered_by_layer("somewhere", cells, {
+        "context_cue": 1, "gazetteer": 0, "regex_checksum": 0, "tagger": 5,
+    }, rep)
+    assert len(rep.mismatches) == 1
+    assert "tagger" in rep.mismatches[0]
 
 
 def test_a_marker_is_checked_against_the_scorer_and_not_assumed():

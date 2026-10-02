@@ -2,12 +2,12 @@
 """Check a manuscript draft's numbers against the files they were taken from.
 
 This reads a draft and writes nothing to it. It parses the `Figure captions`
-section and Tables 1, 3, 5, 6 and 7, pulls the numbers out of them, reads the
-same `metrics.json` files and frozen `splits/{corpus}.json` files the figures
-are drawn from, and prints **only disagreements**. A clean run prints the
-number of checks and nothing else.
+section and Tables 1 through 7, pulls the numbers out of them, reads the same
+`metrics.json` files and frozen `splits/{corpus}.json` files the figures are
+drawn from, and prints **only disagreements**. A clean run prints the number of
+checks and nothing else.
 
-Three rules govern it:
+Four rules govern it:
 
 1. **The draft is an input and never an output.** No sentence is generated,
    rewritten or suggested. The repository holds no copy of the manuscript
@@ -23,15 +23,24 @@ Three rules govern it:
    counted, and a table, column, row or caption phrase the parser cannot find
    is reported as UNCHECKED rather than skipped. A reworded caption therefore
    shows up instead of quietly passing.
+4. **A value read from a denied path is compared and never printed.** Table 4's
+   numbers come from the Auditor's reports, which `tools/release_screen.py`
+   denies by name because on a DUA corpus such a report is a map of the
+   identifiers a round failed to mask. The reports are read where they were
+   produced, outside git; a disagreeing cell is reported as disagreeing and the
+   file's own number is withheld. See `audit_report()`.
 
 Derived columns (Table 1's `Gain`, Table 3's `Difference`) are checked as
 arithmetic over the two recorded values, since the repository stores the
-values and not their difference.
+values and not their difference. A layer the tables give no column to is
+checked as the claim it makes — that the layer covered nothing — so that
+dropping a column cannot quietly drop a contribution.
 
-What this does **not** cover: Table 2 (covered spans by layer and round) and
-Table 4 (Auditor output by round) are not checked, and nothing in the running
-prose is checked — only the five tables named above and the captions. Silence
-from this tool says nothing about those.
+What this does **not** cover: nothing in the running prose is checked, only the
+seven tables and the three captions. Silence from this tool says nothing about
+the prose. Table 4 is checked only where the Auditor's reports are on disk; a
+clone of this public repository does not have them and gets UNCHECKED rows
+instead of silence.
 
 Usage
 -----
@@ -70,14 +79,24 @@ from make_figures import (  # noqa: E402  (same directory, shared loaders)
     reference_kind,
 )
 
-#: Table 7's column headers against the `layer` axis of `config/naming.yaml`.
-#: The manuscript names the layers in prose and the files name them by id; this
-#: is the one place the two are paired, and `check_layer_columns()` refuses an id
-#: the axis does not declare, the same guard `DISPLAY_NAME` has.
+#: The column headers of Tables 2 and 7 against the `layer` axis of
+#: `config/naming.yaml`. The manuscript names the layers in prose and the files
+#: name them by id; this is the one place the two are paired, and
+#: `check_layer_columns()` refuses an id the axis does not declare, the same
+#: guard `DISPLAY_NAME` has.
 LAYER_COLUMN = {
     "Context cues": "context_cue",
     "Gazetteer": "gazetteer",
     "Pattern rules": "regex_checksum",
+}
+
+#: Table 4's column headers against the Auditor report's own fields. Every value
+#: behind this mapping is withheld from the output (rule 4 above).
+AUDIT_COLUMN = {
+    "Flags kept": ("counts", "flags"),
+    "Refused": ("counts", "refused"),
+    "Malformed": ("counts", "by_refusal", "malformed"),
+    "Documents with no flags": ("documents_with_no_flags",),
 }
 
 #: Markers a table cell may carry instead of a number. Both are claims about the
@@ -174,12 +193,15 @@ class Report:
         )
 
     def number(self, where: str, what: str, cell: str, found: float | int | None,
-               tolerance: float = 0.0) -> None:
+               tolerance: float = 0.0, withhold: bool = False) -> None:
         """Compare a cell against a file value *at the cell's own precision*.
 
         The draft rounds; the files do not. Reading the cell's decimal places
         off the cell is what lets 0.154 and 0.15355… agree while 0.155 does not,
         without a tolerance chosen here.
+
+        `withhold` says the file value came from a denied path: the comparison
+        happens, the disagreement is reported, and the number is not printed.
         """
         if found is None:
             self.gap(where, f"{what} · no such value in the files")
@@ -191,11 +213,18 @@ class Report:
         said, decimals = value
         rounded = half_up(found, decimals) if decimals is not None else float(found)
         self.checks += 1
-        if abs(said - rounded) > tolerance + 1e-12:
-            shown = f"{rounded:.{decimals}f}" if decimals is not None else f"{rounded:,}"
+        if abs(said - rounded) <= tolerance + 1e-12:
+            return
+        if withhold:
             self.mismatches.append(
-                f"MISMATCH   {where} · {what} · draft {cell} · files {shown}"
+                f"MISMATCH   {where} · {what} · draft {cell} · files disagree "
+                f"(value withheld: it is read from a denied path)"
             )
+            return
+        shown = f"{rounded:.{decimals}f}" if decimals is not None else f"{rounded:,}"
+        self.mismatches.append(
+            f"MISMATCH   {where} · {what} · draft {cell} · files {shown}"
+        )
 
     def claim(self, where: str, what: str, holds: bool, says: str, found: str) -> None:
         """Compare a non-numeric claim (a marker, a dash) against the files."""
@@ -307,6 +336,73 @@ def rule_count(s: Subject, iteration: int) -> int | None:
     return sum(len(yaml.safe_load(f.read_text()).get("rules", [])) for f in files)
 
 
+def audit_report(s: Subject, iteration: int) -> dict | None:
+    """Round *n*'s canonical Auditor report, read from the local filesystem.
+
+    `paths.auditreport` is a **denied** path: on a DUA corpus the file is a map
+    of the identifiers the round failed to mask, which is the most concentrated
+    thing the loop produces, so `release_screen.py` denies it by name and it is
+    never committed. A clone of this public repository therefore does not have
+    it, and `None` here means Table 4 cannot be checked rather than that it
+    agrees.
+
+    Two consequences, both deliberate. The file is read **where it was
+    produced** and not from the repository; and every value taken from it is
+    reported with `withhold=True`, so a disagreement says that a cell is wrong
+    without saying what it should be. The publishable route for one of these
+    counts is a derived count in `metrics.json` — config/naming.yaml says so on
+    this key — and if that is ever added, this function should be replaced by a
+    read of it rather than kept alongside.
+
+    Where a round was audited more than once this is the latest draw, which is
+    what this path holds by design (DESIGN §5.5.2). The preserved copies at
+    `paths.auditdraw` are not read: the manuscript's table has one row per
+    round, and that row is the round's canonical report.
+    """
+    path = REPO / s.paths["auditreport"].format(
+        corpus=s.loop.corpus, detector=s.loop.run["detector"],
+        supervision=s.loop.run["supervision"], porting=s.loop.porting,
+        iteration=iteration,
+    )
+    return load_json(path) if path.is_file() else None
+
+
+def dig(record: dict, keys: tuple[str, ...]) -> float | int | None:
+    """Follow a field path, returning None where the record does not have it."""
+    found: object = record
+    for key in keys:
+        if not isinstance(found, dict) or key not in found:
+            return None
+        found = found[key]
+    return found if isinstance(found, (int, float)) else None
+
+
+def covered_by_layer(arm: Arm) -> dict:
+    return arm.data["modes"][HEADLINE_MODE]["complementarity"]["layers"]["covered"]
+
+
+def check_covered_by_layer(place: str, cells: dict[str, str], covered: dict,
+                           rep: Report) -> None:
+    """The layer columns shared by Tables 2 and 7, and the layers they omit.
+
+    A table with no column for a layer asserts that the layer covered nothing;
+    if it covered something, the table understates the arm. These are rule-only
+    arms, so `tagger` is the omitted layer everywhere today and the assertion
+    holds — which is the point of checking it rather than assuming it.
+    """
+    for column, layer in LAYER_COLUMN.items():
+        if column not in cells:
+            rep.gap(place, f"no column for the {layer} layer")
+            continue
+        rep.number(place, f"{layer} covered spans", cells[column], covered.get(layer))
+
+    for layer in sorted(set(naming()["axes"]["layer"]) - set(LAYER_COLUMN.values())):
+        rep.claim(place, f"the {layer} layer has no column",
+                  not covered.get(layer),
+                  "the table gives it no column",
+                  f"it covered {covered.get(layer)} spans")
+
+
 def corpus_of_label(label: str) -> str | None:
     """`CARMEN-I (es, ca)` or its bare `es, ca` -> the corpus id."""
     for corpus, name in DISPLAY_NAME.items():
@@ -369,6 +465,81 @@ def check_table_one(text: str, s: Subject, rep: Report) -> None:
 
         rep.number(place, "rules in the round's rule files", cells.get("Rules", ""),
                    rule_count(s, index))
+
+
+def check_table_two(text: str, s: Subject, rep: Report) -> None:
+    where = "Table 2"
+    rows = table_rows(text, 2)
+    if rows is None:
+        rep.gap(where, "table not found")
+        return
+    header, body = rows[0], rows[1:]
+    first = header[0]
+    if len(body) != len(s.rounds) + 1:
+        rep.gap(where, f"draft has {len(body)} rows, the arm ran {len(s.rounds)} "
+                       f"rounds after the one it started from")
+
+    # The row that names no round is the single-call arm the loop started from —
+    # the same record Fig. 1 draws as `single-call`. It is found by not being a
+    # round, so the draft may call it what it likes; two such rows mean the
+    # parser cannot tell which row is which, and it says so instead of guessing.
+    baselines = sum(1 for r in body
+                    if word_number(dict(zip(header, r)).get(first, "")) is None)
+
+    for row in body:
+        cells = dict(zip(header, row))
+        said = cells.get(first, "")
+        index = word_number(said)
+        if index is None:
+            if baselines != 1:
+                rep.gap(where, f"{baselines} rows name no round this arm ran "
+                               f"({len(said)} chars)")
+                continue
+            arm, place = s.baseline, f"{where} · the arm the loop started from"
+        elif 1 <= index <= len(s.rounds):
+            arm, place = s.rounds[index - 1], f"{where} · round {index}"
+        else:
+            rep.gap(where, "a row does not name a round this arm ran")
+            continue
+        check_covered_by_layer(place, cells, covered_by_layer(arm), rep)
+
+
+def check_table_four(text: str, s: Subject, rep: Report) -> None:
+    """Table 4, from the Auditor's reports, with every file value withheld."""
+    where = "Table 4"
+    rows = table_rows(text, 4)
+    if rows is None:
+        rep.gap(where, "table not found")
+        return
+    header, body = rows[0], rows[1:]
+    first = header[0]
+
+    for row in body:
+        cells = dict(zip(header, row))
+        index = word_number(cells.get(first, ""))
+        if index is None or not 1 <= index <= len(s.rounds):
+            rep.gap(where, "a row does not name a round this arm ran")
+            continue
+        place = f"{where} · round {index}"
+
+        report = audit_report(s, index)
+        if report is None:
+            rep.gap(place, "the round has no audit report on this filesystem; "
+                           "the path is denied and is not in the repository")
+            continue
+        # The report's own round number, so that a row is not checked against a
+        # file that happens to sit in the directory it was looked for in.
+        if report.get("iteration") != index:
+            rep.gap(place, "the report in the round's directory names a "
+                           "different round")
+            continue
+
+        for column, keys in AUDIT_COLUMN.items():
+            if column not in cells:
+                rep.gap(place, f"no column for {'.'.join(keys)}")
+                continue
+            rep.number(place, ".".join(keys), cells[column], dig(report, keys),
+                       withhold=True)
 
 
 def check_table_three(text: str, s: Subject, rep: Report) -> None:
@@ -516,14 +687,8 @@ def check_table_seven(text: str, s: Subject, rep: Report) -> None:
             rep.gap(where, f"a row names no corpus this project records "
                            f"({len(label)} chars)")
             continue
-        covered = (s.singles[corpus].data["modes"][HEADLINE_MODE]
-                   ["complementarity"]["layers"]["covered"])
-        for column, layer in LAYER_COLUMN.items():
-            if column not in cells:
-                rep.gap(f"{where} · {corpus}", f"no column for the {layer} layer")
-                continue
-            rep.number(f"{where} · {corpus}", f"{layer} covered spans",
-                       cells[column], covered.get(layer))
+        check_covered_by_layer(f"{where} · {corpus}", cells,
+                               covered_by_layer(s.singles[corpus]), rep)
 
 
 # --------------------------------------------------------------------------- #
@@ -666,9 +831,10 @@ def main() -> None:
     s = subject()
     rep = Report()
 
-    for check in (check_table_one, check_table_three, check_table_five,
-                  check_table_six, check_table_seven, check_caption_one,
-                  check_caption_two, check_caption_three):
+    for check in (check_table_one, check_table_two, check_table_three,
+                  check_table_four, check_table_five, check_table_six,
+                  check_table_seven, check_caption_one, check_caption_two,
+                  check_caption_three):
         check(text, s, rep)
 
     for line in rep.mismatches + rep.unchecked:
