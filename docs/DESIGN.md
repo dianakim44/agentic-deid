@@ -5816,8 +5816,11 @@ would be a way around it.
 **3. The block sits inside each scoring mode, and reaches no headline.** A leak rate over
 radiology documents is a leak rate, so `by_document_type` is a member of the mode
 (`relaxed`, `fully_covered`) and not a sibling of it; `SCHEMA_VERSION` is 10. It is
-optional for schema 8's reason: a corpus with no measured distribution gets `null`, and
-"not measured" must not be readable as "measured and found nothing". Per §9.3, which
+optional for schema 8's reason: a corpus with no measured distribution gets **no block at
+all**, and "not measured" must not be readable as "measured and found nothing" (this
+sentence said "gets `null`" until 2026-10-02, which was never what the code did — the
+correction and why absence is the stronger record are in the es-carmen block below).
+Per §9.3, which
 figure is the headline is a per-metric decision made by the reporting layer — and this
 one is secondary by the paragraph above, so it is never it.
 
@@ -6023,6 +6026,316 @@ width rather than assume it — the within-corpus note-type contrast described a
 is the instrument for that, which is why it is worth running even as a secondary
 analysis.
 
+#### `by_document_type` is absent on the one corpus stratified on document type, and the absence is the decision — decided 2026-10-02
+
+es-carmen's frozen split is stratified on `filename_doctype × language_label` over 11
+strata, and the split file's own note says why: **PHI density varies 4× by document type
+in this corpus**, and 84% of its bilingual documents are one document type, so an
+unstratified split would confound corpus composition with detector behaviour (§9.5). The
+variable was judged load-bearing enough to balance 2,000 units on. No `metrics.json`
+reports anything over it. Of the five scored arms **only de-grascco carries a
+`by_document_type` block**; es-carmen's has no such key. That is what schema 10 prescribes,
+and "prescribed by the config" is not a reason, because the config is the thing being
+decided. So it is decided here.
+
+**The two labels are not the same variable, and the clash is in the mechanism.** Decision
+2 above requires the labels be derived from *text cues* at a versioned source, precisely so
+that the 12 sealed GraSCCo documents can be labelled inside `run_sealed_eval.py`'s own
+authorised read. es-carmen's label is derived from the **document id** —
+`CARMEN-I_{doctype}[_{section}]_{n}` — which `src/corpora/carmen.py` stores as
+`meta["filename_doctype"]` and not as `document_type`, with the reason in the comment on
+`DOCTYPE_TOKENS` since the loader was written. Routing that field into `by_document_type` is
+refused on three grounds, each sufficient alone:
+
+1. **Vocabulary.** naming.yaml's `document_type` is eight content labels whose cue strings
+   are German. `IR`/`IA`/`IT`/`CC`/`IE` are not among them and do not refine them, so
+   admitting them makes one vocabulary the union of two label sets that disagree about what
+   they partition. CLAUDE.md's rule is that a needed value is added to naming.yaml before it
+   is used; this is the case where the value should not be added.
+2. **Provenance.** A block that is text-derived for one corpus and id-derived for another is
+   a block no reader can compare across corpora — and cross-corpus comparability is the only
+   reason it has a shared vocabulary instead of per-corpus labels.
+3. **It would appear to populate the cell §7.1 calls impossible.** A `by_document_type`
+   breakdown on a Spanish corpus reads as note-type variation at medium baseline. §7.1 says
+   this corpus set cannot supply that, and the reason it cannot is exactly that these labels
+   do not vary note *type*: 789 of the 2,000 units are clinical sections, so the labels vary
+   unit *kind*. Wiring the field in would make the design look like it held an instrument it
+   does not hold, which is a worse failure than a missing number.
+
+**The other route — declaring Spanish text cues under the same eight labels — is refused
+for the same section-vs-note reason.** A section excerpt would receive whatever label its
+own fragment happened to trip, so the label would record which part of a letter was
+excerpted rather than what kind of letter it was. The cues would fire; the result would not
+be a document type.
+
+**What is reportable instead, and under which name.** Leak by `filename_doctype` needs no
+schema change: `meta["filename_doctype"]` is on every document, the per-fold composition is
+in the split file's `stratification.achieved[fold].label_mix`, and `spans.jsonl` carries the
+rest — so a reporting layer can produce the breakdown post hoc. If it ever is produced it is
+named `filename_doctype`, never `document_type`, and it carries the 61% notes / 39% sections
+caveat next to it. That is a reporting-layer act under §9.3's rule that the reporting layer
+chooses what to show; no scorer change follows from this decision.
+
+**Why absence and not `null`.** Decision 3 said "gets `null`" until today and the code never
+did that — `SCHEMA_VERSION`'s comment and `score()`'s docstring both say a corpus that
+declares no cues gets no block, and all four non-de-grascco files confirm it. The code is
+right and the prose was stale. A `null`-valued key asserts that the corpus *has* a
+document-type distribution which was not measured; for es-carmen the record is stronger than
+"not measured" — the axis is **not available on this corpus**, per the CARMEN-I correction
+above — and a key present with a null value would under-state that. It is the same
+convention as §8's cached-call blocks: absence is a state, and writing a placeholder for it
+loses the distinction.
+
+**The axis stays GraSCCo's, and its dev-fold width is now measured rather than projected.**
+The prose above calls the radiology / pathology / outpatient subsets "30 / 25 / 24 documents,
+large enough to compare." Those are whole-corpus counts from 2026-08-05. On the dev fold the
+arm actually reports over, the block is:
+
+| label | dev documents | gold | leak `fully_covered` |
+|---|---|---|---|
+| radiology | 13 | 286 | 0.346 |
+| laboratory | 7 | 185 | 0.373 |
+| progress_note | 7 | 171 | **0.491** |
+| outpatient | 6 | 156 | 0.462 |
+| pathology | 3 | 99 | **0.192** |
+| tumour_board | 2 | 83 | 0.253 |
+| discharge | 0 | 0 | `null` |
+| operation_report | 0 | 0 | `null` |
+| `unlabelled` | 2 | 29 | 0.310 |
+
+19 documents, 17 labelled, `labels_per_document_mean` 2.0, `multi_label: true`,
+`document_type_cues` = `{config/document_types.yaml, 1}`. Two of the eight labels have no dev
+document and so have a `null` leak rate — the per-label `null` that decision 3's sentence was
+reaching for, which is a different thing from a corpus-level absence and is why the two must
+not share a word. **Six populated labels spanning 0.192 to 0.491 is a 29.9-point spread
+inside one language, one fold, one rule file and one call.** Read against the axis-2 table's
+German row — "baseline is already low, so there is little for note type to modulate" — that
+is not little. It is also not an effect: the subsets overlap at 2.0 labels per document, the
+extremes are 3 and 7 documents, and the six rows sum to 980 label-assignments over 410
+spans. Recorded as the width the instrument shows, with nothing attributed to it, and with
+the note that a spread this wide at the *low* baseline is the opposite of what makes German
+the place to look.
+
+#### All five aggregates are on record, and the ordering is read, not asserted — recorded 2026-10-02
+
+The block above this one registered two numbers going the wrong way. There are now five,
+one single-call arm per corpus, every one scored on its own dev fold:
+
+| | arm | calls | gold (dev, in-scope) | leak `fully_covered` | leak `relaxed` | schema |
+|---|---|---|---|---|---|---|
+| de-grascco | `port-oneshot` | 1 | 410 | **0.4146** | 0.3683 | 10 |
+| es-meddocan | `port-oneshot-nofence` | 1 | 5254 | **0.5600** | 0.4850 | 5 |
+| es-carmen | `port-oneshot` (§5.6, two languages) | 2 | 1429 | **0.6298** | 0.6011 | 10 |
+| en-deid | `port-oneshot` | 1 | 359 | **0.7939** | 0.7855 | 10 |
+| ko-surro | `port-oneshot` | 1 | 319 | **0.8809** | 0.8150 | 10 |
+
+**What axis 1 alone would order, and what the ordering is.** Axis 1 ranks availability
+English high, Spanish medium, German low, Korean none, so on availability alone the leak
+rates should rise en < es < de < ko. Observed: **de < es < es-carmen < en < ko.** Korean is
+at the top as availability alone predicts and English is second from the top, where
+availability alone puts it at the bottom.
+
+**The product reading is consistent with English's position, and that is a reading and not
+a result.** §7's axis-2 table puts English nursing notes at near-zero realisation and says
+in as many words that they should "behave like Korean". `en-deid` is nursing-only (§7.1's
+2026-09-21 block), so under the product it belongs next to `ko-surro` rather than at the
+other end — which is where it is: en is ko's nearest neighbour, 0.087 below it, while the gap
+down to the next corpus is 0.164. The direction es-meddocan < es-carmen would also be the
+product's, edited case studies against authentic clinical notes at one language. Neither
+observation is attributed, and §5.1 and §7.1 already disqualify the second pair as an
+instrument for exactly this.
+
+**Four things make a draw of five single numbers unattributable, beyond the three the
+2026-09-21 block listed.** The arms are not one arm run five times: `es-meddocan` is
+`port-oneshot-nofence`, `es-carmen` is §5.6's two-language variant at two calls, and only
+de / en / ko share an arm value and a call count. Denominators run 319 to 5,254, a factor of
+16.5. One file is schema 5 and four are schema 10. And `ko-surro`'s reference is
+human-verified silver rather than human gold (§9's 2026-09-22 block), which matters most
+because it sits at the top of the ordering; the direction of that bias is known and is
+recorded in the pair block below.
+
+**The type mixes differ enough that the aggregates are partly an arithmetic of weights, and
+whether the ordering survives standardising them depends on blocks §9.4 says not to table.**
+`DATE` runs 13.8% of dev gold (es-meddocan) to 70.9% (es-carmen); `NAME` runs 2.4%
+(es-carmen) to 49.5% (ko-surro). Three ways of removing the weights:
+
+| | de | es-meddocan | es-carmen | en-deid | ko-surro | order |
+|---|---|---|---|---|---|---|
+| aggregate | 0.415 | 0.560 | 0.630 | 0.794 | 0.881 | de < es < carmen < en < ko |
+| macro over `DATE`/`LOCATION_AREA`/`NAME` | 0.411 | 0.603 | 0.613 | 0.858 | 0.981 | **unchanged** |
+| pooled-weight standardised, same three | 0.391 | 0.560 | 0.618 | 0.866 | 0.976 | **unchanged** |
+| macro over those three plus `AGE`/`CONTACT` | 0.574 | 0.397 | 0.399 | 0.642 | 0.989 | **de rises above both Spanish arms; the two Spanish arms become 0.003 apart** |
+
+The three types in rows 2–3 are the only ones with non-sparse gold in all five folds, and
+they carry 58%–95% of each fold's gold. Rows 2 and 3 preserve the ordering, so the ordering
+is not simply the mixing weights. Row 4 inverts the German end, and it does so on two
+blocks: `AGE` at n = 5 in de-grascco, which §9.4 flags sparse and says not to table at all,
+and `CONTACT` at n = 1 in es-carmen. **So the honest statement is conditional: the ordering
+survives mix standardisation over every type where all five folds have tabulable gold, and
+does not survive one that admits two blocks of n = 5 and n = 1.** Both computations are kept.
+Neither is a headline — §9.3's headline is the aggregate `fully_covered` leak rate, and these
+are a sensitivity check on reading its *order* across corpora, which is not a thing the
+headline claims.
+
+**The prediction this section actually makes is still untested, and now the reason is
+measurable.** It is per-layer, and `complementarity.layers.covered` on the five arms is:
+
+| covered (`fully_covered`) | de-grascco | es-meddocan | es-carmen | en-deid | ko-surro |
+|---|---|---|---|---|---|
+| `context_cue` | 170 | 914 | 28 | 48 | **0** |
+| `regex_checksum` | 173 | 1639 | 501 | 26 | 38 |
+| `gazetteer` | **0** | 6 | **0** | **0** | **0** |
+| `tagger` | **0** | **0** | **0** | **0** | **0** |
+
+The 2026-08-24 precondition applies to every column: a layer at 0 spans has no sensitivity
+to measure, and availability is decided by the rule author rather than by the corpus. `tagger`
+is 0 in all five, `gazetteer` is 0 in four of five and at 6 in the fifth, and **`context_cue`
+— the layer the whole prediction is about — is 0 on `ko-surro`**. So no pair of these five
+arms admits a per-layer realisation comparison, and the one that would have been sharpest is
+blocked on the Korean arm's rule file rather than on anything about Korean. `en-deid` is also
+the only arm where context cues out-supply regexes (48 against 26), which is what the high
+end of axis 1 should look like and is one arm's draw.
+
+#### Which types a cross-corpus per-type table may be read across — decided 2026-10-02
+
+The five dev folds give a 10 × 5 table. Most of its cells are not comparable to each other,
+and the table is only safe to publish with the comparability rule next to it. Cells are
+`gold`/`leaked` and `fully_covered` leak rate; `*` marks §9.4 sparse (n ≤ 8); the percentage
+is the type's share of that fold's in-scope gold.
+
+| type | de-grascco | es-meddocan | es-carmen | en-deid | ko-surro |
+|---|---|---|---|---|---|
+| AGE | 5/5 1.000\* (1.2%) | 521/63 0.121 (9.9%) | 159/25 0.157 (11.1%) | 4/1 0.250\* (1.1%) | 3/3 1.000\* (0.9%) |
+| CONTACT | 11/7 0.636 (2.7%) | 272/14 0.051 (5.2%) | 1/0 0.000\* (0.1%) | 13/5 0.385 (3.6%) | 13/13 1.000 (4.1%) |
+| DATE | 221/57 0.258 (53.9%) | 724/196 0.271 (13.8%) | 1013/647 0.639 (70.9%) | 101/93 0.921 (28.1%) | 87/82 0.943 (27.3%) |
+| ID | 11/9 0.818 (2.7%) | 745/495 0.664 (14.2%) | 57/57 1.000 (4.0%) | — | — |
+| LOCATION_AREA | 26/11 0.423 (6.3%) | 1334/937 0.702 (25.4%) | 51/51 1.000 (3.6%) | 75/73 0.973 (20.9%) | 10/10 1.000 (3.1%) |
+| LOCATION_STREET | 9/6 0.667 (2.2%) | 434/184 0.424 (8.3%) | 6/6 1.000\* (0.4%) | — | — |
+| NAME | 116/64 0.552 (28.3%) | 1000/837 0.837 (19.0%) | 35/7 0.200 (2.4%) | 165/112 0.679 (46.0%) | 158/158 1.000 (49.5%) |
+| ORGANISATION | 11/11 1.000 (2.7%) | 214/206 0.963 (4.1%) | 88/88 1.000 (6.2%) | — | 48/15 0.312 (15.0%) |
+| OTHER | — | 6/6 1.000\* (0.1%) | 7/7 1.000\* (0.5%) | 1/1 1.000\* (0.3%) | — |
+| PROFESSION | — | 4/4 1.000\* (0.1%) | 12/12 1.000 (0.8%) | — | — |
+
+A pair of cells in one row may be compared only if **all five** conditions hold. They are
+independent, and failing one is enough:
+
+1. **Tabulable gold on both sides** — n > 8 per §9.4. The scorer's `sparse` flag is computed
+   over the scored fold and not corpus-wide, which is not a defect of either: after a seal,
+   corpus-wide n is not computable outside `run_sealed_eval.py`, so the fold is the only
+   denominator a dev metrics file can have. Read the flag as fold-sparse.
+2. **The type is instantiated in both references.** A dash is not a zero leak rate; it is a
+   type the reference never uses. `ID` and `LOCATION_STREET` are absent from both English and
+   Korean, `ORGANISATION` from English, `OTHER` and `PROFESSION` from most.
+3. **Both references draw the type's boundary the same way.** §9.0's canonical mapping aligns
+   type *names*; it cannot align *scopes*, and nothing in this project has checked that it
+   does. One pair proves the failure by construction rather than by argument: `en-deid` and
+   `ko-surro` are the **same 485 dev documents**, and one reference labels
+   `ORGANISATION` 0 / `LOCATION_AREA` 75 where the other labels them 48 / 10. No corpus
+   difference can account for that, so it is the mapping. `es-carmen`'s `NAME` fails this
+   condition for a different and already-recorded reason — the corpus has **zero
+   patient-name gold**, so its 35 `NAME` spans are a non-patient population and are not the
+   same quantity as the other four corpora's.
+4. **The references are the same kind.** Four are human gold; `ko-surro`'s is human-verified
+   silver (§9, 2026-09-22). Comparisons across that line survive as comparisons and not as
+   absolute levels.
+5. **The arms match.** Only de / en / ko are the same `porting` value at one call. Any cell
+   compared across the two Spanish arms also varies the arm.
+
+Applying the five:
+
+| type | comparable across | blocked by |
+|---|---|---|
+| **DATE** | all five (arm caveat on the two Spanish arms) | — |
+| **NAME** | de-grascco, es-meddocan, en-deid, ko-surro | (3) for es-carmen |
+| CONTACT | de-grascco, es-meddocan, en-deid, ko-surro | (1) for es-carmen (n = 1) |
+| ID | de-grascco, es-meddocan, es-carmen | (2) for en-deid, ko-surro |
+| LOCATION_STREET | de-grascco, es-meddocan | (1) for es-carmen, (2) for en-deid and ko-surro |
+| AGE | es-meddocan, es-carmen | (1) for the other three; and (5) for the pair that is left |
+| LOCATION_AREA | nothing | (3), demonstrated |
+| ORGANISATION | nothing | (3), same demonstration; (2) for en-deid |
+| OTHER | nothing | (3) **categorically** — a residual class holds whatever each guideline declined to name, so its content is corpus-specific by definition |
+| PROFESSION | nothing | (1) |
+
+**`DATE` is the only row readable across all five, and it is the row the hypothesis has
+least to say about.** The layer table grades structural form at sensitivity **none** — a date
+is shaped the same in a nursing note as in a discharge letter — so a 0.258 → 0.943 range
+across the five corpora is not a realisation effect. It is a statement about which *formats*
+each rule file's author anticipated, which is the author-availability axis the 2026-08-24
+block added and not either axis of the product. **`NAME` is the row the hypothesis is
+about**, it is readable across four, and §7.1's block below is where that reading is
+bounded. Nothing above licenses a per-type ranking of the five corpora; what it licenses is
+two rows, each with its own exclusion.
+
+#### `en-deid` × `ko-surro` is the one contrast with no corpus confound, and it is still not a test of the prediction — recorded 2026-10-02
+
+§6.5 decided this pair (option B, `en-deid` first) and the split derivation made the folds
+identical rather than merely comparable: the dev, test and train **document id sets are
+equal** — 485 / 484 / 1456 ids, 163 patient groups, 0 crossing. So the pair holds corpus,
+fold, document, patient, note type and register fixed and varies language. No other pair
+available here holds any of those but the last two.
+
+**What is comparable in the pair and what is not.** Document counts and span counts are;
+`spans_in_scope_per_1000_tokens` is **not**, because `tokenizer: "whitespace"` counts
+*eojeol* on `ko-surro` and *words* on `en-deid`, which are different units and not a
+different unit size. The caveat is pre-registered at §6.5 and §9.6, in
+`splits/ko-surro.json`'s `tokenizer_note`, and at `src/split.py`'s token-count site; it is
+cited here and deliberately not restated, so that there is one place to correct if it is ever
+wrong.
+
+**The references diverge on the same documents, and that is the one confound the pair cannot
+remove.** 359 in-scope dev gold spans against 319:
+
+| | AGE | CONTACT | DATE | LOCATION_AREA | NAME | ORGANISATION | OTHER | total |
+|---|---|---|---|---|---|---|---|---|
+| `en-deid` (human gold) | 4 | 13 | 101 | 75 | 165 | 0 | 1 | 359 |
+| `ko-surro` (verified silver) | 3 | 13 | 87 | 10 | 158 | 48 | 0 | 319 |
+
+`LOCATION_AREA` + `ORGANISATION` is 75 against 58, and the split between the two labels is
+almost disjoint across the pair — which is condition (3) of the block above failing where no
+other explanation is available. Subsetting does not repair it, because the types are both
+present on both sides; it is the boundary that moves. `ko-surro`'s own qualifier runs the
+other way and is quantified: its reference is the surrogate tool's output after human
+verification at precision 1.000 and recall 0.907 / 0.967, and **59 human gold spans (3.3%)
+were never tagged by the tool**, so they are absent from the Korean denominator. Spans too
+hard for the tool are the ones most likely to be leaked, so the measured Korean leak rate is
+if anything an **under**-statement — the direction is favourable to the comparison below
+rather than against it.
+
+**On the two rows that pass the conditions, the pair agrees with the prediction where the
+prediction is weakest and disagrees where it is strongest.**
+
+| | `en-deid` | `ko-surro` | gap |
+|---|---|---|---|
+| aggregate | 0.794 | 0.881 | 0.087 |
+| `DATE` (101 / 87) | 0.921 | 0.943 | 0.022 |
+| `CONTACT` (13 / 13) | 0.385 | 1.000 | 0.615 |
+| `NAME` (165 / 158) | 0.679 | **1.000** | **0.321** |
+
+§7 predicts that English nursing notes behave like Korean because the capitalisation cue is
+unrealised, and the layer table says the cue acts through `context_cue`, which is the layer
+`NAME` depends on. `DATE` — sensitivity **none**, so predicted alike for reasons unrelated to
+realisation — comes out alike, 2.2 points apart. `NAME` comes out 32.1 points apart, with
+English detecting a third of the names Korean leaks entirely. The aggregate hides this: it
+puts the pair adjacent, and the adjacency is carried by `DATE` and `LOCATION_AREA`, not by
+the type the mechanism names.
+
+**Two readings survive and this block does not choose between them.** Either English nursing
+notes retain more usable name cues than the axis-2 table's "cue unrealised" row allows — in
+which case the row is too strong and the product's English end needs re-describing — or the
+Korean arm simply did not write the layer. The second is not speculation: `ko-surro`'s
+`context_cue` coverage is **0**, every one of its 38 covered spans came from
+`regex_checksum`, and `en-deid`'s `context_cue` covered 48. Under the 2026-08-24 precondition
+a comparison of a layer one side does not populate is not admissible, so the pair does not
+decide it. **The cleanest contrast this corpus set can produce is therefore still not a test
+of §7's prediction, and what blocks it is upstream of the corpora** — one rule file's
+contents.
+
+**What would decide it is cheap and is named here rather than left implicit:** a second arm
+on `ko-surro` whose rule file populates `context_cue` at all, after which the pair's `NAME`
+row becomes a per-layer comparison between two populated layers on identical documents. That
+is one call on a corpus already held and split, and it is worth more to §7 than any further
+arm on the other four. It is not an acquisition, so it does not change §7.1's prescription.
+
 ### 7.1 The product hypothesis has an untested cell
 
 The hypothesis above is a product, but it is only tested in the cells the corpora
@@ -6161,6 +6474,60 @@ later without redoing a split.
 
 The prescription is unchanged: a second Spanish register is what closes the interior, and
 `en-deid` populates an end.
+
+#### The operative count is 2 at the ends; the interaction is still 1, and the per-layer form is 1 and unreported — recorded 2026-10-02
+
+The 2026-08-27 block fixed the operative value of "at most two cells" at **1**, with the
+English end contingent and the interior impossible. Three things have happened since and the
+sentence needs restating rather than replacing, because the bound was never the number of
+populated cells.
+
+**Every value of axis 1 now carries a scored arm.** English 0.794 (`en-deid`, human
+reference, so the 2026-08-27 "populated by a silver measurement" qualifier does not apply),
+Spanish 0.560 and 0.630, German 0.415, Korean 0.881 — the five-aggregate block above §7.1
+has the table and the four reasons nothing is attributed across it. **So item (i) is done:
+the operative count at the ends is 2**, by measurement and not by projection, and without
+MIMIC-III. The 2026-09-21 block pre-registered that and it has now run.
+
+**The interaction is still checkable in one cell, and the cell is thinner than it looked.**
+Axis-2 variation inside one corpus, at one language and one rule file, is measured in exactly
+one place: de-grascco's `by_document_type`. On the dev fold that is **19 documents, 17
+labelled, six of eight labels populated at 2–13 documents each, overlapping at 2.0 labels per
+document**, with two labels at `null`. The whole-corpus counts of 30 / 25 / 24 that the §7
+prose calls "large enough to compare" are not what any arm reports; the fold is. Item (ii) —
+English *within-corpus* axis-2 variation — remains unpopulated and still needs MIMIC-III,
+because the `en-deid` release is nursing-only.
+
+**What is new in kind is a clean instrument for the other marginal.** The five-corpus
+ordering varies axis 1 across five different document sets, so every corpus difference rides
+along with it. The `en-deid` × `ko-surro` pair varies axis 1 across **identical document
+ids** at fixed note type, which is the axis-1 marginal measured the way the axis-2 marginal
+is measured within GraSCCo. So each marginal now has one instrument, and **the interaction
+has neither of them: no cell in this corpus set varies both axes.** That is the same bound as
+2026-08-27 stated differently and with the instruments named.
+
+**The sharp per-layer form of the prediction is admissible in one cell and is not reported
+there.** Across arms it is admissible in none — `tagger` is 0 in all five, `gazetteer` in
+four of five, and `ko-surro`'s `context_cue` is 0, so the 2026-08-24 precondition fails on
+every cross-arm pair. Within de-grascco it does not fail: one arm, one rule file, so layer
+availability is identical across document types by construction, and both `context_cue`
+(170) and `regex_checksum` (173) are populated. The data to do it exists —
+`spans.jsonl` carries `layer` per span, `config/document_types.yaml` carries the labels — but
+`by_document_type` has no layer axis, so the cut is computable and uncomputed. Whether to
+add one is a schema question and is **not decided here**; what is decided is that the claim
+"the per-layer prediction is testable within GraSCCo" is currently true of the data and false
+of the output.
+
+**The one admissible cell is the one the hypothesis expects least from.** It is the
+low-baseline cell, whose axis-2 row says there is "little for note type to modulate". The
+measured dev spread over six labels is 29.9 points, which is recorded above as a width and
+not as an effect. Taking the two together: the only place the sharp prediction can be tested
+is the place the hypothesis predicts the smallest effect in, and the corpus whose note types
+would modulate most — authentic Spanish clinical notes — is the one whose labels turned out
+to be unit kinds. **The prescription is unchanged and is now tested once: es-carmen is the
+acquisition that looked like it would close §7.1 and did not.** A second Spanish register at
+fixed language still closes it. The one cheap thing that is not an acquisition is in the pair
+block above — an arm on `ko-surro` that populates `context_cue`.
 
 ### 7.2 Meddies-PII is cited, not used — decided 2026-09-17
 
