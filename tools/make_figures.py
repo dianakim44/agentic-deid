@@ -32,14 +32,16 @@ load-bearing anywhere.
 
 Usage
 -----
-    python tools/make_figures.py [--out DIR] [--captions]
+    python tools/make_figures.py [--out DIR]
 
 Default output directory is `~/Desktop/figures` — outside the repository,
 because figures built from DUA-covered corpora are not committed (CLAUDE.md).
 
-The captions are in the manuscript, so a default run does not write a second
-copy of them: `--captions` re-derives the draft when a caption's numbers need
-checking against the files.
+This file draws figures and writes no caption prose. The captions are in the
+manuscript, and a second copy of them here would drift from it the moment
+either was edited; what replaces that copy is `tools/check_manuscript_numbers.py`,
+which reads the manuscript's captions and tables and checks their numbers
+against these same files.
 """
 
 from __future__ import annotations
@@ -47,7 +49,6 @@ from __future__ import annotations
 import argparse
 import json
 import re
-import textwrap
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -85,12 +86,6 @@ DISPLAY_NAME = {
     "en-deid": "Nursing notes (en)",
     "ko-surro": "Nursing notes (ko)",
 }
-
-#: Manuscript sections the captions cite. The figures and their captions go to a
-#: reader who has the paper and not this repository, so `docs/DESIGN.md` numbers do
-#: not appear in either; these two were given with the figure brief.
-PAPER_SECTION_SINGLE_DIFFERENCE = "§2.7"
-PAPER_SECTION_CONDITIONS = "§2.9"
 
 MM = 1 / 25.4
 
@@ -135,11 +130,6 @@ def check_display_names() -> None:
 def template_glob(template: str) -> str:
     """`results/{corpus}/{detector}/...` -> `results/*/*/...` for discovery."""
     return re.sub(r"\{[a-z_]+\}", "*", template)
-
-
-def rules_version(mapping: dict) -> str:
-    """`{'es': 8}` -> `8 (es)` — a version and its language, no repository id."""
-    return " · ".join(f"{v} ({lang})" for lang, v in sorted(mapping.items()))
 
 
 def load_json(path: Path) -> dict:
@@ -576,149 +566,11 @@ def save(fig, out: Path, stem: str) -> None:
     plt.close(fig)
 
 
-def captions(out: Path, f1: dict, f2: dict, f3: dict) -> None:
-    """Write the caption drafts, which is **not** part of a default run.
-
-    The captions are in the manuscript now, and a second copy drifts from the
-    first the moment either is edited. This stays reachable behind `--captions`
-    for one use: re-deriving every number a caption states from the files, so a
-    caption in the manuscript can be checked against them rather than trusted.
-    The prose here is a draft of record, not the live text.
-    """
-    kinds = sorted(set(f2["reference"].values()))
-    silver = [k for k in kinds if k != HUMAN_REFERENCE]
-    silver_corpora = [c for c, k in f2["reference"].items() if k != HUMAN_REFERENCE]
-    off_arm = [c for c, p in f2["porting"].items() if p != f2["modal_porting"]]
-    multi_call = [c for c, n in f2["calls"].items() if n > 1]
-    dropped_sparse = [t for t, why in f3["dropped"] if why.startswith("sparse")]
-    dropped_absent = [t for t, why in f3["dropped"] if not why.startswith("sparse")]
-
-    order = " < ".join(f"{display(c)} {f2['fc'][c]:.3f}" for c in f2["order"])
-
-    # The marks are drawn in the figure and explained only here. Which corpus each
-    # one landed on came out of the records, so these sentences follow the data.
-    mark_notes = []
-    if "†" in f2["marks"]:
-        mark_notes.append(
-            f"† the single-call port on {display(f2['marks']['†'])} has a "
-            "different prompt history from the other four."
-        )
-    if "‡" in f2["marks"]:
-        corpus = f2["marks"]["‡"]
-        mark_notes.append(
-            f"‡ {display(corpus)} was prompted once per language, "
-            f"{f2['calls'][corpus]} calls in all, so its cost differs from the rest."
-        )
-
-    text = f"""# Caption drafts
-
-Drafted by `tools/make_figures.py`; every number below is read from the same
-files the figures are drawn from. Leak rate is `{HEADLINE_MODE}` unless the
-sentence says `{BOUND_MODE}`, which is reported beside it as a lower bound. No
-figure carries an explanatory title: what a figure means is said here.
-
-## Figure 1
-
-**Leak rate over the rounds of the iterating port on {display(f1['corpus'])},
-against the two points that bound its reading.** {f1['rounds']} rounds on the
-development fold ({f1['dev_n']} in-scope gold spans), ending at rule version
-{rules_version(f1['rules_version'])}: solid line and filled circles for
-`{HEADLINE_MODE}`, dotted line and open squares for `{BOUND_MODE}`. Leak rate
-falls from {f1['round1_fc']:.3f} to {f1['final_fc']:.3f}
-({f1['final_rx']:.3f} `{BOUND_MODE}`) and stops at the pre-registered ceiling of
-{f1['rounds']} rounds, not at convergence. The open triangle is the
-single-call port on the same fold, {f1['oneshot_fc']:.3f}: its prompt bytes were
-identical to those of round 1, so the bracket between the two points is one
-observed difference, {f1['difference']:.3f} at n = 2
-({PAPER_SECTION_SINGLE_DIFFERENCE}). It is a single observation and not an
-estimate of run-to-run spread, which is why it is drawn between those two points
-only and not as a band over the series; a round-to-round change no larger than it
-is not read as an improvement. The star is the sealed test fold, scored once with
-the round-{f1['rounds']} rules: {f1['sealed_fc']:.3f} over {f1['sealed_n']} spans
-({f1['sealed_rx']:.3f} `{BOUND_MODE}`), {abs(f1['sealed_fc'] - f1['final_fc']):.3f}
-from the development value the rules were selected on. Development values guided
-rule development throughout; the test fold was opened once, for the starred point.
-
-## Figure 2
-
-**One single-call port per corpus, in ascending leak rate, and what differs
-along with it.** Development-fold leak rate:
-{order}. Bars are `{HEADLINE_MODE}`; open diamonds are `{BOUND_MODE}`, the lower
-bound, shown as points because they are a bound and not an interval. Each tick
-carries its denominator, which runs from {min(f2['n'].values())} to
-{max(f2['n'].values())} in-scope gold spans, a factor of
-{max(f2['n'].values()) / min(f2['n'].values()):.1f}. Hatching marks the kind of
-reference: {' and '.join(display(c) for c in silver_corpora)} is
-{silver[0] if silver else 'n/a'}, the other
-{len(f2['order']) - len(silver_corpora)} are {HUMAN_REFERENCE}, and a difference
-in reference kind blocks the comparison at every type and not only at some
-({PAPER_SECTION_CONDITIONS}, condition 4). The marked ticks are differences in
-the port itself: {' '.join(mark_notes)} The
-ordering is reported, and nothing
-in it is attributed to language or to note type: the ports, the denominators and
-the reference kinds all vary with it, and the conditions under which two of these
-numbers may be compared are in {PAPER_SECTION_CONDITIONS}.
-
-## Figure 3
-
-**The round-{f3['rounds']} rules on the development fold and on the sealed test
-fold of {display(f3['corpus'])}, by PHI type.** Open circles are the development
-fold, filled crosses the sealed test fold; numbers under each type give
-development / test gold spans. {len(f3['kept'])} of
-{len(f3['kept']) + len(f3['dropped'])} types are shown. Omitted:
-{', '.join(dropped_sparse)} — too few gold spans on at least one fold to table
-per type{' — and ' + ', '.join(dropped_absent) + ', absent from one fold'
-    if dropped_absent else ''}. Omitted types remain in the leak-rate denominator
-of both folds and are left out of this figure only. The heavy line is the largest
-movement, {f3['focus']}: {f3['dev'][f3['focus']]:.3f} on development against
-{f3['test'][f3['focus']]:.3f} on test
-({f3['test'][f3['focus']] - f3['dev'][f3['focus']]:+.3f}) on
-{f3['gold'][f3['focus']][0]} / {f3['gold'][f3['focus']][1]} gold spans. The rules
-were written against development-fold errors, and this is the type where that
-selection transferred least; the other {len(f3['kept']) - 1} types move
-{max(abs(f3['test'][t] - f3['dev'][t]) for t in f3['kept'] if t != f3['focus']):.3f}
-or less.
-
----
-
-**Figure files.** `figure1_port_loop_trajectory`,
-`figure2_five_corpora_oneshot`, `figure3_dev_vs_sealed_by_type`, each as `.pdf`
-(vector) and `.png` (300 dpi). Greyscale fills, hatching, dash patterns and
-markers carry every distinction; colour carries none.
-
-**Cross-references to check before submission.**
-{PAPER_SECTION_SINGLE_DIFFERENCE} (the single observed difference) and
-{PAPER_SECTION_CONDITIONS} (the five comparability conditions) are used as given.
-Two rules are stated in words here because their section numbers were not
-supplied: that `{HEADLINE_MODE}` is the headline leak rate with `{BOUND_MODE}` as
-its lower bound, and that a type with too few gold spans is left out of per-type
-tables while staying in the denominator.
-"""
-    (out / "captions.md").write_text(rewrap(text))
-
-
-def rewrap(text: str, width: int = 80) -> str:
-    """Reflow the caption paragraphs: the drafts are read and edited as prose, and
-    the line breaks of the template above are an artefact of the template."""
-    blocks = []
-    for block in text.split("\n\n"):
-        if block.startswith("#") or block.strip() == "---":
-            blocks.append(block)
-        else:
-            blocks.append(textwrap.fill(" ".join(block.split()), width=width))
-    return "\n\n".join(blocks)
-
-
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument(
         "--out", default=str(Path.home() / "Desktop" / "figures"),
         help="output directory; defaults outside the repository (CLAUDE.md)",
-    )
-    ap.add_argument(
-        "--captions", action="store_true",
-        help="also write captions.md; off by default because the captions live "
-             "in the manuscript and two copies drift apart",
     )
     args = ap.parse_args()
     out = Path(args.out).expanduser()
@@ -736,11 +588,8 @@ def main() -> None:
     f1 = figure_one(paths, out)
     f2 = figure_two(paths, out)
     f3 = figure_three(paths, out)
-    if args.captions:
-        captions(out, f1, f2, f3)
 
-    print(f"wrote 3 figures (pdf + png 300dpi"
-          f"{' and captions.md' if args.captions else ''}) to {out}")
+    print(f"wrote 3 figures (pdf + png 300dpi) to {out}")
     print(f"  fig 1: {f1['corpus']} {f1['porting']}, {f1['rounds']} rounds, "
           f"difference {f1['difference']:.3f}, sealed {f1['sealed_fc']:.3f}")
     print(f"  fig 2: {', '.join(f2['order'])}")
