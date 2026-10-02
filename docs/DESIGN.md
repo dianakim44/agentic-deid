@@ -6330,11 +6330,46 @@ decide it. **The cleanest contrast this corpus set can produce is therefore stil
 of §7's prediction, and what blocks it is upstream of the corpora** — one rule file's
 contents.
 
-**What would decide it is cheap and is named here rather than left implicit:** a second arm
-on `ko-surro` whose rule file populates `context_cue` at all, after which the pair's `NAME`
-row becomes a per-layer comparison between two populated layers on identical documents. That
-is one call on a corpus already held and split, and it is worth more to §7 than any further
-arm on the other four. It is not an acquisition, so it does not change §7.1's prescription.
+**What would decide it is one call on a corpus already held and split:** a second arm on
+`ko-surro` whose rule file populates `context_cue` at all, after which the pair's `NAME` row
+becomes a per-layer comparison between two populated layers on identical documents. **That
+arm is not run, and the block below says why** — the cheapness is real and is not the whole
+of the question.
+
+#### `ko-surro`'s empty `context_cue` is the 2026-08-24 precondition observed, and forcing it would be a new arm — decided 2026-10-02
+
+The pair block above ends on an arm that would cost one call. It is **not run**, and the
+reason is that the zero is a result rather than a gap.
+
+**What the zero is.** On 2026-08-24 this section attached a precondition to its own
+prediction: a layer at 0 spans has no sensitivity to measure, availability is decided by the
+rule author and not by the corpus, and the prediction is therefore testable only across arms
+whose rule files populate the layer being compared. That was written from an arm where
+`gazetteer` was ≈ 0 for three rounds — a case where the layer later filled, so the
+precondition was stated about a transient. `ko-surro`'s `context_cue` = 0 is the same
+precondition **observed where it does not fill**: a single-call arm, on the one language whose
+orthography supplies no case distinction at all, produced no context-cue rule that fires, and
+all 38 of its covered spans came from `regex_checksum`. The possibility was pre-registered
+and it has now happened, which is the strongest form in which a pre-registration can be
+discharged. Recording it as an outcome is worth more than deleting it with a second call.
+
+**Why the second call would not be the same measurement.** Populating the layer means
+changing what the model is asked for, and §5's convention is unambiguous about what that is:
+a revised prompt gets a new `porting` value — the `port-oneshot-nofence` precedent of
+2026-08-11 and its two later applications. So an arm instructed to write context-cue rules is
+not `port-oneshot` on `ko-surro`; it is a **different arm**, and its `NAME` row would not be
+comparable with `en-deid`'s `port-oneshot` row, which is the comparison the pair exists for.
+Condition (5) of the comparability block above would fail by construction. The cheap call
+buys a populated layer and spends the one thing that made the pair clean.
+
+**What this does and does not leave open.** It does not weaken the pair's reading: the two
+readings in the block above stay open, and this block adds that the second of them —
+"the Korean arm did not write the layer" — is itself a finding about what a one-shot port
+produces at zero baseline availability, not a defect to be repaired before the pair can be
+reported. It does leave the per-layer `NAME` comparison unmade, and that is **future work**,
+stated as what it needs: an arm pair at matched `porting` values where both sides populate
+`context_cue`, which is a prompt-design question for a later rung and not a missing call in
+this one. Nothing above changes §7.1's prescription, which is an acquisition.
 
 ### 7.1 The product hypothesis has an untested cell
 
@@ -6513,10 +6548,32 @@ every cross-arm pair. Within de-grascco it does not fail: one arm, one rule file
 availability is identical across document types by construction, and both `context_cue`
 (170) and `regex_checksum` (173) are populated. The data to do it exists —
 `spans.jsonl` carries `layer` per span, `config/document_types.yaml` carries the labels — but
-`by_document_type` has no layer axis, so the cut is computable and uncomputed. Whether to
-add one is a schema question and is **not decided here**; what is decided is that the claim
-"the per-layer prediction is testable within GraSCCo" is currently true of the data and false
-of the output.
+`by_document_type` has no layer axis, so the cut is computable and uncomputed. What is
+recorded is that the claim "the per-layer prediction is testable within GraSCCo" is currently
+true of the data and false of the output.
+
+**A layer axis inside `by_document_type` is refused, and schema stays 10 — decided
+2026-10-02.** The obvious repair is a document-type × layer cross inside the block, at schema
+11. It is not made, for four reasons in descending order of weight. **First, it raises the
+global schema version for an axis inside a block that four of the five arms do not have** —
+and the decision at the end of §7 above has just declined to make that block more widely
+available, on grounds that are about the corpora and not about the schema. A version number
+that advances for a field only one file carries makes every other file's version claim
+something it cannot show. **Second, nothing is lost by not writing it:** `spans.jsonl` carries
+`layer` per span and `config/document_types.yaml` carries the labels at a recorded version, so
+the cut is derivable by the reporting layer, which is where §9.3 puts the choice of what to
+show. **Third, the cross is mostly structurally empty and the emptiness is ambiguous.** Eight
+labels plus `unlabelled`, times four layers, times two modes, on a fold where two labels have
+no document and two layers have no spans: a reader meeting an empty cell cannot tell "this
+label is absent from the fold" from "this layer is absent from the arm" from "this layer
+covered nothing here", and those are three different facts — the first two are not about
+detection at all. **Fourth, the 2026-08-24 obligation is currently met and the cross would
+make it per-cell.** Availability has to be reported beside per-layer recall; at fold level
+`complementarity.layers.covered` does that in one place, and multiplying it by nine label rows
+creates nine places where it could go silently unmet. **What would change this** is the same
+condition as the `ko-surro` block above: a corpus supplying note-type variation at a baseline
+where more than two layers are populated. Until then the cut is a reporting-layer act on
+existing files, and the schema does not move for it.
 
 **The one admissible cell is the one the hypothesis expects least from.** It is the
 low-baseline cell, whose axis-2 row says there is "little for note type to modulate". The
@@ -6526,8 +6583,10 @@ is the place the hypothesis predicts the smallest effect in, and the corpus whos
 would modulate most — authentic Spanish clinical notes — is the one whose labels turned out
 to be unit kinds. **The prescription is unchanged and is now tested once: es-carmen is the
 acquisition that looked like it would close §7.1 and did not.** A second Spanish register at
-fixed language still closes it. The one cheap thing that is not an acquisition is in the pair
-block above — an arm on `ko-surro` that populates `context_cue`.
+fixed language still closes it. The one cheap thing that is not an acquisition — an arm on
+`ko-surro` that populates `context_cue` — is **not** the shortcut it looks like: the block
+above §7.1 records why it is a different arm rather than the same measurement, and the zero
+it would overwrite is this section's own precondition observed.
 
 ### 7.2 Meddies-PII is cited, not used — decided 2026-09-17
 
