@@ -6220,9 +6220,13 @@ A pair of cells in one row may be compared only if **all five** conditions hold.
 independent, and failing one is enough:
 
 1. **Tabulable gold on both sides** — n > 8 per §9.4. The scorer's `sparse` flag is computed
-   over the scored fold and not corpus-wide, which is not a defect of either: after a seal,
-   corpus-wide n is not computable outside `run_sealed_eval.py`, so the fold is the only
-   denominator a dev metrics file can have. Read the flag as fold-sparse.
+   over the scored fold and §9.4 says corpus-wide, and the gap is **not** forced by the seal:
+   each `splits/{corpus}.json` carries `totals.spans_by_phi_type` over all folds, frozen
+   before sealing, so the corpus-wide denominator is in the repository and readable from
+   `src/` without touching sealed text. Which denominator §9.4 means is therefore an open
+   decision and not a limitation (the two readings disagree on six of the nine flagged cells
+   across these five arms, and on nothing that is computed). Until it is taken, **read the
+   flag as fold-sparse**, because that is what the code writes.
 2. **The type is instantiated in both references.** A dash is not a zero leak rate; it is a
    type the reference never uses. `ID` and `LOCATION_STREET` are absent from both English and
    Korean, `ORGANISATION` from English, `OTHER` and `PROFESSION` from most.
