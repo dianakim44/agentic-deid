@@ -2080,6 +2080,56 @@ def test_the_pin_corrects_the_named_span_and_records_it(tmp_path, monkeypatch):
     assert doc.spans[0].surface == doc.text[38:40]
 
 
+def test_the_correction_reaches_the_split_file_and_not_only_the_loader_s_meta(
+    tmp_path, monkeypatch
+):
+    """The audit route, put back on a synthetic tree after the seal took the real one.
+
+    What `meta["surface_corrected_spans"]` is *for* is one hop further on:
+    `src/split.py`'s narrative copies it into
+    `corpus_specific.surface_corrected_spans`, which is where `splits/es-carmen.json`
+    names one document and one span index. That is the whole of the claim "a correction
+    only the loader's source states is one no result file can be audited against" — the
+    result file is the split file, and the test above stops at the loader.
+
+    Written on 2026-10-02, because the 279-mutation full run of 2026-10-01 found
+    `carmen_correction_not_recorded` surviving with one killer where two are required.
+    Both lost killers read the correction off the real pinned document, which went behind
+    the seal with it on 2026-10-01; the replacement that still touches the key asserts
+    that the visible corpus corrects *nothing*, and an equality against `{}` is satisfied
+    by a loader that records nothing. The floor was not what was wrong, so the floor is
+    not what moved.
+
+    `_carmen_narrative` is called directly, the way `tests/test_split_file.py` calls
+    `split._achieved` for the same reason, and `units` is handed over rather than derived:
+    `grouping()` would pull `grouping_audit` into a test that has nothing to say about it,
+    and one mutation lives in there.
+    """
+    monkeypatch.setattr(
+        "src.corpora.carmen.KNOWN_SURFACE_DEFECTS",
+        {(DEFECT_DOC, 1): ("FECHAS", DATE_START, DATE_END)},
+    )
+    root = defect_root(
+        tmp_path,
+        lines=[
+            ann_line("T1", "EDAD_SUJETO_ASISTENCIA", 38, 40, SYNTHETIC_TEXT[38:40]),
+            date_line(tag_id="T2", surface="99/99/9999"),
+        ],
+    )
+    loader = loader_on(root)
+    docs = loader.load()
+    narrative = split._carmen_narrative(docs, [[DEFECT_DOC]], loader)
+    assert narrative["corpus_specific"]["surface_corrected_spans"] == {DEFECT_DOC: [1]}
+
+    # The control, and it is labelled one because it is the shape that failed: a document
+    # the loader did not correct must leave the block empty, and *this* assertion cannot
+    # catch a loader that stopped recording. It says the block is derived rather than
+    # constant; the assertion above is the one that says it is derived from the loader.
+    clean = loader_on(write_root(tmp_path / "clean"))
+    narrative = split._carmen_narrative(clean.load(), [["CARMEN-I_IR_1"]], clean)
+    assert narrative["corpus_specific"]["surface_corrected_spans"] == {}
+
+
 def test_a_mismatch_the_pin_does_not_name_raises(tmp_path, monkeypatch):
     """One span is excused; the second mismatch in the same document is still an error."""
     monkeypatch.setattr(
