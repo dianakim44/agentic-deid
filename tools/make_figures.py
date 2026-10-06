@@ -71,6 +71,7 @@ import json
 import re
 import sys
 from dataclasses import dataclass
+from decimal import ROUND_HALF_UP, Decimal
 from pathlib import Path
 
 import matplotlib
@@ -96,9 +97,20 @@ BOUND_MODE = "relaxed"
 
 #: `splits/*.json` records `corpus_specific.reference` only where the reference is
 #: not purely human — ko-surro's `human-verified silver` is the one case (DESIGN
-#: §6.5 (v), §9.3). Absence of the key is therefore the human-gold case, and this
-#: is a label for the legend, not a measured value.
-HUMAN_REFERENCE = "human gold"
+#: §6.5 (v), §9.3). Absence of the key is therefore the human case, and this is the
+#: id that stands for the absence, not a label.
+HUMAN_REFERENCE = "human"
+
+#: Reference-kind labels for Figure 5a's legend, exactly as the manuscript writes
+#: them. The third table of the same shape as `DISPLAY_NAME` and `LAYER_DISPLAY`,
+#: for the third reason: `human-verified silver` is the repository's word for what
+#: the manuscript calls `human-verified tool output`, and a legend drawn straight
+#: from the recorded string put the repository's vocabulary in a figure (rule 3 in
+#: the module docstring). `reference_display()` refuses a kind that is not a key.
+REFERENCE_DISPLAY = {
+    HUMAN_REFERENCE: "human reference",
+    "human-verified silver": "human-verified tool output",
+}
 
 #: Corpus labels for drawn text and captions, exactly as the manuscript's Table 1
 #: writes them. **This is the only place a corpus label is spelled out**, and it is
@@ -198,6 +210,18 @@ def display(corpus: str) -> str:
         ) from None
 
 
+def reference_display(kind: str) -> str:
+    """The manuscript's label for a recorded reference kind, or a refusal."""
+    try:
+        return REFERENCE_DISPLAY[kind]
+    except KeyError:
+        raise SystemExit(
+            f"no manuscript label for reference kind {kind!r}; add it to "
+            "REFERENCE_DISPLAY in this file (it is the one place labels are "
+            "written). The kind comes from a split's `corpus_specific.reference`."
+        ) from None
+
+
 def layer_display(layer: str) -> str:
     """The manuscript's label for a layer id, or a refusal naming the id."""
     try:
@@ -207,6 +231,34 @@ def layer_display(layer: str) -> str:
             f"no manuscript label for layer id {layer!r}; add it to LAYER_DISPLAY "
             "in this file (it is the one place labels are written)"
         ) from None
+
+
+#: A fixed-point format spec, which is the only kind `fixed()` can round half-up.
+FIXED_SPEC = re.compile(r"\.(\d+)f$")
+
+
+def fixed(value: float, spec: str = ".3f") -> str:
+    """A drawn number, rounded half-up rather than half-to-even.
+
+    `format()` sends an exact half to the even neighbour, so ko-surro's recorded
+    ORGANISATION leak rate of 0.3125 prints 0.312 on a figure and 0.313 in the
+    manuscript, and the two then disagree over a rounding convention rather than
+    over a measurement. Every number drawn in these figures goes through here,
+    and it is the same rule as `half_up()` in
+    `tools/check_manuscript_numbers.py` -- that tool reads the manuscript, so if
+    the two conventions differed the checker would report the figures' own
+    arithmetic as the draft's error.
+    """
+    m = FIXED_SPEC.search(spec)
+    if m is None:
+        raise SystemExit(
+            f"fixed() rounds fixed-point specs ending in .Nf; got {spec!r}. A "
+            "spec it cannot round half-up must not be used for a drawn number."
+        )
+    quantum = Decimal(1).scaleb(-int(m.group(1)))
+    # Quantize the Decimal and format *it*: a round-trip through float could
+    # land on the wrong side of the quantum it was just moved onto.
+    return format(Decimal(repr(float(value))).quantize(quantum, ROUND_HALF_UP), spec)
 
 
 def label_lines(label: str) -> tuple[str, str]:
@@ -247,6 +299,18 @@ def check_layer_series() -> None:
                 f"layers declared in config/naming.yaml with no entry in {what}: "
                 + ", ".join(missing)
             )
+
+
+def check_reference_kinds() -> None:
+    """Every reference kind a frozen split records must have a label here.
+
+    The kinds are not a `naming.yaml` axis, so the check is against the splits
+    themselves. It runs before anything is drawn because Figure 5 is drawn last:
+    a kind with no label would otherwise refuse after three figures were already
+    written, and a half-rendered set is worse than none.
+    """
+    for path in sorted((REPO / "splits").glob("*.json")):
+        reference_display(reference_kind(path.stem))
 
 
 def check_residual_type() -> None:
@@ -517,7 +581,7 @@ def figure_two(paths: dict, out: Path) -> dict:
             markersize=19, markerfacecolor=SEALED_COLOUR,
             markeredgecolor="black", markeredgewidth=1.0,
             label=f"sealed test fold (round-{loop.n} rules)", zorder=5)
-    ax.annotate(f"{sealed_fc:.3f}", xy=(sealed_x, sealed_fc),
+    ax.annotate(fixed(sealed_fc), xy=(sealed_x, sealed_fc),
                 xytext=(sealed_x - 0.25, sealed_fc + 0.085), fontsize=8.5,
                 ha="center",
                 arrowprops=dict(arrowstyle="-", linewidth=0.7, color="0.35",
@@ -531,7 +595,7 @@ def figure_two(paths: dict, out: Path) -> dict:
     for y in (lo, hi):
         ax.plot([brx, brx + cap], [y, y], color=WORSE, linewidth=1.4, zorder=3)
     ax.annotate(
-        f"identical prompt bytes,\ntwo runs: Δ = {delta:.3f} (n = 2)",
+        f"identical prompt bytes,\ntwo runs: Δ = {fixed(delta)} (n = 2)",
         xy=(brx, hi), xytext=(xs[0] + 0.15, hi + 0.055),
         fontsize=8.5, color=WORSE, ha="left", va="bottom",
         arrowprops=dict(arrowstyle="-", linewidth=1.0, color=WORSE, shrinkB=2),
@@ -562,7 +626,16 @@ def figure_two(paths: dict, out: Path) -> dict:
     ax.set_ylim(0, max(fc + [single_fc]) + 0.18)
     ax.grid(axis="y", linestyle="-", linewidth=0.5, color="0.88")
     ax.set_axisbelow(True)
-    ax.legend(fontsize=8.5, loc="upper right", framealpha=1.0)
+    # The arrows are annotations, so they bring no legend entry of their own and
+    # the panel had none; a reader saw four arrows and no statement of what made
+    # those four rounds different. One entry covers both directions, because the
+    # claim is the same one either way -- the pair at n = 2 can tell this change
+    # from nothing -- and the direction is readable off the arrowhead.
+    handles, labels = ax.get_legend_handles_labels()
+    if loop.resolved:
+        handles.append(Line2D([], [], color=BETTER, linewidth=1.4))
+        labels.append("resolved change, |γ| > Δ")
+    ax.legend(handles, labels, fontsize=8.5, loc="upper right", framealpha=1.0)
     ax.annotate("a", xy=(0.0, 1.0), xycoords="axes fraction",
                 xytext=(-42, 10), textcoords="offset points",
                 fontsize=13, fontweight="bold")
@@ -688,7 +761,7 @@ def figure_three(paths: dict, out: Path) -> dict:
         if t in resolved:
             ax.plot([dv, tv], [y, y], color=WORSE if diffs[t] > 0 else BETTER,
                     linewidth=3.0, solid_capstyle="butt", zorder=2)
-            ax.annotate(f"{diffs[t]:+.3f}", xy=(max(dv, tv), y),
+            ax.annotate(fixed(diffs[t], "+.3f"), xy=(max(dv, tv), y),
                         xytext=(8, 0), textcoords="offset points",
                         va="center", fontsize=9, fontweight="bold",
                         color=WORSE if diffs[t] > 0 else BETTER)
@@ -706,7 +779,7 @@ def figure_three(paths: dict, out: Path) -> dict:
     ):
         ax.axvline(rate, color=colour, linestyle=":", linewidth=1.3, zorder=1)
         # Above the top row: the y axis is inverted, so that is the low end.
-        ax.annotate(f"{name} {rate:.3f}", xy=(rate, -0.62),
+        ax.annotate(f"{name} {fixed(rate)}", xy=(rate, -0.62),
                     xytext=(-3 if side == "right" else 3, 3),
                     textcoords="offset points",
                     ha=side, va="bottom", fontsize=8.5, color=colour)
@@ -748,7 +821,7 @@ def figure_three(paths: dict, out: Path) -> dict:
         colour = BETTER if d < 0 else (WORSE if d > delta else WITHIN)
         bx.barh(y, d, height=0.62, color=colour, edgecolor="black",
                 linewidth=0.6, zorder=3)
-        bx.annotate(f"{d:+.3f}", xy=(d, y),
+        bx.annotate(fixed(d, "+.3f"), xy=(d, y),
                     xytext=(5 if d >= 0 else -5, 0), textcoords="offset points",
                     ha="left" if d >= 0 else "right", va="center", fontsize=9,
                     fontweight="bold" if t in resolved else "normal",
@@ -819,7 +892,7 @@ def figure_four(paths: dict, out: Path) -> dict:
             marker="^", markersize=12, color="black", label="single call", zorder=4)
 
     ax.annotate(
-        f"cost parity: round 1 is\n{loop.delta:.3f} worse than the\nsingle call",
+        f"cost parity: round 1 is\n{fixed(loop.delta)} worse than the\nsingle call",
         xy=(cumulative[0], fc[0]),
         xytext=(cumulative[0] * 1.6, fc[0] - 0.26),
         fontsize=8.5, ha="left",
@@ -833,11 +906,11 @@ def figure_four(paths: dict, out: Path) -> dict:
     for total, colour, side, text in (
         (published, "0.35", "right",
          f"{published['llm_calls']:,} calls\n"
-         f"{tokens(published) / tokens(baseline):,.0f}× tokens"),
+         f"{fixed(tokens(published) / tokens(baseline), ',.0f')}× tokens"),
         (actual, WORSE, "left",
          None if actual is None else
          f"{actual['llm_calls']:,} incl.\nabandoned\n"
-         f"({tokens(actual) / tokens(baseline):,.0f}×)"),
+         f"({fixed(tokens(actual) / tokens(baseline), ',.0f')}×)"),
     ):
         if total is None:
             continue
@@ -847,10 +920,22 @@ def figure_four(paths: dict, out: Path) -> dict:
                     xytext=(-5 if side == "right" else 5, -2),
                     textcoords="offset points", fontsize=8.5, color=colour,
                     ha=side, va="top")
-    if actual is not None:
-        ax.set_xlim(right=actual["llm_calls"] * 2.4)
-
+    # The scale goes on *before* the limits. `set_xlim(right=...)` on a linear
+    # axis keeps the left bound it already has and turns x autoscaling off, and
+    # the left bound a linear autoscale puts under data starting at 1 is
+    # negative (-125.75 here, a 5% margin on the 1..2,536 range). `set_xscale`
+    # does not recompute a bound that autoscaling no longer owns, so the axis
+    # kept a non-positive left limit, the log transform masked everything below
+    # the first decade, and all eight rounds and the single call drew in a
+    # sliver at the right edge. Both bounds are therefore given here, after the
+    # scale, and they are multiples of the drawn values rather than round
+    # numbers: 1 / 1.7 clears the single call off the spine and 2,536 x 1.4
+    # leaves the "incl. abandoned" label its line to sit against.
     ax.set_xscale("log")
+    reach = [cumulative[-1], baseline["llm_calls"]]
+    if actual is not None:
+        reach.append(actual["llm_calls"])
+    ax.set_xlim(min(cumulative[0], baseline["llm_calls"]) / 1.7, max(reach) * 1.4)
     ax.set_xlabel("cumulative model calls (log scale)")
     ax.set_ylabel(f"leak rate, {HEADLINE_MODE}")
     ax.set_ylim(0, top * 1.14)
@@ -902,7 +987,7 @@ def figure_four(paths: dict, out: Path) -> dict:
         kept_total = sum(y["with_flag"] for y in yielded.values())
         bx.annotate(
             f"{kept_total:,} / {calls:,} calls\nreturned a surviving\n"
-            f"flag ({100.0 * kept_total / calls:.1f}%)",
+            f"flag ({fixed(100.0 * kept_total / calls, '.1f')}%)",
             xy=(1.0, 1.0), xycoords="axes fraction", xytext=(-6, -6),
             textcoords="offset points", ha="right", va="top", fontsize=8.5,
         )
@@ -1046,7 +1131,7 @@ def figure_five(paths: dict, out: Path) -> dict:
         ax.plot([x], [arm.leak(BOUND_MODE)], linestyle="none", marker="D",
                 markersize=7, markerfacecolor="white", markeredgecolor="black",
                 markeredgewidth=1.3, zorder=4)
-        ax.text(x, arm.leak() + 0.022, f"{arm.leak():.3f}", ha="center",
+        ax.text(x, arm.leak() + 0.022, fixed(arm.leak()), ha="center",
                 va="bottom", fontsize=9)
 
     ax.set_xticks(xs)
@@ -1058,7 +1143,7 @@ def figure_five(paths: dict, out: Path) -> dict:
     ax.legend(
         handles=[
             Patch(facecolor=BAR_FILL, edgecolor="black", hatch=hatch_for[k],
-                  label=f"{HEADLINE_MODE}, {k}")
+                  label=f"{HEADLINE_MODE}, {reference_display(k)}")
             for k in kinds
         ] + [
             Line2D([], [], linestyle="none", marker="D", markerfacecolor="white",
@@ -1159,11 +1244,11 @@ def figure_five(paths: dict, out: Path) -> dict:
                         fontsize=8, color="0.55", zorder=3)
             else:
                 value = cell["leak_rate"]
-                cx.text(col, row, f"{value:.3f}", ha="center", va="center",
+                cx.text(col, row, fixed(value), ha="center", va="center",
                         fontsize=9, zorder=3,
                         color="white" if value > 0.72 else "black")
 
-    # The column whose reference is not human gold is boxed and said to be so,
+    # The column whose reference is not human is boxed and said to be so,
     # because every comparison across that boundary is a comparison of kinds.
     for col, arm in enumerate(arms):
         if refs[arm.corpus] == HUMAN_REFERENCE:
@@ -1235,6 +1320,7 @@ def main() -> None:
 
     check_display_names()
     check_layer_series()
+    check_reference_kinds()
     check_residual_type()
     paths = naming()["paths"]
     plt.rcParams.update({
@@ -1256,12 +1342,12 @@ def main() -> None:
 
     print(f"wrote 4 figures (pdf + png 300dpi) to {out}")
     print(f"  fig 2: {f2['corpus']}, {f2['rounds']} rounds, "
-          f"Δ {f2['delta']:.3f}, arrows at rounds {f2['resolved']}, "
+          f"Δ {fixed(f2['delta'])}, arrows at rounds {f2['resolved']}, "
           f"layers {', '.join(f2['layers'])}")
     print(f"  fig 3: {len(f3['kept'])} types, {len(f3['dropped'])} omitted, "
           f"resolved movement: {', '.join(f3['resolved']) or 'none'}")
     print(f"  fig 4: {f4['rounds_audited']} rounds audited, "
-          f"{f4['token_multiple']:,.0f}× published tokens"
+          f"{fixed(f4['token_multiple'], ',.0f')}× published tokens"
           f"{'' if f4['log_read'] else ' (no call log on this filesystem)'}")
     print(f"  fig 5: {', '.join(f5['order'])}; "
           f"extent-marked {', '.join(f5['extent_marked']) or 'none'} "

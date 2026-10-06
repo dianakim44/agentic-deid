@@ -172,7 +172,9 @@ for i, (k, v) in enumerate(secs):
 
 doc(0.75, 2.75, w=0.38, h=0.48, col=C_AGENT_E)
 ax.text(1.3, 3.03, "rules/{lang}.yaml", fontsize=8.6, fontweight="bold", va="center")
-ax.text(1.3, 2.8, "pattern · context cue · gazetteer", fontsize=7.8, va="center", color="#444444")
+# The same three words as the layer boxes below and as `LAYER_DISPLAY`; this was
+# the one place in the figure still naming them its own way (v16).
+ax.text(1.3, 2.8, "pattern rules · context cues · gazetteer", fontsize=7.8, va="center", color="#444444")
 
 # ---------------- centre: deterministic pipeline ----------------
 box(5.0, 2.55, 6.0, 4.55, "#F7FAFD", C_DET_E, lw=1.5, ls=(0, (5, 3)))
