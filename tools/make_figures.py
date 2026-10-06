@@ -41,8 +41,8 @@ supervision, porting) are discovered by globbing those templates and read back
 out of each file's own `run` block.
 
 Figure 1 is the architecture diagram. It carries no measured value, so it is not
-built here, and the script that draws it is not in this repository — the author
-holds it, and `tools/arch.py` is where it goes when it arrives.
+built here: `tools/arch_figure.py` draws it, reads nothing, and writes beside
+these four.
 
 Colour is load-bearing in these figures, which is a change from their greyscale
 predecessors: the layer palette is shared across Figures 2b and 5b so that a
@@ -114,15 +114,31 @@ DISPLAY_NAME = {
     "ko-surro": "Nursing notes (ko)",
 }
 
-#: The `layer` axis of `config/naming.yaml` against the words the manuscript uses
-#: for each layer, and the colour and marker each keeps across Figures 2b and 5b.
-#: Same guard as `DISPLAY_NAME`: `check_layer_series()` refuses a key the axis does
-#: not declare, so a renamed layer fails here instead of vanishing from a legend.
+#: Layer labels for drawn text and legends, exactly as the manuscript writes them.
+#: The same arrangement as `DISPLAY_NAME`, for the same reason: **this is the only
+#: place a layer label is spelled out**, the keys are `config/naming.yaml`'s `layer`
+#: axis values, those ids stay the vocabulary everywhere else (CLAUDE.md), and
+#: `layer_display()` refuses an id that is not a key rather than inventing a label.
+#: Figure 1's boxes say these same four words (`tools/arch_figure.py`), which is the
+#: reason this table is worth having: in v14 the two figures sat in one manuscript
+#: calling the last layer `learned tagger` and `Tagger`.
+LAYER_DISPLAY = {
+    "regex_checksum": "pattern rules",
+    "context_cue": "context cues",
+    "gazetteer": "gazetteer",
+    "tagger": "tagger",
+}
+
+#: The colour and marker each layer keeps across Figures 2b and 5b, so that a layer
+#: holds its appearance between them. Separate from the labels above so that a label
+#: is written once; the iteration order is the order the series are drawn in.
+#: `check_layer_series()` holds both tables to the axis, so a renamed layer fails
+#: here instead of vanishing from a legend.
 LAYER_SERIES = {
-    "context_cue": ("context cues", "#E09B2D", "s"),
-    "gazetteer": ("gazetteer", "#13A07A", "D"),
-    "regex_checksum": ("pattern rules", "#1B6CA8", "o"),
-    "tagger": ("learned tagger", "#7B4EA3", "^"),
+    "context_cue": ("#E09B2D", "s"),
+    "gazetteer": ("#13A07A", "D"),
+    "regex_checksum": ("#1B6CA8", "o"),
+    "tagger": ("#7B4EA3", "^"),
 }
 
 #: The rest of the palette. `WORSE` marks movement in the wrong direction and
@@ -135,6 +151,13 @@ BETTER = "#13A07A"
 WITHIN = "#7F7F7F"
 SEALED_COLOUR = "#E8A33D"
 BAR_FILL = "#C3D7E8"
+
+#: The font stack, in preference order, shared with `tools/arch_figure.py` so that
+#: Figure 1 and Figures 2-5 are set in one face. Arial is the manuscript's; the
+#: other two are the metric-compatible substitutes that Linux and matplotlib's own
+#: bundle supply, so a machine without Arial renders at the same widths rather
+#: than at the same name.
+FONT_STACK = ["Arial", "Liberation Sans", "DejaVu Sans"]
 
 #: Figure 5c marks a type whose extents differ between two references that were
 #: applied to **the same documents**. Two corpora qualify when their frozen folds
@@ -175,6 +198,17 @@ def display(corpus: str) -> str:
         ) from None
 
 
+def layer_display(layer: str) -> str:
+    """The manuscript's label for a layer id, or a refusal naming the id."""
+    try:
+        return LAYER_DISPLAY[layer]
+    except KeyError:
+        raise SystemExit(
+            f"no manuscript label for layer id {layer!r}; add it to LAYER_DISPLAY "
+            "in this file (it is the one place labels are written)"
+        ) from None
+
+
 def label_lines(label: str) -> tuple[str, str]:
     """`GraSCCo (de)` -> `('GraSCCo', '(de)')`, for a tick that must stay narrow."""
     m = re.match(r"^(.*?)\s+(\(.*\))$", label)
@@ -193,20 +227,26 @@ def check_display_names() -> None:
 
 
 def check_layer_series() -> None:
-    """Same guard for the layer palette, against the `layer` axis."""
+    """Same guard for the layer tables, against the `layer` axis.
+
+    Both of them: a label with no series would draw nothing and a series with no
+    label would draw with no legend entry, and neither failure names itself.
+    """
     declared = set(naming()["axes"]["layer"])
-    unknown = sorted(set(LAYER_SERIES) - declared)
-    if unknown:
-        raise SystemExit(
-            "LAYER_SERIES keys that are not layers in config/naming.yaml: "
-            + ", ".join(unknown)
-        )
-    missing = sorted(declared - set(LAYER_SERIES))
-    if missing:
-        raise SystemExit(
-            "layers declared in config/naming.yaml with no series in this file: "
-            + ", ".join(missing)
-        )
+    for what, table in (("LAYER_DISPLAY", LAYER_DISPLAY),
+                        ("LAYER_SERIES", LAYER_SERIES)):
+        unknown = sorted(set(table) - declared)
+        if unknown:
+            raise SystemExit(
+                f"{what} keys that are not layers in config/naming.yaml: "
+                + ", ".join(unknown)
+            )
+        missing = sorted(declared - set(table))
+        if missing:
+            raise SystemExit(
+                f"layers declared in config/naming.yaml with no entry in {what}: "
+                + ", ".join(missing)
+            )
 
 
 def check_residual_type() -> None:
@@ -542,9 +582,9 @@ def figure_two(paths: dict, out: Path) -> dict:
     drawn = [layer for layer, counts in series.items() if any(counts)]
     drawn.sort(key=lambda layer: series[layer][-1], reverse=True)
     for layer in drawn:
-        label, colour, marker = LAYER_SERIES[layer]
+        colour, marker = LAYER_SERIES[layer]
         bx.plot(bxs, series[layer], color=colour, marker=marker, markersize=6,
-                linewidth=1.8, label=label, zorder=3)
+                linewidth=1.8, label=layer_display(layer), zorder=3)
 
     if loop.regression is not None:
         r = loop.regression
@@ -569,13 +609,13 @@ def figure_two(paths: dict, out: Path) -> dict:
         }
         driver = max(per_type, key=lambda t: per_type[t])
         bx.annotate(
-            f"{LAYER_SERIES[late][0]} step\n"
+            f"{layer_display(late)} step\n"
             f"{series[late][at - 1]} → {series[late][at]}\n"
             f"({per_type[driver]} {driver})",
             xy=(at, series[late][at]), xytext=(at + 0.5, series[late][at] + gain * 1.5),
-            fontsize=8.5, color=LAYER_SERIES[late][1], ha="left",
+            fontsize=8.5, color=LAYER_SERIES[late][0], ha="left",
             arrowprops=dict(arrowstyle="->", linewidth=0.9,
-                            color=LAYER_SERIES[late][1], shrinkB=5),
+                            color=LAYER_SERIES[late][0], shrinkB=5),
         )
 
     bx.set_xlabel("round $t$")
@@ -1038,11 +1078,11 @@ def figure_five(paths: dict, out: Path) -> dict:
     drawn = [layer for layer, v in shares.items() if any(v)]
     width = 0.8 / len(drawn)
     for i, layer in enumerate(drawn):
-        label, colour, _ = LAYER_SERIES[layer]
+        colour, _ = LAYER_SERIES[layer]
         offset = (i - (len(drawn) - 1) / 2) * width
         bx.bar([x + offset for x in xs], shares[layer], width=width * 0.92,
-               color=colour, edgecolor="black", linewidth=0.7, label=label,
-               zorder=3)
+               color=colour, edgecolor="black", linewidth=0.7,
+               label=layer_display(layer), zorder=3)
 
     # The corpus whose rule file contained no rule of a layer is pointed at, and
     # which corpus that is comes off the records.
@@ -1051,7 +1091,7 @@ def figure_five(paths: dict, out: Path) -> dict:
         if len(empty) == 1:
             i = empty[0]
             bx.annotate(
-                f"no {LAYER_SERIES[layer][0].rstrip('s')}\nrules written",
+                f"no {layer_display(layer)}\nwritten",
                 xy=(xs[i] + (drawn.index(layer) - (len(drawn) - 1) / 2) * width, 0),
                 xytext=(-26, 86), textcoords="offset points",
                 fontsize=8.5, ha="center",
@@ -1198,6 +1238,11 @@ def main() -> None:
     check_residual_type()
     paths = naming()["paths"]
     plt.rcParams.update({
+        # The same list, in the same order, as `tools/arch_figure.py`: matplotlib
+        # takes the first family it can resolve, so a machine with Arial renders
+        # all five figures in one face and a machine with none of the three falls
+        # back once rather than per figure. It warns when it falls back.
+        "font.family": FONT_STACK,
         "font.size": 9.5,
         "axes.linewidth": 0.8,
         "pdf.fonttype": 42,  # embed TrueType rather than Type 3
@@ -1221,9 +1266,9 @@ def main() -> None:
     print(f"  fig 5: {', '.join(f5['order'])}; "
           f"extent-marked {', '.join(f5['extent_marked']) or 'none'} "
           f"from {'/'.join(f5['shared_fold_pair']) if f5['shared_fold_pair'] else 'no shared fold'}")
-    arch = REPO / "tools" / "arch.py"
+    arch = REPO / "tools" / "arch_figure.py"
     print(f"  fig 1 is the architecture diagram; "
-          f"{'tools/arch.py draws it' if arch.exists() else 'nothing here draws it'}")
+          f"{'tools/arch_figure.py draws it' if arch.exists() else 'nothing here draws it'}")
 
 
 if __name__ == "__main__":

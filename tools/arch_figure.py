@@ -34,7 +34,11 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from matplotlib.patches import FancyBboxPatch, FancyArrowPatch, Circle, Rectangle, Polygon
 
-plt.rcParams["font.family"] = "Liberation Sans"
+# The same list, in the same order, as `tools/make_figures.py`'s `FONT_STACK`:
+# matplotlib takes the first family it can resolve, so Figure 1 and Figures 2-5
+# are set in one face on any machine that has any of the three. Arial is the
+# manuscript's; the other two are metric-compatible substitutes.
+plt.rcParams["font.family"] = ["Arial", "Liberation Sans", "DejaVu Sans"]
 
 ap = argparse.ArgumentParser(description=__doc__)
 ap.add_argument(
@@ -176,7 +180,10 @@ ax.text(8.0, 6.85, "Deterministic detection and scoring", fontsize=12, fontweigh
         ha="center", va="center")
 
 ax.text(5.25, 6.42, "1) Layered detection", fontsize=9.5, fontweight="bold", va="center")
-layers = [("Pattern", "#FFFFFF", "-"), ("Context\ncue", "#FFFFFF", "-"),
+# The manuscript's words for the four layers, which is what `LAYER_DISPLAY` in
+# tools/make_figures.py spells for Figures 2b and 5b. Capitalised here because
+# these are box labels and lower case there because those are legend entries.
+layers = [("Pattern\nrules", "#FFFFFF", "-"), ("Context\ncues", "#FFFFFF", "-"),
           ("Gazetteer", "#FFFFFF", "-"), ("Tagger\n(not run)", "#F2F2F2", (0, (3, 2)))]
 for i, (nm, fc, ls) in enumerate(layers):
     x = 5.25 + i * 1.12
