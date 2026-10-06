@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Check a manuscript draft's numbers against the files they were taken from.
 
-This reads a draft and writes nothing to it. It parses the `Figure captions`
-section and Tables 1 through 7, pulls the numbers out of them, reads the same
-`metrics.json` files and frozen `splits/{corpus}.json` files the figures are
+This reads a draft and writes nothing to it. It parses Tables 1 through 7 and
+the appendix's Tables A.1 and A.2, and the captions of the figures that state a
+measured number, pulls the numbers out of them, reads the same `metrics.json`
+files, frozen `splits/{corpus}.json` files and call records the figures are
 drawn from, and prints **only disagreements**. A clean run prints the number of
 checks and nothing else.
 
@@ -23,28 +24,40 @@ Four rules govern it:
    counted, and a table, column, row or caption phrase the parser cannot find
    is reported as UNCHECKED rather than skipped. A reworded caption therefore
    shows up instead of quietly passing.
-4. **A value read from a denied path is compared and never printed.** Table 4's
-   numbers come from the Auditor's reports, which `tools/release_screen.py`
-   denies by name because on a DUA corpus such a report is a map of the
-   identifiers a round failed to mask. The reports are read where they were
-   produced, outside git; a disagreeing cell is reported as disagreeing and the
-   file's own number is withheld. See `audit_report()`.
+4. **A value read from a denied path is compared and never printed.** Two paths
+   are denied by `tools/release_screen.py` and feed two tables. Table 5 comes
+   from the Auditor's reports, denied by name because on a DUA corpus such a
+   report is a map of the identifiers a round failed to mask. Table 4's last
+   row comes from the arm's call log, denied because an agent prompt carries
+   development text. Both are read where they were produced, outside git; a
+   disagreeing cell is reported as disagreeing and the file's own number is
+   withheld. The rule is keyed on the **path** and not on what a particular
+   field holds, so that it does not have to be re-argued field by field. See
+   `audit_report()` and `check_table_five()`.
 
-Derived columns (Table 1's `Gain`, Table 3's `Difference`) are checked as
-arithmetic over the two recorded values, since the repository stores the
-values and not their difference. A layer the tables give no column to is
-checked as the claim it makes — that the layer covered nothing — so that
-dropping a column cannot quietly drop a contribution.
+Derived columns are checked as arithmetic over the recorded values, since the
+repository stores the values and not their differences or ratios: Table 2's
+`Gain`, Table 3's `Difference`, Table 4's two multiples, and Table 1's `Docs`,
+which counts documents before split construction and so adds back the records
+the frozen file records as carrying no reference. A layer the tables give no
+column to is checked as the claim it makes — that the layer covered nothing —
+so that dropping a column cannot quietly drop a contribution.
 
-What this does **not** cover: nothing in the running prose is checked, only the
-seven tables and the three captions. Silence from this tool says nothing about
-the prose. Table 4 is checked only where the Auditor's reports are on disk; a
-clone of this public repository does not have them and gets UNCHECKED rows
-instead of silence.
+What this does **not** cover. Nothing in the running prose is checked, only the
+nine tables and the three captions; silence from this tool says nothing about
+the prose, and in v14 the termination reason and the pre-registered ceiling are
+prose, so they are no longer checked here. Figures 1 and 4 state no measured
+number in their captions and have no check. Table 1's `Source` column is prose,
+and its `Lang.` column is used to tell the two nursing-note rows apart and is
+checked only for how many languages it names (`config/naming.yaml` spells
+Catalan `cat` and the manuscript `ca`, so the strings are not compared). Tables
+4 and 5 are checked only where the denied paths are on disk; a clone of this
+public repository does not have them and gets UNCHECKED rows instead of
+silence.
 
 Usage
 -----
-    python tools/check_manuscript_numbers.py ~/Desktop/aiim-draft-v11.md
+    python tools/check_manuscript_numbers.py ~/Desktop/aiim-draft-v14.md
 
 Exit status is 1 if anything mismatched or could not be checked, so it can be
 run before a submission the way `release_screen.py` is run before a commit.
@@ -70,6 +83,8 @@ from make_figures import (  # noqa: E402  (same directory, shared loaders)
     HUMAN_REFERENCE,
     REPO,
     Arm,
+    Loop,
+    call_log_total,
     check_display_names,
     discover,
     label_lines,
@@ -77,9 +92,10 @@ from make_figures import (  # noqa: E402  (same directory, shared loaders)
     naming,
     one,
     reference_kind,
+    tokens,
 )
 
-#: The column headers of Tables 2 and 7 against the `layer` axis of
+#: The column headers of Tables A.1 and A.2 against the `layer` axis of
 #: `config/naming.yaml`. The manuscript names the layers in prose and the files
 #: name them by id; this is the one place the two are paired, and
 #: `check_layer_columns()` refuses an id the axis does not declare, the same
@@ -90,7 +106,7 @@ LAYER_COLUMN = {
     "Pattern rules": "regex_checksum",
 }
 
-#: Table 4's column headers against the Auditor report's own fields. Every value
+#: Table 5's column headers against the Auditor report's own fields. Every value
 #: behind this mapping is withheld from the output (rule 4 above).
 AUDIT_COLUMN = {
     "Flags kept": ("counts", "flags"),
@@ -130,18 +146,36 @@ def manuscript_path(raw: str) -> Path:
     return path
 
 
+#: Everything a word processor puts between digits that is not a digit. The
+#: draft's typeset tables separate thousands with a thin space after the comma,
+#: so `5,{U+2006}254` has to read as 5254 and not as two numbers.
+SPACES = re.compile(r"[\s\u00a0\u2000-\u200a\u202f\u205f\u3000]+")
+
+
 def normalise(cell: str) -> str:
-    """Strip markdown emphasis and unify the dashes a word processor inserts."""
+    """Strip markdown emphasis and unify what a word processor inserts.
+
+    Four classes of substitution, all of them the converter's artefacts and
+    none of them the draft's content: emphasis and code marks, the backslashes
+    pandoc puts before a markdown metacharacter (`LOCATION\\_AREA`), the `<sub>`
+    and `<sup>` tags a subscript becomes (`*F*<sub>1</sub>` is the column named
+    `F1`), and the several Unicode spaces a typeset number carries.
+    """
     text = cell.replace("*", "").replace("`", "").strip()
+    text = re.sub(r"\\([_*#\[\]\\])", r"\1", text)      # pandoc's escapes
+    text = re.sub(r"</?su[bp]>", "", text)              # subscripts, superscripts
     text = text.replace("−", "-")                       # minus sign
     text = text.replace("–", "-").replace("—", "-")  # en, em dash
-    text = text.replace(" ", " ")                       # non-breaking space
-    return text.strip()
+    return SPACES.sub(" ", text).strip()
 
 
-def table_rows(text: str, number: int) -> list[list[str]] | None:
-    """The pipe table that follows `**Table N.**`, as rows of cleaned cells."""
-    anchor = re.search(rf"^\*\*Table {number}\.\*\*", text, re.MULTILINE)
+def table_rows(text: str, number: int | str) -> list[list[str]] | None:
+    """The pipe table that follows `**Table N.**`, as rows of cleaned cells.
+
+    `number` is a string for the appendix, whose tables are `A.1` and `A.2`.
+    """
+    anchor = re.search(rf"^\*\*Table {re.escape(str(number))}\.\*\*",
+                       text, re.MULTILINE)
     if anchor is None:
         return None
     rows = []
@@ -159,14 +193,22 @@ def table_rows(text: str, number: int) -> list[list[str]] | None:
 
 
 def caption(text: str, number: int) -> str | None:
-    """The body of `**Fig. N.**` inside the `Figure captions` section."""
-    section = re.search(r"^## Figure captions$(.*?)(?=^## |\Z)", text,
-                        re.MULTILINE | re.DOTALL)
-    if section is None:
+    """The paragraph that begins `**Fig. N.**`, wherever in the draft it sits.
+
+    v14 places each caption with its figure rather than collecting them in a
+    `Figure captions` section, so only the anchor is located and the caption is
+    read to the end of its paragraph. That works for either layout: a heading
+    or another caption after this one is a blank line away.
+    """
+    anchor = re.search(rf"^\*\*Fig\. {number}\.\*\*", text, re.MULTILINE)
+    if anchor is None:
         return None
-    block = re.search(rf"\*\*Fig\. {number}\.\*\*(.*?)(?=\*\*Fig\. |\Z)",
-                      section.group(1), re.DOTALL)
-    return normalise(block.group(1)) if block else None
+    body: list[str] = []
+    for line in text[anchor.end():].split("\n"):
+        if not line.strip():
+            break
+        body.append(line)
+    return normalise(" ".join(body))
 
 
 # --------------------------------------------------------------------------- #
@@ -198,7 +240,10 @@ class Report:
 
         The draft rounds; the files do not. Reading the cell's decimal places
         off the cell is what lets 0.154 and 0.15355… agree while 0.155 does not,
-        without a tolerance chosen here.
+        without a tolerance chosen here. A cell with no decimal point states a
+        whole number and is compared as one, so Table 4's `1,022×` agrees with
+        a ratio of 1022.04; counts are exact in the files, so nothing is
+        loosened by that.
 
         `withhold` says the file value came from a denied path: the comparison
         happens, the disagreement is reported, and the number is not printed.
@@ -211,7 +256,7 @@ class Report:
             self.opaque(where, what, cell)
             return
         said, decimals = value
-        rounded = half_up(found, decimals) if decimals is not None else float(found)
+        rounded = half_up(found, decimals or 0)
         self.checks += 1
         if abs(said - rounded) <= tolerance + 1e-12:
             return
@@ -221,7 +266,8 @@ class Report:
                 f"(value withheld: it is read from a denied path)"
             )
             return
-        shown = f"{rounded:.{decimals}f}" if decimals is not None else f"{rounded:,}"
+        shown = (f"{rounded:.{decimals}f}" if decimals is not None
+                 else f"{int(rounded):,}")
         self.mismatches.append(
             f"MISMATCH   {where} · {what} · draft {cell} · files {shown}"
         )
@@ -247,8 +293,14 @@ def half_up(value: float | int, decimals: int) -> float:
 
 
 def parse_number(cell: str) -> tuple[float, int | None] | None:
-    """`'-0.0384'` -> `(-0.0384, 4)`; `'3,132'` -> `(3132.0, None)`."""
-    text = cell.replace(",", "").replace("%", "").strip()
+    """`'-0.0384'` -> `(-0.0384, 4)`; `'3,132'` -> `(3132.0, None)`.
+
+    The thousands separator, the percent sign and Table 4's multiplication sign
+    are notation; the spaces come from a typeset number whose separator is a
+    comma followed by a thin space (see `normalise`).
+    """
+    text = cell.replace(",", "").replace("%", "").replace("×", "")
+    text = SPACES.sub("", text).strip()
     if not re.fullmatch(r"[+-]?\d+(\.\d+)?", text):
         return None
     decimals = len(text.split(".")[1]) if "." in text else None
@@ -343,7 +395,7 @@ def audit_report(s: Subject, iteration: int) -> dict | None:
     of the identifiers the round failed to mask, which is the most concentrated
     thing the loop produces, so `release_screen.py` denies it by name and it is
     never committed. A clone of this public repository therefore does not have
-    it, and `None` here means Table 4 cannot be checked rather than that it
+    it, and `None` here means Table 5 cannot be checked rather than that it
     agrees.
 
     Two consequences, both deliberate. The file is read **where it was
@@ -356,7 +408,7 @@ def audit_report(s: Subject, iteration: int) -> dict | None:
 
     Where a round was audited more than once this is the latest draw, which is
     what this path holds by design (DESIGN §5.5.2). The preserved copies at
-    `paths.auditdraw` are not read: the manuscript's table has one row per
+    `paths.auditdraw` are not read: the manuscript's Table 5 has one row per
     round, and that row is the round's canonical report.
     """
     path = REPO / s.paths["auditreport"].format(
@@ -383,7 +435,7 @@ def covered_by_layer(arm: Arm) -> dict:
 
 def check_covered_by_layer(place: str, cells: dict[str, str], covered: dict,
                            rep: Report) -> None:
-    """The layer columns shared by Tables 2 and 7, and the layers they omit.
+    """The layer columns shared by Tables A.1 and A.2, and the layers they omit.
 
     A table with no column for a layer asserts that the layer covered nothing;
     if it covered something, the table understates the arm. These are rule-only
@@ -411,8 +463,86 @@ def corpus_of_label(label: str) -> str | None:
     return None
 
 
+def corpus_of_row(name: str, lang: str) -> str | None:
+    """`('Nursing notes', 'en')` -> the corpus id.
+
+    Table 1 splits across two columns the label `corpus_of_label()` reads
+    whole. The name alone identifies the row wherever it is unique; the
+    language is consulted only where it has to be, for the two nursing-note
+    rows, which differ in nothing else. That keeps the language column
+    something the table *states* — and that `check_table_one()` checks the
+    count of — rather than something the row is found by, which would make the
+    check a restatement of the lookup.
+    """
+    names = [label_lines(label)[0] for label in DISPLAY_NAME.values()]
+    for corpus, label in DISPLAY_NAME.items():
+        first, second = label_lines(label)
+        if first != name:
+            continue
+        if names.count(first) == 1 or second.strip("()") == lang:
+            return corpus
+    return None
+
+
 def leak(arm: Arm, mode: str) -> dict:
     return arm.data["modes"][mode]["leak"]
+
+
+def split_record(corpus: str) -> dict:
+    return load_json(REPO / "splits" / f"{corpus}.json")
+
+
+def documents_before_split(split: dict) -> int:
+    """How many documents the corpus ships, which is not how many are in folds.
+
+    `source.n_documents` counts the documents the split was built over. The two
+    nursing corpora leave nine records outside every fold because those records
+    carry no reference at all, and Table 1 counts documents before split
+    construction, so the frozen file's own count of them is added back. Where a
+    corpus has no such records the key is absent and this is `source`'s count.
+    """
+    outside = split.get("corpus_specific", {}).get("n_records_without_reference", 0)
+    return int(split["source"]["n_documents"]) + int(outside)
+
+
+def named(cells: dict[str, str], prefix: str) -> str | None:
+    """A cell found by the start of its column header, not the whole of it.
+
+    Table 2's gain column is headed `Gain γ_t`. Matching the whole header would
+    put the symbol into the mapping and break on its typesetting; matching the
+    first word keeps the column identified by the word that names the quantity.
+    `None` means there is no such column, which is a gap and not a zero.
+    """
+    for column, cell in cells.items():
+        if column == prefix or column.startswith(prefix + " "):
+            return cell
+    return None
+
+
+def majority_word(header: list[str], body: list[list[str]], column: str) -> str:
+    """The word most rows carry in a column, which is what sets a row apart."""
+    words = [dict(zip(header, r)).get(column, "") for r in body]
+    return max(set(words), key=words.count) if words else ""
+
+
+def check_reference_kind(place: str, said: str, majority: str, corpus: str,
+                         rep: Report) -> None:
+    """A `Reference` column, checked as a distinction and not as a word.
+
+    Tables 1 and 6 both carry one and word them differently. Neither wording is
+    checked: what is checked is that exactly the corpora whose frozen split
+    records a non-human reference are the ones the column sets apart.
+    """
+    said_human = said == majority
+    is_human = reference_kind(corpus) == HUMAN_REFERENCE
+    rep.claim(place, "reference kind", said_human == is_human,
+              "the same kind as the majority" if said_human else "a kind of its own",
+              "a human reference" if is_human else "not a human reference")
+
+
+def loop_record(s: Subject) -> Loop:
+    """The iterating arm in the shape `make_figures` reads its call log with."""
+    return Loop(s.loop, s.baseline, s.rounds, s.sealed)
 
 
 # --------------------------------------------------------------------------- #
@@ -421,8 +551,74 @@ def leak(arm: Arm, mode: str) -> dict:
 
 
 def check_table_one(text: str, s: Subject, rep: Report) -> None:
+    """Table 1, from the frozen split files rather than from any arm's result.
+
+    This is the one table whose numbers predate every call: each cell is a
+    property of a corpus and its frozen split, so the source is
+    `splits/{corpus}.json` and nothing here reads `metrics.json`. The row is
+    identified by `Corpus`, and by `Lang.` only where the name is shared —
+    see `corpus_of_row()` for why not by both.
+    """
     where = "Table 1"
     rows = table_rows(text, 1)
+    if rows is None:
+        rep.gap(where, "table not found")
+        return
+    header, body = rows[0], rows[1:]
+    if len(body) != len(s.singles):
+        rep.gap(where, f"draft has {len(body)} corpora, the records hold "
+                       f"{len(s.singles)} single-call arms")
+    human_word = majority_word(header, body, "Reference")
+    langs = naming().get("corpus_rule_langs", {})
+
+    for row in body:
+        cells = dict(zip(header, row))
+        name, lang = cells.get("Corpus", ""), cells.get("Lang.", "")
+        corpus = corpus_of_row(name, lang)
+        if corpus is None:
+            rep.gap(where, f"a row names no corpus this project records "
+                           f"({len(name)} and {len(lang)} chars)")
+            continue
+        split, place = split_record(corpus), f"{where} · {corpus}"
+
+        rep.number(place, "documents before split construction",
+                   cells.get("Docs", ""), documents_before_split(split))
+        rep.number(place, "in-scope gold spans", cells.get("In-scope PHI", ""),
+                   split["totals"]["n_spans_in_scope"])
+        rep.number(place, "development in-scope gold", cells.get("Dev PHI", ""),
+                   split["folds"]["dev"]["n_spans_in_scope"])
+
+        # `500 / 250 / 250`, in the order the caption gives.
+        folds = ("train", "dev", "test")
+        said = [c.strip() for c in cells.get("Split", "").split("/")]
+        if len(said) != len(folds):
+            rep.gap(place, f"the split column gives {len(said)} folds, not "
+                           f"{len(folds)}")
+        else:
+            for fold, cell in zip(folds, said):
+                rep.number(place, f"{fold} documents", cell,
+                           split["folds"][fold]["n_documents"])
+
+        # The language strings are not compared — naming.yaml spells Catalan
+        # `cat` and the manuscript `ca` — but how many a row names is the
+        # claim that decides how many authoring calls its arm made.
+        declared = langs.get(corpus)
+        if not declared:
+            rep.gap(place, "config/naming.yaml declares no rule languages for it")
+        elif "Lang." not in cells:
+            rep.gap(place, "no column naming the languages")
+        else:
+            rep.number(place, "languages named",
+                       str(len([p for p in lang.split(",") if p.strip()])),
+                       len(declared))
+
+        check_reference_kind(place, cells.get("Reference", ""), human_word,
+                             corpus, rep)
+
+
+def check_table_two(text: str, s: Subject, rep: Report) -> None:
+    where = "Table 2"
+    rows = table_rows(text, 2)
     if rows is None:
         rep.gap(where, "table not found")
         return
@@ -454,8 +650,10 @@ def check_table_one(text: str, s: Subject, rep: Report) -> None:
 
         # The gain is a subtraction of two recorded rates; the files hold the
         # rates, so what is checked is the arithmetic.
-        gain = cells.get("Gain", "")
-        if index == 1:
+        gain = named(cells, "Gain")
+        if gain is None:
+            rep.gap(place, "no column for the gain over the previous round")
+        elif index == 1:
             rep.claim(place, "gain", gain in ABSENT_MARKERS, gain,
                       "round 1 has no previous round")
         else:
@@ -467,9 +665,9 @@ def check_table_one(text: str, s: Subject, rep: Report) -> None:
                    rule_count(s, index))
 
 
-def check_table_two(text: str, s: Subject, rep: Report) -> None:
-    where = "Table 2"
-    rows = table_rows(text, 2)
+def check_table_a_one(text: str, s: Subject, rep: Report) -> None:
+    where = "Table A.1"
+    rows = table_rows(text, "A.1")
     if rows is None:
         rep.gap(where, "table not found")
         return
@@ -505,9 +703,73 @@ def check_table_two(text: str, s: Subject, rep: Report) -> None:
 
 
 def check_table_four(text: str, s: Subject, rep: Report) -> None:
-    """Table 4, from the Auditor's reports, with every file value withheld."""
+    """Table 4, whose last row comes from the arm's call log.
+
+    Three configurations, in the order the figure's cost axis puts them:
+    the single call, the published arm, and the published arm plus what the
+    attempts that died spent. The third is **not** in any `metrics.json`:
+    `abandoned_spend` was added after round 5's two dead attempts, so the arm's
+    own record understates the abandoned calls, and the only complete route is
+    the summation over `agent_calls.jsonl` that `call_log_total()` does. That
+    path is denied, so every value on that row is compared and withheld
+    (rule 4) — the leak rate excepted, which is the arm's own result and not
+    the log's.
+
+    The `Configuration` column is prose, so the rows are read in order rather
+    than by what they are called. A reordered table reports four disagreements,
+    which is the right answer to a table that reports the published arm's calls
+    against the single call's.
+    """
     where = "Table 4"
     rows = table_rows(text, 4)
+    if rows is None:
+        rep.gap(where, "table not found")
+        return
+    header, body = rows[0], rows[1:]
+
+    baseline = s.baseline.data["cost"]
+    configurations = [
+        ("the single call", baseline, s.baseline.leak(HEADLINE_MODE), False),
+        ("the published arm", s.loop.data["cost_to_date"],
+         s.loop.leak(HEADLINE_MODE), False),
+        ("including abandoned attempts", call_log_total(s.paths, loop_record(s)),
+         s.loop.leak(HEADLINE_MODE), True),
+    ]
+    if len(body) != len(configurations):
+        rep.gap(where, f"draft has {len(body)} rows against "
+                       f"{len(configurations)} configurations")
+
+    for row, (what, cost, leak_rate, withhold) in zip(body, configurations):
+        place = f"{where} · {what}"
+        if cost is None:
+            rep.gap(place, "the arm's call log is not on this filesystem; the "
+                           "path is denied and is not in the repository")
+            continue
+        cells = dict(zip(header, row))
+
+        rep.number(place, "calls", cells.get("Calls", ""),
+                   cost["llm_calls"], withhold=withhold)
+        rep.number(place, "prompt tokens", cells.get("Prompt tokens", ""),
+                   cost["prompt_tokens"], withhold=withhold)
+        # Both multiples are ratios the repository does not store, so what is
+        # checked is the arithmetic over two recorded costs. A token multiple is
+        # over prompt and completion together: `tokens()` says so once.
+        rep.number(place, "token multiple", cells.get("Token multiple", ""),
+                   tokens(cost) / tokens(baseline), withhold=withhold)
+        rep.number(place, "wall-clock multiple",
+                   cells.get("Wall-clock multiple", ""),
+                   cost["wall_seconds"] / baseline["wall_seconds"],
+                   withhold=withhold)
+        # Not withheld: the leak rate is the arm's scored result, and the two
+        # iterative rows report the same one because abandoned spend bought
+        # nothing.
+        rep.number(place, "leak rate", cells.get("Leak rate", ""), leak_rate)
+
+
+def check_table_five(text: str, s: Subject, rep: Report) -> None:
+    """Table 5, from the Auditor's reports, with every file value withheld."""
+    where = "Table 5"
+    rows = table_rows(text, 5)
     if rows is None:
         rep.gap(where, "table not found")
         return
@@ -576,9 +838,9 @@ def check_table_three(text: str, s: Subject, rep: Report) -> None:
                       "(sparse)", "the scorer flags it on neither fold")
 
 
-def check_table_five(text: str, s: Subject, rep: Report) -> None:
-    where = "Table 5"
-    rows = table_rows(text, 5)
+def check_table_six(text: str, s: Subject, rep: Report) -> None:
+    where = "Table 6"
+    rows = table_rows(text, 6)
     if rows is None:
         rep.gap(where, "table not found")
         return
@@ -587,8 +849,7 @@ def check_table_five(text: str, s: Subject, rep: Report) -> None:
         rep.gap(where, f"draft has {len(body)} corpora, the records hold "
                        f"{len(s.singles)} single-call arms")
 
-    words = [dict(zip(header, r)).get("Reference", "") for r in body]
-    human_word = max(set(words), key=words.count) if words else ""
+    human_word = majority_word(header, body, "Reference")
 
     for row in body:
         cells = dict(zip(header, row))
@@ -610,19 +871,13 @@ def check_table_five(text: str, s: Subject, rep: Report) -> None:
         rep.number(place, "F1 relaxed", cells.get(f"F1 ({BOUND_MODE})", ""),
                    arm.data["modes"][BOUND_MODE]["overall"]["f1"])
 
-        # The reference column is checked as a distinction and not as a word: the
-        # draft may call it what it likes, but exactly the corpora whose frozen
-        # split records a non-human reference must be the ones set apart.
-        said_human = cells.get("Reference", "") == human_word
-        is_human = reference_kind(corpus) == HUMAN_REFERENCE
-        rep.claim(place, "reference kind", said_human == is_human,
-                  "the same kind as the majority" if said_human else "a kind of its own",
-                  "a human reference" if is_human else "not a human reference")
+        check_reference_kind(place, cells.get("Reference", ""), human_word,
+                             corpus, rep)
 
 
-def check_table_six(text: str, s: Subject, rep: Report) -> None:
-    where = "Table 6"
-    rows = table_rows(text, 6)
+def check_table_seven(text: str, s: Subject, rep: Report) -> None:
+    where = "Table 7"
+    rows = table_rows(text, 7)
     if rows is None:
         rep.gap(where, "table not found")
         return
@@ -671,9 +926,9 @@ def check_table_six(text: str, s: Subject, rep: Report) -> None:
                       "a rate", "the scorer flags the type sparse")
 
 
-def check_table_seven(text: str, s: Subject, rep: Report) -> None:
-    where = "Table 7"
-    rows = table_rows(text, 7)
+def check_table_a_two(text: str, s: Subject, rep: Report) -> None:
+    where = "Table A.2"
+    rows = table_rows(text, "A.2")
     if rows is None:
         rep.gap(where, "table not found")
         return
@@ -705,20 +960,20 @@ def phrase(text: str, pattern: str, where: str, what: str, rep: Report) -> str |
     return found.group(1)
 
 
-def check_caption_one(text: str, s: Subject, rep: Report) -> None:
-    where = "Fig. 1 caption"
-    body = caption(text, 1)
+def check_caption_two(text: str, s: Subject, rep: Report) -> None:
+    where = "Fig. 2 caption"
+    body = caption(text, 2)
     if body is None:
         rep.gap(where, "caption not found")
         return
 
-    dev_n = phrase(body, r"n = ([\d,]+) in-scope gold spans", where,
+    dev_n = phrase(body, r"development fold, n = ([\d, ]+)\)", where,
                    "development denominator", rep)
     if dev_n:
         rep.number(where, "development denominator", dev_n,
                    leak(s.loop, HEADLINE_MODE)["denominator"])
 
-    difference = re.search(r"([\d.]+) \(n = (\d+)\)", body)
+    difference = re.search(r"\u0394 = ([\d.]+) \(n = (\d+)\)", body)
     if difference is None:
         rep.gap(where, "observed difference · the phrase that states it is absent")
     else:
@@ -729,34 +984,29 @@ def check_caption_one(text: str, s: Subject, rep: Report) -> None:
         # records, not a sample size chosen in prose.
         rep.number(where, "runs the difference is between", difference.group(2), 2)
 
-    for what, pattern in (
-        ("rounds run", r"over\s+(\w+)\s+rounds"),
-        ("pre-registered ceiling", r"ceiling of (\w+) rounds"),
-    ):
-        said = phrase(body, pattern, where, what, rep)
-        if said is None:
-            continue
-        value = word_number(said)
-        if value is None:
-            rep.opaque(where, what, said)
-        else:
-            rep.number(where, what, str(value), s.loop.iterations)
+    # Which round the star is: the caption names the rules by their round, and
+    # the arm's last round is the one the seal was opened on. v14 states the
+    # termination reason and the pre-registered ceiling in prose instead of in
+    # this caption, so neither is checked here any more.
+    said = phrase(body, r"round-(\d+) rules", where, "the round scored", rep)
+    if said is not None:
+        rep.number(where, "the round scored", said, s.loop.iterations)
 
-    sealed_n = phrase(body, r"sealed test fold\s*\(n = ([\d,]+)\)", where,
+    sealed_n = phrase(body, r"sealed test fold \(n = ([\d, ]+)\)", where,
                       "sealed denominator", rep)
     if sealed_n:
         rep.number(where, "sealed denominator", sealed_n,
                    leak(s.sealed, HEADLINE_MODE)["denominator"])
 
 
-def check_caption_two(text: str, s: Subject, rep: Report) -> None:
-    where = "Fig. 2 caption"
-    body = caption(text, 2)
+def check_caption_five(text: str, s: Subject, rep: Report) -> None:
+    where = "Fig. 5 caption"
+    body = caption(text, 5)
     if body is None:
         rep.gap(where, "caption not found")
         return
 
-    said = phrase(body, r"on (\w+) corpora", where, "corpora shown", rep)
+    said = phrase(body, r"across (\w+) corpora", where, "corpora shown", rep)
     if said is not None:
         value = word_number(said)
         if value is None:
@@ -833,8 +1083,8 @@ def main() -> None:
 
     for check in (check_table_one, check_table_two, check_table_three,
                   check_table_four, check_table_five, check_table_six,
-                  check_table_seven, check_caption_one, check_caption_two,
-                  check_caption_three):
+                  check_table_seven, check_table_a_one, check_table_a_two,
+                  check_caption_two, check_caption_three, check_caption_five):
         check(text, s, rep)
 
     for line in rep.mismatches + rep.unchecked:
