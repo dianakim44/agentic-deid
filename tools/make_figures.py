@@ -754,9 +754,10 @@ def figure_four(paths: dict, out: Path) -> dict:
     fc = loop.series()
 
     # Cumulative published calls, accumulated from each round's own record rather
-    # than from a per-round rate: the arm's two abandoned rounds spent more calls
-    # than they published, so a formula would plot the wrong series on a figure
-    # whose subject is exactly that difference.
+    # than from a per-round rate: round 1 has no previous output to audit and
+    # recorded one call where the other seven recorded 1 + 250, so `251 * rounds`
+    # would put 2,008 on an axis whose first point is the claim that the single
+    # call and round 1 cost the same.
     cumulative, running = [], 0
     for a in loop.rounds:
         running += a.calls
