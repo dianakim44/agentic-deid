@@ -4301,6 +4301,77 @@ clean, an absent entry means not audited — held for zero documents this round:
 returned a well-formed empty list. Any report that cites `documents_with_no_flags` without the
 malformed count beside it is stating the opposite of what happened.
 
+#### An arm may declare which prompt revision it sends — decided 2026-10-08
+
+Everything above is about an arm not being allowed to *change* its window. This subsection is
+about the other direction, which the sections above never needed and a control arm does:
+**an arm may declare, before it starts, that the revision it sends is an older one than the
+file on disk.** The declaration is the arm's property in exactly the way the freeze record is,
+it is made in `config/naming.yaml` before the first call, and an arm that declares nothing
+sends the current revision — which is every arm that has run to date, and the default does not
+move.
+
+**The reason is that a control arm has to differ from its comparison counterpart in one
+thing.** `port-loop`'s frozen window hashes `docs/prompts/rule_author.md` at
+`sha256:ddc48bdb…`, which is the file as it stood at `cc7bc4c^`. The file on disk today is
+`sha256:bcef6f39…` — `cc7bc4c`, the commit that took the worked examples out of the two
+prompts that had a pass record. A no-Auditor arm started today under the current file would
+therefore differ from `port-loop` in two ways at once: it makes no Auditor call *and* it reads
+a prompt with no examples. The quantity wanted is the first alone, and no arrangement of the
+two numbers recovers it from a single run, because the two changes are not even plausibly
+independent — the examples that `cc7bc4c` removed are examples of rule authoring, and
+whatever they are worth is worth most to the arm that has lost its second opinion.
+
+**So the Auditor-ablation rung gets two values, and the second one is how the first is
+read.** `port-loop-noaudit` declares `ddc48bdb` and is the paired comparison against
+`port-loop`; `port-loop-noaudit-current` declares nothing, reads the file on disk, and is
+otherwise the same arm down to the code path. The difference between the two is the revision
+effect on this rung, measured rather than assumed, and the difference between the first and
+`port-loop` is the Auditor effect with the revision held fixed. One run of either alone would
+have been a confound reported as a result. This is the `port-multi-stripfence` pattern read in
+the mirror: there, two arms shared a window byte for byte and differed in `src/`, and the name
+carried what changed; here, two arms share `src/` and differ in one window hash.
+
+**What this is not.** It is not a re-freeze: `port-loop`'s record is untouched and its cell is
+spent. It is not an edit to `docs/prompts/rule_author.md`, which stays at `cc7bc4c` and stays
+the default for everything. And it is **not a reversal of the example-free policy** that
+`cc7bc4c` and §6.8's `port-multi-noexample` established. A control matched to its counterpart's
+bytes is not a vote on which bytes are better; the arm that exists to answer that question is
+the second value above, and it reads the current file. An arm reading the older revision gets
+the older revision's failure modes with it, and the subsection above applies unchanged: a
+format failure is recorded as a format failure, the prompt is not repaired, and retries are
+whatever the existing retry rule already allows and no more.
+
+**The pinned bytes are a committed file, not a `git show`.** They live under
+`docs/prompts/pinned/`, named by the first eight hex digits of their own hash, and a test
+asserts that the file hashes to the full value *and* that the full value equals
+`port-loop`'s `window_freeze.json` `prompt_sha256`. Three reasons it is a file rather than a
+read out of history. The template is resolved through the working tree
+(`src/sample.py`'s module globals, `src/llm/prompt._template()`), and an arm that shelled out
+to `git` for its own prompt would make a run depend on the checkout being a repository —
+which `src/orchestrate._git()` already declines to depend on for provenance, in the direction
+where absence means "history says nothing" rather than a traceback. A revision reachable only
+through `git show` is also not screenable: `tools/release_screen.py` walks the tree, and a
+prompt nobody can screen is a prompt whose example text nobody has checked. And the hash of a
+blob is stable while a `cc7bc4c^` is a name that moves the moment history is rewritten.
+
+**The declaration is not itself hashed, and it does not need to be.** `config/naming.yaml`
+is not in `WINDOW_FILES` and is not being added to it. A change to an arm's declaration
+changes which file that arm hashes, so it moves `prompt_sha256` in that arm's record and
+`window_drift()` reports it — the same signal, through the same field, as an edit to the
+prompt itself. What the record gains is that `files` names the path actually read, so a
+reader can tell a pinned window from a live one without coming back here to find out that
+pinning exists.
+
+**And on the pinned rung, round 1 must come out byte-identical to `port-loop`'s round 1.**
+§4 makes round 1 the no-feedback call in both arms — §§1.3 and 1.4 empty, no Auditor block of
+any kind — so removing the Auditor cannot touch it, and under the same template bytes the two
+prompts are the same string or the removal took something else with it. That is checked by
+hash and it is cheap because the check is available: a round-1 prompt that differs is a defect
+in the ablation, found before the arm spends its second call. For `port-loop-noaudit-current`
+the check is **exempt**, and the exemption is the measurement — that arm's round 1 differs
+from `port-loop`'s by exactly the revision, which is the thing it was added to show.
+
 ### 6.4 Which arm and which round open the seal — pre-registered 2026-08-26, before any sealed value exists
 
 §6.1 makes a sealed read recordable and §6.2 makes the fold verifiable. Neither says *which* read
