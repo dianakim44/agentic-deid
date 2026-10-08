@@ -5257,6 +5257,320 @@ MUTATIONS = [
         min_kills=2,
     ),
     Mutation(
+        name="type_agnostic_coverage_keeps_the_type_partition",
+        path=SCORER,
+        anchor="    union = _union(pred)\n"
+               "    return [_covers(g, union, mode) for g in gold]",
+        replacement="    return coverage(gold, pred, mode)",
+        breaks=(
+            "**The whole of §10 A3's first quantity, removed by the edit that makes the "
+            "function look like a thin wrapper.** `coverage()` partitions by type and then "
+            "unions within each type; this function unions everything and ignores type, and "
+            "the two differ on exactly one kind of span — right offsets, wrong label. "
+            "Delegating is the obvious tidy-up: three lines become one, the signature is "
+            "unchanged, and every test that does not contain a mislabelled span still passes.\n"
+            "\n"
+            "What it destroys is a comparison rather than a number. The appendix reports the "
+            "type-agnostic residual rate **beside** the published leak rate so the gap between "
+            "them can be read as the volume of identifiers found but mislabelled — the one "
+            "quantity no published figure isolates, and the answer to the reviewer who says "
+            "the leak rate is inflated by §9.3's type-equality requirement. Mutated, the two "
+            "columns are the same measurement printed twice, the gap is 0 everywhere, and the "
+            "honest reading of that table is 'mislabelling costs nothing', which is a claim "
+            "the data was never asked.\n"
+            "\n"
+            "It is also the reason this is a separate function and not `coverage(..., "
+            "type_aware=False)`. A flag would put the published leak rate one mistyped keyword "
+            "away from being computed under the wrong rule, and the flag's default would decide "
+            "which way the mistake went. Caught by "
+            "`test_type_agnostic_coverage_ignores_the_type_and_coverage_does_not`, which asserts "
+            "the disagreement directly on the one fixture that produces it, and by "
+            "`test_type_agnostic_residual_rate`, `test_the_gap_between_the_two_is_the_"
+            "mislabelled_volume` and `test_document_failure_rate_both_flavours` at the "
+            "aggregate level."
+        ),
+        min_kills=3,
+    ),
+    Mutation(
+        name="the_failure_denominator_is_every_document",
+        path=SCORER,
+        anchor="    with_gold = [p for p in pairs if p.gold]",
+        replacement="    with_gold = list(pairs)",
+        breaks=(
+            "Every document in the denominator, which is the reading of \"document-level "
+            "failure rate\" that the phrase most obviously supports. It makes the metric "
+            "**lower** on every corpus, and lower in a way that varies with something the "
+            "arm does not control: en-deid's dev fold has 485 documents and 151 with an "
+            "in-scope gold span, so the mutated rate is 0.26 where the real one is 0.83, and "
+            "ko-surro's is 0.28 against 0.92. The two numbers are not a tightening and a "
+            "looseness of one measure — one of them answers 'how often does a note that "
+            "contains an identifier leak one' and the other dilutes that by how many notes "
+            "happened to contain none.\n"
+            "\n"
+            "The dilution is the damage, and it is a comparison across corpora that breaks "
+            "first: a corpus of sparse notes looks safer than a dense one at identical "
+            "per-document behaviour, so the cross-lingual claim the manuscript makes is "
+            "read off a denominator that measures the corpus rather than the detector. "
+            "§9.3 already settled this for `by_document` and this function follows it — "
+            "which is why the mutation also makes the two disagree, and that disagreement is "
+            "what the test uses. Caught by "
+            "`test_a_document_with_no_gold_is_out_of_the_failure_denominator` and "
+            "`test_document_failure_rate_both_flavours`, whose second half recomputes "
+            "`D_full` against the published `by_document` block rather than against a "
+            "stored constant."
+        ),
+        min_kills=2,
+    ),
+    Mutation(
+        name="a_document_with_no_length_is_skipped",
+        path=SCORER,
+        anchor="    missing = [p.doc_id for p in pairs if p.doc_id not in doc_chars]",
+        replacement="    missing = []",
+        also=(
+            (SCORER,
+             "        length = doc_chars[pair.doc_id]",
+             "        length = doc_chars.get(pair.doc_id)\n"
+             "        if length is None:\n"
+             "            continue"),
+        ),
+        breaks=(
+            "Refusal becomes tolerance, in the form that looks like robustness. A caller "
+            "who holds lengths for most of a fold gets an answer instead of an exception, "
+            "and the answer is an over-masking rate **over a fold smaller than the one the "
+            "surrounding output names**. Nothing in the returned block says how much "
+            "smaller: `non_gold_characters` is the only witness and it is a character count "
+            "nobody has an independent value for.\n"
+            "\n"
+            "The direction is not symmetric either. The documents most likely to be missing "
+            "a length are the ones whose text the caller could not load, and a fold is "
+            "loaded by one loader in one pass — so in practice the skip is all-or-nothing "
+            "per corpus, and the near-miss case is a caller who filtered the pairs and not "
+            "the lengths, or the reverse. That caller gets a plausible rate computed on the "
+            "intersection.\n"
+            "\n"
+            "This mutation is two edits because one is not faithful: dropping the "
+            "pre-flight check alone leaves `doc_chars[pair.doc_id]` to raise `KeyError`, "
+            "which is a refusal with a worse message rather than a skip. Caught by "
+            "`test_non_phi_masking_refuses_a_document_with_no_length`, which also asserts "
+            "the message names the document whose length is missing — an id, not its text "
+            "(CLAUDE.md)."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="the_over_masking_rate_counts_the_gold_it_masked",
+        path=SCORER,
+        anchor="        non_gold_masked += masked_total - masked_in_gold",
+        replacement="        non_gold_masked += masked_total",
+        breaks=(
+            "The numerator stops being about non-PHI. Every masked character counts, so a "
+            "detector is charged for hiding the identifiers it was asked to hide, and the "
+            "rate rises with recall — the mutated figure is **lowest for the arm that finds "
+            "nothing**. On es-meddocan's dev fold the real series across the loop is 0.50% → "
+            "1.04% → 1.20% and the mutated one is dominated by the gold volume the detector "
+            "covers, so the strongest round reads as the most over-masking one.\n"
+            "\n"
+            "The denominator is untouched and still excludes gold characters, which is what "
+            "makes the result unreadable rather than merely wrong: numerator and denominator "
+            "are over different character sets, so the ratio is not a share of anything and "
+            "can exceed 1 on a fold whose gold is dense. It stays under 1 on all five of "
+            "this project's corpora, which is why it needs a test rather than a sanity bound. "
+            "Caught by `test_non_phi_masking`, whose docstring carries the per-document "
+            "arithmetic — 386 non-gold characters and 18 masked — worked out by hand before "
+            "the function was run."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="the_prediction_count_is_the_merged_one",
+        path=SCORER,
+        anchor="        predictions += len(pair.pred)",
+        replacement="        predictions += len(_union(pair.pred))",
+        breaks=(
+            "Predictions counted after merging, which is the count consistent with the "
+            "character rate beside it and the wrong basis for the number it is paired with. "
+            "`predictions_touching_no_gold` is a per-prediction figure — it is in the block "
+            "precisely because a handful of very wide false positives and a great many narrow "
+            "ones produce the same character rate and are not the same defect — so a merged "
+            "total makes the denominator of that ratio smaller than its numerator's basis.\n"
+            "\n"
+            "It is the layered detector that makes this bite. Two layers emitting the same "
+            "span is the normal case here, not a pathology: on es-meddocan's round 8, 5,500 "
+            "predictions come from three layers over one fold, and merging them conflates "
+            "'the stack agreed' with 'the stack fired once'. Then `predictions` no longer "
+            "matches `counts.pred` in the same arm's `metrics.json`, and the two files "
+            "disagree on how many predictions the run made with nothing in either saying "
+            "which basis it used. On the fixture the total falls 12 → 10. Caught by "
+            "`test_non_phi_masking`."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="strict_is_the_relaxed_block_under_another_name",
+        path=SCORER,
+        anchor="    records, fp_by_type, _dupes, _by_rule, _fp_marks = _records("
+               "pairs, FULLY_COVERED)",
+        replacement="    records, fp_by_type, _dupes, _by_rule, _fp_marks = _records("
+                    "pairs, RELAXED)",
+        breaks=(
+            "The appendix's strict P/R/F1 becomes the headline P/R/F1 it was added to sit "
+            "beside. Both are published figures, both are in every `metrics.json`, and the "
+            "mutated function returns one of them under the other's name — so the appendix "
+            "table reports the same triple twice and the sentence it exists to support "
+            "('F1 falls from 0.878 to 0.860 under the stricter mode') has a zero difference "
+            "behind it.\n"
+            "\n"
+            "Nothing here looks wrong in isolation, which is the point of the row. `RELAXED` "
+            "is the project's headline mode, it is the mode four of the five headline fields "
+            "are drawn from, and a reader of this function has to know that \"strict\" in "
+            "this project means `fully_covered` — not exact-boundary, which §9.3 declines "
+            "permanently for the GraSCCo `NAME_TITLE` adjacency — to see that the constant "
+            "is the wrong one. That is also why the function delegates to `_records()` and "
+            "adds no matching of its own: a second implementation of the assignment is the "
+            "thing §9.3 forbids, and this mutation is the cheapest way the delegation can "
+            "still be wrong. Caught by "
+            "`test_strict_prf_is_the_published_fully_covered_block`, which asserts equality "
+            "with `modes.fully_covered.overall` and then with the hand-computed triple, so "
+            "it fails whichever of the two the mutation makes false."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="the_reanalysis_joins_the_published_block",
+        path=SCORER,
+        anchor="    return {\n"
+               "        \"scorer_version\": SCORER_VERSION,\n"
+               "        \"counts\": {\n"
+               "            \"documents\": {",
+        replacement="    return {\n"
+                    "        \"scorer_version\": SCORER_VERSION,\n"
+                    "        \"reanalysis\": reanalysis(pairs),\n"
+                    "        \"counts\": {\n"
+                    "            \"documents\": {",
+        breaks=(
+            "**The boundary §10 A3 is about, crossed in the direction that looks generous.** "
+            "Four more measurements in every `metrics.json`, computed from spans already in "
+            "hand, costing one extra `_records()` pass and no LLM call. Every number in the "
+            "file stays correct and the four additions are correct too.\n"
+            "\n"
+            "The cost is paid by the ladder rather than by the appendix that wanted them. "
+            "`score()`'s return **is** `metrics.json`'s content, so this is a schema change: "
+            "the writer's required-key check moves, `schema_version` has to be bumped, and "
+            "every committed record from `port-oneshot-nofence` (schema 5) up to the current "
+            "arms is then a record of a different schema than the one the reader expects. "
+            "The seven published dev files are the evidence the manuscript's re-analysis is "
+            "computed on, and the whole reason the re-analysis is a separate function is that "
+            "it reproduces their headline figures bit-for-bit — which it cannot claim if "
+            "adding it rewrote them.\n"
+            "\n"
+            "There is a second, quieter cost: `non_phi_masking` needs document lengths, which "
+            "`score()` has no argument for and must not acquire, because a metrics file that "
+            "can carry `len(text)` is a metrics file that carries a fact about a note. So the "
+            "widened block is permanently missing one of its four quantities and reads as "
+            "though that one was measured and empty. Caught by "
+            "`test_reanalysis_is_not_in_the_published_block`."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="absent_lengths_read_as_a_measured_zero",
+        path=SCORER,
+        anchor="        \"non_phi_masking\": (None if doc_chars is None\n"
+               "                            else non_phi_masking(pairs, doc_chars)),",
+        replacement="        \"non_phi_masking\": (non_phi_masking(pairs, doc_chars)\n"
+                    "                            if doc_chars else {\n"
+                    "                                \"non_gold_characters\": 0,\n"
+                    "                                \"non_gold_characters_masked\": 0,\n"
+                    "                                \"rate\": 0.0,\n"
+                    "                                \"predictions\": 0,\n"
+                    "                                \"predictions_touching_no_gold\": 0}),",
+        breaks=(
+            "`None` becomes `0.0`, and the project has made this exact mistake once before "
+            "in the costs block — see `a_none_total_is_rendered_as_a_measured_zero`. A rate "
+            "of 0.0 reads as *measured and clean*: no non-PHI character was masked. `None` "
+            "reads as *not measured*, which is the true state when the caller held no "
+            "document lengths.\n"
+            "\n"
+            "A reader cannot tell the two apart from the block, and the mutated form is "
+            "self-consistent — zero masked characters out of zero non-gold characters is an "
+            "arithmetically coherent record of nothing. The appendix's over-masking column "
+            "would then read 0.000 for any arm whose re-analysis was run without lengths, "
+            "which is the best possible number in that column, obtained by not measuring it. "
+            "The shape is the one worth recognising rather than this particular field: an "
+            "absent measurement rendered in the units of a good result. Caught by "
+            "`test_reanalysis_without_lengths_records_that_they_were_absent`."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="the_reanalysis_trusts_the_layer_check_to_have_happened",
+        path=SCORER,
+        anchor="    _check_layers(pairs)\n"
+               "    return {\n"
+               "        \"scorer_version\": SCORER_VERSION,\n"
+               "        \"residual_rate\": {",
+        replacement="    return {\n"
+                    "        \"scorer_version\": SCORER_VERSION,\n"
+                    "        \"residual_rate\": {",
+        breaks=(
+            "The precondition every other entry point checks, dropped from the one that is "
+            "reached last. It looks redundant: `score()` and `error_spans()` both check it, "
+            "and anything that reached the re-analysis came through a scoring run.\n"
+            "\n"
+            "It is not redundant, and the mutated code demonstrates why by **still "
+            "refusing** — with a `CorpusError` from `_records()`'s layer lookup, raised "
+            "through `strict_prf`, which is the fourth quantity in the block and the only "
+            "one that touches a layer at all. So the refusal survives this mutation by "
+            "accident: it depends on a function that is in the block for an unrelated "
+            "reason, it arrives as a different exception type from a different module, and "
+            "it comes after three quantities have already been computed. `residual_rate`, "
+            "`document_failure_rate` and `non_phi_masking` called on their own accept a "
+            "layerless prediction silently, which is the state this check exists to make "
+            "impossible — a provenance-less span is a span no `agent_actions` entry can be "
+            "attached to (DESIGN §3), and the appendix's numbers would be computed over it "
+            "without comment.\n"
+            "\n"
+            "That the mutation is caught on the exception's *type* and not on its absence is "
+            "what the count is about. Caught by "
+            "`test_the_reanalysis_refuses_a_prediction_with_no_layer`, which asserts "
+            "`ScorerError` and gets `CorpusError`."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="residual_rate_takes_any_mode_name",
+        path=SCORER,
+        anchor="    if mode not in MODES:\n"
+               "        raise ScorerError(\n"
+               "            f\"{mode!r} is not a mode ({list(MODES)}). DESIGN §9.3 defines "
+               "two and \"\n"
+               "            \"declines a third; 'strict' is not one of their names — see "
+               "`strict_prf`.\"\n"
+               "        )\n",
+        replacement="",
+        breaks=(
+            "An unknown mode name stops being refused and starts being `relaxed`. "
+            "`_covers()` tests `mode == FULLY_COVERED` and returns the overlap rule "
+            "otherwise, so every string that is not exactly `'fully_covered'` silently "
+            "selects the lower bound — and the returned block then reports that string back "
+            "in its own `mode` field, so the output labels itself with a mode the "
+            "computation did not use.\n"
+            "\n"
+            "The word that makes this a real near-miss is `'strict'`. It is the name the "
+            "brief and the manuscript both use for the stricter of the two modes, it is not "
+            "one of `MODES`, and under the mutation `residual_rate(pairs, 'strict')` returns "
+            "the **relaxed** residual — the loosest number available — in a dict that says "
+            "`\"mode\": \"strict\"`. A table built from those blocks is then labelled "
+            "strict and filled with lower bounds, in the direction that flatters the "
+            "detector. `_covers()` cannot be made to refuse instead, because its fall-through "
+            "is on the hot path of both published modes; the check belongs at the boundary, "
+            "which is here. Caught by "
+            "`test_residual_rate_refuses_a_mode_it_does_not_have`, which asks for exactly "
+            "that word."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
         name="the_round_s_files_are_written_by_every_arm",
         path=RUN_FOLD,
         anchor="    if iteration is not None:\n"

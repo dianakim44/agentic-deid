@@ -1266,9 +1266,9 @@ inspection — a leak rate of 3.1% looks exactly as reasonable as a wrong one.
 
 | mutation | changes | breaks | tests that catch it |
 |---|---|---|---|
-| `greedy_allows_reuse` | `assign()` drops `pi in used` from the skip condition | the matching stops being one-to-one, so one wide prediction collects credit for several gold spans. Recall rises for emitting one coarse span instead of two correct ones — the detector is paid for being vaguer about boundaries | **10** |
-| `fully_covered_is_relaxed` | `_covers()` tests `> 0` instead of `== mark.length` under `fully_covered` | the headline mode collapses into the lower bound while keeping its name; a gold span with one character covered counts as hidden | **15** |
-| `leak_rate_from_assignment` | the `leak.leaked` figure is taken from the assignment's false negatives | the error DESIGN §9.3 exists to prevent: a leak reported on an identifier whose every character is hidden | **11** |
+| `greedy_allows_reuse` | `assign()` drops `pi in used` from the skip condition | the matching stops being one-to-one, so one wide prediction collects credit for several gold spans. Recall rises for emitting one coarse span instead of two correct ones — the detector is paid for being vaguer about boundaries | **11**‡ |
+| `fully_covered_is_relaxed` | `_covers()` tests `> 0` instead of `== mark.length` under `fully_covered` | the headline mode collapses into the lower bound while keeping its name; a gold span with one character covered counts as hidden | **18**‡ |
+| `leak_rate_from_assignment` | the `leak.leaked` figure is taken from the assignment's false negatives | the error DESIGN §9.3 exists to prevent: a leak reported on an identifier whose every character is hidden | **12**‡ |
 | `greedy_tiebreak_dropped` | the sort key becomes `(-overlap, pi, gi)` | ties fall through to emission order, so the metrics move when the same spans arrive shuffled | **2** |
 | `by_rule_fp_from_coverage` | `by_rule`'s hits are taken from type-matched overlap instead of from the assignment | a rule whose spans always lose the assignment to a better one reads as harmless, and the only signal that licenses deleting a rule disappears while every aggregate stays correct | **6** |
 | `the_provenance_fields_are_optional_again` | `REQUIRED_RUN` loses `generated`, `commit` and `tree` | §10 A2's mitigation goes back to being described in the design and absent from the writer. Every existing metrics file is unchanged, because `run_fold` still writes all three; the loss is in what a new writer may omit, and the orchestrator is the new writer | **5** |
@@ -1392,6 +1392,106 @@ alternative — adding a test that recounts 1,000 documents — would mean readi
 sealed fold from the suite, which is the thing being protected. A lowered threshold
 with the reason recorded is honest; the same number preserved by a test that
 breaches the seal would not be.
+
+### Ten on the post-hoc re-analysis, which lives in the module and outside the published block — 2026-10-08
+
+`src/eval/scorer.py` gained six functions for DESIGN §10 A3 — `type_agnostic_coverage`,
+`residual_rate`, `document_failure_rate`, `non_phi_masking`, `strict_prf` and the
+`reanalysis` block that collects them. They are post-hoc: added with every arm's result
+already in view, for the manuscript's methods and limitations sections, and they licence
+no selection. Nothing about them is published, and the first thing the mutations have to
+guard is that boundary.
+
+| mutation | changes | breaks | tests that catch it |
+|---|---|---|---|
+| `type_agnostic_coverage_keeps_the_type_partition` | the function delegates to `coverage()` | the one difference between the two becomes zero, so the appendix's type-agnostic column is the published leak rate printed twice and the gap — the volume of identifiers found but mislabelled — reads as 0 everywhere | **4** |
+| `the_failure_denominator_is_every_document` | gold-less documents re-enter the denominator | the rate falls with corpus sparsity rather than with detector behaviour: en-deid 0.83 → 0.26 and ko-surro 0.92 → 0.28 at identical per-document performance, so the cross-lingual comparison is read off the corpus | **2** |
+| `a_document_with_no_length_is_skipped` | the missing-length refusal becomes a `continue` | an over-masking rate computed over a fold smaller than the one the surrounding output names, with nothing in the block saying how much smaller | **1** |
+| `the_over_masking_rate_counts_the_gold_it_masked` | the numerator stops subtracting the masked gold | the figure rises with recall, so it is lowest for the arm that finds nothing; numerator and denominator are then over different character sets and the ratio is a share of nothing | **1** |
+| `the_prediction_count_is_the_merged_one` | `predictions` counts union intervals | the per-prediction companion figure loses its basis, and a layered detector's agreement is conflated with its firing once — the same block then disagrees with `counts.pred` in the same arm's `metrics.json` | **1** |
+| `strict_is_the_relaxed_block_under_another_name` | `strict_prf()` passes `RELAXED` to `_records()` | the appendix reports the headline triple twice and the sentence it supports has a zero difference behind it | **1** |
+| `the_reanalysis_joins_the_published_block` | `score()`'s return gains `reanalysis` | a schema change paid by every committed `metrics.json` for an appendix, and the widened block is permanently missing `non_phi_masking` because `score()` has no document lengths and must not acquire any | **2** |
+| `absent_lengths_read_as_a_measured_zero` | `doc_chars=None` renders a zero block instead of `None` | not measured becomes measured and clean, in the units of the best possible result — the costs block's `None`-as-`0.000` shape, one module over | **1** |
+| `the_reanalysis_trusts_the_layer_check_to_have_happened` | `_check_layers(pairs)` is dropped | the refusal survives by accident, as a `CorpusError` from `strict_prf`'s layer lookup after three quantities have already been computed; the other three functions accept a provenance-less span silently | **1** |
+| `residual_rate_takes_any_mode_name` | the `mode not in MODES` guard is removed | `'strict'` — the word the brief and the manuscript both use — selects `_covers()`'s fall-through, so the block returns the **relaxed** residual labelled `"mode": "strict"` | **1** |
+
+**Two of the ten are the ones to read, and they point in opposite directions.**
+
+`the_reanalysis_joins_the_published_block` is the mutation that makes the §10 A3
+boundary a measured thing rather than a stated one. Putting four more correct
+measurements into `metrics.json` costs one extra `_records()` pass and no LLM call, and
+it is the edit a reviewer would ask for. What it spends is the ladder: `score()`'s return
+*is* the file's content, so the schema moves, and the seven published dev records — from
+`port-oneshot-nofence` at schema 5 upward — become records of a schema their reader does
+not expect. The re-analysis exists to reproduce those files' headline figures bit-for-bit,
+which is a claim it cannot make if adding it rewrote them.
+
+`the_reanalysis_trusts_the_layer_check_to_have_happened` is the opposite case: the
+mutation **is still refused**, and the count is about which exception arrives. Dropping
+`_check_layers` leaves `strict_prf` to raise `CorpusError` from `_records()`'s layer
+lookup — so the guarantee survives by depending on a function that is in the block for an
+unrelated reason, arriving from a different module, after three quantities have already
+been computed on the layerless span. Take `strict_prf` out of the block for any reason and
+the refusal goes with it. A mutation whose damage is *where the error comes from* is worth
+a row precisely because no number in any output file changes.
+
+**`residual_rate_takes_any_mode_name` is the near-miss rather than an invented one.**
+`'strict'` is the word the brief asked for and the word the manuscript uses, it is not one
+of `MODES`, and `_covers()` tests `mode == FULLY_COVERED` and returns the overlap rule for
+everything else. So the unguarded call returns the loosest number available inside a block
+that labels itself `"mode": "strict"`. `_covers()` cannot be made to refuse instead — its
+fall-through is on the hot path of both published modes — which is why the check sits at
+the boundary and why removing it is a one-line edit that reads as deleting a redundant
+assertion.
+
+**These ten counts come from an impact-scope run, not a full one.** The change is one
+`src/` module plus added assertions inside a `TEST_FILES` member, and `TEST_FILES`
+membership is unchanged at 34 — so by CLAUDE.md this is impact scope and not a full-run
+reason. Scope was **measured rather than named**: the 17 new tests were run alone and
+their reach taken from `sys.modules` plus an `open` audit hook afterwards, which is the
+method 2026-09-30 settled on after `trace` under `pytest.main` was found to attribute
+nothing to modules imported before it starts. The reach is `src/eval/scorer.py`,
+`src/corpora/base.py`, `src/sample.py` and `config/naming.yaml` — the last three because
+the test module imports them at import time, which is the wider reading and the safe
+direction — so the run covered all **54** mutations targeting those four paths. The
+remaining 235 are **deferred to the next full run**, not exempt. `--shard i/8` was not
+used: it slices `MUTATIONS` and would have made this a full run that was not one.
+
+**The run: 8 concurrent invocations with explicit names, one tree `a2ddadc9ae1f5d2f`, one
+baseline 2,376, wall 58.1 min, 54 of 54 caught, 0 survived.** Three of the 44 pre-existing
+counts in scope moved, all upward, and all three are in the table at the head of this
+section: `greedy_allows_reuse` 10 → **11**, `fully_covered_is_relaxed` 15 → **18**,
+`leak_rate_from_assignment` 11 → **12**. They carry `‡`; the ten new rows above carry no
+marker, because a cell with no sidecar entry can claim no disagreement with the last full
+run. The other 41 came back identical.
+
+**The three that moved are the §10 A3 tests reaching the published matchings from a new
+direction, which is the result worth having.** `fully_covered_is_relaxed` gains the most
+because `test_the_type_aware_residual_rate_is_the_published_leak_rate` and
+`test_the_gap_between_the_two_is_the_mislabelled_volume` both pin a `fully_covered`
+figure against a hand-computed one, and `residual_rate` is a second caller of `_covers()`
+that is not `coverage()`. `leak_rate_from_assignment` moves for the mirror reason: the new
+tests assert that the type-aware residual *is* the leak numerator, which is the DESIGN §9.3
+identity the mutation breaks. That a post-hoc appendix hardens the published block is not
+what the functions were added for, and it is the one thing this run measured that could not
+have been reasoned to.
+
+**The cost basis moves with the suite.** Solo trunk serial baseline on this same tree:
+**390.92 s** at suite 2,376 (2376 passed in 389.33 s), which at the 1.16 eight-shard
+contention factor is **56.7 s per mutation** and **4.55 h** for 289. The count-ratio
+derivation from 2026-10-02's basis gives 57.0 × 2376/2359 = 57.4 s → 4.61 h, which is the
+*larger* of the two for the second time in this log — and it loses anyway, because
+2026-10-02 ranked the two methods on the same input and the measured baseline came out
+0.4% high against the count ratio's 4.7% low. Both are kept. This run also re-measured the
+contention factor for free: 62 suite runs (8 baselines + 54 mutations) across 8 processes in
+3,485 s is 449.7 s per run against the solo 390.92, a factor of **1.150** — the 1.16 the
+model assumes, confirmed rather than assumed, for the first time.
+
+**The suite grew and the suite time fell, again.** 2,359 tests at 394.75 s on 2026-10-02
+became 2,376 at 390.92 s here: +0.72% in count, −1.0% in time, so the count ratio
+over-predicted by 1.7%. The direction is the opposite of 2026-10-01's 7.3% under-prediction
+and the same as the `git_ignored` batching move, which is the whole of the argument for
+measuring the baseline whenever a tree exists to measure it on.
 
 ## The sampling mutations
 

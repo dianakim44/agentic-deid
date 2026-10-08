@@ -28,7 +28,38 @@ CLAUDE.md's rule that re-anchored mutations are re-measured **regardless of whet
 scope** is what this section serves: an anchor edit is a change to the mutation itself, so its old
 count describes a different experiment, and that fact is invisible from the count alone.
 
-### One outstanding — `the_folds_seconds_go_to_the_round_and_not_the_arm` at 87, measured after the run that recorded 86
+### Six entries discharged together by the full run of 2026-10-01 — and the discharge is six commits late
+
+**The six entries that follow all claimed debt this section's own rule says was paid on
+2026-10-01.** That run measured **279 of 279** at baseline 2,358 (commit `c1e3dfb06604`), which is
+every count the six entries were holding, and
+`docs/notes/mutation-full-runs.counts.json` carries all of them: `assert_offsets_noop` **9**,
+`bucket_unknown_types` **6**, `drop_excluded` **36**, `grouping_numeric_suffix_only` **3**,
+`sealed_flag_not_cleared` **2**, `unsealed_load_filters_instead_of_not_reaching` **166**,
+`rule_id_vocabulary_not_checked` **26**, `the_call_is_logged_after_the_response_is_judged` **10**,
+`a_format_failure_writes_zeroed_metrics_too` **21**,
+`the_arm_reports_no_model_and_no_cost_to_the_scorer` **5**, and the three new rows of the
+one-call-per-language repair. The 23 `‡` those entries had put in
+`tests/mutations/README.md` came off in the same commit. So the headings below are rewritten and
+the bodies kept: each one's finding is cited elsewhere, and deleting the prose would delete the
+argument while keeping only the number.
+
+**`the_folds_seconds_go_to_the_round_and_not_the_arm` is the one whose number did not survive the
+discharge: 87 → 92.** The scope run of 2026-09-22 measured 87 against the sidecar's 86 and held it
+here precisely because a scope run cannot restate the denominator. It was right to hold it — the
+full run's answer is neither of the two figures. Five more tests reach the fixed assertion than
+the traced scope contained, which is the quantitative version of what the rule is for.
+
+**Why the lateness is recorded rather than quietly fixed.** The same failure happened once before,
+one run late, and is written up two entries further down ("deleted one run late"). It has now
+happened again at six commits, which makes it a property of the procedure and not an oversight:
+`parallel.py` writes the run record and cannot know which hand-maintained entries it settles, so
+the deletion is owed by the commit that lands the run and nothing fails if it is skipped. A stale
+entry reads exactly like a live one, and the cost is paid by the next run, which re-pays debt it
+does not owe. What would catch it is a test that reads the entry headings against the sidecar;
+it does not exist, and this paragraph is the record that it is the obvious next thing to want.
+
+### Nothing outstanding — `the_folds_seconds_go_to_the_round_and_not_the_arm`, measured at 87 by a scope run, settled at 92 on 2026-10-01
 
 **2026-09-22, after the full run below.** That run reported the only decrease this log has ever
 carried: 87 → 86, against seven consecutive runs at 87. The cause is in
@@ -59,7 +90,7 @@ already settled by the full run below, and this run only confirms that the fix d
 them. The 109 mutations outside the traced scope were not measured here and did not need to be:
 nothing this commit changed can be reached from them.
 
-### Twelve outstanding — the freeze of `splits/ko-surro.json`, 2026-09-23
+### Nothing outstanding — the freeze of `splits/ko-surro.json`, 2026-09-23, settled on 2026-10-01
 
 **Eleven counts re-measured above the sidecar, and one mutation the sidecar has never seen.**
 The freeze added 18 tests to `tests/test_kosurro_loader.py` and one mutation
@@ -96,7 +127,7 @@ generator's own figures were unfalsifiable, and `splits/ko-surro.json` was writt
 run.** Not exempt — deferred. Nothing the freeze changed can be reached from them, which is why a
 scope run was allowed, and that is a different claim from their counts being current.
 
-### Seven outstanding, four written downwards — the seal of `ko-surro`, 2026-09-28
+### Nothing outstanding, four of them written downwards — the seal of `ko-surro`, 2026-09-28, settled on 2026-10-01
 
 **Recorded late.** The commit that did this work (`901c2cc`) wrote the finding into
 `tests/mutations/README.md` and not here, so for the length of one session the debt existed in the
@@ -137,7 +168,7 @@ with no "unchanged" claimed for them.
 **The 184 mutations outside the traced scope were not measured and are deferred to the next full
 run.**
 
-### Three outstanding, and a full run owed on the letter of the rule — the one-call-per-language repair, 2026-09-28
+### Nothing outstanding, and the full run owed on the letter of the rule arrived — the one-call-per-language repair, 2026-09-28, settled on 2026-10-01
 
 **The third entry of 2026-09-28, and the first where the run that was made is narrower than the
 rule asks for.** DESIGN §5.6 was written and then implemented: `run_arm` authors one file per
@@ -190,7 +221,7 @@ not 218: the entries below deferred 218 of 230, and this entry's denominator is 
 figures are three different runs' leftovers and do not add up to anything — the quantity that
 matters is that one full run over 233 discharges all three at once.
 
-### One outstanding — the ko rule-id widening, 2026-09-28
+### Nothing outstanding — the ko rule-id widening, 2026-09-28, settled on 2026-10-01
 
 **The same day as the entry above and after it.** `RULE_ID_VOCAB_BY_LANG['ko']` gained four
 address-component suffixes (`ro`, `gil`, `dong`, `gu`) on the precedent of the `de` layer's five
@@ -212,7 +243,7 @@ so admitting tokens to it does not give any of those four a new way to be caught
 seven in scope also came back identical. **The 218 mutations outside the scope were not measured
 and are deferred to the next full run.**
 
-### Six outstanding, and three of them were already stale — the es-carmen cross stratification, 2026-09-29
+### Nothing outstanding, and three of them were already stale when written — the es-carmen cross stratification, 2026-09-29, settled on 2026-10-01
 
 `splits/es-carmen.json`'s stratification was built: a cross of the corpus's own two labels with
 DESIGN §9.5's small-cell rule, which is the first stratification in this project that is not
@@ -248,6 +279,62 @@ available.
 **The other 214 mutations were not measured and are deferred to the next full run, not exempt from
 it.** Not to be added to the 218 or the 226 above: those are leftovers over denominators of 230 and
 233, and this one is over 271.
+
+### Thirteen outstanding, and the only live entry in this section — the §10 A3 post-hoc re-analysis, 2026-10-08
+
+`src/eval/scorer.py` gained the six functions DESIGN §10 A3 defines — `type_agnostic_coverage`,
+`residual_rate`, `document_failure_rate`, `non_phi_masking`, `strict_prf`, `reanalysis` — for the
+manuscript's methods and limitations sections, with every arm's result already in view. `score()`
+is untouched and `scorer_version` does not move, which is the property the new mutations exist to
+hold: all 35 published headline figures across the seven dev records reproduce to within 1e-12
+after the change.
+
+**No new full-run reason.** One `src/` module, 17 tests added inside `tests/test_scorer.py` — an
+existing `TEST_FILES` member — so the denominator stays at **34 files** and every recorded count
+stays comparable in principle. `MUTATIONS` moves 279 → **289** and the suite 2,359 → **2,376**,
+and neither is the denominator. The 2026-10-01 full run is 7 days old, so the 60-day trigger is
+far off, and nothing here is cited in the manuscript as a kill count.
+
+**Scope: the 54 mutations anchored in `src/eval/scorer.py` (27), `src/corpora/base.py` (12),
+`src/sample.py` (7), `config/naming.yaml` (7) and `src/porting/loop.py` (1, through an `also`).**
+Measured and not named: the 17 new tests were run alone and their reach read afterwards off
+`sys.modules` plus an `open` audit hook, the method 2026-09-30 settled on. The last three paths
+are reached at the test module's import time rather than inside any one test, which is the wider
+reading and the safe direction. 8 concurrent `run.py` invocations with explicit names — not
+`--shard i/8`, which slices `MUTATIONS` and would have made this a full run that was not one. One
+tree fingerprint `a2ddadc9ae1f5d2f`, one baseline **2,376**, wall **58.1 min** (3,485 s),
+**54 of 54 caught, 0 survived**, `incomplete: []`.
+
+**Three counts differ from `c1e3dfb06604`'s sidecar, all upward, and they carry `‡`:**
+`greedy_allows_reuse` 10 → **11**, `fully_covered_is_relaxed` 15 → **18**,
+`leak_rate_from_assignment` 11 → **12**. The other 41 in scope came back identical. **Ten new
+mutations have no sidecar entry and are therefore neither compared nor marked:**
+`type_agnostic_coverage_keeps_the_type_partition` **4**,
+`the_failure_denominator_is_every_document` **2**, `a_document_with_no_length_is_skipped` **1**,
+`the_over_masking_rate_counts_the_gold_it_masked` **1**, `the_prediction_count_is_the_merged_one`
+**1**, `strict_is_the_relaxed_block_under_another_name` **1**,
+`the_reanalysis_joins_the_published_block` **2**, `absent_lengths_read_as_a_measured_zero` **1**,
+`the_reanalysis_trusts_the_layer_check_to_have_happened` **1**,
+`residual_rate_takes_any_mode_name` **1**. So thirteen counts are held here: three newer than the
+sidecar, ten with nothing to compare against.
+
+**That the three moved is the finding, and it runs the wrong way round.** A post-hoc appendix was
+expected to measure nothing about the published block; instead its tests reach `_covers()` and the
+§9.3 leak identity from a second caller, and the two matchings got harder to break.
+`fully_covered_is_relaxed` gains three because `residual_rate` pins a `fully_covered` figure
+against a hand-computed one without going through `coverage()`. The reasoning is in
+`tests/mutations/README.md` §"Ten on the post-hoc re-analysis".
+
+**The 235 mutations outside the scope were not measured and are deferred to the next full run, not
+exempt from it.** Not to be added to the leftovers in the discharged entries above: those were
+over denominators of 230, 233 and 271, and this one is over 289.
+
+**Cost basis for that run, re-measured on this tree:** solo trunk serial **390.92 s** at suite
+2,376, which at the 1.16 eight-shard contention factor is **56.7 s per mutation**, so 289 is
+**4.55 h**. The count-ratio derivation from 2026-10-02's basis gives 57.4 s → 4.61 h; the measured
+baseline wins the tie by the ranking 2026-10-02 established, and both are kept. This run also
+confirmed the contention factor it assumes: 62 suite runs over 8 processes in 3,485 s is 449.7 s
+each against the solo 390.92, a factor of **1.150**.
 
 ### Nothing outstanding — the `TEST_FILES` change of 2026-09-22 settled by the full run of the same day
 
