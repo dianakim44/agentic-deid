@@ -62,7 +62,8 @@ from src.eval.run_fold import DEFAULT_SPLIT                           # noqa: E4
 from src.llm.bedrock import BedrockError                              # noqa: E402
 from src.porting import multi                                         # noqa: E402
 from src.porting.artefacts import ArtefactError                       # noqa: E402
-from src.sample import WINDOW_HASH_FIELDS, window_hashes              # noqa: E402
+from src.sample import (WINDOW_HASH_FIELDS, arm_window,               # noqa: E402
+                        window_hashes)
 
 #: The steps, in the order the sequence runs them. `all` is the default and is every one of
 #: them; the individual names are the resume. Named here rather than as literals in `main()`
@@ -168,10 +169,16 @@ def _plan(args) -> list[str]:
         "(the Profiler's input — measured, not authored)",
     ]
 
-    hashes = window_hashes()
+    # Through the arm, for `tools/run_loop.py`'s reason at the same block (DESIGN §6.3).
+    # No `port-multi` arm declares a revision today and `arm_window()` is the identity for
+    # them; it is written this way so that the plan and the freeze record cannot diverge if
+    # one ever does.
+    hashes = window_hashes(porting=args.porting)
     lines.append("")
-    for name, field in WINDOW_HASH_FIELDS.items():
-        lines.append(f"{field:16} {hashes[field]}  ({name})")
+    for default, actual in arm_window(args.porting).items():
+        field = WINDOW_HASH_FIELDS[default]
+        pinned = "" if actual == default else f"  pinned, replaces {default}"
+        lines.append(f"{field:16} {hashes[field]}  ({actual}){pinned}")
 
     lines.append("")
     for key in WRITTEN_KEYS:

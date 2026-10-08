@@ -4355,6 +4355,24 @@ through `git show` is also not screenable: `tools/release_screen.py` walks the t
 prompt nobody can screen is a prompt whose example text nobody has checked. And the hash of a
 blob is stable while a `cc7bc4c^` is a name that moves the moment history is rewritten.
 
+**The pinned file keeps its fenced examples, and that is the one exclusion the fence policy
+has.** §6.8's rule is that no prompt template under `docs/prompts/` contains a line beginning
+with three backticks, and `ddc48bdb` contains six of them — it *is* the revision the policy
+was written against. The exclusion cannot be argued on the usual ground that nothing reads the
+file, because something does: the pinned rung sends it. It is argued on the governing rule
+instead. A live template is edited, so "no demonstration in it" must be rechecked after every
+edit and a checker is the only thing that can do that. A pinned revision is never edited, and
+that is asserted by sha256 against the `prompt_sha256` of the record of the run it reproduces
+— a check that fails on an edit in *either* direction, where the fence check fails on one.
+Editing the fences out would turn the file into something that passes a check and is no longer
+evidence. So `prompt_markdown_files()` is the live half, `pinned_prompt_files()` is the pinned
+half, **and a test asserts the two partition the directory** — which is the part that matters,
+because the way this becomes the defect §6.8 exists to prevent is not this exclusion but a
+second one: a file in neither half is checked by nothing. For the same reason `arm_window()`
+refuses a declaration pointing anywhere but directly into `pinned/`; elsewhere under
+`docs/prompts/` the file is a live template, the fence check applies to it, and someone will
+eventually fix it — silently changing what a published arm's counterpart ran under.
+
 **The declaration is not itself hashed, and it does not need to be.** `config/naming.yaml`
 is not in `WINDOW_FILES` and is not being added to it. A change to an arm's declaration
 changes which file that arm hashes, so it moves `prompt_sha256` in that arm's record and
@@ -4371,6 +4389,42 @@ hash and it is cheap because the check is available: a round-1 prompt that diffe
 in the ablation, found before the arm spends its second call. For `port-loop-noaudit-current`
 the check is **exempt**, and the exemption is the measurement — that arm's round 1 differs
 from `port-loop`'s by exactly the revision, which is the thing it was added to show.
+
+**An ablated arm still hashes the file it does not read, and says so in a field.** Neither
+value above makes an Auditor call, so `auditor_sha256` in their freeze records describes a
+file that decided nothing about the run — the same situation as `port-oneshot` hashing
+`config/sampling.yaml` while reading §1.4 empty, and it gets the same treatment rather than a
+new one. The hash stays, because §1.3's Auditor half is part of what the *template*
+specifies and because a record that dropped the field could not be compared with
+`port-loop`'s, which is the only comparison these arms exist for. Without something added, a
+no-Auditor record reads exactly like `port-loop`'s: same six files, same field names, same
+hashes but one, and nothing on its face saying that the component the arm was built to remove
+is absent.
+
+What is added is **`agents_absent`**, the arm's own declaration copied into the record. The
+obvious field was an `auditor_applied` boolean beside `sampling_applied`, and it is wrong for
+a reason worth recording: `sampling_applied` is derivable from the sections the record
+already carries, and the Auditor's is not. `port-loop` takes its freeze at round 1, whose
+§1.3 is empty by §4's definition, so the sections of `port-loop`'s record and of an ablated
+arm's record are *identical* — `auditor_applied` could not be derived from them, and derived
+instead from the declaration it would read `true` for `port-oneshot`, which makes no Auditor
+call at all and never had a round that could. A boolean that is false for the right reason in
+one arm and true for the wrong reason in another is not a field. The declaration is: it is
+exactly what this arm said about itself, it cannot disagree with what the driver does because
+the driver asks the same accessor before paying for the call, and `[]` on `port-oneshot`'s
+record says "declared no absence" rather than making a claim about a round that does not
+exist.
+
+Note which way the pinning cuts here: the pinned value hashes the *current* `auditor.md`
+rather than `ddc48bdb`'s companion `b7e983a4`, and that is correct, because pinning a file the
+arm never opens would be claiming a window it did not run under — the error §6.3 opens with,
+in miniature. **And only `rule_author.md` is declarable at all.** The limit is the set of
+readers that resolve their template through the declaration rather than the set of files in
+the window: a declaration naming `auditor.md` or one of `port-multi`'s three would be honoured
+by the freeze record and ignored by the assembler, which is a record attesting to a window
+nothing ran under. So the implemented set is a constant in `src/sample.py`, declaring outside
+it is refused, and widening it means threading the arm through that file's reader in the same
+commit.
 
 ### 6.4 Which arm and which round open the seal — pre-registered 2026-08-26, before any sealed value exists
 

@@ -95,7 +95,8 @@ from typing import IO, Mapping, Sequence
 
 from .. import sample as sample_module
 from ..corpora.base import (
-    PROFILE_VOCABULARY_FIELDS, CorpusError, Document, axis, check_caching_boundary,
+    PROFILE_VOCABULARY_FIELDS, CorpusError, Document, arm_calls_agent, axis,
+    check_caching_boundary,
     check_caching_ttl, corpus_ids, excluded_types, lexicon_bases, lexicon_names,
     lexicon_target_types, mapping_bases, masked_tag_heterogeneous, profile_schema_fields,
     profile_vocabulary, rule_langs,
@@ -128,6 +129,13 @@ EMPTY_SECTIONS = (SCORES, ERROR_SPANS)
 #: four checked against the prompt's own headings, and this is the prompt layer's name for
 #: the same set.
 ITERATION_SECTIONS = FILLED_SECTIONS + EMPTY_SECTIONS
+
+#: The agent role whose absence empties the second half of §1.3 (DESIGN §6.3). Spelled as
+#: `src/porting/loop.py` spells it and for the same reason: the vocabulary is
+#: `config/naming.yaml`'s, and `arm_calls_agent()` puts this through `check_agent_role()`,
+#: so a misspelling here fails at the ask instead of answering "this arm calls it" — which
+#: is the right answer for every arm but the one being asked about.
+AUDITOR_ROLE = "auditor"
 
 #: The Auditor's two §1 blocks (`docs/prompts/auditor.md` §§1.1–1.2). Its own numbering,
 #: separate constants, and deliberately not reusing `TASK_FRAME`/`CURRENT_RULES` even though
@@ -524,8 +532,9 @@ def render_window(
 # ─── §§1.1–1.2: the blocks a first call carries ──────────────────────────────
 
 
-def _template() -> str:
-    """`docs/prompts/rule_author.md` as it stands on disk, sent verbatim.
+def _template(porting: str | None = None) -> str:
+    """The RuleAuthor prompt this arm sends, verbatim. `docs/prompts/rule_author.md`
+    unless the arm declared an older revision (DESIGN §6.3).
 
     Resolved through `src.sample`'s module globals rather than through a local copy of the
     path, because `window_hashes()` resolves it that way and `src/orchestrate.py`'s
@@ -534,12 +543,19 @@ def _template() -> str:
     was shown another — and under a redirected root that divergence appears only in the
     tests, which is the one place the record is not what is being read.
 
+    **The declaration goes through the same indirection and for the same reason**, which
+    is why it is `template_path()` here rather than a lookup of the arm's declaration in
+    this module: the freeze record and this call have to resolve a pinned revision through
+    one function, or the divergence above returns in the form the pinning was added to
+    make impossible. `porting=None` is the resolution every caller had before declarations
+    existed — the current revision — and not a default arm.
+
     Sent verbatim rather than summarised or excerpted. §2 fixes the output schema, §3 the
     tool boundary and §4 the prohibitions, and an assembler that forwarded only §1 would be
     sending the input without the specification the input is an instance of.
     """
-    return (sample_module.ROOT / sample_module.PROMPT_TEMPLATE).read_text(
-        encoding="utf-8")
+    return (sample_module.ROOT / sample_module.template_path(
+        sample_module.PROMPT_TEMPLATE, porting)).read_text(encoding="utf-8")
 
 
 def _task_frame(lang: str, corpus: str) -> str:
@@ -694,8 +710,16 @@ def assemble_task_prompt(
     lang: str,
     corpus: str,
     rules_path: Path | None = None,
+    porting: str | None = None,
 ) -> FilledPrompt:
     """The first call's prompt: the template, then §1.1 and §1.2, with §§1.3–1.4 empty.
+
+    **`porting` selects which revision of the template is sent** and nothing else (DESIGN
+    §6.3). `None` is the current revision, which is what every caller got before any arm
+    declared otherwise. It is here rather than in the caller because the alternative is a
+    driver that reads the file and passes bytes, and then the freeze record and the call
+    have two resolutions of one window — `_template()`'s own argument, at the layer where
+    the arm is known.
 
     This is what DESIGN §4 defines `port-oneshot` as being shown — and `port-loop`'s
     iteration 1 with it, so that call 1 is the same in both arms and feedback begins at
@@ -721,7 +745,7 @@ def assemble_task_prompt(
         for section in EMPTY_SECTIONS
     ])
     text = "\n\n".join([
-        _template(),
+        _template(porting),
         INPUT_BANNER,
         frame,
         rules_block,
@@ -748,7 +772,11 @@ def assemble_task_prompt(
         **rules_ref,
         "text_chars": len(text),
         "text_sha256": _digest(text),
-        "window_files": {name: file_hash(name) for name in WINDOW_FILES},
+        # The paths this arm reads, which differ from `WINDOW_FILES` only for an arm with
+        # a declared revision (DESIGN §6.3). Keyed by the path actually hashed, so this
+        # block and the freeze record's `files` say the same thing about the same call.
+        "window_files": {path: file_hash(path)
+                         for path in sample_module.window_files(porting)},
     })
 
 
@@ -932,6 +960,7 @@ def assemble_iteration_prompt(
     docs_by_id: Mapping[str, Document] | None = None,
     context_chars: int | None = None,
     audit_report: Mapping | None = None,
+    porting: str | None = None,
 ) -> FilledPrompt:
     """One `port-loop` iteration's prompt. All four §1 blocks from round 2 onward.
 
@@ -965,6 +994,21 @@ def assemble_iteration_prompt(
     **This is the block that carries corpus text**, ±`context_chars` around every span in the
     sample. Returns a `FilledPrompt` for that reason above all others, and the reference form
     holds the span references, the counts and the hashes — never the window.
+
+    **`porting` does two things and both are declarations rather than derivations** (DESIGN
+    §6.3): it selects the template revision (`_template()`), and it answers whether this arm
+    calls the Auditor at all. On an arm that declared `auditor` absent, `audit_report` is
+    **refused** rather than ignored — a caller holding a report for an arm that makes no
+    audit call has run one, and dropping it here would leave the prompt right and the arm
+    unrecognisable — and §1.3's Auditor half renders empty **in place**, keeping its heading
+    and its position so that the block the template describes is accounted for rather than
+    missing. That is `assemble_task_prompt()`'s rule for §§1.3–1.4 applied one level down,
+    for the same reason: an agent shown a template with four blocks and handed three cannot
+    tell an absent block from a harness that dropped one, and every resolution available to
+    it is worse than being told.
+
+    `porting=None` is every caller that existed before declarations did: the current
+    revision, and the Auditor present.
     """
     if not isinstance(iteration, int) or isinstance(iteration, bool) or iteration < 1:
         raise PromptError(
@@ -985,12 +1029,27 @@ def assemble_iteration_prompt(
                 "from, so a caller holding this data has computed it from somewhere else, "
                 "and dropping it here would leave the prompt correct and the driver wrong."
             )
-        return assemble_task_prompt(lang=lang, corpus=corpus, rules_path=rules_path)
+        return assemble_task_prompt(lang=lang, corpus=corpus, rules_path=rules_path,
+                                    porting=porting)
 
-    missing = [name for name, value in (
-        ("metrics", metrics), ("errors", errors), ("docs_by_id", docs_by_id),
-        ("context_chars", context_chars), ("audit_report", audit_report),
-    ) if value is None]
+    # Declared, never derived from the arm's name (DESIGN §6.3, and CLAUDE.md's rule about
+    # deriving a value from a string that happens to carry it). `porting=None` is the
+    # pre-declaration resolution and the Auditor is present for it.
+    audits = porting is None or arm_calls_agent(porting, AUDITOR_ROLE)
+    required = [("metrics", metrics), ("errors", errors), ("docs_by_id", docs_by_id),
+                ("context_chars", context_chars)]
+    if audits:
+        required.append(("audit_report", audit_report))
+    elif audit_report is not None:
+        raise PromptError(
+            f"iteration {iteration} of {porting!r} was given an audit_report, and that arm "
+            f"declares {AUDITOR_ROLE!r} absent (config/naming.yaml porting_arms, DESIGN "
+            "§6.3). Refused rather than ignored: a caller holding a report for an arm that "
+            "makes no audit call has made one, so the spend and the arm's definition "
+            "already disagree, and rendering the block would make the prompt the one this "
+            "arm was built not to send."
+        )
+    missing = [name for name, value in required if value is None]
     if missing:
         raise PromptError(
             f"iteration {iteration} is missing {missing}. From round 2 every §1 block is "
@@ -1007,14 +1066,20 @@ def assemble_iteration_prompt(
     # re-sort: `auditor.md` §4's `[nn]` is the number `render_window` printed, so the mark and
     # the row are the same enumeration of the same list. A sort in either place would produce
     # marks that point at the wrong spans and a block that reads correctly.
-    audit_text, audit_ref = _audit_block(
-        audit_report, iteration=iteration, sample=errors)
+    audit_text, audit_ref = (
+        _audit_block(audit_report, iteration=iteration, sample=errors) if audits
+        else _absent_audit_block(iteration=iteration))
     window = render_window(errors, docs_by_id, context_chars)
     window_ref = window.reference()
 
     text = "\n\n".join([
-        _template(),
+        _template(porting),
         INPUT_BANNER,
+        # Byte-identical on both arms, deliberately. The ablation's difference has to be
+        # inside §1.3's Auditor half and nowhere else, so the sentence is not amended for
+        # the arm that empties it — the block below states the exception itself, which is
+        # where the brief for this arm allows the text and where an agent reading the
+        # block will be when the question arises.
         f"This is iteration {iteration}. Every §1 block below is filled: the scores and the "
         f"error spans are from iteration {iteration - 1}.",
         frame,
@@ -1060,7 +1125,10 @@ def assemble_iteration_prompt(
         "error_spans": window_ref,
         "text_chars": len(text),
         "text_sha256": _digest(text),
-        "window_files": {name: file_hash(name) for name in WINDOW_FILES},
+        # `assemble_task_prompt`'s note: the paths this arm reads, keyed by the path that
+        # was hashed, so the line and the freeze record describe one call (DESIGN §6.3).
+        "window_files": {path: file_hash(path)
+                         for path in sample_module.window_files(porting)},
     })
 
 
@@ -1312,6 +1380,10 @@ def _audit_block(
     ]
     block_text = "\n".join(lines)
     return block_text, {
+        # Present on both branches so the two are comparable key by key — the rule
+        # `model_id_absent` and `sample_reference` follow, and the reason a reader should
+        # not have to infer an ablation from a column of nulls (DESIGN §6.3).
+        "audit_agent_absent": False,
         "audit_iteration": stated,
         # Both numbers on the record, for the reason the file carries both: a reader holding
         # this reference should not have to know the loop's convention to tell which round's
@@ -1334,6 +1406,86 @@ def _audit_block(
         # itself is at `paths.auditreport` under the round `audit_iteration` names.
         "audit_block_sha256": _digest(block_text),
     }
+
+
+#: The fields `_audit_block()` reports, which `_absent_audit_block()` reports as `None`.
+#: Derived from neither — both functions are checked against this tuple by
+#: `tests/test_pinned_prompts.py`, because the property that matters is that the two key
+#: sets are *equal*, and a tuple either of them was built from would make that true by
+#: construction and tell a reader nothing.
+AUDIT_REFERENCE_FIELDS = (
+    "audit_agent_absent", "audit_iteration", "audit_masked_from_iteration",
+    "audit_flags", "audit_refused", "audit_documents", "audit_flags_corroborated",
+    "audit_flags_unresolved", "audit_unflagged_missed_spans",
+    "audit_sample_missed_spans", "audit_block_sha256",
+)
+
+
+def _absent_audit_block(*, iteration: int) -> tuple[str, dict]:
+    """§1.3's Auditor half for an arm that makes no Auditor call. DESIGN §6.3.
+
+    **Empty in place, not omitted**, which is `assemble_task_prompt()`'s rule for §§1.3–1.4
+    one level down and the same argument: the template the agent is reading describes a
+    second opinion in this block, and a block that simply is not there is a discrepancy the
+    agent has to resolve for itself — that it should ask for the flags, that the harness
+    dropped them, that it should infer suspected leaks from §1.4. All three are worse than
+    being told, and the third would reconstruct a weak substitute for the component the arm
+    exists to remove, which would make the ablation measure nothing.
+
+    **Every byte that differs from `port-loop`'s round-N prompt is inside this block.** The
+    sentence above §1.1 is not amended for this arm and the heading keeps its number and its
+    position, so the difference between the two prompts is the component and not the
+    component plus an edit. That is also why the block says the preceding sentence counts
+    this section as filled: the contradiction is resolved where the reader is rather than by
+    rewriting bytes outside the ablation.
+
+    The reference form carries `AUDIT_REFERENCE_FIELDS` with every measurement `None` —
+    absent means unrecorded, in the convention `abandoned_spend` follows, and a zero would
+    say the Auditor ran and found nothing, which is this arm's most expensive possible
+    misreading: it is the result `port-loop` would have produced if its Auditor had been
+    useless, and the two must never be confusable in a file. `audit_agent_absent` is the
+    one true `True`, and it is present and `False` on the other branch so a reader never
+    has to tell an absent key from an absent agent.
+
+    `iteration` is taken and not used in the text, and that is deliberate rather than an
+    oversight: both ablation arms render **the same bytes** here at every round, so that
+    the only difference between `port-loop-noaudit` and `port-loop-noaudit-current` is the
+    template revision and the only difference from `port-loop` is this block. A round
+    number in the block would make the empty half vary where the full half already says
+    which round it describes. The parameter stays because the signature is the one
+    `_audit_block()` is chosen against at the call site, and a reader comparing the two
+    should not have to check whether the choice also changed the arguments.
+    """
+    del iteration
+    lines = [
+        f"#### {SCORES} (continued) Auditor report — EMPTY for this arm",
+        "",
+        "This arm makes no Auditor call (config/naming.yaml `porting_arms`, DESIGN §6.3), "
+        f"so the second half of §{SCORES} is empty at every round rather than withheld. The "
+        f"sentence above counts §{SCORES} as filled because it is: the score tables are "
+        "there, and what is absent is the second opinion that would otherwise follow them. "
+        "This is the arm's definition and not a gap in the harness.",
+        "",
+        "Do not ask for the flags and do not substitute anything for them. In particular, "
+        f"do not read §{ERROR_SPANS} as a flag list: the error spans are drawn from gold "
+        "and tell you where this arm's rules were wrong, which is a different fact from a "
+        "suspicion about output the rules had already masked. Treating one as the other "
+        "would reconstruct a weak version of the component this arm does without, and the "
+        "arm exists to measure what that component is worth.",
+        "",
+        f"The three-case reading in §5 of the template applies to a round with flags. "
+        f"This round has none to read: every §{ERROR_SPANS} span below is unflagged "
+        "because nothing flagged anything, so the absence of a mark carries no information "
+        "here and the spans are to be read on their own.",
+    ]
+    block_text = "\n".join(lines)
+    reference = {name: None for name in AUDIT_REFERENCE_FIELDS}
+    reference["audit_agent_absent"] = True
+    # The one measured value in the block, because it is a statement about bytes that were
+    # assembled and sent rather than about an audit that happened (`score_block_sha256`'s
+    # reason, one function up).
+    reference["audit_block_sha256"] = _digest(block_text)
+    return block_text, reference
 
 
 # ─── the masker: the Auditor's §1.2 block (DESIGN §3) ────────────────────────
@@ -2131,7 +2283,7 @@ def _lexicon_template() -> str:
 PROMPT_DIR = "docs/prompts"
 
 
-def prompt_markdown_files(root: Path | None = None) -> list[str]:
+def prompt_directory_files(root: Path | None = None) -> list[str]:
     """Every markdown file under `docs/prompts/`, recursively, repo-relative and sorted.
 
     **Selected by location and not enumerated, and there is no exemption parameter.** A list
@@ -2153,6 +2305,53 @@ def prompt_markdown_files(root: Path | None = None) -> list[str]:
     base = (root or sample_module.ROOT)
     directory = base / PROMPT_DIR
     return sorted(str(path.relative_to(base)) for path in directory.rglob("*.md"))
+
+
+def pinned_prompt_files(root: Path | None = None) -> list[str]:
+    """The pinned revisions: `docs/prompts/pinned/`, repo-relative and sorted. DESIGN §6.3.
+
+    The other half of `prompt_directory_files()`. These files *are* sent to a model — an arm
+    that declares one sends it instead of the live template — so the reason they are not in
+    the fence check's scope is not that nothing reads them.
+
+    It is that the two halves are governed by opposite rules, and the pinned half's rule is
+    the stronger one. A live template is edited, so "no fenced demonstration in it" has to be
+    rechecked on every edit. A pinned revision may never be edited, and that is asserted by
+    hash against the `prompt_sha256` of the freeze record of the run it reproduces — a check
+    that fails on any edit in either direction, where the fence check only fails on one.
+
+    So `rule_author.ddc48bdb.md` keeps its six fence lines. They are the defect the
+    example-free policy fixed, and `port-loop` ran under them; an arm that is `port-loop`
+    minus the Auditor has to send the same bytes or the difference it measures is two things.
+    Editing the fences out would make the file pass a check and stop being evidence, which is
+    why `arm_window()` refuses a declaration pointing anywhere but here — elsewhere the file
+    is a live template and someone may fix it.
+    """
+    base = (root or sample_module.ROOT)
+    directory = base / sample_module.PINNED_PROMPT_DIR
+    if not directory.is_dir():
+        return []
+    # Wrapped rather than written on one line, so that this expression and the identical one
+    # in `prompt_directory_files()` are not the same bytes: `tests/mutations/run.py`'s
+    # `the_fence_check_exempts_one_file` anchors on that line, and two matches would make the
+    # mutation land in whichever function happens to come first in the file.
+    return sorted(str(path.relative_to(base))
+                  for path in directory.rglob("*.md"))
+
+
+def prompt_markdown_files(root: Path | None = None) -> list[str]:
+    """The live templates: every markdown file under `docs/prompts/` except the pinned ones.
+
+    What the fence check governs. Still selected by location and still without a per-file
+    parameter — the exclusion is one directory whose whole purpose is that its files are
+    immutable, not a list of files found to be inconvenient, and
+    `test_the_two_prompt_regimes_cover_the_directory_between_them` asserts that this and
+    `pinned_prompt_files()` partition the directory, so a file cannot fall out of both.
+    `pinned_prompt_files()` carries the argument for why the pinned half is governed
+    differently rather than not at all.
+    """
+    pinned = set(pinned_prompt_files(root))
+    return [name for name in prompt_directory_files(root) if name not in pinned]
 
 
 def fenced_prompt_lines(root: Path | None = None) -> dict[str, list[int]]:

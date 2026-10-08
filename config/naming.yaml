@@ -195,6 +195,22 @@ axes:
       format retries are zero (DESIGN §10 A2) — but a second run of a different
       prompt, which is what the separate path records.
     port-loop:     RuleAuthor <-> Auditor iterate against dev
+    port-loop-noaudit: |
+      the same rung with the Auditor removed. §1.3's Auditor half renders empty
+      in place — the position and the remaining bytes unchanged — so round 1 is
+      byte-identical to port-loop's round 1, which §4 already makes the
+      no-feedback call in both. Declares the ddc48bdb revision of rule_author.md
+      (porting_arms below, DESIGN §6.3): matched to the arm it is paired against
+      so that the one difference between the two is the component. A post-hoc
+      control, added with port-loop's result already in view, and it licenses no
+      selection.
+    port-loop-noaudit-current: |
+      the same ablation under the rule_author.md revision on disk, which is the
+      example-free one. Declares no template, so round 1 is not byte-identical to
+      port-loop's and the check does not apply — the difference from
+      port-loop-noaudit is the revision, and measuring it is why this value
+      exists. Not a retry of that arm: neither cell is spent by the other, and
+      the two are scored against each other rather than averaged.
     port-multi:    port-loop plus Profiler, Mapper, LexiconBuilder
     port-multi-noexample: |
       the same rung under the example-free prompts. None of the five carries an
@@ -405,7 +421,7 @@ termination:
 # 읽히는 사실이 되는 것이 그 규칙의 목적이다.
 agent_role:
   rule_author: rules/{lang}.yaml 을 쓰는 에이전트. 모든 porting arm 이 최소 한 번 호출한다
-  auditor:     마스킹된 dev 텍스트를 읽고 잔존 PHI 를 의심 표시한다. port-loop 회차 2 이상에서만 호출된다
+  auditor:     마스킹된 dev 텍스트를 읽고 잔존 PHI 를 의심 표시한다. port-loop 회차 2 이상에서만 호출되고, porting_arms 에서 부재를 선언한 arm 에서는 호출되지 않는다
   profiler:    profile.json 을 쓴다 (paths.armprofile). 루프 밖 첫 호출. 로더의 인코딩·오프셋 규약을 정한다
   mapper:      mapping.yaml 을 쓴다 (paths.armmapping). 루프 밖 둘째 호출. profile.type_inventory 를 읽는다
   lexicon_builder: lexicons/{lang}/ 을 쓴다 (paths.armlexicon). 루프 밖 셋째 호출. 세 산출물 중 유일하게 탐지에 들어간다
@@ -873,10 +889,56 @@ layer_families:
 # 갖는다. 검증은 src/corpora/base.py 에 있다.
 porting_rungs:
   oneshot:    [port-oneshot, port-oneshot-nofence]
-  loop:       [port-loop]
+  loop:       [port-loop, port-loop-noaudit, port-loop-noaudit-current]
   multi:      [port-multi, port-multi-noexample, port-multi-stripfence]
   selfdesign: [port-selfdesign]
   human:      [port-human]
+
+# ─── arm 선언: 읽는 프롬프트 판본과 부재하는 에이전트 ───────
+# DESIGN §6.3 의 "An arm may declare which prompt revision it sends" 절이
+# 선언하는 블록. 두 사실을 한 항목에 담는다 — 이 arm 이 어느 판본을 보내는가,
+# 그리고 어느 에이전트를 호출하지 않는가.
+#
+# **선언이고 유도가 아니다.** porting_rungs 와 같은 이유이고 같은 금지다:
+# porting.endswith("-noaudit") 는 오늘 맞는 답을 주지만 그것은 사람이 읽는
+# 작명 규약이고, 코드가 문자열에서 유도하면 접두·접미를 우연히 공유하는 값이
+# 조용히 분류되고 공유하지 않는 값이 조용히 빠진다. Auditor 호출 여부는
+# 청구서와 실험의 정체성을 동시에 결정하므로, 선언되지 않은 값은 여기 없는
+# 것으로 읽히고 호출을 **한다** — 즉 기본값은 기존 arm 전부의 동작이다.
+#
+# **여기 없는 arm 은 선언이 없는 arm 이다**: 디스크의 현재 판본 전부를 읽고
+# 부재하는 에이전트가 없다. 지금까지 돌린 모든 arm 이 그 경우이고, 이 블록이
+# 추가되는 것으로 그중 어느 것의 창도 움직이지 않는다 (불변성 검사는
+# tests/test_pinned_prompts.py 에 있다).
+#
+# templates 는 **기본 창 파일 경로 → 이 arm 이 실제로 읽는 경로** 다.
+# 역할 이름을 새로 만들지 않고 기본 경로를 키로 쓰는 이유: 창 파일 목록과
+# 해시 필드 이름은 src/sample.py 의 WINDOW_FILES · WINDOW_HASH_FIELDS 에
+# 선언되어 있고, 여기서 역할 어휘를 한 벌 더 만들면 둘이 어긋날 수 있는 쌍이
+# 하나 생긴다. 키가 창 파일인지와 대상 파일이 존재하는지는 창의 의미를 아는
+# 곳(src/sample.py)에서 검사한다. 이 파일은 구조만 검사한다.
+#
+# 고정 판본 파일은 docs/prompts/pinned/ 에 커밋된 바이트이고 이름에 자기
+# sha256 의 앞 여덟 자리를 담는다. git show 가 아닌 이유 세 가지는 DESIGN
+# §6.3 에 있다. 선언 자체는 창에 해시되지 않는다 — 선언을 바꾸면 그 arm 이
+# 해시하는 파일이 바뀌므로 prompt_sha256 이 움직이고 window_drift() 가
+# 보고한다. 프롬프트를 직접 편집한 것과 같은 신호, 같은 필드다.
+#
+# agents_absent 는 agent_role 값의 목록이다. 양의 목록("이 arm 이 호출하는
+# 역할")이 아니라 음의 목록인 이유는 기본값이다: 양의 목록이면 기존 arm
+# 여덟 개를 전부 선언해야 하고, 선언을 빠뜨린 arm 은 아무 에이전트도 호출하지
+# 않는 arm 이 된다 — 빠뜨린 쪽이 조용히 더 약한 arm 이 되는 방향이다. 음의
+# 목록에서는 빠뜨린 arm 이 기존 동작을 유지한다.
+#
+# 빈 항목은 거부한다. templates 도 agents_absent 도 없는 항목은 "선언이 없다"
+# 와 같은 뜻이고, 같은 뜻을 두 가지로 적을 수 있으면 둘 중 하나는 오타다.
+porting_arms:
+  port-loop-noaudit:
+    templates:
+      docs/prompts/rule_author.md: docs/prompts/pinned/rule_author.ddc48bdb.md
+    agents_absent: [auditor]
+  port-loop-noaudit-current:
+    agents_absent: [auditor]
 
 # ─── 코퍼스 → 로드할 규칙 파일 목록 ──────────────────────────
 # 탐지 실행은 이 목록의 파일을 **전부** 로드하고 매치를 합집합한다.

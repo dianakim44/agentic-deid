@@ -454,7 +454,7 @@ def run_iteration_1(*, corpus: str, lang: str, model_id: str,
         call_line(ITERATION, prompt_reference=reference, model=model,
                   envelope=wrapper.record(),
                   outcome=CALLED, cost=cost, model_lifecycle=lifecycle,
-                  role=RULE_AUTHOR, sample_reference=None),
+                  role=RULE_AUTHOR, sample_reference=None, porting=porting),
         corpus, detector, supervision, porting,
     )
 
@@ -690,7 +690,7 @@ def _audit_fold(documents, predictions, *, corpus: str, iteration: int, model_id
                       model=response.model_record(),
                       envelope=wrapper.record(),
                       outcome=CALLED, cost=response.cost(), model_lifecycle=lifecycle,
-                      role=AUDITOR, sample_reference=None),
+                      role=AUDITOR, sample_reference=None, porting=porting),
             corpus, detector, supervision, porting,
         )
         audits.append(audit.parse_response(
@@ -1028,7 +1028,8 @@ def run_iteration(iteration: int, *, corpus: str, lang: str, model_id: str,
         call_line(iteration, prompt_reference=reference, model=model,
                   envelope=wrapper.record(),
                   outcome=CALLED, cost=response.cost(), model_lifecycle=lifecycle,
-                  role=RULE_AUTHOR, sample_reference=reference["error_spans"]),
+                  role=RULE_AUTHOR, sample_reference=reference["error_spans"],
+                  porting=porting),
         corpus, detector, supervision, porting,
     )
 

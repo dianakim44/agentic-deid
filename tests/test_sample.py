@@ -25,10 +25,13 @@ sys.path.insert(0, str(ROOT))
 
 from src.corpora.base import axis, canonical_types, corpus_ids   # noqa: E402
 from src.sample import (                                        # noqa: E402
-    ERROR_KINDS, FALSE_POSITIVE, MISSED, ErrorSpan, SamplingError, _allocate,
-    config, draw, file_hash, non_target_types, prompt_hash, provenance,
-    check_iteration, is_practice, practice_min, sample_seed, window_hashes,
+    DECLARABLE_TEMPLATES, ERROR_KINDS, FALSE_POSITIVE, MISSED, PINNED_PROMPT_DIR,
+    PROMPT_TEMPLATE, WINDOW_FILES, ErrorSpan, SamplingError, _allocate,
+    arm_window, config, draw, file_hash, non_target_types, prompt_hash, provenance,
+    check_iteration, is_practice, practice_min, sample_seed, template_path,
+    window_files, window_hashes,
 )
+import src.sample as sample_module                              # noqa: E402
 
 
 # ─── fixtures ───────────────────────────────────────────────────────────────
@@ -564,6 +567,166 @@ def test_an_unknown_window_file_has_no_field_to_write_to():
 
 def test_window_hashes_are_json_serialisable():
     json.dumps(window_hashes())
+
+
+# ─── an arm's declared revision (DESIGN §6.3) ───────────────────────────────
+# Four refusals and one default. The refusals all close the same failure: a declaration
+# that the freeze record honours and the assembler ignores, which is a record attesting to
+# a window no call ran under. `tests/test_pinned_prompts.py` holds the positive side — the
+# pinned file's digest, the round-1 byte identity, and the ten records that did not move.
+
+
+#: The one pinned revision that is committed. Named here because two tests below need a
+#: declaration to be wrong in exactly one way, and the only way to arrange that is to point
+#: at bytes that are on disk — otherwise the missing-file refusal fires too and `raises`
+#: cannot tell the two apart.
+PINNED_REVISION = f"{PINNED_PROMPT_DIR}/rule_author.ddc48bdb.md"
+
+
+def _declare(monkeypatch, mapping):
+    """Inject a `porting_arms` templates declaration for one call.
+
+    Injected rather than added to `config/naming.yaml`, because three of the four shapes
+    below are shapes no arm may use and committing them to the config would be committing
+    a declaration whose only purpose is to be refused.
+    """
+    monkeypatch.setattr(sample_module, "arm_templates", lambda porting: dict(mapping))
+
+
+def test_no_declaration_resolves_to_the_current_revision_of_every_window_file():
+    """The default, asserted in all four accessors. DESIGN §6.3: the default does not move.
+
+    `porting=None` and "this arm declared nothing" are two routes to one answer, and every
+    arm that has run to date took one or the other. An accessor wrong here is wrong for
+    every arm in the paper, and silently — the hashes would still be hashes of real files.
+    """
+    assert arm_window() == {name: name for name in WINDOW_FILES}
+    assert arm_window("port-loop") == {name: name for name in WINDOW_FILES}
+    assert window_files() == WINDOW_FILES
+    assert window_files("port-loop") == WINDOW_FILES
+    assert template_path(PROMPT_TEMPLATE) == PROMPT_TEMPLATE
+    assert template_path(PROMPT_TEMPLATE, "port-loop") == PROMPT_TEMPLATE
+    assert window_hashes(porting="port-loop") == window_hashes()
+
+
+def test_a_declaration_replaces_the_path_without_moving_its_position(monkeypatch):
+    """In `WINDOW_FILES` order, so a record's `files` list stays comparable across arms."""
+    pinned = f"{PINNED_PROMPT_DIR}/rule_author.ddc48bdb.md"
+    _declare(monkeypatch, {PROMPT_TEMPLATE: pinned})
+    assert list(arm_window("port-loop-noaudit")) == list(WINDOW_FILES)
+    assert window_files("port-loop-noaudit")[0] == pinned
+    assert window_files("port-loop-noaudit")[1:] == WINDOW_FILES[1:]
+
+
+def test_declaring_a_file_the_assembler_does_not_resolve_is_refused(monkeypatch):
+    """`auditor.md` is in the window and is not declarable. DESIGN §6.3.
+
+    The refusal is not about the file. `_auditor_template()` does not go through
+    `template_path()`, so this declaration would be honoured by the freeze record — which
+    would hash the pinned bytes — and ignored by the call, which would send the current
+    ones. Widening `DECLARABLE_TEMPLATES` means threading the arm to that reader in the
+    same commit, and this is what makes the config unable to promise it first.
+
+    The pinned revision this declares is one that exists, and that is the point rather
+    than tidiness: `pinned/auditor.b7e983a4.md` is not committed, so a declaration naming
+    it is refused twice over — once for the file being undeclarable and once for the
+    revision being absent — and a test that only asks for `SamplingError` passes either
+    way. `a_template_the_assembler_ignores_is_declarable` survived its probe for exactly
+    that reason: the exists refusal names the default path it was handed, so the assertion
+    below was satisfied by the wrong guard. Pointing at bytes that are on disk leaves this
+    check as the only one that can fire, and the phrase assertion says which.
+    """
+    assert DECLARABLE_TEMPLATES == (PROMPT_TEMPLATE,)
+    _declare(monkeypatch, {"docs/prompts/auditor.md": PINNED_REVISION})
+    with pytest.raises(SamplingError) as caught:
+        arm_window("port-loop-noaudit")
+    assert "docs/prompts/auditor.md" in str(caught.value)
+    assert "can be declared today" in str(caught.value)
+    assert "is not a file" not in str(caught.value)
+
+
+def test_the_undeclarable_refusal_comes_before_the_missing_file_one(monkeypatch):
+    """Both apply, and the one that fires is the one about the declaration.
+
+    The companion to the test above, and the half of it that does not depend on a file
+    being committed. A declaration can be wrong in two ways at once, and the order the
+    refusals are written in decides which reason the operator is given. `auditor.md`
+    pointed at an absent revision is the case: "that file's reader is not arm-aware" is
+    the fact that does not change when the file is added, so reporting the missing file
+    first would send someone to commit bytes that still cannot be declared afterwards.
+    """
+    _declare(monkeypatch, {"docs/prompts/auditor.md":
+                           f"{PINNED_PROMPT_DIR}/auditor.b7e983a4.md"})
+    with pytest.raises(SamplingError) as caught:
+        arm_window("port-loop-noaudit")
+    assert "can be declared today" in str(caught.value)
+    assert "is not a file" not in str(caught.value)
+
+
+def test_declaring_a_path_that_is_not_in_the_window_is_refused(monkeypatch):
+    """A declaration keys on the default path it replaces, so a typo replaces nothing.
+
+    `rule-author.md` for `rule_author.md` leaves the arm reading the current revision while
+    `naming.yaml` says otherwise, and the freeze record hashes the file the config named
+    without any call having opened it.
+    """
+    _declare(monkeypatch, {"docs/prompts/rule-author.md":
+                           f"{PINNED_PROMPT_DIR}/rule_author.ddc48bdb.md"})
+    with pytest.raises(SamplingError) as caught:
+        arm_window("port-loop-noaudit")
+    assert "WINDOW_FILES" in str(caught.value)
+
+
+def test_declaring_a_revision_outside_the_pinned_directory_is_refused(monkeypatch):
+    """Pinned revisions live in one directory, and that is what makes them immutable.
+
+    Elsewhere under `docs/prompts/` the file is a live template: the fence policy applies to
+    it and someone will eventually edit it into compliance, which would change what a
+    published arm's counterpart ran under months after the comparison was reported.
+    """
+    _declare(monkeypatch, {PROMPT_TEMPLATE: "docs/prompts/rule_author.ddc48bdb.md"})
+    with pytest.raises(SamplingError) as caught:
+        arm_window("port-loop-noaudit")
+    assert PINNED_PROMPT_DIR in str(caught.value)
+
+
+def test_declaring_a_revision_that_is_not_on_disk_is_refused(monkeypatch):
+    """No fallback. Falling back would send the current revision under this arm's name.
+
+    The silent version of this is the dangerous one: a run that completes, a record that
+    names a path, and a prompt that was never the one the record describes.
+    """
+    _declare(monkeypatch, {PROMPT_TEMPLATE: f"{PINNED_PROMPT_DIR}/rule_author.00000000.md"})
+    with pytest.raises(SamplingError) as caught:
+        arm_window("port-loop-noaudit")
+    assert "not a file" in str(caught.value)
+
+
+def test_a_declared_revision_is_hashed_into_the_field_of_the_path_it_replaces(monkeypatch):
+    """`prompt_sha256`, not a field named after the pinned file. DESIGN §6.3.
+
+    The comparison the pinned arm exists for is against `port-loop`'s record, field by
+    field. A `rule_author_ddc48bdb_sha256` would make the two records incomparable in
+    exactly the field the comparison is about.
+    """
+    pinned = f"{PINNED_PROMPT_DIR}/rule_author.ddc48bdb.md"
+    _declare(monkeypatch, {PROMPT_TEMPLATE: pinned})
+    got = window_hashes(porting="port-loop-noaudit")
+    assert set(got) == set(window_hashes())
+    assert got["prompt_sha256"] == file_hash(pinned)
+    assert {k: v for k, v in got.items() if k != "prompt_sha256"} == \
+        {k: v for k, v in window_hashes().items() if k != "prompt_sha256"}
+
+
+def test_a_narrow_window_and_an_arm_cannot_both_be_asked_for():
+    """Two answers to "which files", and the refusal is that there is no third.
+
+    `port-human` passes a file list and an arm passes a `porting`; a call passing both is a
+    caller that has two definitions of its own window, and resolving it either way would
+    produce a record whose `files` list no reader could predict.
+    """
+    with pytest.raises(SamplingError):
+        window_hashes(("docs/prompts/rule_author.md",), porting="port-loop")
 
 
 def test_prompt_hash_is_labelled_with_its_algorithm():

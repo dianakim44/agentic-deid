@@ -337,7 +337,8 @@ def _call(role: str, prompt, *, corpus: str, detector: str, supervision: str, po
     append_call(
         call_line(AUTHORING_ITERATION, prompt_reference=reference, model=model,
                   envelope=wrapper.record(),
-                  outcome=CALLED, cost=cost, model_lifecycle=lifecycle, role=role),
+                  outcome=CALLED, cost=cost, model_lifecycle=lifecycle, role=role,
+                  porting=porting),
         corpus, detector, supervision, porting,
     )
     return response, wrapper, model, cost, lifecycle, reference

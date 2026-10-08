@@ -87,6 +87,17 @@ TEST_FILES = [
     "tests/test_loop.py",
     "tests/test_multi.py",
     "tests/test_envelope.py",
+    #: Added 2026-10-08 with the DESIGN §6.3 declaration mechanism. Unlike the five loader
+    #: entries above, this file is not the only home of the tests that catch its mutations —
+    #: `tests/test_sample.py`, `tests/test_prompt.py` and `tests/test_orchestrate.py` are
+    #: already members and carry most of them. What is only here is the pair of claims that
+    #: need a *committed artefact* to make: that the pinned file's bytes are the revision
+    #: `port-loop` froze, and that the ablated rung's round 1 reproduces `port-loop`'s logged
+    #: `text_sha256` byte for byte. Those are the assertions that make "differs in the
+    #: Auditor and nothing else" measured rather than argued, so they belong inside the
+    #: denominator. Membership moving is itself a full-run reason, and this commit owes one
+    #: on two other grounds as well (`src/` across four modules).
+    "tests/test_pinned_prompts.py",
 ]
 
 #: Repository directories the loader tests need. `splits/` is here because the
@@ -6012,10 +6023,12 @@ MUTATIONS = [
         replacement='        "outcome": outcome,',
         also=((
             ORCHESTRATE,
-            "        \"generated\": _now(),\n        **window_hashes(),",
+            # Re-anchored 2026-10-08: `call_line()` resolves its window through the arm
+            # (DESIGN §6.3), so the tail it is moved past is `window_hashes(porting=...)`.
+            "        \"generated\": _now(),\n        **window_hashes(porting=porting),",
             "        \"generated\": _now(),\n"
             "        \"role\": checked_role,\n"
-            "        **window_hashes(),",
+            "        **window_hashes(porting=porting),",
         ),),
         breaks=(
             "**The same fields in a different order, which is the version that looks like a "
@@ -6103,8 +6116,12 @@ MUTATIONS = [
     Mutation(
         name="round_one_reassembles_the_baselines_prompt",
         path=PROMPT,
+        # Re-anchored 2026-10-08 with the arm-declared prompt revision (DESIGN §6.3):
+        # the delegation now forwards `porting`, and so does the inlined copy below — a
+        # copy that dropped it would differ from the call it duplicates in which revision
+        # it sends, which is a second difference and not this mutation's claim.
         anchor="        return assemble_task_prompt(lang=lang, corpus=corpus, "
-               "rules_path=rules_path)",
+               "rules_path=rules_path,\n                                    porting=porting)",
         replacement=(
             "        frame = _task_frame(lang, corpus)\n"
             "        rules_block, rules_ref = _current_rules(lang, rules_path)\n"
@@ -6113,7 +6130,7 @@ MUTATIONS = [
             "            for section in EMPTY_SECTIONS\n"
             "        ])\n"
             "        text = \"\\n\\n\".join([\n"
-            "            _template(),\n"
+            "            _template(porting),\n"
             "            INPUT_BANNER,\n"
             "            frame,\n"
             "            rules_block,\n"
@@ -6137,7 +6154,8 @@ MUTATIONS = [
             "            **rules_ref,\n"
             "            \"text_chars\": len(text),\n"
             "            \"text_sha256\": _digest(text),\n"
-            "            \"window_files\": {name: file_hash(name) for name in WINDOW_FILES},\n"
+            "            \"window_files\": {path: file_hash(path)\n"
+            "                              for path in sample_module.window_files(porting)},\n"
             "        })"
         ),
         breaks=(
@@ -7530,6 +7548,346 @@ MUTATIONS = [
             "asserted the six keys are present passes against this mutation."
         ),
         min_kills=2,
+    ),
+    Mutation(
+        name="arm_window_ignores_the_declaration",
+        path=SAMPLE,
+        anchor="        window[default] = pinned\n    return window",
+        replacement="        continue\n    return window",
+        breaks=(
+            "**Every refusal still fires and the declaration still does nothing.** The "
+            "undeclarable check, the not-in-the-window check, the outside-`pinned/` check "
+            "and the exists check all run, so a malformed declaration is still refused and "
+            "a well-formed one is accepted — and then dropped. `arm_window()` returns the "
+            "identity map, every arm sends the current revision, and nothing anywhere "
+            "raises.\n"
+            "\n"
+            "This is the mutation the whole mechanism is for. `port-loop-noaudit` exists to "
+            "differ from `port-loop` in the Auditor and nothing else (DESIGN §6.3); under "
+            "this version it differs in the Auditor *and* the prompt revision, which is the "
+            "confound the pin was added to remove — and the arm would run to completion, "
+            "its freeze record would name the live file, and the only sign would be a "
+            "round-1 hash nobody had a reason to check.\n"
+            "\n"
+            "Caught by `test_the_pinned_rung_reproduces_port_loops_round_one_byte_for_byte`, "
+            "which is the one assertion that covers the whole resolution path at once, and "
+            "by the declaration tests in `tests/test_sample.py`."
+        ),
+        min_kills=4,
+    ),
+    Mutation(
+        name="a_pinned_revision_may_live_beside_the_live_template",
+        path=SAMPLE,
+        # The check, not the message: the error text stays in the file and becomes
+        # unreachable, which is what a real version of this would look like after someone
+        # found the refusal inconvenient and left the explanation behind.
+        anchor="        if Path(pinned).parent != Path(PINNED_PROMPT_DIR))",
+        replacement="        if False)",
+        breaks=(
+            "**Lets a pinned revision be filed as a live template.** "
+            "`docs/prompts/rule_author.ddc48bdb.md` beside the file it is a revision of is "
+            "the obvious place to put it, and it works: the hash is right, the arm reads the "
+            "right bytes, the record is correct, and the comparison is reported.\n"
+            "\n"
+            "What is lost is on a different timescale. Under `docs/prompts/` the file is a "
+            "live template — `prompt_markdown_files()` includes it, the fence policy applies "
+            "to it, and `ddc48bdb` carries six fenced examples. The next person to run the "
+            "suite gets a failure naming that file and a message telling them to move the "
+            "examples out, which is the correct instruction for every other file in the "
+            "directory and destroys this one. The published arm's counterpart would then "
+            "have run under bytes the repository no longer holds.\n"
+            "\n"
+            "Caught by `test_declaring_a_revision_outside_the_pinned_directory_is_refused` "
+            "and by `tests/test_pinned_prompts.py`'s own positive control."
+        ),
+        min_kills=2,
+    ),
+    Mutation(
+        name="a_template_the_assembler_ignores_is_declarable",
+        path=SAMPLE,
+        anchor="    undeclarable = sorted(set(declared) & set(window) - set(DECLARABLE_TEMPLATES))",
+        replacement="    undeclarable = []",
+        breaks=(
+            "**Honours a declaration naming `auditor.md`, which nothing reads through the "
+            "declaration.** `_auditor_template()` and `port-multi`'s three readers resolve "
+            "their file directly, so the pinned bytes would be hashed into the freeze record "
+            "and the current bytes would be sent. The record would attest to a window no "
+            "call ran under — the one failure DESIGN §6.3 opens with, produced by the "
+            "mechanism §6.3 added.\n"
+            "\n"
+            "Nothing raises and nothing in the record looks wrong: `auditor_sha256` is a "
+            "hash of a real file, the `files` list names a real path, and the only way to "
+            "notice is to know which readers are arm-aware.\n"
+            "\n"
+            "Caught by `test_declaring_a_file_the_assembler_does_not_resolve_is_refused`, "
+            "which is the test that keeps the config from promising what the code will not "
+            "do — and which **survived this mutation on its first probe**. The declaration "
+            "it used named a pinned revision that is not committed, so `arm_window()` had "
+            "two reasons to refuse and `pytest.raises(SamplingError)` could not say which "
+            "one it got; the missing-file refusal names the default path it was handed, "
+            "which satisfied the assertion as well. The fix was to point the declaration at "
+            "bytes that are on disk, so this check is the only one that can fire, and to "
+            "assert the phrase. `test_the_undeclarable_refusal_comes_before_the_missing_"
+            "file_one` then pins the order for the case where both do apply."
+        ),
+        min_kills=2,
+    ),
+    Mutation(
+        name="a_missing_pinned_revision_falls_back_to_the_current_one",
+        path=SAMPLE,
+        anchor="        if not (ROOT / pinned).is_file():",
+        replacement="        if False:",
+        breaks=(
+            "**The fallback, which is the shape this would really be written in.** A pinned "
+            "file that is not on disk — a path typo, a file not staged, a clone that skipped "
+            "it — leaves the arm sending the current revision under the pinned arm's name. "
+            "The run completes, the record names the pinned path, and `prompt_sha256` is the "
+            "hash of the file that was actually read, so the record is internally "
+            "consistent and wrong about which revision the arm sends.\n"
+            "\n"
+            "A fallback is the wrong instinct here for the same reason `_git()`'s absence "
+            "handling is the right one: there, absence means history says nothing and the "
+            "record says so; here, absence means the arm cannot be what it was declared to "
+            "be.\n"
+            "\n"
+            "Caught by `test_declaring_a_revision_that_is_not_on_disk_is_refused`."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="the_freeze_record_names_the_default_window",
+        path=ORCHESTRATE,
+        anchor='        "files": list(window_files(porting)),',
+        replacement='        "files": list(WINDOW_FILES),',
+        breaks=(
+            "**The hashes are the arm's and the paths are everyone's.** "
+            "`**window_hashes(porting=porting)` on the next line still writes the pinned "
+            "file's digest into `prompt_sha256`, so the record is correct about the bytes "
+            "and wrong about which file they came from — and `files` is the only field that "
+            "says a pinned window is pinned.\n"
+            "\n"
+            "The reading this destroys is the one DESIGN §6.3 added the field for: a reader "
+            "comparing `port-loop`'s record with the ablated arm's sees six identical paths "
+            "and one differing hash, which is exactly what an *edited* `rule_author.md` "
+            "looks like. The two events are a confound and a drift, and the field is what "
+            "tells them apart without the reader knowing that pinning exists.\n"
+            "\n"
+            "Caught by `test_a_declared_revision_is_the_one_the_record_names_and_hashes`."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="the_record_does_not_say_which_agent_is_absent",
+        path=ORCHESTRATE,
+        anchor='        "agents_absent": list(arm_absent_agents(porting)),\n    }',
+        replacement='    }',
+        breaks=(
+            "**The ablated arm's record becomes indistinguishable from `port-loop`'s.** This "
+            "is not a field going missing from a record that said the same thing elsewhere. "
+            "`port-loop` freezes its window at round 1, whose §1.3 is empty by DESIGN §4, so "
+            "`sections_shown` and `sections_empty` are *identical* on the two arms — six "
+            "files, the same field names, the same values but one. Nothing on the face of "
+            "the record would say that the component the arm was built to remove is "
+            "missing.\n"
+            "\n"
+            "The one differing hash would be the only signal, and on "
+            "`port-loop-noaudit-current` there is not even that: it declares no template, so "
+            "its record and `port-loop`'s would agree in every field. Two arms, one record "
+            "shape, and the difference between them is the experiment.\n"
+            "\n"
+            "Caught by `test_the_record_says_which_agent_the_arm_does_without`, which "
+            "compares the two records against each other rather than checking either for a "
+            "field, and by `test_an_arm_that_declares_no_absence_still_carries_the_field`."
+        ),
+        min_kills=2,
+    ),
+    Mutation(
+        name="the_call_line_hashes_the_live_window",
+        path=ORCHESTRATE,
+        # `call_line()`'s tail only — the freeze record's and the failure record's identical
+        # lines are left alone, which is what makes this the half-forwarded version rather
+        # than a revert of the mechanism.
+        anchor='        "cost": dict(cost),\n        "generated": _now(),\n'
+               '        **window_hashes(porting=porting),',
+        replacement='        "cost": dict(cost),\n        "generated": _now(),\n'
+                    '        **window_hashes(),',
+        breaks=(
+            "**The record and the log disagree about one call, with the log wrong.** "
+            "`freeze_window()` still resolves through the arm, so the freeze record names "
+            "and hashes the pinned revision; every line in `agent_calls.jsonl` carries the "
+            "live one. Both files are well-formed and neither says which is right.\n"
+            "\n"
+            "The per-line hashes are the *mid-run* drift detector for an iterating arm "
+            "(DESIGN §11.2) — the one signal that `rule_author.md` moved between round 3 and "
+            "round 4 — and on a declaring arm they would show a constant disagreement with "
+            "the record from round 1, which reads as drift that happened before the arm "
+            "started. An eight-round log would carry eight false claims about what was "
+            "sent.\n"
+            "\n"
+            "Caught by `test_the_declared_revision_reaches_the_call_line_too`, which compares "
+            "the line against the freeze record field by field."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="the_absent_audit_block_is_omitted_instead_of_empty",
+        path=PROMPT,
+        anchor='    block_text = "\\n".join(lines)\n    reference = {name: None '
+               'for name in AUDIT_REFERENCE_FIELDS}',
+        replacement='    block_text = ""\n    reference = {name: None '
+                    'for name in AUDIT_REFERENCE_FIELDS}',
+        breaks=(
+            "**The ablation stops telling the agent that the block is empty.** Every "
+            "reference field is still written, `audit_agent_absent` is still `True`, and the "
+            "recorded `audit_block_sha256` is still a real digest of what was sent — of the "
+            "empty string. The prompt is shorter by one block and the record is honest about "
+            "it, so nothing downstream is inconsistent.\n"
+            "\n"
+            "What the agent is shown is a template describing a second opinion in §1.3, a "
+            "sentence saying every §1 block below is filled, and then no second opinion. "
+            "The resolutions available to it are to ask for the flags, to assume the "
+            "harness dropped them, or to read §1.4 as a flag list — and the third "
+            "reconstructs a weak substitute for the component this arm exists to remove, "
+            "which would make the measurement an understatement of the Auditor's worth by "
+            "an unknown amount. This is `assemble_task_prompt()`'s argument about round 1's "
+            "empty blocks, at the block that was added by an ablation.\n"
+            "\n"
+            "Caught by `test_the_audit_half_is_rendered_empty_rather_than_omitted` and the "
+            "position test beside it."
+        ),
+        min_kills=2,
+    ),
+    Mutation(
+        name="an_audit_report_for_an_ablated_arm_is_dropped",
+        path=PROMPT,
+        anchor="    elif audit_report is not None:",
+        replacement="    elif False:",
+        breaks=(
+            "**Ignores instead of refusing, and the prompt stays correct.** The arm renders "
+            "the empty block, the round is right, and the report is silently discarded. "
+            "Nothing about the assembled prompt is wrong — which is why this is the version "
+            "that would survive review.\n"
+            "\n"
+            "The caller holding a report has made the Auditor calls that produced it. So the "
+            "spend and the arm's definition already disagree, and the only artefact that "
+            "could say so is this refusal: the prompt would not mention it, the freeze "
+            "record declares the agent absent, and the cost block would carry calls the arm "
+            "says it does not make. Refusing puts the contradiction where the money was "
+            "spent — the same reason round 1 refuses a score block instead of dropping it.\n"
+            "\n"
+            "Caught by "
+            "`test_an_audit_report_handed_to_an_arm_without_an_auditor_is_refused`."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="the_absent_audit_reference_reports_zeros",
+        path=PROMPT,
+        anchor="    reference = {name: None for name in AUDIT_REFERENCE_FIELDS}",
+        replacement="    reference = {name: 0 for name in AUDIT_REFERENCE_FIELDS}",
+        breaks=(
+            "**Says the Auditor ran and found nothing.** The key set is unchanged, "
+            "`audit_agent_absent` is still overwritten with `True`, and the block's digest "
+            "is still real — so the record is complete, typed, and comparable with "
+            "`port-loop`'s field by field. Every count is 0.\n"
+            "\n"
+            "Zero flags, zero refusals, zero documents audited is the result `port-loop` "
+            "would have produced if its Auditor had been useless, which is one of the two "
+            "possible findings of this experiment. The other is that the Auditor is worth "
+            "something and this arm did without it. A reader aggregating `audit_flags` over "
+            "rounds gets a number that is a mean of real measurements and placeholders, and "
+            "`audit_agent_absent` is one key away saying so. Absent means unrecorded, in the "
+            "convention `abandoned_spend` follows and for the same reason.\n"
+            "\n"
+            "Caught by `test_the_reference_says_the_agent_was_absent_rather_than_silent` and "
+            "by the key-and-`None` assertion in `tests/test_pinned_prompts.py`."
+        ),
+        min_kills=2,
+    ),
+    Mutation(
+        name="the_fence_check_skips_every_subdirectory",
+        path=PROMPT,
+        # The second exclusion, in the shape the first one invites: `pinned/` is out, so
+        # select the top level and be done with it. One line shorter than what it replaces.
+        anchor=(
+            "    pinned = set(pinned_prompt_files(root))\n"
+            "    return [name for name in prompt_directory_files(root) if name not in pinned]"
+        ),
+        replacement=(
+            "    return [name for name in prompt_directory_files(root)\n"
+            "            if Path(name).parent == Path(PROMPT_DIR)]"
+        ),
+        breaks=(
+            "**Generalises the one exclusion into a rule, and the rule is wrong.** "
+            "`docs/prompts/pinned/` is out of the fence check by argument (DESIGN §6.3: its "
+            "files are immutable and hash-pinned instead); `docs/prompts/examples/` is in it "
+            "by argument too — `prompt_markdown_files()` is recursive precisely so that "
+            "filing a template one level down is not a way out, and `examples/`'s own README "
+            "is left in scope because 'this file is not sent to a model' is a judgement.\n"
+            "\n"
+            "On the repository as committed the two versions return the same answer for the "
+            "files that currently exist, so the fence check stays green either way. The "
+            "difference appears when the sixth prompt is filed in a subdirectory, which is "
+            "the event the recursion was written for after the defect was inherited once.\n"
+            "\n"
+            "Caught by `test_the_fence_check_covers_every_prompt_file_including_nested_ones`, "
+            "which asserts a property of the *selection* in a built tree, and by the "
+            "partition test."
+        ),
+        min_kills=2,
+    ),
+    Mutation(
+        name="the_pinned_half_is_governed_by_nothing",
+        path=PROMPT,
+        anchor="    directory = base / sample_module.PINNED_PROMPT_DIR\n"
+               "    if not directory.is_dir():\n        return []",
+        replacement="    directory = base / sample_module.PINNED_PROMPT_DIR\n"
+                    "    if True:\n        return []",
+        breaks=(
+            "**The partition becomes a subtraction of nothing, and the pinned file falls "
+            "back into the fence check.** This is the mutation that shows which way the "
+            "trade in DESIGN §6.3 runs. `prompt_markdown_files()` subtracts an empty set, so "
+            "the live half is the whole directory again and "
+            "`test_no_prompt_template_contains_a_fence_line` reports `ddc48bdb`'s six fence "
+            "lines — with a message telling the reader to move the examples out of a file "
+            "that may not be edited.\n"
+            "\n"
+            "So the failure is loud and the instruction it gives is the wrong one, which is "
+            "why the scoping had to be argued rather than skipped: the honest ground is not "
+            "that nothing reads the pinned file — the pinned rung sends it — but that its "
+            "bytes are asserted by hash, a check that fails on an edit in either direction "
+            "where the fence check fails on one.\n"
+            "\n"
+            "Caught by the fence check itself and by "
+            "`test_the_two_prompt_regimes_cover_the_directory_between_them`, whose last "
+            "assertion is that the pinned half is not empty."
+        ),
+        min_kills=2,
+    ),
+    Mutation(
+        name="arm_calls_agent_answers_for_every_arm_alike",
+        path=BASE,
+        anchor="    return check_agent_role(role) not in arm_absent_agents(porting)",
+        replacement="    return check_agent_role(role) is not None",
+        breaks=(
+            "**The declaration is validated and then not consulted.** The role still goes "
+            "through `check_agent_role()`, so a misspelled role still fails at the ask; "
+            "`arm_absent_agents()` still reads and normalises the declaration, so a "
+            "malformed `porting_arms` block is still refused. The answer is just always "
+            "`True`.\n"
+            "\n"
+            "This is the accessor the driver asks before paying for a call, so the ablated "
+            "arm makes every Auditor call `port-loop` makes — one per dev document per "
+            "round. The arm named `port-loop-noaudit` would produce `port-loop`'s numbers at "
+            "`port-loop`'s cost, and the brief's reason for running it (a control that "
+            "differs in one component) would be satisfied by nothing. The cost block is "
+            "where this is visible afterwards, which is after the money.\n"
+            "\n"
+            "Caught by `test_both_ablation_rungs_declare_the_auditor_absent` and, in the "
+            "assembler, by every test of the empty §1.3 half — `audits` becomes true, so the "
+            "arm demands a report it was built not to have."
+        ),
+        min_kills=3,
     ),
 ]
 

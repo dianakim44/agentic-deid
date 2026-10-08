@@ -33,11 +33,13 @@ import hashlib
 import random
 from dataclasses import dataclass
 from functools import lru_cache
+from pathlib import Path
 from typing import Iterable, Sequence
 
 import yaml
 
-from .corpora.base import ROOT, CorpusError, axis, canonical_types, corpus_ids
+from .corpora.base import (ROOT, CorpusError, arm_templates, axis,
+                           canonical_types, corpus_ids)
 
 CONFIG = ROOT / "config" / "sampling.yaml"
 
@@ -450,6 +452,26 @@ WINDOW_HASH_FIELDS = {
     LEXICON_BUILDER_TEMPLATE: "lexicon_builder_sha256",
 }
 
+#: Where a pinned revision of a window file lives, and the one directory under
+#: `docs/prompts/` whose files are not live templates (DESIGN §6.3). A separate directory
+#: rather than a suffix on the template's own name, because the two sets are governed by
+#: opposite rules: a live template is edited and must stay free of a fenced demonstration,
+#: and a pinned revision may never be edited at all — including into compliance, which
+#: would destroy the record of what the arm it is paired with actually ran under.
+#: `src/llm/prompt.py` partitions on this prefix and asserts the two halves cover the
+#: directory, so a file cannot fall out of both regimes.
+PINNED_PROMPT_DIR = "docs/prompts/pinned"
+
+#: Which window files an arm may pin a revision of (DESIGN §6.3). One, and the limit is
+#: not about the files: it is about which readers resolve a template through
+#: `template_path()`. `src/llm/prompt.py`'s `_template()` does; `_auditor_template()` and
+#: the three `port-multi` readers do not, and a declaration naming one of those would be
+#: honoured by the freeze record and ignored by the call — a record attesting to a window
+#: nothing ran under, which is the one failure §6.3 exists to prevent. So the tuple is the
+#: implemented set and `arm_window()` refuses the rest, rather than the config being free
+#: to say something the code will not do. Widening it is two edits in one commit.
+DECLARABLE_TEMPLATES = (PROMPT_TEMPLATE,)
+
 
 def file_hash(path: str) -> str:
     """SHA-256 of a repository file, labelled with its algorithm.
@@ -471,7 +493,109 @@ def prompt_hash(path: str | None = None) -> str:
     return file_hash(path or PROMPT_TEMPLATE)
 
 
-def window_hashes(files: Sequence[str] | None = None) -> dict:
+def arm_window(porting: str | None = None) -> dict[str, str]:
+    """Default window path -> the path this arm actually reads. DESIGN §6.3.
+
+    The identity mapping over `WINDOW_FILES` for `porting=None` and for every arm that
+    declares no template, which is every arm run to date. An arm that declares one
+    (`config/naming.yaml`'s `porting_arms`) gets that entry replaced and the rest left
+    alone, in `WINDOW_FILES` order — the order is what makes a freeze record's `files`
+    list comparable across arms, so a declaration moves a path and never its position.
+
+    Returned as a mapping rather than a list because both halves are needed downstream and
+    only together: the key says which hash field the value is written to
+    (`WINDOW_HASH_FIELDS` is keyed on the default path, so a pinned revision lands in
+    `prompt_sha256` like any other and `port-loop`'s record stays comparable), and the
+    value says which bytes to hash and send. A function returning only the second would
+    make the caller re-derive the first from a filename, which is the derivation this
+    repository refuses everywhere else.
+
+    **A declaration naming something that is not a window file is refused here**, and this
+    is the module that can refuse it: `config/naming.yaml` validates the block's structure
+    and deliberately does not own this list. The failure it closes is a declaration that
+    looks honoured and is not — a key of `docs/prompts/rule-author.md` would leave the arm
+    reading the current revision while the config said otherwise, and the freeze record
+    would agree with the config about a file it never opened.
+    """
+    window = {name: name for name in WINDOW_FILES}
+    if porting is None:
+        return window
+    declared = arm_templates(porting)
+    undeclarable = sorted(set(declared) & set(window) - set(DECLARABLE_TEMPLATES))
+    if undeclarable:
+        raise SamplingError(
+            f"porting_arms[{porting!r}].templates declares {undeclarable}, and only "
+            f"{list(DECLARABLE_TEMPLATES)} can be declared today. The limit is which "
+            "readers are arm-aware, not which files are in the window: the freeze record "
+            "would carry the declared revision's hash while the assembler that reads that "
+            "file still read the current one, which is a record of a window no call ran "
+            "under. Widening this means threading `porting` to that file's reader in "
+            "src/llm/prompt.py in the same commit (DESIGN §6.3)."
+        )
+    unknown = sorted(set(declared) - set(window))
+    if unknown:
+        raise SamplingError(
+            f"porting_arms[{porting!r}].templates declares {unknown}, which is not in "
+            f"WINDOW_FILES (have: {list(WINDOW_FILES)}). A declaration keys on the "
+            "default path it replaces, so a path that is not one of those replaces "
+            "nothing: the arm would read the current revision while naming.yaml said it "
+            "read another, and its freeze record would hash the file the config named "
+            "without the call ever having seen it (DESIGN §6.3)."
+        )
+    outside = sorted(
+        pinned for pinned in declared.values()
+        if Path(pinned).parent != Path(PINNED_PROMPT_DIR))
+    if outside:
+        raise SamplingError(
+            f"porting_arms[{porting!r}].templates points at {outside}, which is not "
+            f"directly under {PINNED_PROMPT_DIR}/. A pinned revision has to be in the one "
+            "directory whose files are never edited: elsewhere under docs/prompts/ it is "
+            "a live template, which means the fence policy applies to it and someone may "
+            "edit it into compliance — and that edit would silently change what this "
+            "arm's comparison counterpart ran under (DESIGN §6.3)."
+        )
+    for default, pinned in declared.items():
+        if not (ROOT / pinned).is_file():
+            raise SamplingError(
+                f"porting_arms[{porting!r}].templates points {default} at {pinned}, "
+                "which is not a file. A pinned revision is committed bytes — DESIGN §6.3 "
+                "gives three reasons it is not a `git show` — so a missing one is not "
+                "something to fall back from: falling back would send the current "
+                "revision under this arm's name."
+            )
+        window[default] = pinned
+    return window
+
+
+def window_files(porting: str | None = None) -> tuple[str, ...]:
+    """The paths this arm's window is made of, in `WINDOW_FILES` order. DESIGN §6.3.
+
+    What goes in a freeze record's `files`. Equal to `WINDOW_FILES` for an arm with no
+    declared template, which is the default and every arm to date.
+    """
+    return tuple(arm_window(porting).values())
+
+
+def template_path(default: str, porting: str | None = None) -> str:
+    """Which revision of one window file this arm sends. DESIGN §6.3.
+
+    `default` is the path as `WINDOW_FILES` names it — `PROMPT_TEMPLATE` and its kin — and
+    the return is that same path unless the arm declared otherwise. One lookup for the
+    assemblers, so that `_template()` and the freeze record cannot resolve a revision two
+    ways; `_template()`'s docstring already argues that case for the ROOT indirection, and
+    a declaration adds a second thing there is one answer to.
+    """
+    if default not in WINDOW_FILES:
+        raise SamplingError(
+            f"{default!r} is not in WINDOW_FILES (have: {list(WINDOW_FILES)}). This asks "
+            "which revision of a window file an arm sends, and a file outside the window "
+            "is one whose revision nothing records."
+        )
+    return arm_window(porting)[default]
+
+
+def window_hashes(files: Sequence[str] | None = None,
+                  porting: str | None = None) -> dict:
     """One hash field per window file, for a log line or a freeze record.
 
     Returned as the fields rather than as a list, so a caller writes them onto the
@@ -487,9 +611,27 @@ def window_hashes(files: Sequence[str] | None = None) -> dict:
     `port-human`: it is retired, its window was two files, and hashing a third onto a
     revived line would claim a window that never applied (DESIGN §6.3). The parameter makes
     that arm state its own window instead of inheriting a constant that moved underneath it.
+
+    **`porting` is the other direction and the two are not interchangeable** (DESIGN §6.3).
+    `files` narrows *which* window files are hashed; `porting` keeps all six and changes
+    *which revision* of one of them is read, writing it to the same field — a pinned
+    `rule_author.md` lands in `prompt_sha256`, because the field answers the same question
+    and `port-loop`'s record has to stay comparable to the arm that was built to be
+    compared with it. Passing both is refused rather than resolved: an arm stating its own
+    file list *and* a declared revision has two accounts of its window and this function
+    would be picking one.
     """
-    return {WINDOW_HASH_FIELDS[name]: file_hash(name)
-            for name in (WINDOW_FILES if files is None else files)}
+    if files is not None and porting is not None:
+        raise SamplingError(
+            f"window_hashes() was given both files={list(files)} and porting={porting!r}. "
+            "The first states a window file list directly and the second resolves one "
+            "from the arm's declaration, so together they are two accounts of one window "
+            "and the record would carry whichever this function preferred (DESIGN §6.3)."
+        )
+    if files is not None:
+        return {WINDOW_HASH_FIELDS[name]: file_hash(name) for name in files}
+    return {WINDOW_HASH_FIELDS[default]: file_hash(path)
+            for default, path in arm_window(porting).items()}
 
 
 def recorded_window_fields(record: dict) -> list[str]:

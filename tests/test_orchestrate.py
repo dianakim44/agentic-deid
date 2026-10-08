@@ -460,6 +460,113 @@ def test_an_applied_and_an_unapplied_window_do_not_read_alike(tree):
     assert oneshot["sections_empty"] and not iterating["sections_empty"]
 
 
+# ─── the record says which revision, and which agent was absent (DESIGN §6.3) ───
+
+
+@pytest.fixture
+def pinned_tree(tree):
+    """`tree` plus the pinned revision of the RuleAuthor prompt, copied from the repository.
+
+    The real file for the `tree` fixture's reason one directory down: the hash this arm's
+    record must carry is the hash of the committed pinned bytes, and a stub would make the
+    assertion a test of the stub.
+    """
+    source = ROOT / sample.PINNED_PROMPT_DIR / "rule_author.ddc48bdb.md"
+    dest = tree / sample.PINNED_PROMPT_DIR / "rule_author.ddc48bdb.md"
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy(source, dest)
+    return tree
+
+
+def test_a_declared_revision_is_the_one_the_record_names_and_hashes(pinned_tree):
+    """The freeze record of an arm with a pinned prompt. DESIGN §6.3.
+
+    Three claims in one record, because they are what a reader of two records compares: the
+    `files` list names the path that was read, the hash of those bytes lands in
+    `prompt_sha256` like any other, and the other five fields are the current revision —
+    pinning a file the arm never opens would be claiming a window it did not run under.
+    """
+    record = freeze_window(*ARM, "port-loop-noaudit", sections=INPUT_BLOCKS)
+    pinned = f"{sample.PINNED_PROMPT_DIR}/rule_author.ddc48bdb.md"
+    assert record["files"][0] == pinned
+    assert record["files"][1:] == list(WINDOW_FILES[1:])
+    assert record["prompt_sha256"] == sample.file_hash(pinned)
+    assert record["prompt_sha256"] != window_hashes()["prompt_sha256"]
+    for field in ("auditor_sha256", "sampling_sha256", "profiler_sha256",
+                  "mapper_sha256", "lexicon_builder_sha256"):
+        assert record[field] == window_hashes()[field], field
+
+
+def test_the_record_says_which_agent_the_arm_does_without(pinned_tree):
+    """`agents_absent`, copied from the declaration rather than derived. DESIGN §6.3.
+
+    **The field exists because the record cannot otherwise say it.** `port-loop` freezes at
+    round 1, whose §1.3 is empty by §4, so its `sections_shown` and `sections_empty` are
+    *identical* to an ablated arm's — six files, the same field names, the same values but
+    one. Nothing on the face of the record would say that the component the arm was built to
+    remove is missing, which is the comparison the arm exists for.
+
+    Compared against `port-loop`'s own record in the same test for that reason: a presence
+    check would pass on a writer that wrote the field to every arm.
+    """
+    ablated = freeze_window(*ARM, "port-loop-noaudit", sections=INPUT_BLOCKS)
+    iterating = freeze_window(*ARM, "port-loop", sections=INPUT_BLOCKS)
+    assert ablated["agents_absent"] == ["auditor"]
+    assert iterating["agents_absent"] == []
+    assert ablated["sections_shown"] == iterating["sections_shown"]
+    assert ablated["sections_empty"] == iterating["sections_empty"]
+
+
+def test_an_arm_that_declares_no_absence_still_carries_the_field(tree):
+    """`[]` and not a missing key, for `sections_empty`'s reason in this same record.
+
+    A reader comparing two records should be comparing values. An absent key on
+    `port-oneshot`'s record would be indistinguishable from a writer that forgot, and
+    `port-oneshot` is the arm where the honest statement is "declared no absence" rather
+    than any claim about a round it does not have.
+    """
+    record = freeze_window(*ARM)
+    assert record["agents_absent"] == []
+
+
+def test_the_declared_revision_reaches_the_call_line_too(pinned_tree):
+    """The log line's window, not just the record's. DESIGN §6.3.
+
+    `freeze_window()` runs immediately before the call and `call_line()` after it, and the
+    two describe one event. A driver that forwarded the arm to the first and not the second
+    would produce a record and a log that disagree about which prompt was sent — with the
+    log wrong, the record right, and nothing in either saying which.
+    """
+    record = freeze_window(*ARM, "port-loop-noaudit", sections=INPUT_BLOCKS)
+    line = call_line(ITERATION, prompt_reference={"block": "iteration"}, model={},
+                     envelope=AN_ENVELOPE, outcome=CALLED, cost={},
+                     porting="port-loop-noaudit")
+    for field in ("prompt_sha256", "auditor_sha256", "sampling_sha256",
+                  "profiler_sha256", "mapper_sha256", "lexicon_builder_sha256"):
+        assert line[field] == record[field], field
+    assert line["prompt_sha256"] != window_hashes()["prompt_sha256"]
+
+
+def test_a_line_written_without_the_arm_claims_the_live_revision(pinned_tree):
+    """The counterfactual, measured — what a forgotten `porting=` actually produces.
+
+    Not an argument that the default is wrong: `None` is the resolution every existing
+    caller had and has to stay. The point is what the mistake looks like from the log, which
+    is a well-formed line that differs from its own arm's freeze record in one field. Found
+    by `test_every_call_line_site_forwards_the_arm` in `tests/test_pinned_prompts.py` at the
+    source; this is what it would cost not to.
+    """
+    record = freeze_window(*ARM, "port-loop-noaudit", sections=INPUT_BLOCKS)
+    forgotten = call_line(ITERATION, prompt_reference={"block": "iteration"}, model={},
+                          envelope=AN_ENVELOPE, outcome=CALLED, cost={})
+    assert forgotten["prompt_sha256"] != record["prompt_sha256"]
+    assert set(forgotten) == set(
+        call_line(ITERATION, prompt_reference={"block": "iteration"}, model={},
+                  envelope=AN_ENVELOPE, outcome=CALLED, cost={},
+                  porting="port-loop-noaudit")), \
+        "the two differ in a key, so the mistake would be visible without reading a hash"
+
+
 def test_sampling_applied_is_derived_from_the_sections(tree):
     """Not a second parameter. Two fields a caller sets independently are two fields that
     can disagree, and the disagreement would be a record claiming §1.4 was empty while

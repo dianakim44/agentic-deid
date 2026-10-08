@@ -108,7 +108,8 @@ import regex
 
 from . import sample
 from .corpora.base import (
-    ROOT, CorpusError, axis, check_agent_role, path_template, rule_langs,
+    ROOT, CorpusError, arm_absent_agents, axis, check_agent_role, path_template,
+    rule_langs,
 )
 from .eval.run_fold import DEFAULT_SPLIT, run_fold
 # `sum_costs` and not a loop over the blocks here: an arm that makes N calls has to add N
@@ -131,7 +132,8 @@ from .llm.prompt import assemble_task_prompt
 # format-failure record answers the same question about the same kind of path, and a
 # private name imported across two modules of one package is cheaper than two answers.
 from .rules import RuleError, _relative as rules_relative, arm_rules_path, load_rules
-from .sample import WINDOW_FILES, recorded_window_fields, window_hashes
+from .sample import (WINDOW_FILES, recorded_window_fields, window_files,
+                     window_hashes)
 
 #: The three `paths` keys this arm writes and reads, all from `config/naming.yaml` and none
 #: as a literal here (DESIGN §11.2 requires it of an output path: a module holding its own
@@ -630,8 +632,13 @@ def freeze_window(corpus: str, detector: str, supervision: str,
         # and free is not the same as unrecorded: `port-human`'s six pre-start revisions
         # were each legitimate and none of them was visible in the record.
         "revision": previous + 1,
-        "files": list(WINDOW_FILES),
-        **window_hashes(),
+        # The paths **this arm** reads, which is `WINDOW_FILES` unless the arm declared a
+        # pinned revision of one of them (DESIGN §6.3). The hash fields below keep their
+        # names either way — a pinned `rule_author.md` lands in `prompt_sha256` — so this
+        # list is the only place the record says which bytes were hashed, and a reader can
+        # tell a pinned window from a live one without being told that pinning exists.
+        "files": list(window_files(porting)),
+        **window_hashes(porting=porting),
         # What the call carries, and what it does not. Both written out rather than one
         # implied by the other, because a reader who has to know that §1.4 is the section
         # `config/sampling.yaml` governs is a reader who will not know it.
@@ -643,6 +650,15 @@ def freeze_window(corpus: str, detector: str, supervision: str,
         # the hash alone would read exactly like one from an arm that drew 40 spans under
         # it. DESIGN §6.3: the hash stays for comparability with the arms that do.
         "sampling_applied": SAMPLING_SECTION in shown,
+        # Which agents this arm declared it does not call (DESIGN §6.3). The arm's own
+        # declaration copied in, not a derivation: the obvious `auditor_applied` boolean
+        # cannot be read off the sections — `port-loop` freezes at round 1, whose §1.3 is
+        # empty by §4, so its record's sections are identical to an ablated arm's — and
+        # derived from the declaration instead it would say `true` of `port-oneshot`, which
+        # has no round that could call an Auditor. `[]` here says "declared no absence",
+        # which is a true statement about every arm run to date. It cannot disagree with
+        # the run: the driver asks `arm_calls_agent()` before paying for the call.
+        "agents_absent": list(arm_absent_agents(porting)),
     }
     path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, "w", encoding="utf-8") as fh:
@@ -660,6 +676,13 @@ def window_drift(corpus: str, detector: str, supervision: str,
     `n`, and only a person can tell them apart. For this arm the window can only have
     moved *after* the call — `freeze_window()` writes immediately before it — so any drift
     here means the record and the files disagree about a call that has already happened.
+
+    **An arm with a declared revision is compared against the file it declares** (DESIGN
+    §6.3), which is what makes a change to the declaration visible: the declaration itself
+    is not hashed into the window, and does not need to be, because retargeting it moves
+    `prompt_sha256` here — the same signal, through the same field, as an edit to the
+    prompt. An arm that declares nothing is compared against the current revision of
+    everything, which is every arm run to date and is why this call is unchanged for them.
     """
     path = freeze_path(corpus, detector, supervision, porting)
     if not path.exists():
@@ -675,7 +698,7 @@ def window_drift(corpus: str, detector: str, supervision: str,
         )
     with open(path, encoding="utf-8") as fh:
         frozen = json.load(fh)
-    now = window_hashes()
+    now = window_hashes(porting=porting)
     # The compared fields come from the record, not from `WINDOW_FILES` — see
     # `recorded_window_fields()`. This arm's two frozen records name two files, and
     # checking them against today's three would report a permanent drift on a file their
@@ -729,8 +752,22 @@ def _check_envelope(envelope: dict, *, where: str) -> None:
 def call_line(iteration: int, *, prompt_reference: dict, model: dict,
               envelope: dict, outcome: str,
               cost: dict, model_lifecycle: dict | None = None,
-              role: str = RULE_AUTHOR, sample_reference: dict | None = None) -> dict:
+              role: str = RULE_AUTHOR, sample_reference: dict | None = None,
+              porting: str | None = None) -> dict:
     """One `agent_calls.jsonl` line: what was sent, what answered, what it cost.
+
+    **`porting` resolves the window hashes at the foot of the line, and `None` means "the
+    current revision of every window file"** (DESIGN §6.3) rather than naming an arm. The
+    per-line hashes are the mid-run drift detector for an iterating arm, so on an arm that
+    declared a pinned revision they have to be hashes of the file that arm reads — a line
+    carrying the current `rule_author.md` under an arm that sends `ddc48bdb` would be a
+    false claim about the call it records, and a drift check against it would compare the
+    record to a file the call never opened. `None` is not a default arm: it is the
+    resolution every caller had before declarations existed, which is why no existing
+    caller's line moves. The drivers pass their own value, and
+    `test_every_call_line_site_forwards_the_arm` is what keeps a new driver from
+    inheriting the default by forgetting — a forgotten `porting` is wrong only on a
+    declaring arm, which is the case nobody is looking at while writing the driver.
 
     **`role` says which agent spent the call** (DESIGN §5.5). RuleAuthor and Auditor both
     call a model and both lines land in one `agent_calls.jsonl`, so `llm_calls` sums them —
@@ -917,7 +954,7 @@ def call_line(iteration: int, *, prompt_reference: dict, model: dict,
         **{key: envelope[key] for key in RECORD_FIELDS},
         "cost": dict(cost),
         "generated": _now(),
-        **window_hashes(),
+        **window_hashes(porting=porting),
     }
 
 
@@ -1208,7 +1245,7 @@ def _write_failure(*, corpus: str, detector: str, supervision: str, porting: str
         # is deliberate and is `caching`'s too — a second validator would be a second definition
         # of the block, and the failing path is not where a shape gets decided.
         **({"abandoned_spend": dict(abandoned_spend)} if abandoned_spend is not None else {}),
-        **window_hashes(),
+        **window_hashes(porting=porting),
     }
     with open(path, "w", encoding="utf-8") as fh:
         json.dump(record, fh, ensure_ascii=False, indent=2, sort_keys=False)
@@ -1351,7 +1388,8 @@ def run_arm(*, corpus: str, model_id: str,
         append_call(
             call_line(ITERATION, prompt_reference=reference, model=record,
                       envelope=wrapper.record(),
-                      outcome=CALLED, cost=cost, model_lifecycle=lifecycle),
+                      outcome=CALLED, cost=cost, model_lifecycle=lifecycle,
+                      porting=porting),
             corpus, detector, supervision, porting,
         )
 

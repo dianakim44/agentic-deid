@@ -298,6 +298,159 @@ def porting_rung(porting: str) -> str:
     )
 
 
+ARM_DECLARATIONS = ("templates", "agents_absent")
+
+
+@lru_cache(maxsize=1)
+def porting_arms() -> dict[str, dict]:
+    """`porting` value -> what that arm declares about itself, validated. DESIGN §6.3.
+
+    Two declarations, and an arm may make either or both: `templates` says which prompt
+    revision it sends, `agents_absent` says which agent roles it does not call. Both are
+    `porting_rungs()`' kind of answer — **declared, never derived from the value's
+    spelling.** `porting.endswith("-noaudit")` is right today and only because the naming
+    convention is for readers; derived, a value that happens to share the affix is
+    classified silently and one that does not is dropped silently, and here the
+    classification decides whether an LLM call is made. That is a bill and an experiment's
+    identity, settled by a string test nobody can see fail.
+
+    **An arm absent from the block has declared nothing**, which means the current
+    revision of every window file and no absent agent. Every arm run to date is that
+    case, and nothing about adding this block moves any of their windows —
+    `tests/test_pinned_prompts.py` holds the invariance check that says so.
+
+    This validates the *structure* and the vocabulary it can see: the keys are `porting`
+    values, the declaration names are `ARM_DECLARATIONS`, and `agents_absent` holds
+    declared `agent_roles()`. It does **not** validate that a `templates` key is a window
+    file or that the file it names exists — `src/sample.py` owns `WINDOW_FILES` and
+    `WINDOW_HASH_FIELDS` and does that there. Splitting it that way keeps the window's
+    definition in one module; validating it here would need a copy of that list.
+
+    An entry declaring nothing is refused. `{}` under a value means the same thing as
+    the value's absence, and two spellings of one meaning is one spelling plus a typo.
+    """
+    block = naming().get("porting_arms")
+    if block is None:
+        return {}
+    if not isinstance(block, dict):
+        raise CorpusError(
+            "config/naming.yaml's porting_arms is not a mapping. It is `porting` value "
+            "-> that arm's declarations (DESIGN §6.3); an arm that declares nothing is "
+            "absent from it rather than present and empty."
+        )
+
+    values = set(axis("porting"))
+    roles = set(agent_roles())
+    out: dict[str, dict] = {}
+    for porting, declared in block.items():
+        if porting not in values:
+            raise CorpusError(
+                f"porting_arms names {porting!r}, which is not a value of the `porting` "
+                f"axis (have: {sorted(values)}). A declaration for an arm that does not "
+                "exist is a leftover from a rename, and the arm it was written for now "
+                "runs with the defaults."
+            )
+        if not isinstance(declared, dict) or not declared:
+            raise CorpusError(
+                f"porting_arms[{porting!r}] declares nothing. Remove the entry instead: "
+                "absence already means the current revision of every window file and no "
+                "absent agent, and a second way to say that is a way to mistype the first."
+            )
+        unknown = sorted(set(declared) - set(ARM_DECLARATIONS))
+        if unknown:
+            raise CorpusError(
+                f"porting_arms[{porting!r}] declares {unknown}, which is not one of "
+                f"{list(ARM_DECLARATIONS)}. A misspelled declaration is read as no "
+                "declaration, so the arm would run as the default and the file would "
+                "look as though it had been told otherwise."
+            )
+
+        templates = declared.get("templates")
+        if "templates" in declared:
+            if not isinstance(templates, dict) or not templates:
+                raise CorpusError(
+                    f"porting_arms[{porting!r}].templates is not a non-empty mapping. It "
+                    "is the default window path -> the path this arm reads instead."
+                )
+            bad = [k for k, v in templates.items()
+                   if not isinstance(k, str) or not k
+                   or not isinstance(v, str) or not v]
+            if bad:
+                raise CorpusError(
+                    f"porting_arms[{porting!r}].templates has {len(bad)} entry(ies) that "
+                    "are not a non-empty path on both sides. Which window file is being "
+                    "replaced and what replaces it are both paths from the repository root."
+                )
+
+        absent = declared.get("agents_absent")
+        if "agents_absent" in declared:
+            if not isinstance(absent, list) or not absent:
+                raise CorpusError(
+                    f"porting_arms[{porting!r}].agents_absent is not a non-empty list. "
+                    "An arm with one absent agent writes a list too, so that it is not a "
+                    "special case."
+                )
+            if len(set(absent)) != len(absent):
+                raise CorpusError(
+                    f"porting_arms[{porting!r}].agents_absent repeats a role. The list is "
+                    "a set of roles this arm does not call, and a repeat is an edit that "
+                    "did not read what was already there."
+                )
+            unknown_roles = sorted(set(absent) - roles)
+            if unknown_roles:
+                raise CorpusError(
+                    f"porting_arms[{porting!r}].agents_absent names {unknown_roles}, "
+                    f"which are not agent roles in config/naming.yaml (have: "
+                    f"{sorted(roles)}). A misspelled role is absent from nothing, and the "
+                    "arm would make the call it was declared not to make."
+                )
+
+        out[porting] = {
+            "templates": dict(templates) if templates else {},
+            "agents_absent": tuple(absent) if absent else (),
+        }
+    return out
+
+
+def arm_templates(porting: str) -> dict[str, str]:
+    """This arm's declared prompt revisions: default window path -> the path it reads.
+
+    Empty for an arm that declares none, which is every arm but the Auditor ablation and
+    is the default the rest of the harness is built on (DESIGN §6.3). `porting` is checked
+    against the axis so that a typo stops here rather than silently getting the defaults —
+    an arm asked about under the wrong spelling would read the current revision and record
+    that it had, which is a true record of the wrong experiment.
+    """
+    if porting not in axis("porting"):
+        raise CorpusError(
+            f"{porting!r} is not a value of the `porting` axis in config/naming.yaml "
+            f"(have: {sorted(axis('porting'))})."
+        )
+    return dict(porting_arms().get(porting, {}).get("templates", {}))
+
+
+def arm_absent_agents(porting: str) -> tuple[str, ...]:
+    """The agent roles this arm does not call, declared in `porting_arms`. DESIGN §6.3."""
+    if porting not in axis("porting"):
+        raise CorpusError(
+            f"{porting!r} is not a value of the `porting` axis in config/naming.yaml "
+            f"(have: {sorted(axis('porting'))})."
+        )
+    return tuple(porting_arms().get(porting, {}).get("agents_absent", ()))
+
+
+def arm_calls_agent(porting: str, role: str) -> bool:
+    """Whether this arm calls `role`. The question a driver asks before paying for a call.
+
+    `role` goes through `check_agent_role()`: a caller asking about `"Auditor"` would get
+    `True` for an arm that declared `auditor` absent, and the arm would make the call it
+    was built not to make while `naming.yaml` said otherwise. The misspelling has to fail
+    at the ask, because the answer `True` is indistinguishable from the correct answer for
+    every other arm.
+    """
+    return check_agent_role(role) not in arm_absent_agents(porting)
+
+
 def model_id_absent() -> str:
     """The `model_id` value an arm that called no language model records.
 

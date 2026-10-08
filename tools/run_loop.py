@@ -76,7 +76,8 @@ from src.llm.bedrock import BedrockError                              # noqa: E4
 from src.porting import audit, loop, multi                            # noqa: E402
 from src.porting.artefacts import ArtefactError                       # noqa: E402
 from src.rules import RuleError, arm_rules_path                       # noqa: E402
-from src.sample import WINDOW_HASH_FIELDS, window_hashes              # noqa: E402
+from src.sample import (WINDOW_HASH_FIELDS, arm_window,               # noqa: E402
+                        window_hashes)
 from src.termination import TerminationError, should_stop             # noqa: E402
 
 #: The `paths` keys every round of this arm touches. Arm-scoped: one freeze record, one call
@@ -244,10 +245,17 @@ def _plan(args, history, n_docs: int) -> list[str]:
     # reason. Listing them would be a second answer to what the window is, and the field names
     # are `WINDOW_HASH_FIELDS`' because that mapping is what the freeze record and every call
     # line are written from.
-    hashes = window_hashes()
+    # Resolved through the arm, so a declared revision (DESIGN §6.3) is shown here as the
+    # path that will be sent and not as the default it replaces. This block is the last
+    # moment the window is legible before the money is spent, and a plan that printed the
+    # live file's hash for a pinned arm would be the one reading nobody could check against
+    # the record written seconds later.
+    hashes = window_hashes(porting=args.porting)
     lines.append("")
-    for name, field in WINDOW_HASH_FIELDS.items():
-        lines.append(f"{field:16} {hashes[field]}  ({name})")
+    for default, actual in arm_window(args.porting).items():
+        field = WINDOW_HASH_FIELDS[default]
+        pinned = "" if actual == default else f"  pinned, replaces {default}"
+        lines.append(f"{field:16} {hashes[field]}  ({actual}){pinned}")
 
     if multi.drives(args.porting):
         # The three inputs this round will read, and whether they have moved. Shown for the

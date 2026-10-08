@@ -827,6 +827,133 @@ def test_the_three_cases_for_reading_a_flag_are_stated():
     assert "corroborated by gold" in text
 
 
+# ── §1.3's audit half on an arm that has no Auditor (DESIGN §6.3) ──
+#
+# The ablation renders the block empty **in place**: same heading, same number, same
+# position, and the sentence above §1.1 not amended. So every byte that differs from
+# `port-loop`'s round-N prompt is inside this block, and the arm's measurement is the
+# component rather than the component plus an edit. `tests/test_pinned_prompts.py` holds the
+# other half — the declared revision and the round-1 byte identity.
+
+
+NOAUDIT = "port-loop-noaudit"
+#: The same ablation on the revision on disk, which is the arm to compare against
+#: `port-loop` when the question is the Auditor: `NOAUDIT` also sends a pinned template,
+#: so a byte comparison against `port-loop` would be reading two differences at once.
+CURRENT = "port-loop-noaudit-current"
+
+
+def test_the_audit_half_is_rendered_empty_rather_than_omitted():
+    """The block is there, numbered and positioned, and says it is empty for this arm.
+
+    Omission was the obvious shape and is refused for `assemble_task_prompt()`'s reason one
+    level down: the template the agent is reading describes a second opinion here, and a
+    block that is simply absent is a discrepancy the agent resolves for itself — that it
+    should ask for the flags, that the harness dropped them, or that §1.4 is a flag list.
+    The third would reconstruct a weak substitute for the component the arm removes, which
+    would make the ablation measure nothing.
+    """
+    text = shown(iterated(porting=NOAUDIT, audit_report=_ABSENT))
+    assert "Auditor report — EMPTY for this arm" in text
+    assert "This arm makes no Auditor call" in text
+    assert "do not substitute anything for them" in text
+    assert "do not read §1.4 as a flag list" in text
+
+
+def test_the_empty_block_sits_where_the_full_one_would_and_the_banner_is_unchanged():
+    """Position and surrounding bytes, which is what makes the difference attributable.
+
+    Checked as an ordering of three headings rather than as an offset: §1.3's score tables
+    come first, the Auditor half second, §1.4 third, in both arms. The sentence above §1.1
+    still says every block is filled — not amended for this arm, because the empty block
+    resolves that where the reader is.
+    """
+    ablated = shown(iterated(porting=NOAUDIT, audit_report=_ABSENT))
+    full = shown(iterated(audit_report=audit_report(3, flags=[a_flag()])))
+    for text in (ablated, full):
+        # Searched in the filled blocks and not in the whole prompt: the template above
+        # carries its own §1.3 and §1.4 headings, which is what it is a template of.
+        blocks = text.partition(INPUT_BANNER)[2]
+        assert blocks, "the input banner is missing, so the blocks cannot be located"
+        assert blocks.index("### 1.3") < blocks.index("#### 1.3 (continued)") \
+            < blocks.index("### 1.4"), "the audit half is not between §1.3 and §1.4"
+        assert "Every §1 block below is filled" in blocks
+
+
+def test_the_two_arms_differ_only_inside_the_audit_half():
+    """The ablation's whole claim, as a comparison of the bytes outside the block.
+
+    Both prompts are a list of blocks joined the same way, so the text before §1.3's
+    continuation heading and the text from §1.4 onward must match. A difference outside the
+    block means the arm's subtraction is not the Auditor alone — and it would be invisible
+    in any assertion about the block itself.
+
+    Compared as hashes of the two outside regions, so a failure names digests and not corpus
+    text (CLAUDE.md).
+    """
+    import hashlib
+
+    def outside(text):
+        head, _, rest = text.partition("#### 1.3 (continued)")  # the filled block's heading
+        _, _, tail = rest.partition("### 1.4")
+        return [hashlib.sha256(part.encode("utf-8")).hexdigest()[:16]
+                for part in (head, "### 1.4" + tail)]
+
+    ablated = outside(shown(iterated(porting=CURRENT, audit_report=_ABSENT)))
+    full = outside(shown(iterated(audit_report=audit_report(3, flags=[a_flag()]))))
+    assert ablated == full, (
+        f"the two arms differ outside §1.3's audit half: {ablated} vs {full}. The "
+        "difference between them has to be the component and nothing else (DESIGN §6.3)."
+    )
+
+
+def test_the_reference_says_the_agent_was_absent_rather_than_silent():
+    """`audit_agent_absent: True` and every measurement `None`. DESIGN §6.3.
+
+    A zero would say the Auditor ran and found nothing, which is this arm's most expensive
+    possible misreading — it is the result `port-loop` would have produced if its Auditor
+    had been useless, and the two must never be confusable in a file. The key is present and
+    `False` on the other branch, so a reader never has to tell an absent key from an absent
+    agent.
+    """
+    ablated = iterated(porting=NOAUDIT, audit_report=_ABSENT).reference()
+    full = iterated(audit_report=audit_report(3, flags=[a_flag()])).reference()
+    assert ablated["audit_agent_absent"] is True
+    assert full["audit_agent_absent"] is False
+    assert ablated["audit_flags"] is None and full["audit_flags"] == 1
+    assert ablated["audit_block_sha256"] != full["audit_block_sha256"]
+    assert set(ablated) == set(full), (
+        "the two reference forms have different keys, so a round from the ablated arm "
+        "cannot be compared with port-loop's round field by field"
+    )
+
+
+def test_an_audit_report_handed_to_an_arm_without_an_auditor_is_refused():
+    """Refused, not ignored. A caller holding a report has already paid for it.
+
+    The silent version renders the block and makes the prompt the one this arm was built not
+    to send — with the arm's name on the record. Dropping the report instead would leave the
+    prompt correct and the spend unexplained, which is `assemble_iteration_prompt()`'s own
+    argument about round 1's blocks.
+    """
+    with pytest.raises(PromptError) as caught:
+        iterated(porting=NOAUDIT, audit_report=audit_report(3, flags=[a_flag()]))
+    assert "declares 'auditor' absent" in str(caught.value)
+
+
+def test_an_arm_with_an_auditor_still_requires_the_report():
+    """The default does not move: a missing report is a missing block, as before.
+
+    The branch added for the ablation is a new way for `audit_report=None` to be acceptable,
+    and the arms in the paper must not have acquired it. `port-loop` and `porting=None` both
+    still refuse.
+    """
+    for porting in (_ABSENT, "port-loop"):
+        with pytest.raises(PromptError) as caught:
+            iterated(porting=porting, audit_report=_ABSENT)
+        assert "audit_report" in str(caught.value)
+
+
 # ── §4's `[nn]` marking: where each of the three cases is visible ──
 
 
@@ -2980,19 +3107,26 @@ def test_the_fence_check_reports_a_fence_when_there_is_one():
 def test_the_fence_check_covers_every_prompt_file_including_nested_ones():
     """The selection is the directory, so exempting a file shortens it and this fails.
 
-    Two claims, and the second is the one a mutation attacks. That every real template is in
+    Two claims, and the second is the one a mutation attacks. That every live template is in
     the list — so a skip list for one file is visible here rather than in a green suite. And
     that a markdown file in a subdirectory is reached, so filing a template one level down is
     not a way out.
+
+    The comparison is against the directory *minus the pinned revisions*, which is the one
+    exclusion, and it is not asserted here that nothing else is missing from both halves —
+    `test_the_two_prompt_regimes_cover_the_directory_between_them` is what makes this
+    subtraction safe, because a second exclusion would shrink this list and that one.
     """
     covered = prompt_module.prompt_markdown_files()
     on_disk = sorted(
-        str(path.relative_to(ROOT))
-        for path in (ROOT / prompt_module.PROMPT_DIR).rglob("*.md"))
+        set(
+            str(path.relative_to(ROOT))
+            for path in (ROOT / prompt_module.PROMPT_DIR).rglob("*.md"))
+        - set(prompt_module.pinned_prompt_files()))
     assert covered == on_disk, (
-        "the fence check does not cover every markdown file under docs/prompts/. Missing: "
-        f"{sorted(set(on_disk) - set(covered))}. A per-file exemption is how this defect was "
-        "inherited once already."
+        "the fence check does not cover every live markdown file under docs/prompts/. "
+        f"Missing: {sorted(set(on_disk) - set(covered))}. A per-file exemption is how this "
+        "defect was inherited once already."
     )
     assert len(covered) >= 5, covered
     with tempfile.TemporaryDirectory() as raw:
@@ -3002,6 +3136,32 @@ def test_the_fence_check_covers_every_prompt_file_including_nested_ones():
         (nested / "deep.md").write_text("no fence here\n", encoding="utf-8")
         assert prompt_module.prompt_markdown_files(root) == [
             str(Path(prompt_module.PROMPT_DIR) / "sub" / "deep.md")]
+
+
+def test_the_two_prompt_regimes_cover_the_directory_between_them():
+    """Live plus pinned equals the directory, disjointly. The partition, not an exemption.
+
+    The fence policy stopped governing one directory (DESIGN §6.3), and the way that becomes
+    the defect it was written to prevent is a *second* exclusion — a file that is neither live
+    (so the fence check skips it) nor pinned (so the hash check in
+    `tests/test_pinned_prompts.py` never names it). This is the test that makes that
+    impossible: every markdown file under `docs/prompts/` is in exactly one regime.
+
+    Asserted on the repository rather than a built tree because the claim is about this
+    directory as it stands. A temporary tree would prove the set algebra, which is not where
+    the risk is — the risk is a file added next month.
+    """
+    live = prompt_module.prompt_markdown_files()
+    pinned = prompt_module.pinned_prompt_files()
+    on_disk = prompt_module.prompt_directory_files()
+    assert sorted(live + pinned) == on_disk, (
+        "a markdown file under docs/prompts/ is in neither regime: "
+        f"{sorted(set(on_disk) - set(live) - set(pinned))}. The fence check governs the live "
+        "templates and a sha256 assertion governs the pinned revisions; a file in neither is "
+        "checked by nothing, which is the state the fence check exists to prevent."
+    )
+    assert set(live) & set(pinned) == set(), sorted(set(live) & set(pinned))
+    assert pinned, "docs/prompts/pinned/ is empty — see DESIGN §6.3 and the directory README"
 
 
 def test_every_prompt_that_forbids_a_fence_says_so_in_the_same_words():

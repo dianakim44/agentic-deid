@@ -1493,6 +1493,97 @@ over-predicted by 1.7%. The direction is the opposite of 2026-10-01's 7.3% under
 and the same as the `git_ignored` batching move, which is the whole of the argument for
 measuring the baseline whenever a tree exists to measure it on.
 
+### Thirteen on an arm that declares its prompt revision and its missing agent — 2026-10-08
+
+DESIGN §6.3 let an arm say two things about itself that were previously properties of the
+repository's present state: which revision of a window file it sends (`templates`), and
+which agent it does without (`agents_absent`). Both exist for one comparison. `port-loop`
+froze its window at `sha256:ddc48bdb…`, which is the revision of `rule_author.md` before
+`cc7bc4c` removed its worked examples; an ablated arm built against today's file would
+differ from it in the Auditor **and** the prompt, and the brief asks for the Auditor's
+effect alone. So `port-loop-noaudit` pins the old revision from
+`docs/prompts/pinned/rule_author.ddc48bdb.md`, and `port-loop-noaudit-current` does not
+— the pair of rungs separates the two causes.
+
+That makes the mechanism's failure mode specific and quiet: **a declaration the freeze
+record honours and the assembler ignores, or the reverse.** Nine of the thirteen are
+versions of exactly that, and in every one of them the run completes, no exception is
+raised, and each artefact is internally consistent on its own.
+
+| mutation | changes | breaks | tests that catch it |
+|---|---|---|---|
+| `arm_window_ignores_the_declaration` | the resolved pin is not written into the window map | every refusal still fires, so a malformed declaration is still rejected and a correct one is accepted and dropped. The ablated arm sends today's example-free template against a counterpart that sent `ddc48bdb`, and the confound the pin removes is back with nothing anywhere to say so | **4** |
+| `a_pinned_revision_may_live_beside_the_live_template` | the outside-`pinned/` refusal is removed | the run is correct and the file is not durable: under `docs/prompts/` it is a live template, the fence policy applies, and `ddc48bdb`'s six fenced examples make the suite fail with an instruction to edit a file that may not be edited | **2** |
+| `a_template_the_assembler_ignores_is_declarable` | the undeclarable-file refusal is removed | declaring `auditor.md` hashes the pinned bytes into the record while `_auditor_template()` resolves the current ones directly — a record attesting to a window no call ran under, which is the failure §6.3 opens with, produced by §6.3's own mechanism | **2** |
+| `a_missing_pinned_revision_falls_back_to_the_current_one` | the exists check becomes a fallback | a path typo or an unstaged file leaves the arm sending the live revision under the pinned arm's name, with `prompt_sha256` the hash of what was read, so the record is self-consistent and wrong about which revision the arm is | **1** |
+| `the_freeze_record_names_the_default_window` | `files` lists `WINDOW_FILES` while the hashes stay the arm's | the record is right about the bytes and silent about where they came from, and a reader comparing it with `port-loop`'s sees six identical paths and one differing hash — which is what an *edited* template looks like. The field is what tells a pin from a drift | **1** |
+| `the_record_does_not_say_which_agent_is_absent` | `agents_absent` is dropped from the record | `port-loop` freezes at round 1, whose §1.3 is empty by DESIGN §4, so `sections_shown` and `sections_empty` are *identical* on the two arms. On the `-current` rung, which declares no template, the two records would then agree in every field — two arms, one record shape, and the difference between them is the experiment | **2** |
+| `the_call_line_hashes_the_live_window` | `call_line()`'s tail hashes the live window; the record's and the failure record's identical lines are untouched | the freeze record names the pin and all eight rounds of `agent_calls.jsonl` name the live file. The per-line hashes are the *mid-run* drift detector (§11.2), so the constant disagreement reads as drift that happened before the arm started | **1** |
+| `the_absent_audit_block_is_omitted_instead_of_empty` | the empty §1.3 half renders as `""` | every reference field is still written and the digest is still real — of the empty string. The agent is shown a template describing a second opinion, a sentence saying every §1 block is filled, and no second opinion; reading §1.4 as the flag list reconstructs a weak substitute for the component the arm exists to remove | **2** |
+| `an_audit_report_for_an_ablated_arm_is_dropped` | the refusal becomes a silent discard | the prompt is correct, which is why this version would survive review. But the caller holding a report has already paid for the Auditor calls, so the spend and the arm's definition already disagree and this refusal is the only artefact that says so | **1** |
+| `the_absent_audit_reference_reports_zeros` | the absent reference fields are `0` rather than `None` | zero flags over zero documents is one of the two possible findings of this experiment; the other is that the Auditor was worth something and this arm went without it. `audit_agent_absent` is one key away saying which, and an aggregate over rounds averages measurements with placeholders | **2** |
+| `the_fence_check_skips_every_subdirectory` | the pinned subtraction becomes a top-level filter, one line shorter | the one argued exclusion generalises into a rule. `prompt_markdown_files()` is recursive so that filing a template a level down is not a way out; on the tree as committed both versions agree, and they diverge on the sixth prompt — the event the recursion was written for after this defect was inherited once | **2** |
+| `the_pinned_half_is_governed_by_nothing` | `pinned_prompt_files()` returns `[]` | the partition becomes a subtraction of nothing and `ddc48bdb` falls back under the fence check, which fails loudly with the wrong instruction. This is the mutation that shows which way §6.3's trade runs | **2** |
+| `arm_calls_agent_answers_for_every_arm_alike` | the role check runs and the declaration is not consulted | the accessor the driver asks *before* paying, so the ablated arm makes every Auditor call `port-loop` makes — one per dev document per round. An arm named `port-loop-noaudit` produces `port-loop`'s numbers at `port-loop`'s cost, and the cost block is where that becomes visible, which is after the money | **3** |
+
+**The two to read are the two that keep a true record and a true prompt.**
+
+`arm_window_ignores_the_declaration` is the one the whole mechanism answers. It leaves all
+four refusals in place — so the config is still validated, a typo is still caught, a
+non-existent file is still refused — and then drops the resolved pin on the floor. Nothing
+is malformed. The arm runs, the record names the live file truthfully, the log agrees with
+the record, and the only disagreement in the repository is between the arm's name and what
+the arm did. `test_the_pinned_rung_reproduces_port_loops_round_one_byte_for_byte` is the
+assertion that covers it, and it is worth noting what makes that test possible: port-loop's
+round 1 logged `text_chars 53644` and a `text_sha256`, so the claim "byte identical to the
+counterpart's first round" is measurable against a committed artefact rather than argued
+from the hashes of the inputs. The ablated rung reproduces both exactly; the three
+non-pinned rungs give 56,973 chars and a different digest.
+
+`the_absent_audit_reference_reports_zeros` is the one with no incorrect value in it. Key
+set unchanged, types unchanged, `audit_agent_absent` still `True`, digest still real. It
+is wrong only in the convention it breaks — the same one `abandoned_spend` follows, and
+the same one `absent_lengths_read_as_a_measured_zero` guards one module over: **absent is
+not zero.** Here the zero is additionally the shape of the answer the experiment might
+produce, which is the property that makes it unreadable rather than merely imprecise.
+
+**One of the thirteen is not about this mechanism and is here because of it.**
+`the_fence_check_skips_every_subdirectory` mutates a function this change only renamed.
+Splitting the fence check into a live half and a pinned half creates the directory's first
+exclusion, and the shape an eventual second one would take is the top-level filter — out
+of `pinned/`, so select the top level and be done. That version is shorter, passes today,
+and silently un-does the recursion. The scoping had to be argued in DESIGN §6.3 rather
+than taken, and this is the mutation that holds the argument to its own terms.
+
+**All fifteen were probed before the full run, and one of them paid for the probe.** The
+full run this commit owes is 4.83 h, so the thirteen new mutations and the two re-anchored
+ones were measured first in eight concurrent processes against one tree
+(`5a3e95622f06326a`, baseline 2,444) — 26 minutes, 14 of 15 caught. The survivor was
+`a_template_the_assembler_ignores_is_declarable`, at 0 kills against a threshold of 1, and
+its cause is the fifth member of a family this file already documents under *"The survivor:
+an assertion that could not say which guard had refused"*:
+`test_declaring_a_file_the_assembler_does_not_resolve_is_refused` declared `auditor.md`
+pointed at `pinned/auditor.b7e983a4.md`, which is **not committed**. So `arm_window()` had
+two reasons to refuse, `pytest.raises(SamplingError)` accepted either, and the remaining
+assertion — that the message names `docs/prompts/auditor.md` — was satisfied by the
+missing-file refusal too, since that refusal reports the default path it was handed. The
+test was green on the unmutated tree and green on the mutated one, for different reasons
+both times.
+
+The fix is the one that family's entries keep arriving at: make the case wrong in exactly
+one way. The declaration now points at `pinned/rule_author.ddc48bdb.md`, which is on disk,
+so no other guard can fire; the assertion names the phrase; and
+`test_the_undeclarable_refusal_comes_before_the_missing_file_one` keeps the both-wrong case
+and pins which reason the operator is given — "that file's reader is not arm-aware" is the
+fact that does not change when the missing file is added, so reporting the absence first
+would send someone to commit bytes that still cannot be declared afterwards. The mutation's
+threshold is 2.
+
+The two re-anchored mutations were re-measured in the same pass, which CLAUDE.md requires
+whether or not they fall in scope: `round_one_reassembles_the_baselines_prompt` **1** and
+`the_role_is_appended_at_the_end_of_the_line` **2**, both equal to their sidecar entries, so
+neither cell is marked.
+
 ## The sampling mutations
 
 `src/sample.py` decides which dev errors a rule author is shown at a given iteration,
