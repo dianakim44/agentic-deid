@@ -1276,6 +1276,228 @@ def error_spans(pairs: Sequence[DocPair]) -> list[ErrorSpan]:
     return sorted(out, key=lambda e: e.key)
 
 
+# ─── post-hoc re-analysis (DESIGN §10 A3) ───────────────────────────────────
+#
+# Four quantities computed from predictions already on disk, for the manuscript's
+# Methods and limitations sections. They are **not** part of `score()`'s return and
+# must not be added to it: the published block would bump the schema and change what
+# every arm's `metrics.json` means, which is a cost the whole ladder pays for an
+# appendix. §10 A3 is where the boundary and the reason are written down.
+#
+# Everything here is `dev`-only by the protocol it was added under, but nothing in
+# this module can enforce that — it is a function of spans and does not know which
+# fold it was handed. The enforcement is `run_sealed_eval.py`'s, which is the only
+# caller the loader's sealed gate accepts.
+
+
+def type_agnostic_coverage(
+    gold: Sequence[Mark], pred: Sequence[Mark], mode: str
+) -> list[bool]:
+    """Per gold span: covered by the union of **all** predictions, type ignored.
+
+    `coverage()` with the type partition removed, and that single difference is the
+    whole of §10 A3's first quantity. Kept as its own function rather than a flag on
+    `coverage()`: the type-aware version feeds the headline leak rate and the
+    complementarity breakdown, and a boolean parameter on it is one mistyped keyword
+    away from a published leak rate computed under the wrong rule.
+    """
+    union = _union(pred)
+    return [_covers(g, union, mode) for g in gold]
+
+
+def residual_rate(
+    pairs: Sequence[DocPair], mode: str = FULLY_COVERED, *, type_aware: bool = False
+) -> dict:
+    """Share of gold spans with at least one character no prediction covers.
+
+    `type_aware=False` is §10 A3's type-agnostic residual rate. `type_aware=True`
+    reproduces the published leak rate, and exists so that the two come out of one
+    function — `tests/test_scorer.py` asserts the type-aware value equals
+    `score()`'s `modes[mode].leak.rate` rather than trusting that it would.
+
+    The gap between the two is the volume of identifiers found but mislabelled, which
+    no published figure isolates (§10 A3, §9.3's accepted cost).
+    """
+    if mode not in MODES:
+        raise ScorerError(
+            f"{mode!r} is not a mode ({list(MODES)}). DESIGN §9.3 defines two and "
+            "declines a third; 'strict' is not one of their names — see `strict_prf`."
+        )
+    residual = 0
+    total = 0
+    residual_docs: set[str] = set()
+    for pair in pairs:
+        cov = (coverage(pair.gold, pair.pred, mode) if type_aware
+               else type_agnostic_coverage(pair.gold, pair.pred, mode))
+        total += len(pair.gold)
+        for covered in cov:
+            if not covered:
+                residual += 1
+                residual_docs.add(pair.doc_id)
+    return {
+        "mode": mode,
+        "type_aware": type_aware,
+        "residual": residual,
+        "denominator": total,
+        "rate": residual / total if total else None,
+        "documents_with_residual": len(residual_docs),
+    }
+
+
+def document_failure_rate(pairs: Sequence[DocPair], mode: str = FULLY_COVERED) -> dict:
+    """Share of gold-bearing documents holding at least one failing gold span.
+
+    Both flavours from one pass: `type_aware` is `D_full` at `mode=fully_covered` and
+    is the same number as the published `by_document.rate`; `type_agnostic` drops the
+    type requirement the way `residual_rate` does.
+
+    Documents with no in-scope gold span are outside the denominator, for §9.3's
+    reason: they cannot fail, and they are already reported as false-positive
+    opportunity. A document that leaks is counted once however many spans it leaks —
+    the span-level volume is `residual_rate`'s, and reporting one of the two alone is
+    how "27 of 250 documents" and "721 of 5,254 spans" get read as the same claim.
+    """
+    with_gold = [p for p in pairs if p.gold]
+    aware = 0
+    agnostic = 0
+    for pair in with_gold:
+        if not all(coverage(pair.gold, pair.pred, mode)):
+            aware += 1
+        if not all(type_agnostic_coverage(pair.gold, pair.pred, mode)):
+            agnostic += 1
+    denominator = len(with_gold)
+    return {
+        "mode": mode,
+        "denominator": denominator,
+        "type_aware": {
+            "documents_with_failure": aware,
+            "rate": aware / denominator if denominator else None,
+        },
+        "type_agnostic": {
+            "documents_with_failure": agnostic,
+            "rate": agnostic / denominator if denominator else None,
+        },
+    }
+
+
+def non_phi_masking(
+    pairs: Sequence[DocPair], doc_chars: Mapping[str, int]
+) -> dict:
+    """Over-masking: the share of non-gold characters some prediction covers.
+
+    Two numbers, reported together because they fail differently. The character rate
+    is what a reader of the masked note experiences. `predictions_touching_no_gold` is
+    the span-level version: a handful of very wide false positives and a great many
+    narrow ones produce the same rate and are not the same defect.
+
+    `doc_chars` is `{doc_id: len(text)}`, supplied by whoever holds the corpus.
+    **`DocPair` deliberately carries no text and not even a length** — that is what
+    keeps a metrics file from carrying a fact about a note — and this function does not
+    move that boundary; it takes the lengths beside the pairs and refuses a document it
+    has no length for. Refuses rather than skips: a skipped document shrinks the
+    denominator with nothing in the output saying so.
+
+    No message here quotes a document's text, and none can: the only values in scope
+    are offsets, lengths and ids (CLAUDE.md).
+    """
+    missing = [p.doc_id for p in pairs if p.doc_id not in doc_chars]
+    if missing:
+        raise ScorerError(
+            f"{len(missing)} of {len(pairs)} documents have no length in `doc_chars` "
+            f"(first: {missing[0]}). The non-PHI denominator is "
+            "`len(text) - gold characters`, so a document with no length cannot be in "
+            "it — and dropping it silently would report an over-masking rate over a "
+            "fold smaller than the one named in the surrounding output."
+        )
+
+    non_gold_total = 0
+    non_gold_masked = 0
+    touching_no_gold = 0
+    predictions = 0
+    for pair in pairs:
+        length = doc_chars[pair.doc_id]
+        gold_union = _union(pair.gold)
+        gold_chars = sum(end - start for start, end in gold_union)
+        furthest = max((m.end for m in (*pair.gold, *pair.pred)), default=0)
+        if furthest > length:
+            raise ScorerError(
+                f"{pair.doc_id}: a span ends at offset {furthest} in a document "
+                f"{length} characters long. One of the two is wrong and neither is "
+                "reconcilable here — check the loader's `assert_offsets` and the "
+                "length passed in. Only offsets and lengths are named here, never "
+                "text (CLAUDE.md)."
+            )
+        non_gold_total += length - gold_chars
+
+        pred_union = _union(pair.pred)
+        masked_in_gold = 0
+        for start, end in pred_union:
+            for g_start, g_end in gold_union:
+                masked_in_gold += max(0, min(end, g_end) - max(start, g_start))
+        masked_total = sum(end - start for start, end in pred_union)
+        non_gold_masked += masked_total - masked_in_gold
+
+        predictions += len(pair.pred)
+        touching_no_gold += sum(
+            1 for p in pair.pred
+            if not any(_overlap(p, g) > 0 for g in pair.gold)
+        )
+
+    return {
+        "non_gold_characters": non_gold_total,
+        "non_gold_characters_masked": non_gold_masked,
+        "rate": non_gold_masked / non_gold_total if non_gold_total else None,
+        "predictions": predictions,
+        "predictions_touching_no_gold": touching_no_gold,
+    }
+
+
+def strict_prf(pairs: Sequence[DocPair]) -> dict:
+    """Precision / recall / F1 under `fully_covered` assignment.
+
+    Not new and not exact-boundary. §9.3's headline rule already reports this beside
+    the `relaxed` headline, and §9.3 separately declines exact-boundary scoring
+    permanently. "strict" here means `fully_covered` — one prediction covering the
+    whole gold span — and the function exists so the number has a callable definition
+    that `tests/test_scorer.py` can assert equal to
+    `score()`'s `modes.fully_covered.overall` on every fixture. A second
+    implementation of the matching is exactly what §9.3 forbids, so this calls
+    `_records()` and adds nothing of its own.
+    """
+    records, fp_by_type, _dupes, _by_rule, _fp_marks = _records(pairs, FULLY_COVERED)
+    tp = sum(1 for r in records if r.matched)
+    return _prf(tp, sum(fp_by_type.values()), len(records) - tp)
+
+
+def reanalysis(
+    pairs: Sequence[DocPair], *, doc_chars: Mapping[str, int] | None = None
+) -> dict:
+    """§10 A3's four quantities in one block. Dev only, by the protocol it was added under.
+
+    `doc_chars=None` writes `non_phi_masking: None` — the record that the lengths were
+    not supplied, rather than that the rate was zero. Every other quantity is a
+    function of spans alone and is always present.
+    """
+    _check_layers(pairs)
+    return {
+        "scorer_version": SCORER_VERSION,
+        "residual_rate": {
+            "type_agnostic": {
+                mode: residual_rate(pairs, mode, type_aware=False) for mode in MODES
+            },
+            "type_aware": {
+                mode: residual_rate(pairs, mode, type_aware=True) for mode in MODES
+            },
+        },
+        "document_failure_rate": {
+            mode: document_failure_rate(pairs, mode) for mode in MODES
+        },
+        "non_phi_masking": (None if doc_chars is None
+                            else non_phi_masking(pairs, doc_chars)),
+        "strict_prf": strict_prf(pairs),
+    }
+
+
 # ─── output ─────────────────────────────────────────────────────────────────
 
 

@@ -8358,6 +8358,77 @@ exactly the two-axis failure §4 rejects for the baseline. So the condition is: 
 is pinned once, and a new dated id applies only to a ladder none of whose rungs has been
 frozen.** A mid-ladder model change is a new ladder, reported as one.
 
+### A3. Post-hoc re-analysis of stored dev predictions — added 2026-10-08, with every arm's result in view
+
+**This entry is written after the numbers, and says so in its first line.** A1 and A2 were
+pre-registered; this is not, and the distinction is the reason it is here rather than in §9.
+It defines four quantities computed from predictions **already on disk**, for the manuscript's
+Methods and limitations sections. It licenses no decision, no selection, and no arm. In
+particular: nothing here is permitted to choose a round, a rule file or a checkpoint, and the
+sealed fold is not touched by any of it — every quantity is computed on `dev`.
+
+The four are computed by named functions in `src/eval/scorer.py` (`reanalysis()` and the
+four it calls) and **not** added to `score()`'s return. That boundary is deliberate: putting
+them in the published block would bump the schema and rewrite the meaning of every arm's
+`metrics.json`, which is a cost paid by the whole ladder for an appendix. `reanalysis()` is
+called by the analysis that wants it and its output travels with that analysis.
+
+**1. Type-agnostic residual rate.** The §9.3 leak rate requires the canonical types to be
+equal. This one drops that requirement: a gold span is residual when at least one of its
+characters is covered by **no prediction of any type**. It answers a different question —
+"was this identifier left in the clear?" rather than "was it correctly redacted?" — and it is
+the right denominator for a disclosure limitation, because a masked span discloses nothing
+regardless of the tag the masker wrote over it.
+
+**This is in tension with §9.3's "type equality is required in both modes", and the tension
+is the finding, not an oversight.** §9.3's argument is about *credit*: type-agnostic overlap
+would let one prediction claim two adjacent gold spans of different types and would make the
+complementarity breakdown uninterpretable. That argument is untouched here, because this
+number feeds no credit and no complementarity. What the pair of numbers buys is the gap
+between them: type-aware leak rate minus type-agnostic residual rate is exactly the volume of
+identifiers that were *found but mislabelled*, which no single published figure isolates
+today. A reader of §9.3's last paragraph ("a detector that finds a date but calls it an ID is
+scored as both a miss and a false positive — the cost is visible and accepted") can now see
+how large that accepted cost was.
+
+**2. Document-level failure rate, in both flavours.** The share of documents holding at
+least one failing gold span, computed type-aware under `fully_covered` (`D_full`) and
+type-agnostically. The type-aware one is already in every mode block as
+`by_document.rate`; it is recomputed here so that the two flavours come out of one function
+and one pass, and the test asserts the type-aware value equals the published one rather than
+trusting that it does. Documents with no in-scope gold span are outside the denominator for
+the same reason §9.3 keeps them out of `by_document`: they cannot fail, and they are counted
+as false-positive opportunity instead.
+
+**3. Non-PHI masking rate.** Of the characters *outside* every gold span, the share covered
+by some prediction — plus the count of predicted spans that overlap no gold span at all. The
+first is the over-masking volume as a reader of the masked text would experience it; the
+second is the span-level version of the same thing, and the two are reported together because
+a handful of very wide false positives and a great many narrow ones are different failures
+with the same character rate.
+
+**This one needs a document length, which `DocPair` deliberately does not carry.** The
+dataclass holds `doc_id` and the spans and not the text, nor even the length, so that a
+metrics file cannot come to carry a fact about a note. That boundary is not moved:
+`non_phi_masking()` takes the lengths as a separate `doc_chars` mapping supplied by whoever
+holds the corpus, and refuses — rather than skipping — a document it has no length for. A
+silently skipped document would shrink the denominator with nothing in the output saying so,
+which is this section's characteristic failure mode in every other paragraph it has.
+
+**4. `fully_covered` P/R/F1.** Not new and not exact-boundary. §9.3's headline rule already
+reports `fully_covered` P/R/F1 alongside the `relaxed` headline, and §9.3 separately records
+that **exact-boundary strict scoring is not computed and will not be** — GraSCCo's
+`NAME_TITLE` adjacency makes it a measurement of the annotation guideline. "strict" in this
+entry means `fully_covered`, i.e. one prediction covering the whole gold span under the
+assignment matching, and anyone citing a "strict" figure has to say which of the two they
+mean. `strict_prf()` exists so the number has a function behind it that can be asserted
+equal to `modes.fully_covered.overall` on every fixture.
+
+**What this licenses:** four more rows in the manuscript's Methods and limitations.
+**What it does not:** any claim about test, any re-selection on dev, and any reading of the
+type-agnostic figure as the leak rate. The headline leak rate remains §9.3's, type-aware,
+`fully_covered`, with `relaxed` as the lower bound.
+
 ---
 
 ## 11. `port-human` protocol — **RETIRED 2026-08-07, not deleted**

@@ -62,10 +62,16 @@ from src.eval.scorer import (
     error_spans,
     from_documents,
     iter_metrics_path,
+    document_failure_rate,
     metrics_path,
+    non_phi_masking,
+    reanalysis,
+    residual_rate,
     score,
+    strict_prf,
     sum_caching,
     sum_costs,
+    type_agnostic_coverage,
     write_metrics,
 )
 from src.sample import FALSE_POSITIVE, MISSED, ErrorSpan
@@ -2444,3 +2450,218 @@ def test_nothing_in_the_written_file_derives_a_resolution_from_the_lifecycle(sco
     # RUN carries no resolution field, and writing a lifecycle block does not invent one.
     assert "model_id_resolution" not in written["run"]
     assert "resolution" not in written["model_lifecycle"]
+
+
+# ─── §10 A3 post-hoc re-analysis ────────────────────────────────────────────
+#
+# Hand-computed from the same eight fixtures, before running the functions. The
+# fixture that decides most of this section is D5: right offsets, wrong type. Every
+# type-aware number calls it a leak and every type-agnostic one calls it covered, so a
+# type-agnostic metric that accidentally kept the type partition would agree with the
+# published figures everywhere except here.
+#
+# type-agnostic coverage, per document (union over all predictions, type ignored):
+#   D1 both covered          D2 covered            D3 both partial → 2 residual (full)
+#   D4 all three covered     D5 covered (!)        D7 1 residual
+#   fully_covered  D3 2 + D7 1 = 3 of 10 = 0.3   documents D3, D7
+#   relaxed        D7 1       = 1 of 10 = 0.1   documents D7
+# type-aware is the published leak rate: fully_covered 4/10, relaxed 2/10.
+
+#: Document lengths for `non_phi_masking`, which `DocPair` deliberately does not carry.
+#: Each is comfortably past the fixture's furthest offset, so the non-gold denominator
+#: is not itself a boundary case — the boundaries being tested here are the spans'.
+DOC_CHARS = {
+    "adjacent-gold-one-wide-pred": 20,
+    "one-gold-split-by-two-preds": 20,
+    "partial-overlap-both-ways": 300,
+    "layers-agree": 40,
+    "type-mismatch": 10,
+    "no-gold-with-preds": 20,
+    "gold-no-preds": 10,
+    "no-gold-no-preds": 30,
+}
+
+
+def test_type_agnostic_coverage_ignores_the_type_and_coverage_does_not():
+    """D5 in isolation: the one fixture where the two rules disagree."""
+    assert coverage(D5.gold, D5.pred, FULLY_COVERED) == [False]
+    assert type_agnostic_coverage(D5.gold, D5.pred, FULLY_COVERED) == [True]
+    assert coverage(D5.gold, D5.pred, RELAXED) == [False]
+    assert type_agnostic_coverage(D5.gold, D5.pred, RELAXED) == [True]
+
+
+def test_type_agnostic_coverage_is_still_a_union_statement():
+    """D2 is covered by two predictions and by neither alone, type or no type."""
+    assert type_agnostic_coverage(D2.gold, D2.pred, FULLY_COVERED) == [True]
+    one = (D2.pred[0],)
+    assert type_agnostic_coverage(D2.gold, one, FULLY_COVERED) == [False]
+    assert type_agnostic_coverage(D2.gold, one, RELAXED) == [True]
+
+
+def test_type_agnostic_residual_rate():
+    full = residual_rate(CORPUS, FULLY_COVERED)
+    assert full == {
+        "mode": FULLY_COVERED, "type_aware": False,
+        "residual": 3, "denominator": 10, "rate": approx(0.3),
+        "documents_with_residual": 2,
+    }
+    rel = residual_rate(CORPUS, RELAXED)
+    assert rel == {
+        "mode": RELAXED, "type_aware": False,
+        "residual": 1, "denominator": 10, "rate": approx(0.1),
+        "documents_with_residual": 1,
+    }
+
+
+def test_the_type_aware_residual_rate_is_the_published_leak_rate(scored):
+    """The equality that makes the pair of numbers readable as a difference.
+
+    If this fails, the two figures in the appendix table are not the same measurement
+    taken two ways and the gap between them means nothing.
+    """
+    for mode in (FULLY_COVERED, RELAXED):
+        mine = residual_rate(CORPUS, mode, type_aware=True)
+        published = scored["modes"][mode]["leak"]
+        assert mine["residual"] == published["leaked"]
+        assert mine["denominator"] == published["denominator"]
+        assert mine["rate"] == approx(published["rate"])
+
+
+def test_the_gap_between_the_two_is_the_mislabelled_volume():
+    """§10 A3's reason for computing both: D5, and nothing else in this corpus."""
+    aware = residual_rate(CORPUS, FULLY_COVERED, type_aware=True)["residual"]
+    agnostic = residual_rate(CORPUS, FULLY_COVERED)["residual"]
+    assert aware - agnostic == 1
+
+
+def test_document_failure_rate_both_flavours(scored):
+    """Documents with gold: D1 D2 D3 D4 D5 D7 = 6.
+
+    fully_covered  type-aware D3 D5 D7 = 3    type-agnostic D3 D7 = 2
+    relaxed        type-aware D5 D7    = 2    type-agnostic D7    = 1
+    """
+    full = document_failure_rate(CORPUS, FULLY_COVERED)
+    assert full["denominator"] == 6
+    assert full["type_aware"] == {"documents_with_failure": 3, "rate": approx(0.5)}
+    assert full["type_agnostic"] == {"documents_with_failure": 2,
+                                     "rate": approx(1 / 3)}
+    rel = document_failure_rate(CORPUS, RELAXED)
+    assert rel["type_aware"] == {"documents_with_failure": 2, "rate": approx(1 / 3)}
+    assert rel["type_agnostic"] == {"documents_with_failure": 1, "rate": approx(1 / 6)}
+
+    # D_full is the published by_document figure, recomputed rather than assumed.
+    for mode in (FULLY_COVERED, RELAXED):
+        published = scored["modes"][mode]["by_document"]
+        mine = document_failure_rate(CORPUS, mode)
+        assert mine["type_aware"]["documents_with_failure"] == published["with_leak"]
+        assert mine["denominator"] == published["denominator"]
+        assert mine["type_aware"]["rate"] == approx(published["rate"])
+
+
+def test_a_document_with_no_gold_is_out_of_the_failure_denominator():
+    """D6 got two predictions and holds no gold. It cannot fail, so it is not in the
+    denominator — the same rule §9.3 applies to `by_document`."""
+    assert document_failure_rate([D6, D8], FULLY_COVERED)["denominator"] == 0
+    assert document_failure_rate([D6, D8], FULLY_COVERED)["type_aware"]["rate"] is None
+
+
+def test_non_phi_masking():
+    """Per document, non-gold characters and the masked share of them:
+
+      D1 20 − 9  = 11 non-gold, pred [0,10) masks offset 4            →  1
+      D2 20 − 10 = 10,          pred union is exactly the gold span   →  0
+      D3 300 − 20 = 280,        [110,115) and [195,200)               → 10
+      D4 40 − 15 = 25,          three exact hits                      →  0
+      D5 10 − 5  =  5,          exact offsets, wrong type             →  0
+      D6 20 − 0  = 20,          [0,5) and [10,12)                     →  7
+      D7 10 − 5  =  5, no predictions                                 →  0
+      D8 30 − 0  = 30, no predictions                                 →  0
+                                           386 non-gold, 18 masked
+    Predictions touching no gold span at all: D6's two, and only those — D5's
+    prediction has the right offsets and the wrong type, which is an overlap.
+    """
+    block = non_phi_masking(CORPUS, DOC_CHARS)
+    assert block == {
+        "non_gold_characters": 386,
+        "non_gold_characters_masked": 18,
+        "rate": approx(18 / 386),
+        "predictions": 12,
+        "predictions_touching_no_gold": 2,
+    }
+
+
+def test_non_phi_masking_refuses_a_document_with_no_length():
+    """Refuses rather than skips: a skipped document shrinks the denominator with
+    nothing in the output saying so."""
+    partial = {k: v for k, v in DOC_CHARS.items() if k != "layers-agree"}
+    with pytest.raises(ScorerError) as exc:
+        non_phi_masking(CORPUS, partial)
+    assert "layers-agree" in str(exc.value)
+
+
+def test_non_phi_masking_refuses_a_span_past_the_end_of_the_document():
+    with pytest.raises(ScorerError) as exc:
+        non_phi_masking([D3], {"partial-overlap-both-ways": 100})
+    message = str(exc.value)
+    # D3's furthest offset is a gold end (210), not a prediction's — the check reads
+    # both lists, which is why a fixture whose widest span is gold exercises it.
+    assert "210" in message and "100" in message
+
+
+def test_strict_prf_is_the_published_fully_covered_block(scored):
+    """"strict" means `fully_covered`, not exact-boundary — §9.3 declines the latter
+    permanently. The function exists so the claim is asserted and not just written."""
+    assert strict_prf(CORPUS) == scored["modes"][FULLY_COVERED]["overall"]
+    assert strict_prf(CORPUS) == {
+        "tp": 4, "fp": 7, "fn": 6,
+        "precision": approx(4 / 11), "recall": approx(0.4), "f1": approx(8 / 21),
+    }
+
+
+def test_reanalysis_collects_the_four_and_adds_nothing():
+    block = reanalysis(CORPUS, doc_chars=DOC_CHARS)
+    assert set(block) == {"scorer_version", "residual_rate",
+                          "document_failure_rate", "non_phi_masking", "strict_prf"}
+    assert set(block["residual_rate"]) == {"type_agnostic", "type_aware"}
+    assert set(block["residual_rate"]["type_agnostic"]) == set(scorer.MODES)
+    assert set(block["document_failure_rate"]) == set(scorer.MODES)
+    assert block["strict_prf"] == strict_prf(CORPUS)
+    assert block["non_phi_masking"] == non_phi_masking(CORPUS, DOC_CHARS)
+
+
+def test_reanalysis_without_lengths_records_that_they_were_absent():
+    """None, not a zero rate: the record that the lengths were not supplied."""
+    assert reanalysis(CORPUS)["non_phi_masking"] is None
+
+
+def test_reanalysis_is_not_in_the_published_block(scored):
+    """§10 A3's boundary. Adding these to `score()` would bump the schema and change
+    what every arm's committed `metrics.json` means, for an appendix."""
+    assert "reanalysis" not in scored
+    for mode in scorer.MODES:
+        block = scored["modes"][mode]
+        assert "residual_rate" not in block
+        assert "non_phi_masking" not in block
+
+
+def test_the_reanalysis_does_not_change_score(scored):
+    """The brief's own check, as an assertion: running the re-analysis leaves every
+    published number byte-identical. Guards against a future version of these
+    functions that mutates the marks it was handed (`Mark` is frozen, and this is the
+    test that notices if it stops being)."""
+    before = json.dumps(scored, sort_keys=True)
+    reanalysis(CORPUS, doc_chars=DOC_CHARS)
+    assert json.dumps(score(CORPUS, excluded_gold=3), sort_keys=True) == before
+
+
+def test_the_reanalysis_refuses_a_prediction_with_no_layer():
+    """Same precondition as `score()` and `error_spans()`, checked in the same place
+    rather than relied on having been checked by one of them."""
+    with pytest.raises(ScorerError):
+        reanalysis([DocPair("d", (Mark(0, 4, "NAME"),), (Mark(0, 4, "NAME"),))])
+
+
+def test_residual_rate_refuses_a_mode_it_does_not_have():
+    with pytest.raises(ScorerError) as exc:
+        residual_rate(CORPUS, "strict")
+    assert "strict" in str(exc.value)
