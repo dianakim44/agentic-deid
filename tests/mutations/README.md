@@ -496,7 +496,7 @@ would rewrite 38 spans across 23 documents.
 | `carmen_schema_unchecked` | the `_check_schema(root)` call is removed | leaves `classify()` as the only guard, and it fires when a span of an undecided type is *annotated* — so the decision would be taken against a count that has already moved. Ten of the 28 declared PHI types have zero instances (§9.0), so a release that started using one is the case with no visible symptom | **3** |
 | `carmen_schema_containment_not_equality` | `declared != known` becomes `not declared <= known` | keeps the loud direction and drops the quiet one: a type this loader knows and the release does not declare stops being an error. That means the map was built against a different release than the one on disk, every count in §9.0's block belongs to the other one, and no span of the type exists either way — so nothing else can notice | **1** |
 | `carmen_language_label_named_lang` | `meta["language_label"]` becomes `meta["lang"]` | renames the corpus's own label to the `naming.yaml` axis it is not. 264 documents are labelled `bi`, which is not a language and has no `rules/bi.yaml`; under this name a caller composing `rules/{lang}.yaml` from `meta` asks for a file that cannot exist, and §5.6's `corpus_rule_langs: [es, cat]` stops being the only place the arm's two languages are declared | **8** |
-| `carmen_doctype_label_named_document_type` | `meta["filename_doctype"]` becomes `meta["document_type"]` | puts a filename token under the name of §7's document-type axis, which is derived from text cues and which `es-carmen` declares none of. 789 of these 2,000 units are clinical sections rather than whole notes (§8.5), so the two mean different things — and a stratification or a per-doctype table would read whichever it found | **9**‡ |
+| `carmen_doctype_label_named_document_type` | `meta["filename_doctype"]` becomes `meta["document_type"]` | puts a filename token under the name of §7's document-type axis, which is derived from text cues and which `es-carmen` declares none of. 789 of these 2,000 units are clinical sections rather than whole notes (§8.5), so the two mean different things — and a stratification or a per-doctype table would read whichever it found | **9** |
 | `carmen_unknown_language_label_accepted` | the `LANGUAGE_LABELS` membership check becomes `if False` | a fourth language label loads as a stratum the frozen split file does not describe. The recorded composition would still sum to 2,000 and would silently be a composition over different bands | **1** |
 | `carmen_duplicate_mappings_rows_accepted` | the duplicate-row refusal becomes `if False` | two rows for one document is two language labels, and the dict keeps the last — so the stratum a document lands in depends on row order in a file the loader is otherwise indifferent to. The label is hashed into the per-document digest, so the frozen split file would verify against whichever row happened to be later | **1** |
 | `carmen_concept_flag_not_a_boolean_accepted` | the `("True", "False")` check becomes `if False` | `flag == "True"` then reads every other spelling as False, so a release writing `true` reports 0 flagged documents and the cross-check against `ner/` compares 0 against 500 — which fails loudly here and, on a release where the directory is also absent, silently | **1** |
@@ -507,7 +507,7 @@ would rewrite 38 spans across 23 documents.
 | `carmen_pin_slides_onto_another_span` | the `(subtype, start, end)` identity check becomes `if False` | the pin stops checking *which* span it excuses, so a reordered release has whatever span landed at index 4 of that document silently rewritten to match the text. The pin's type and both offsets exist for this one reason: an excuse for one span must not become an excuse for a position | **1** |
 | `carmen_pin_outlives_the_defect` | the "surface now matches" refusal becomes `if False` | a release that fixed the defect leaves the entry standing, and a standing permission to overwrite a surface corrects the *next* data error in that document instead of reporting it. This is the refusal that makes §9.7's entry a pin with an expiry rather than a tolerance | **1** |
 | `carmen_every_mismatch_corrected` | the pinned correction becomes a loop over every span whose surface disagrees with the text | the tidy-up the pin was written not to be. The corpus loads with no complaint; on this release it is 1 span and looks identical, on the aggregated TSV encoding it would rewrite 38 spans across 23 documents (§9.7), and on any future release it turns an offset error — the failure `assert_offsets()` exists for — into a recorded correction nobody decided | **5** |
-| `carmen_correction_not_recorded` | `if corrected:` becomes `if False:` | the overwrite still happens and stops being visible. A correction only the loader's source states is one no result file can be audited against, which is why `grascco.py` records its BOM-clipped spans the same way — and this one is a surface the release recorded and the loader replaced | **2**‡ |
+| `carmen_correction_not_recorded` | `if corrected:` becomes `if False:` | the overwrite still happens and stops being visible. A correction only the loader's source states is one no result file can be audited against, which is why `grascco.py` records its BOM-clipped spans the same way — and this one is a surface the release recorded and the loader replaced | **2** |
 | `carmen_language_out_of_digest` | the mappings row is dropped from the per-document digest | digests the two files a detector reads and not the label the split is stratified on. A release that reshuffled `CARMEN1_mappings.tsv` leaves every `.ann` and `.txt` byte-identical, so every per-document digest verifies while the composition recorded in `splits/es-carmen.json` — the frozen file's own claim about itself — became false | **1** |
 | `carmen_bom_decoded_away` | the text is read with `encoding="utf-8-sig"` | `strip_bom()` finds nothing to strip, the shift is 0, and every offset in a BOM-bearing document is one too high. No document in this release carries a BOM, so the mutation is invisible on the corpus — which is the whole reason the arithmetic is tested on a synthetic tree. MEDDOCAN's 32 BOM files and GraSCCo's 5 are what this looks like where the corpus does exercise it | **1** |
 | `carmen_doctype_token_unchecked` | the `DOCTYPE_TOKENS` membership check becomes `if False` | a sixth document-type token loads as a stratum, and §9.5's recorded composition would be over bands that no longer mean what the file says. The five tokens are declared rather than collected for this reason | **1** |
@@ -1266,9 +1266,9 @@ inspection — a leak rate of 3.1% looks exactly as reasonable as a wrong one.
 
 | mutation | changes | breaks | tests that catch it |
 |---|---|---|---|
-| `greedy_allows_reuse` | `assign()` drops `pi in used` from the skip condition | the matching stops being one-to-one, so one wide prediction collects credit for several gold spans. Recall rises for emitting one coarse span instead of two correct ones — the detector is paid for being vaguer about boundaries | **11**‡ |
-| `fully_covered_is_relaxed` | `_covers()` tests `> 0` instead of `== mark.length` under `fully_covered` | the headline mode collapses into the lower bound while keeping its name; a gold span with one character covered counts as hidden | **18**‡ |
-| `leak_rate_from_assignment` | the `leak.leaked` figure is taken from the assignment's false negatives | the error DESIGN §9.3 exists to prevent: a leak reported on an identifier whose every character is hidden | **12**‡ |
+| `greedy_allows_reuse` | `assign()` drops `pi in used` from the skip condition | the matching stops being one-to-one, so one wide prediction collects credit for several gold spans. Recall rises for emitting one coarse span instead of two correct ones — the detector is paid for being vaguer about boundaries | **11** |
+| `fully_covered_is_relaxed` | `_covers()` tests `> 0` instead of `== mark.length` under `fully_covered` | the headline mode collapses into the lower bound while keeping its name; a gold span with one character covered counts as hidden | **18** |
+| `leak_rate_from_assignment` | the `leak.leaked` figure is taken from the assignment's false negatives | the error DESIGN §9.3 exists to prevent: a leak reported on an identifier whose every character is hidden | **12** |
 | `greedy_tiebreak_dropped` | the sort key becomes `(-overlap, pi, gi)` | ties fall through to emission order, so the metrics move when the same spans arrive shuffled | **2** |
 | `by_rule_fp_from_coverage` | `by_rule`'s hits are taken from type-matched overlap instead of from the assignment | a rule whose spans always lose the assignment to a better one reads as harmless, and the only signal that licenses deleting a rule disappears while every aggregate stays correct | **6** |
 | `the_provenance_fields_are_optional_again` | `REQUIRED_RUN` loses `generated`, `commit` and `tree` | §10 A2's mitigation goes back to being described in the design and absent from the writer. Every existing metrics file is unchanged, because `run_fold` still writes all three; the loss is in what a new writer may omit, and the orchestrator is the new writer | **5** |
@@ -1461,9 +1461,11 @@ used: it slices `MUTATIONS` and would have made this a full run that was not one
 baseline 2,376, wall 58.1 min, 54 of 54 caught, 0 survived.** Three of the 44 pre-existing
 counts in scope moved, all upward, and all three are in the table at the head of this
 section: `greedy_allows_reuse` 10 → **11**, `fully_covered_is_relaxed` 15 → **18**,
-`leak_rate_from_assignment` 11 → **12**. They carry `‡`; the ten new rows above carry no
+`leak_rate_from_assignment` 11 → **12**. They carried `‡`; the ten new rows above carried no
 marker, because a cell with no sidecar entry can claim no disagreement with the last full
-run. The other 41 came back identical.
+run. The other 41 came back identical. **The full run of 2026-10-09 confirmed all three at the
+scope run's values and the markers came off** — which is what a `‡` is for: it survives exactly
+until a full run either ratifies the number or contradicts it.
 
 **The three that moved are the §10 A3 tests reaching the published matchings from a new
 direction, which is the result worth having.** `fully_covered_is_relaxed` gains the most
@@ -1512,19 +1514,19 @@ raised, and each artefact is internally consistent on its own.
 
 | mutation | changes | breaks | tests that catch it |
 |---|---|---|---|
-| `arm_window_ignores_the_declaration` | the resolved pin is not written into the window map | every refusal still fires, so a malformed declaration is still rejected and a correct one is accepted and dropped. The ablated arm sends today's example-free template against a counterpart that sent `ddc48bdb`, and the confound the pin removes is back with nothing anywhere to say so | **4** |
+| `arm_window_ignores_the_declaration` | the resolved pin is not written into the window map | every refusal still fires, so a malformed declaration is still rejected and a correct one is accepted and dropped. The ablated arm sends today's example-free template against a counterpart that sent `ddc48bdb`, and the confound the pin removes is back with nothing anywhere to say so | **9** |
 | `a_pinned_revision_may_live_beside_the_live_template` | the outside-`pinned/` refusal is removed | the run is correct and the file is not durable: under `docs/prompts/` it is a live template, the fence policy applies, and `ddc48bdb`'s six fenced examples make the suite fail with an instruction to edit a file that may not be edited | **2** |
 | `a_template_the_assembler_ignores_is_declarable` | the undeclarable-file refusal is removed | declaring `auditor.md` hashes the pinned bytes into the record while `_auditor_template()` resolves the current ones directly — a record attesting to a window no call ran under, which is the failure §6.3 opens with, produced by §6.3's own mechanism | **2** |
 | `a_missing_pinned_revision_falls_back_to_the_current_one` | the exists check becomes a fallback | a path typo or an unstaged file leaves the arm sending the live revision under the pinned arm's name, with `prompt_sha256` the hash of what was read, so the record is self-consistent and wrong about which revision the arm is | **1** |
 | `the_freeze_record_names_the_default_window` | `files` lists `WINDOW_FILES` while the hashes stay the arm's | the record is right about the bytes and silent about where they came from, and a reader comparing it with `port-loop`'s sees six identical paths and one differing hash — which is what an *edited* template looks like. The field is what tells a pin from a drift | **1** |
 | `the_record_does_not_say_which_agent_is_absent` | `agents_absent` is dropped from the record | `port-loop` freezes at round 1, whose §1.3 is empty by DESIGN §4, so `sections_shown` and `sections_empty` are *identical* on the two arms. On the `-current` rung, which declares no template, the two records would then agree in every field — two arms, one record shape, and the difference between them is the experiment | **2** |
 | `the_call_line_hashes_the_live_window` | `call_line()`'s tail hashes the live window; the record's and the failure record's identical lines are untouched | the freeze record names the pin and all eight rounds of `agent_calls.jsonl` name the live file. The per-line hashes are the *mid-run* drift detector (§11.2), so the constant disagreement reads as drift that happened before the arm started | **1** |
-| `the_absent_audit_block_is_omitted_instead_of_empty` | the empty §1.3 half renders as `""` | every reference field is still written and the digest is still real — of the empty string. The agent is shown a template describing a second opinion, a sentence saying every §1 block is filled, and no second opinion; reading §1.4 as the flag list reconstructs a weak substitute for the component the arm exists to remove | **2** |
+| `the_absent_audit_block_is_omitted_instead_of_empty` | the empty §1.3 half renders as `""` | every reference field is still written and the digest is still real — of the empty string. The agent is shown a template describing a second opinion, a sentence saying every §1 block is filled, and no second opinion; reading §1.4 as the flag list reconstructs a weak substitute for the component the arm exists to remove | **3** |
 | `an_audit_report_for_an_ablated_arm_is_dropped` | the refusal becomes a silent discard | the prompt is correct, which is why this version would survive review. But the caller holding a report has already paid for the Auditor calls, so the spend and the arm's definition already disagree and this refusal is the only artefact that says so | **1** |
 | `the_absent_audit_reference_reports_zeros` | the absent reference fields are `0` rather than `None` | zero flags over zero documents is one of the two possible findings of this experiment; the other is that the Auditor was worth something and this arm went without it. `audit_agent_absent` is one key away saying which, and an aggregate over rounds averages measurements with placeholders | **2** |
 | `the_fence_check_skips_every_subdirectory` | the pinned subtraction becomes a top-level filter, one line shorter | the one argued exclusion generalises into a rule. `prompt_markdown_files()` is recursive so that filing a template a level down is not a way out; on the tree as committed both versions agree, and they diverge on the sixth prompt — the event the recursion was written for after this defect was inherited once | **2** |
-| `the_pinned_half_is_governed_by_nothing` | `pinned_prompt_files()` returns `[]` | the partition becomes a subtraction of nothing and `ddc48bdb` falls back under the fence check, which fails loudly with the wrong instruction. This is the mutation that shows which way §6.3's trade runs | **2** |
-| `arm_calls_agent_answers_for_every_arm_alike` | the role check runs and the declaration is not consulted | the accessor the driver asks *before* paying, so the ablated arm makes every Auditor call `port-loop` makes — one per dev document per round. An arm named `port-loop-noaudit` produces `port-loop`'s numbers at `port-loop`'s cost, and the cost block is where that becomes visible, which is after the money | **3** |
+| `the_pinned_half_is_governed_by_nothing` | `pinned_prompt_files()` returns `[]` | the partition becomes a subtraction of nothing and `ddc48bdb` falls back under the fence check, which fails loudly with the wrong instruction. This is the mutation that shows which way §6.3's trade runs | **3** |
+| `arm_calls_agent_answers_for_every_arm_alike` | the role check runs and the declaration is not consulted | the accessor the driver asks *before* paying, so the ablated arm makes every Auditor call `port-loop` makes — one per dev document per round. An arm named `port-loop-noaudit` produces `port-loop`'s numbers at `port-loop`'s cost, and the cost block is where that becomes visible, which is after the money | **6** |
 
 **The two to read are the two that keep a true record and a true prompt.**
 
@@ -1584,6 +1586,17 @@ whether or not they fall in scope: `round_one_reassembles_the_baselines_prompt` 
 `the_role_is_appended_at_the_end_of_the_line` **2**, both equal to their sidecar entries, so
 neither cell is marked.
 
+**The full run of 2026-10-09 reproduced all fifteen probe numbers exactly** — 302 of 302
+caught, 0 survived, and the fifteen cells identical to what the probe measured a few hours
+earlier, including `a_template_the_assembler_ignores_is_declarable` at the repaired 2. The
+two trees were not the same (the probe ran at baseline 2,444, the repair added one test and
+the run at 2,445), so this is agreement across a suite that moved rather than a re-run of the
+same measurement. That is the datum that makes probing worth its 26 minutes as *measurement*
+and not merely as a smoke test: a count taken from a probe can be written into the table and
+expected to survive, which is what the four cells in the table above that originally read
+their `min_kills` instead of their measured count did not do — they were corrected upward
+(4 → 9, 2 → 3, 2 → 3, 3 → 6) by the run, and the probe had already said so.
+
 ## The sampling mutations
 
 `src/sample.py` decides which dev errors a rule author is shown at a given iteration,
@@ -1597,7 +1610,7 @@ two.
 |---|---|---|---|
 | `sample_seed_from_process_hash` | `sample_seed()` returns `abs(hash(material))` instead of SHA-256 | Python salts string hashing per process, so the seed is stable within a run and different in the next. The recorded seed documents a draw nobody can repeat | **2** |
 | `sample_pool_not_sorted` | the error pool keeps the caller's iteration order instead of `sorted(..., key=e.key)` | the seed pins which *indices* are drawn and the caller's ordering pins which spans those indices hit — reproducible from the log, different in fact | **3** |
-| `non_target_filter_removed` | `non_target_types()` returns an empty set | `OTHER` takes a slot, and with `min_per_type: 1` it takes one in *every* iteration of *every* arm — a permanent slot handed to a type Prohibition 4 forbids writing a rule for | **9** |
+| `non_target_filter_removed` | `non_target_types()` returns an empty set | `OTHER` takes a slot, and with `min_per_type: 1` it takes one in *every* iteration of *every* arm — a permanent slot handed to a type Prohibition 4 forbids writing a rule for | **10** |
 | `non_target_types_hardcoded_not_read_from_config` | `non_target_types()` returns the literal `{"OTHER"}` instead of reading naming.yaml's gloss | nothing, today. The day a corpus ships a second residual bucket, that type is declared, glossed as non-target, forbidden — and drawn anyway, with config and code each looking correct alone | **1** |
 
 All three are in the same class and it is a class this table has met before: a wrong
@@ -1744,7 +1757,7 @@ no enforcement but a field in a log.
 | `the_patch_allowlist_stops_requiring_a_reason` | the `why` word-count check becomes `if False` | an exemption no longer has to say why, and the fastest way to close a finding stops being *run the function* and becomes *add two lines of JSON*. Nothing breaks today; what breaks is the review in six months, when nobody can tell an impossible case from a Friday afternoon | **2** |
 | `a_stale_patch_exemption_is_ignored` | the stale-entry comparison becomes `[]` | an exemption outlives the function it describes and waits to cover whatever takes the name next. The failure mode of every allowlist that is never pruned | **1** |
 | `the_arm_freeze_guard_only_checks_the_file` | `orchestrate.freeze_window()`'s refusal becomes `freeze_path().exists()` | **the defect this repository shipped, moved to the arm that will actually run.** `rm window_freeze.json` then re-freeze writes today's hashes and reports success — the sequence `window-freeze-history.md` records running three times. Worse here than for `port-human`: `port-oneshot` writes no per-line hashes, so the record is the *only* thing attesting to the window the call ran under. It is also wrong in the other direction, refusing the pre-call re-freeze §6.3 permits, which is why the count is high | **7** |
-| `the_freeze_record_drops_the_empty_block_marking` | `sections_empty` is dropped from the record | the record stops saying which blocks the call did *not* carry, so a reader must derive it from `INPUT_BLOCKS` — and a reader who knows `INPUT_BLOCKS` is not the reader the field is for. `sampling_applied` survives, so the record still distinguishes the two cases and no longer says what the distinction is about | **4** |
+| `the_freeze_record_drops_the_empty_block_marking` | `sections_empty` is dropped from the record | the record stops saying which blocks the call did *not* carry, so a reader must derive it from `INPUT_BLOCKS` — and a reader who knows `INPUT_BLOCKS` is not the reader the field is for. `sampling_applied` survives, so the record still distinguishes the two cases and no longer says what the distinction is about | **5** |
 | `the_freeze_record_claims_the_sampling_parameters_applied` | `sampling_applied` becomes the constant `True` | the field it was added to prevent, restored: a `port-oneshot` record then claims *n*=40 at ±120 characters governed a call that carried no §1.4 at all. §6.3 keeps `sampling_sha256` for comparability with the arms that do use it, which is exactly why the record needs a field saying the hash did not govern this call | **5** |
 | `the_baseline_draws_error_spans` | `orchestrate.freeze_window()` calls `initial_error_pool()` | **DESIGN §4's ladder condition broken in the direction that looks like an improvement.** At iteration 1 the §1.4 pool comes from an empty rule file, so those spans are dev **gold** — the baseline shown 40 of them has dev information `port-loop` call 1 does not, and the two arms differ in two things instead of one. A `port-loop` win is then unattributable at the comparison the paper leads with, and the arm flattered is the rung above. Caught structurally: the plumbing is a two-line addition and a behavioural test notices only once it moves a number | **2** |
 | `the_call_is_logged_after_the_response_is_judged` | `append_call(...)` becomes a lambda, invoked just before `run_fold` | the freeze guard's premise read backwards. The log line is what fixes this arm's window and *n*=1 means there are no per-line hashes to disagree with the record, so between the call and the log the window is still re-freezable. After a successful validation the log is byte-identical, so every assertion about its *contents* passes — what breaks is only the ordering, and only visibly in the branch where the response does not load, which returns having made a call, paid for it, and recorded nothing | **10** |
@@ -4502,9 +4515,12 @@ it fails under exactly two: `carmen_correction_not_recorded` and
 candidate key reads the meta field that mutation renames. Both were re-measured on the current
 suite — tree `913730af7057ad8c`, baseline **2359 passed** — and both are caught:
 `carmen_correction_not_recorded` **1 → 2**, which clears `min_kills=2` with nothing to spare,
-and `carmen_doctype_label_named_document_type` **8 → 9**. Both cells carry `‡`: they now
-disagree with the sidecar, which is what the marker is for. Nothing else moved, so nothing else
-needed re-measuring.
+and `carmen_doctype_label_named_document_type` **8 → 9**. Both cells carried `‡`: they
+disagreed with the sidecar, which is what the marker is for. Nothing else moved, so nothing else
+needed re-measuring. **The full run of 2026-10-09 came back 2 and 9, so the restored killer held
+and both markers came off.** That is the whole arc of this entry closed: a survivor at the full
+run of 2026-10-01, a killer restored and re-measured under `‡`, and the next full run ratifying
+the restoration.
 
 **Two is the floor and two is what it has, which is worth saying plainly.** The audit route's
 coverage is one synthetic loader test and one synthetic narrative test, and retiring either one
@@ -4564,7 +4580,7 @@ in prose rather than a number in a table:
 | `the_rule_authors_prompt_is_cached_too` | 2 | 2 |
 | `the_cache_boundary_crosses_onto_the_masked_document` | 2 | 1 |
 | `caching_is_inferred_from_the_prompt_carrying_a_boundary` | 2 | 2 |
-| `drift_is_checked_against_todays_window_not_the_recorded_one` | 3 | 2 |
+| `drift_is_checked_against_todays_window_not_the_recorded_one` | 7 | 2 |
 | `the_lifecycle_block_moves_into_the_run_block` | 2 | 2 |
 | `the_role_is_appended_at_the_end_of_the_line` | 2 | 1 |
 | `the_call_role_is_written_without_being_validated` | 1 | 1 |
@@ -5189,6 +5205,32 @@ expensive ones are the thin spots. It also means 8-way contention (305 s vs 271 
 is a worse deal than it looks on the well-covered mutations and a better one than it looks
 overall.
 
+**The ranking was scored a second time, on 302 — and both derivations came out high.** The
+full run of 2026-10-09 measured **17,161 s (4.77 h)** for 302 mutations at baseline 2,445,
+which is **56.8 s** per mutation. The two derivations beforehand:
+
+| derivation | per mutation | 302 mutations | against measured |
+|---|---|---|---|
+| tree serial baseline — 396.98 s solo at suite 2,444, × 1.16 ÷ 8 | 57.6 s | 4.83 h | **+1.3%** |
+| count ratio — 56.7 s at suite 2,376 × 2445/2376 | 58.3 s | 4.89 h | +2.5% |
+
+So the tree baseline wins again (+1.3% against +2.5%), and the rule "take the larger" lost to
+the ranking for the second run in a row — which is the whole reason the ranking was written
+down on 2026-10-02 rather than left as a preference. What is new is the **sign**: this is the
+first run where *both* derivations were high. Every scoring before it had at least one of them
+low, and the low one was always the count ratio. A reader who had only this run's data would
+conclude the model over-predicts; the two before it say otherwise, which is why none of the
+three is deleted.
+
+**And the two-factor model came out high over a long step, for the first time.** From the
+previous full run: 279 → 302 mutations is 1.0824, suite 2,358 → 2,445 is 1.0369, product
+1.1224 against 15,901 s predicts **17,847 s** — the measured 17,161 s is **3.8% below** it.
+Every earlier long step had the product *under*-predict (229 → 279 was +5.1% residual the
+other way). Two long steps, opposite signs, so the honest statement about the two-factor model
+is that its residual is roughly ±5% and not that it leans one way. The per-step figures stay
+in the table above because a model whose error is known to be ±5% is usable and one whose
+error is believed to be one-sided is not.
+
 ### Why eight shards is not a shortcut
 
 Four things had to be true before parallelism could be trusted, and they were checked in that
@@ -5450,7 +5492,7 @@ Thirty-four mutations had no recorded count anywhere in this file, their section
 |---|---|---|
 | `the_per_iteration_key_replaces_the_arm_level_one` | 169 | 2 |
 | `the_mask_tags_are_emitted_in_the_order_they_were_applied` | 91 | 3 |
-| `the_audit_report_is_read_as_the_previous_rounds_file` | 75 | 1 |
+| `the_audit_report_is_read_as_the_previous_rounds_file` | 78 | 1 |
 | `k_drops_to_one_so_consecutive_means_nothing` | 11 | 3 |
 | `the_writer_adds_the_rounds_up_itself` | 11 | 1 |
 | `an_unknown_flag_field_is_ignored_instead_of_refused` | 8 | 1 |
