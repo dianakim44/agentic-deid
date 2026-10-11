@@ -275,3 +275,82 @@ P4 가 반증되면(범위 ≥ 0.02) 그것은 이 arm 의 결론보다 큰 결�
 해시가 가리키는 arm 이름을 바꾼다.
 
 이 무효 run 은 §9 의 "봉인 1회" 예산을 쓰지 않았다. 재실행은 여전히 1회를 갖는다.
+
+### 10.5 사용량 — 재실행의 비용 보고에 **abandoned spend** 로 합산한다
+
+| 항목 | 값 | 출처 |
+|---|---|---|
+| LLM 호출 | 1 (`role: rule_author`, `outcome: called`) | `agent_calls.jsonl` |
+| input 토큰 | 14,874 | 같은 줄 `cost.prompt_tokens` |
+| output 토큰 | 2,213 | 같은 줄 `cost.completion_tokens` |
+| cache 토큰 | **필드가 없다** | 같은 줄 — `cost` 는 세 키(`llm_calls`·`prompt_tokens`·`completion_tokens`)와 `wall_seconds` 뿐이다 |
+| 호출 wall time | 27.248초 | 같은 줄 |
+| arm wall time | 27.397초 | `metrics.json.cost.wall_seconds` |
+| 모델 | `us.anthropic.claude-opus-4-5-20251101-v1:0` | 같은 줄 `model_id` |
+| 생성 시각 | 2026-10-11T04:28:36Z | 같은 줄 `generated` |
+| 추산 비용 | 약 $0.13 (§7 기준선의 6%) | §10.4 |
+
+cache 토큰이 **0 이라고 적지 않는다** — 기록에 그 필드가 없으므로 0 인지 미측정인지
+이 기록은 말하지 않는다. 재실행의 비용표는 이 줄을 `abandoned_spend` 로 따로 세우고,
+cache 열은 "무효 run 에 대해 미측정" 으로 남긴다. DESIGN §3 의 `abandoned_spend` 가
+회차 5 의 버려진 두 시도에 쓰인 것과 같은 자리이고, 다른 점은 이것이 **회차가 아니라
+run 전체**라는 것이다 — 그래서 합계에 들어가되 어느 회차에도 귀속되지 않는다.
+
+### 10.6 dev 점수는 **계산됐고**, 누출률은 읽지 않았다
+
+파이프라인이 자동으로 채점하므로 `metrics.json` 은 `modes.fully_covered` ·
+`modes.relaxed` 를 둘 다 갖고 있고 각각 `leak` 을 갖는다(키 존재만 확인했다).
+**즉 "계산되지 않았다" 가 아니라 "계산됐고 읽지 않았다" 가 맞는 진술이다.**
+
+열람에 대해 정확히 적는다. 누출률·F1·상보성 분해는 열지 않았다. 그러나 **비헤드라인
+수치 두 조각이 pytest 의 assertion repr 로 화면에 나왔다**: `tools/make_figures.py` 의
+`one()` 이 SystemExit 을 내면서 pytest 가 `arms` 리스트의 첫 원소를 repr 로 찍었고,
+그 잘린 꼬리에 이 arm 의 `false_positive_opportunity` (두 값 모두 0)와
+`…dictions: 3` 조각이 보였다. 둘 다 headline 이 아니고 선택에 쓸 수 있는 값도 아니지만,
+"점수를 전혀 보지 않았다" 는 문장은 거짓이므로 쓰지 않는다. 그리고 이것이 §6 의 절차가
+막지 못하는 경로다 — **검사를 통과하기 전에는 수치를 열지 않는다는 규율은 내가 여는
+것만 통제하고, 실패한 테스트가 찍는 것은 통제하지 못한다.**
+
+### 10.7 test fold 는 열리지 않았다 — 기록으로 확인했다
+
+| 확인 | 결과 |
+|---|---|
+| `results/sealed_eval_log.md` 에 이 arm 을 적은 행 | **없다** (grep `noaudit` → 0건) |
+| `src/eval/sealed_log.count_runs()` | **1** — 발행분 `port-loop` 의 1회이고, 이 arm 의 것이 아니다 |
+
+그러므로 §9 의 "arm 당 1회" 예산은 소진되지 않았고, 재실행은 1회를 온전히 갖는다.
+이것을 먼저 확인한 이유는 결정에 들어가기 때문이다: 열렸다면 재실행은 arm 이름을
+바꾸는 것(= 새 셀) 외에 선택지가 없었다.
+
+### 10.8 처분 — 저장소 밖으로 **옮겼다** (삭제하지 않았다)
+
+2026-10-12, 디렉토리 전체를 다음으로 이동했다:
+
+```
+~/agentic-deid-archive/invalid-runs/2026-10-11-port-loop-noaudit/
+```
+
+바탕화면·공유 폴더에 두지 않는다. MEDDOCAN 은 공개 코퍼스지만 `agent_calls.jsonl` 의
+`prompt_reference` 와 규칙 파일은 프롬프트·규칙 문자열을 담을 수 있고, 그 경로에는
+`release_screen.py` 가 닿지 않는다.
+
+이동 전에 계산한 sha256 (이동 후 같은 값으로 재확인했다):
+
+```
+2bb122e14e841fd4a7e7596868295d6f68dd4efb2d24b9b9bf2b55b627c3bf26  agent_calls.jsonl
+25598d353b1ef7ee295170616f780679042e32bb1d7b39a27c3af8d8d2906316  iter1/errors.jsonl
+1fd28b5f1a41481cff192b58aacad0db71e3caab3f79f505691d2ab8d609e78c  iter1/metrics.json
+c1be15ce477f7e275b6ede48254049b0109ad26403567e8cf1d828ff126cb4a3  iter1/spans.jsonl
+1fd28b5f1a41481cff192b58aacad0db71e3caab3f79f505691d2ab8d609e78c  metrics.json
+a39c89205ddc2769bd96bd091b1ebabacf3a6ec6c231e768f5f9f373f834f372  rules/iter1/es.yaml
+c1be15ce477f7e275b6ede48254049b0109ad26403567e8cf1d828ff126cb4a3  spans.jsonl
+228440c35c9429feb12056428ac19f0911aa9465cb8b807475329c6d19d621c5  window_freeze.json
+```
+
+두 쌍이 같은 해시인 것은 회차 1 이 유일한 회차이기 때문이다 — arm 수준 `metrics.json` ·
+`spans.jsonl` 은 `iter1/` 의 것과 바이트 동일하다. 이것도 §10.2 의 모양과 같은 성질이다:
+**회차 1 만 있는 arm 의 산출물은 단일 호출 arm 의 산출물과 구별되지 않는다.**
+
+이동으로 셀이 비었으므로 `freeze_window()` 는 재실행을 거절하지 않고, 등록 해시가
+가리키는 arm 이름(`port-loop-noaudit`)도 바뀌지 않는다. 재실행은 §2 의 창을 그대로
+다시 동결한다.
