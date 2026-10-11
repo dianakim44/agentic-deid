@@ -568,3 +568,248 @@ def test_a_table_four_without_the_call_log_is_unchecked_and_not_silent(monkeypat
     rep = cmn.Report()
     cmn.check_table_four(table_four_draft([wrong, wrong, wrong]), s, rep)
     assert any("denied" in line for line in rep.unchecked)
+
+
+# ─── which arm a figure is about is declared, not inferred ──────────────────
+#
+# Added 2026-10-12. `make_figures` used to pick the figures' subject from the
+# shape of the records: the primary was the arm whose `termination.iterations`
+# exceeded 1 and Figure 5's arms were the ones where it equalled 1. On
+# 2026-10-11 a round-1 record of an iterating arm sat on disk and nineteen tests
+# in this file went red — two arms on es-meddocan answered to "iterations == 1",
+# and `one()` refused the ambiguity. Removing that record is not the fix: the
+# same thing happens during round 1 of **any** iterating arm, so the checker
+# broke whenever the experiment was mid-flight. The subject now comes from
+# `config/naming.yaml` (`manuscript_figures`, and
+# `porting_rungs_without_termination` through `base.porting_iterates`), which is
+# the same discriminator DESIGN §6.4.1 gave the sealed gate for the same reason.
+
+import make_figures as mf  # noqa: E402
+
+#: Everything Figures 2 and 4 read, measured from the committed records on
+#: 2026-10-12 **before** the declaration replaced the shape inference. The point
+#: of pinning it here is narrow and it is the whole point: a change that was
+#: supposed to alter only *which arm is chosen* must not alter *any number read
+#: once it is chosen*. The figures' own `comparison` key is excluded and checked
+#: separately — it did not exist before the change.
+PINNED_FIGURE_INPUTS = {
+    "records": {
+        "arm": "results/es-meddocan/R/sup-free/port-loop/metrics.json",
+        "oneshot": "results/es-meddocan/R/sup-free/port-oneshot-nofence/metrics.json",
+        "rounds": [
+            f"results/es-meddocan/R/sup-free/port-loop/iter{i}/metrics.json"
+            for i in range(1, 9)
+        ],
+        "sealed": "results/es-meddocan/R/sup-free/port-loop/test/metrics.json",
+    },
+    "series": {
+        "xs": [1, 2, 3, 4, 5, 6, 7, 8],
+        "fully_covered": [
+            0.596117244004568, 0.3071945184621241, 0.2285877426722497,
+            0.19508945565283595, 0.23353635325466313, 0.17624666920441567,
+            0.16920441568328892, 0.1372287780738485,
+        ],
+        "relaxed": [
+            0.47164065473924627, 0.21488389798248952, 0.18443090978302246,
+            0.15473924628854208, 0.1922344880091359, 0.13342215454891512,
+            0.13132851161020176, 0.11933764750666159,
+        ],
+        "oneshot_fully_covered": 0.5599543205177008,
+        "oneshot_relaxed": 0.48496383707651314,
+        "round_calls": [1, 251, 251, 251, 251, 251, 251, 251],
+        "round_tokens": [
+            16862, 2433059, 2392906, 2380039, 2382857, 2385827, 2378273, 2387584,
+        ],
+    },
+    "fig2": {
+        "corpus": "es-meddocan",
+        "rounds": 8,
+        "dev_n": 5254,
+        "delta": 0.03616292348686723,
+        "resolved": [2, 3, 5, 6],
+        "regression": 5,
+        "layers": ["regex_checksum", "context_cue", "gazetteer"],
+        "omitted_layers": ["tagger"],
+        "step": {"layer": "gazetteer", "round": 4, "gain": 298,
+                 "type": "LOCATION_AREA"},
+        "sealed": 0.1470990427817933,
+        "rules_version": {"es": 8},
+    },
+    "fig4": {
+        "corpus": "es-meddocan",
+        "rounds": 8,
+        "cumulative_published": [1, 252, 503, 754, 1005, 1256, 1507, 1758],
+        "published_calls": 1758,
+        "token_multiple": 1022.0423883874116,
+        "log_read": True,
+        "rounds_audited": 7,
+    },
+}
+
+
+def test_the_declaration_selects_the_same_records_the_shape_used_to(tmp_path):
+    loop = mf.loop_of(mf.naming()["paths"], "fig2")
+    pinned = PINNED_FIGURE_INPUTS["records"]
+    rel = lambda p: str(p.relative_to(mf.REPO))  # noqa: E731
+    assert rel(loop.arm.path) == pinned["arm"]
+    assert rel(loop.oneshot.path) == pinned["oneshot"]
+    assert [rel(r.path) for r in loop.rounds] == pinned["rounds"]
+    assert rel(loop.sealed.path) == pinned["sealed"]
+
+
+def test_the_series_the_figures_plot_are_unchanged_by_the_declaration():
+    loop = mf.loop_of(mf.naming()["paths"], "fig2")
+    pinned = PINNED_FIGURE_INPUTS["series"]
+    assert list(loop.xs) == pinned["xs"]
+    assert list(loop.series("fully_covered")) == pinned["fully_covered"]
+    assert list(loop.series("relaxed")) == pinned["relaxed"]
+    assert loop.oneshot.leak() == pinned["oneshot_fully_covered"]
+    assert loop.oneshot.leak("relaxed") == pinned["oneshot_relaxed"]
+    assert [r.calls for r in loop.rounds] == pinned["round_calls"]
+    assert [mf.tokens(r.data["cost"]) for r in loop.rounds] == pinned["round_tokens"]
+
+
+@pytest.mark.parametrize("figure", ["fig2", "fig4"])
+def test_the_figures_own_numbers_are_unchanged_by_the_declaration(tmp_path, figure):
+    """PNG bytes are not compared; the numbers behind them are."""
+    draw = {"fig2": mf.figure_two, "fig4": mf.figure_four}[figure]
+    got = draw(mf.naming()["paths"], tmp_path)
+    for key, want in PINNED_FIGURE_INPUTS[figure].items():
+        assert got[key] == want, key
+    assert set(got) - set(PINNED_FIGURE_INPUTS[figure]) == {"comparison"}, (
+        "the declaration adds one key and removes none")
+
+
+# ─── the declaration's refusals ─────────────────────────────────────────────
+
+def declared(monkeypatch, figures):
+    """`manuscript_figures` replaced, with the rest of naming.yaml intact."""
+    real = mf.naming()
+    monkeypatch.setattr(mf, "naming",
+                        lambda: {**real, "manuscript_figures": figures})
+
+
+def test_a_repetition_cannot_be_a_figures_primary_arm(monkeypatch):
+    """DESIGN §6.10: a repetition is a rung member and not a point of the ladder.
+
+    It also could not fill a figure's sealed column, because a repetition never
+    opens the fold — so this refusal is not a stylistic one.
+    """
+    reps = sorted(mf.base.porting_repetitions())
+    assert reps, "no repetition is declared, so this refusal has nothing to bite"
+    declared(monkeypatch, {"fig2": {"primary": reps[0], "comparison": []}})
+    with pytest.raises(SystemExit) as caught:
+        mf.manuscript_figure_arms("fig2")
+    assert "repetition" in str(caught.value)
+
+
+def test_a_repetition_may_still_be_a_comparison(monkeypatch):
+    """The positive control for the refusal above: only `primary` is closed."""
+    reps = sorted(mf.base.porting_repetitions())
+    declared(monkeypatch, {"fig2": {"primary": "port-loop", "comparison": reps}})
+    primary, comparison = mf.manuscript_figure_arms("fig2")
+    assert primary == "port-loop"
+    assert comparison == reps
+
+
+def test_an_absent_manuscript_figures_block_is_refused(monkeypatch):
+    real = {k: v for k, v in mf.naming().items() if k != "manuscript_figures"}
+    monkeypatch.setattr(mf, "naming", lambda: real)
+    with pytest.raises(SystemExit) as caught:
+        mf.manuscript_figure_arms("fig2")
+    assert "manuscript_figures" in str(caught.value)
+
+
+@pytest.mark.parametrize("figures, fragment", [
+    ({}, "no entry for 'fig2'"),
+    ({"fig2": {"comparison": []}}, "`primary` key"),
+    ({"fig2": "port-loop"}, "`primary` key"),
+    ({"fig2": {"primary": "port-loopp"}}, "not a value of the porting axis"),
+    ({"fig2": {"primary": "port-loop", "comparison": "port-loop-noaudit"}},
+     "not a list"),
+    ({"fig2": {"primary": "port-loop", "comparison": ["port-loop-noaudt"]}},
+     "not values of the porting axis"),
+    ({"fig2": {"primary": "port-loop", "comparison": ["port-loop"]}},
+     "draw one arm twice"),
+])
+def test_a_malformed_figure_declaration_is_refused(monkeypatch, figures, fragment):
+    declared(monkeypatch, figures)
+    with pytest.raises(SystemExit) as caught:
+        mf.manuscript_figure_arms("fig2")
+    assert fragment in str(caught.value)
+
+
+def test_every_declared_figure_is_well_formed_and_names_a_real_primary():
+    """Over the committed declaration, not a planted one."""
+    block = mf.naming()["manuscript_figures"]
+    assert set(block) == {"fig2", "fig3", "fig4"}, (
+        "every figure that calls `loop_of` needs an entry")
+    for figure in sorted(block):
+        primary, _ = mf.manuscript_figure_arms(figure)
+        assert mf.base.porting_repetition_of(primary) is None
+
+
+# ─── a declared arm that has not run yet is skipped, not refused ────────────
+
+def test_a_comparison_arm_without_a_record_is_skipped_with_a_note(capsys):
+    """The declaration is committed before the arm runs (DESIGN §6.3).
+
+    So requiring the cell to exist would make the registration commit break the
+    figures it registers for. All three of fig2's comparisons are unrun today,
+    which is why this is checked against the committed declaration.
+    """
+    paths = mf.naming()["paths"]
+    _, declared_arms = mf.manuscript_figure_arms("fig2")
+    have = {a.porting for a in mf.dev_arms(paths)}
+    absent = [p for p in declared_arms if p not in have]
+    assert absent, "every comparison has a record; this test has nothing to show"
+
+    found = mf.comparison_arms(paths, "fig2")
+    assert [a.porting for a in found] == [p for p in declared_arms if p in have]
+    noted = capsys.readouterr().err
+    for porting in absent:
+        assert porting in noted and "skipping" in noted
+
+
+def test_a_comparison_arm_that_has_run_is_returned_in_declared_order(monkeypatch):
+    """The other half: present cells come back, and in the declared order."""
+    paths = mf.naming()["paths"]
+    arms = mf.dev_arms(paths)
+    pair = [a for a in arms if a.porting in ("port-loop", "port-oneshot-nofence")]
+    assert len(pair) == 2
+    monkeypatch.setattr(mf, "dev_arms", lambda _paths: pair)
+    declared(monkeypatch, {"fig2": {
+        "primary": "port-multi",
+        "comparison": ["port-oneshot-nofence", "port-loop-noaudit", "port-loop"],
+    }})
+    got = mf.comparison_arms(paths, "fig2")
+    assert [a.porting for a in got] == ["port-oneshot-nofence", "port-loop"]
+
+
+# ─── Figure 5 reads the rung, not the round count ───────────────────────────
+
+def test_figure_fives_arms_are_the_rungs_that_do_not_iterate():
+    arms = mf.single_call_arms(mf.naming()["paths"])
+    assert arms, "figure 5 has no arms"
+    for arm in arms:
+        assert not mf.base.porting_iterates(arm.porting), arm.porting
+
+
+def test_a_round_one_record_of_an_iterating_arm_is_not_a_single_call_arm(monkeypatch):
+    """The 2026-10-11 shape, planted: `iterations == 1` on an iterating rung.
+
+    Under the old selector this record joined Figure 5 and made es-meddocan
+    ambiguous. The declaration excludes it without reading the record at all.
+    """
+    paths = mf.naming()["paths"]
+    arms = mf.dev_arms(paths)
+    loop_arm = next(a for a in arms if a.porting == "port-loop")
+    assert mf.base.porting_iterates(loop_arm.porting)
+    mid_run = mf.Arm(loop_arm.path, {
+        **loop_arm.data,
+        "termination": {**loop_arm.data["termination"], "iterations": 1},
+    })
+    assert mid_run.iterations == 1, "the planted record has round 1's shape"
+    monkeypatch.setattr(mf, "dev_arms", lambda _paths: arms + [mid_run])
+    chosen = mf.single_call_arms(paths)
+    assert all(a.porting != "port-loop" for a in chosen)

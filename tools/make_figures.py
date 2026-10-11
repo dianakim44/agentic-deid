@@ -9,11 +9,19 @@ Four rules govern this file and all four are checkable by reading it:
    the things that look like constants: the number of rounds comes from
    `termination.iterations`, the difference between two runs of identical
    prompt bytes is computed from the two arms that shared them, the rounds that
-   get an arrow are the ones whose recorded gain exceeds that difference, the
-   sparse threshold is imported from the scorer that applied it, and the arms in
-   Figure 5 are the ones whose records say they did not iterate. A reader
+   get an arrow are the ones whose recorded gain exceeds that difference, and
+   the sparse threshold is imported from the scorer that applied it. A reader
    checking a figure against the files should never find a literal here to
    blame.
+
+   **Which arm a figure is about is not a measured value and is not read from a
+   record either.** It is declared — `config/naming.yaml`'s `manuscript_figures`
+   for the primary and its comparisons, and `porting_rungs_without_termination`
+   for Figure 5's non-iterating arms. Until 2026-10-11 both were inferred from
+   `termination.iterations`, which cannot carry them: round 1 of an iterating arm
+   records `iterations: 1`, so the number does not say which rung the arm is on
+   (DESIGN §6.4.1). This rule is about where the *numbers* come from; it never
+   licensed inferring the *subject* from them.
 2. **No corpus text reaches the output.** Only PHI type names, corpus labels and
    counts are drawn, and type names come from `config/naming.yaml`'s `phi_type`
    axis. Nothing here reads a corpus, a `spans.jsonl` or a rule file, so no
@@ -85,6 +93,10 @@ from matplotlib.patches import Patch, Rectangle  # noqa: E402
 
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO))
+
+#: The declarations behind which arm each figure reports and which rungs iterate.
+#: Read through the accessor that refuses a malformed one, not out of the yaml.
+from src.corpora import base  # noqa: E402
 
 #: The threshold behind every `sparse` flag in every `metrics.json`, imported
 #: from the scorer that applied it rather than restated. Figure 5c prints it.
@@ -477,11 +489,113 @@ def dev_arms(paths: dict) -> list[Arm]:
     return [a for a in discover(paths, "metrics") if a.split == "dev"]
 
 
-def loop_of(paths: dict) -> Loop:
+def manuscript_figure_arms(figure: str) -> tuple[str, list[str]]:
+    """The arms a figure reports: one primary, and the comparisons it may overlay.
+
+    Declared in `config/naming.yaml`'s `manuscript_figures`, not derived from the
+    shape of any record. Until 2026-10-11 this was derived — the primary was the
+    arm whose `termination.iterations` exceeded 1 — and that is exactly the
+    inference the same day disproved: round 1 of an iterating arm records
+    `iterations: 1`, so the number does not say which rung the arm is on (see
+    `src/corpora/base.porting_iterates` and DESIGN §6.4.1, where the sealed gate
+    made the same mistake by reading `termination.reason`). With an ablation arm
+    on the ladder "the iterating arm" also stopped being unique, so the shape
+    could not have identified the primary even if it had been honest.
+
+    The accessor lives in `tools/` rather than beside the other naming accessors
+    in `src/corpora/base.py` deliberately: which arm a manuscript figure reports
+    is a decision of the reporting layer, and `src/` must not acquire a
+    dependency on it. `tools/check_manuscript_numbers.py` imports it from here.
+    """
+    block = naming().get("manuscript_figures")
+    if block is None:
+        raise SystemExit(
+            "config/naming.yaml has no manuscript_figures block; it declares "
+            "which arm each figure reports and nothing here infers it"
+        )
+    if not isinstance(block, dict):
+        raise SystemExit("config/naming.yaml manuscript_figures is not a mapping")
+    try:
+        entry = block[figure]
+    except KeyError:
+        raise SystemExit(
+            f"config/naming.yaml manuscript_figures has no entry for {figure!r}; "
+            f"it declares {sorted(block)}"
+        ) from None
+    if not isinstance(entry, dict) or "primary" not in entry:
+        raise SystemExit(
+            f"manuscript_figures[{figure!r}] must be a mapping with a `primary` key"
+        )
+
+    known = set(naming()["axes"]["porting"])
+    primary = entry["primary"]
+    if primary not in known:
+        raise SystemExit(
+            f"manuscript_figures[{figure!r}].primary is {primary!r}, which is not "
+            "a value of the porting axis in config/naming.yaml"
+        )
+    # DESIGN §6.10: a repetition is a member of its rung and not a point of the
+    # ladder. Promoting one to a figure's primary would turn an ordinal into a
+    # result, and it could not fill the figure's sealed column either, because a
+    # repetition never opens the fold.
+    if base.porting_repetition_of(primary) is not None:
+        raise SystemExit(
+            f"manuscript_figures[{figure!r}].primary is {primary!r}, which "
+            "config/naming.yaml declares a repetition of "
+            f"{base.porting_repetition_of(primary)!r}; a repetition is not a point "
+            "of the ladder and cannot be a figure's primary arm (DESIGN §6.10)"
+        )
+
+    comparison = entry.get("comparison", [])
+    if not isinstance(comparison, list):
+        raise SystemExit(
+            f"manuscript_figures[{figure!r}].comparison is not a list"
+        )
+    unknown = sorted(set(comparison) - known)
+    if unknown:
+        raise SystemExit(
+            f"manuscript_figures[{figure!r}].comparison names {unknown}, which are "
+            "not values of the porting axis in config/naming.yaml"
+        )
+    if primary in comparison:
+        raise SystemExit(
+            f"manuscript_figures[{figure!r}] lists its own primary {primary!r} as a "
+            "comparison; the figure would draw one arm twice"
+        )
+    return primary, list(comparison)
+
+
+def comparison_arms(paths: dict, figure: str) -> list[Arm]:
+    """The declared comparison arms that have a dev record, in declared order.
+
+    A declared arm with no record is **skipped with a warning, not refused.** The
+    declaration is committed before the arm runs (DESIGN §6.3), so requiring the
+    cell to exist would make every registration commit break the figures it was
+    registering for.
+    """
+    _, declared = manuscript_figure_arms(figure)
+    have = {a.porting: a for a in dev_arms(paths)}
+    found = []
+    for porting in declared:
+        if porting in have:
+            found.append(have[porting])
+        else:
+            print(
+                f"  note: {figure} declares comparison arm {porting!r}, which has "
+                "no dev record yet; skipping it",
+                file=sys.stderr,
+            )
+    return found
+
+
+def loop_of(paths: dict, figure: str) -> Loop:
     arms = dev_arms(paths)
-    arm = one([a for a in arms if a.iterations > 1], "iterating arm")
+    primary, _ = manuscript_figure_arms(figure)
+    arm = one([a for a in arms if a.porting == primary],
+              f"dev record for {figure}'s primary arm {primary!r}")
     oneshot = one(
-        [a for a in arms if a.corpus == arm.corpus and a.iterations == 1],
+        [a for a in arms
+         if a.corpus == arm.corpus and not base.porting_iterates(a.porting)],
         f"single-call arm on {arm.corpus}",
     )
     rounds = [
@@ -554,7 +668,13 @@ def tokens(cost: dict) -> int:
 
 
 def figure_two(paths: dict, out: Path) -> dict:
-    loop = loop_of(paths)
+    loop = loop_of(paths, "fig2")
+    # Declared comparison arms with a record, in declared order. Empty today:
+    # the ablation and its repetitions are registered before they run (DESIGN
+    # §6.3), so `comparison_arms` warns and skips rather than refusing. Nothing
+    # is overlaid until a cell has a record — a drawing with no data behind it
+    # could not be checked against anything.
+    overlay = [a.porting for a in comparison_arms(paths, "fig2")]
     xs, fc, rx = loop.xs, loop.series(HEADLINE_MODE), loop.series(BOUND_MODE)
     delta = loop.delta
 
@@ -707,6 +827,7 @@ def figure_two(paths: dict, out: Path) -> dict:
 
     return {
         "corpus": loop.arm.corpus,
+        "comparison": overlay,
         "rounds": loop.n,
         "dev_n": loop.arm.denominator(),
         "delta": delta,
@@ -727,7 +848,13 @@ def figure_two(paths: dict, out: Path) -> dict:
 
 
 def figure_three(paths: dict, out: Path) -> dict:
-    loop = loop_of(paths)
+    loop = loop_of(paths, "fig3")
+    # Declared comparison arms with a record, in declared order. Empty today:
+    # the ablation and its repetitions are registered before they run (DESIGN
+    # §6.3), so `comparison_arms` warns and skips rather than refusing. Nothing
+    # is overlaid until a cell has a record — a drawing with no data behind it
+    # could not be checked against anything.
+    overlay = [a.porting for a in comparison_arms(paths, "fig3")]
     dev_types, test_types = loop.arm.by_type(), loop.sealed.by_type()
     delta = loop.delta
 
@@ -844,6 +971,7 @@ def figure_three(paths: dict, out: Path) -> dict:
 
     return {
         "corpus": loop.arm.corpus,
+        "comparison": overlay,
         "rounds": loop.n,
         "kept": kept,
         "dropped": dropped,
@@ -863,7 +991,13 @@ def figure_three(paths: dict, out: Path) -> dict:
 
 
 def figure_four(paths: dict, out: Path) -> dict:
-    loop = loop_of(paths)
+    loop = loop_of(paths, "fig4")
+    # Declared comparison arms with a record, in declared order. Empty today:
+    # the ablation and its repetitions are registered before they run (DESIGN
+    # §6.3), so `comparison_arms` warns and skips rather than refusing. Nothing
+    # is overlaid until a cell has a record — a drawing with no data behind it
+    # could not be checked against anything.
+    overlay = [a.porting for a in comparison_arms(paths, "fig4")]
     fc = loop.series()
 
     # Cumulative published calls, accumulated from each round's own record rather
@@ -1019,6 +1153,7 @@ def figure_four(paths: dict, out: Path) -> dict:
     # numbers are the figure's content and not the terminal's (rule 4 above).
     return {
         "corpus": loop.arm.corpus,
+        "comparison": overlay,
         "rounds": loop.n,
         "cumulative_published": cumulative,
         "published_calls": published["llm_calls"],
@@ -1036,7 +1171,7 @@ def figure_four(paths: dict, out: Path) -> dict:
 def single_call_arms(paths: dict) -> list[Arm]:
     """The non-iterating arm of each corpus, lowest leak rate first."""
     by_corpus: dict[str, list[Arm]] = {}
-    for arm in (a for a in dev_arms(paths) if a.iterations == 1):
+    for arm in (a for a in dev_arms(paths) if not base.porting_iterates(a.porting)):
         by_corpus.setdefault(arm.corpus, []).append(arm)
     arms = [one(v, f"single-call arm on {k}") for k, v in by_corpus.items()]
     arms.sort(key=lambda a: a.leak())

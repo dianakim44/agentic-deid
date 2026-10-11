@@ -1035,6 +1035,50 @@ porting_repetitions:
     of: port-loop-noaudit
     index: 3
 
+# ─── 원고 그림이 보고하는 arm ────────────────────────────────
+# `tools/make_figures.py` 가 어느 arm 을 그리는지를 **선언**으로 정한다.
+# 기록의 모양에서 유도하지 않는다.
+#
+# 2026-10-11 까지는 유도했다. "반복하는 arm" 은 `termination.iterations > 1`,
+# "단일 호출 arm" 은 `== 1` 이었고, 같은 날 그 수가 rung 을 말해주지 않는다는 것이
+# 증명됐다 — 반복하는 arm 의 **회차 1** 기록도 `iterations: 1` 이다(위
+# porting_rungs_without_termination 의 사유를 보라. 봉인 게이트가 `reason` 을 읽어
+# 같은 착오를 했다). 실제로 port-loop-noaudit 의 회차 1 이 디스크에 있는 동안
+# es-meddocan 에는 "단일 호출 arm" 이 둘이 되어 `one()` 이 거절했고,
+# tests/test_check_manuscript_numbers.py 19건이 그것으로 빨갰다. 산출물을 치우면
+# 사라지는 문제가 아니다 — **반복 arm 이 실행 중인 동안 항상 그렇게 된다.**
+#
+# 그래서 축을 셋으로 나눈다.
+#   primary     : 그림의 본문 arm. 정확히 하나.
+#   comparison  : 같은 그림에 겹쳐 그리는 arm 들. 0개 이상.
+#   그리고 "반복하지 않는 arm" 은 여기서 열거하지 않는다 —
+#   porting_rungs_without_termination 이 이미 그것을 선언하므로
+#   Figure 5 는 `base.porting_iterates()` 로 고르고 이 블록을 보지 않는다.
+#   한 사실을 두 곳에 적으면 한 곳이 먼저 낡는다.
+#
+# **comparison 의 셀이 아직 없으면 그 arm 은 건너뛰고 경고만 낸다. 실패가 아니다.**
+# ablation 과 그 반복들은 선언이 먼저 커밋되고 실행이 나중이므로(DESIGN §6.3),
+# 선언이 존재를 요구하면 등록 커밋이 스스로 깨진다.
+#
+# **반복 선언(porting_repetitions)이 붙은 arm 은 primary 가 될 수 없다.**
+# DESIGN §6.10: 반복은 래더의 점이 아니다. 반복을 본문 arm 으로 올리는 것은
+# 서수를 결과로 바꾸는 것이고, 그 arm 은 봉인을 열지도 않으므로 그림의 test 열을
+# 채울 수도 없다. `manuscript_figure_arms()` 가 거절한다.
+manuscript_figures:
+  fig2:
+    primary: port-loop
+    comparison: [port-loop-noaudit, port-loop-noaudit-rep2, port-loop-noaudit-rep3]
+  # fig3 은 봉인 fold 를 dev 와 대조하는 그림이고, 반복은 **봉인을 열지 않는다**
+  # (DESIGN §6.10). 그래서 여기의 comparison 은 ablation 하나이고 그 반복 둘이
+  # 빠져 있다 — 선언이 그것을 강제하지는 않는다(그림이 아는 일이다). 목록이
+  # fig2·fig4 와 다른 이유를 적어 두는 것이 이 주석의 용도다.
+  fig3:
+    primary: port-loop
+    comparison: [port-loop-noaudit]
+  fig4:
+    primary: port-loop
+    comparison: [port-loop-noaudit, port-loop-noaudit-rep2, port-loop-noaudit-rep3]
+
 # ─── 코퍼스 → 로드할 규칙 파일 목록 ──────────────────────────
 # 탐지 실행은 이 목록의 파일을 **전부** 로드하고 매치를 합집합한다.
 # 문서 단위 언어 판별을 하지 않는다 (DESIGN.md §5.2 의 결정).
