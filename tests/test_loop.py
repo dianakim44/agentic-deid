@@ -64,6 +64,7 @@ from src.llm import bedrock as bedrock_module                                # n
 from src.orchestrate import (                                                # noqa: E402
     FORMAT_FAILURE, SCORED, OrchestrateError, freeze_path, freeze_window, log_path,
 )
+from src.llm.prompt import INPUT_BANNER, pinned_prompt_files                 # noqa: E402
 from src.porting import loop                                                 # noqa: E402
 from src.rules import arm_rules_path                                         # noqa: E402
 from src.sample import WINDOW_FILES                                          # noqa: E402
@@ -124,7 +125,11 @@ def tree(tmp_path, monkeypatch):
     `tests/test_orchestrate.py`'s reason: `rules._relative()` reduces a path against its own
     module's, so an unpatched copy reports every file this arm writes as outside the repo.
     """
-    for name in WINDOW_FILES:
+    # The pinned revisions go with them (DESIGN §6.3): `arm_window()` resolves a declared
+    # revision against `sample.ROOT`, which this fixture redirects, so an arm that declares one
+    # would be refused here for a file that is committed — a refusal about the fixture wearing
+    # the message of a refusal about the declaration.
+    for name in (*WINDOW_FILES, *pinned_prompt_files()):
         dest = tmp_path / name
         dest.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy(ROOT / name, dest)
@@ -1382,3 +1387,201 @@ def test_the_draw_number_is_taken_before_the_audit_calls_are_made(tree, corpus_p
         "the abandoned total absorbed this attempt's own calls, which means the log was read "
         "after the audit ran rather than before")
     assert draw_report(tree, 2, 2)["draw_index"] == 2
+
+
+# ─── the arm that declares the Auditor absent (DESIGN §6.3) ──────────────────
+
+#: The ablation's id, as `config/naming.yaml`'s `porting_arms` spells it. Passed explicitly at
+#: every call below rather than defaulted into a fixture: `ARM_KW` carries no `porting` and the
+#: helpers at the top of this file hardcode `port-loop`, which is the arm this one is *compared
+#: against*. A fixture that quietly ablated them would turn every test above into a test of this
+#: arm and leave the comparison with nothing on the other side.
+NOAUDIT = "port-loop-noaudit"
+NOAUDIT_ARM = (CORPUS, "R", "sup-free", NOAUDIT)
+
+#: The heading `prompt._absent_audit_block` writes. Searched for in the bytes that were sent, so
+#: that "the driver reached the ablated branch" is read off the prompt the model got rather than
+#: off a return value the driver chose.
+EMPTY_HALF = "Auditor report — EMPTY for this arm"
+
+
+def run_ablated_1(tree, client=None, **kw):
+    return loop.run_iteration_1(**ARM_KW, model_id=MODEL, porting=NOAUDIT,
+                                client=client or Transport(), **kw)
+
+
+def run_ablated(tree, iteration: int, client=None, **kw):
+    return loop.run_iteration(iteration, **ARM_KW, model_id=MODEL, porting=NOAUDIT,
+                              client=client or Transport(), **kw)
+
+
+def ablated_metrics(tree, iteration: int) -> dict:
+    return json.loads(iter_metrics_path(
+        corpus=CORPUS, detector="R", supervision="sup-free", porting=NOAUDIT,
+        iteration=iteration, root=tree).read_text(encoding="utf-8"))
+
+
+def audit_paths(tree, iteration: int, draw: int = 1):
+    """Where `port-loop` would have written this round's report and its preserved draw."""
+    from src.porting.audit import draw_path, report_path
+
+    common = dict(corpus=CORPUS, detector="R", supervision="sup-free", porting=NOAUDIT,
+                  iteration=iteration, root=tree)
+    return report_path(**common), draw_path(**common, draw=draw)
+
+
+def test_an_ablated_round_is_one_call_where_port_loop_pays_one_plus_the_fold(
+        tree, corpus_present):
+    """**The ablation at the place it is paid for.** Both arms' round 2, in one tree.
+
+    Asserted on the transport *and* on the round's cost block, because they are two different
+    claims and the gap between them is the failure this test exists for: a driver that audited
+    unconditionally and then reported `1` would read correct in `metrics.json` and be wrong in
+    the bill, and one that skipped the calls but summed a stale `audit_costs` would be the
+    reverse. `c08b9a0` wired the declaration into the assembler and the freeze record and left
+    `run_iteration` auditing regardless, which is precisely this shape — the arm's name over
+    `port-loop`'s spend.
+
+    The fold's size is asserted to be more than one so that `1` and `1 + n` cannot coincide.
+    """
+    from src.eval.run_fold import load_fold
+
+    n_docs = len(load_fold(CORPUS, "dev"))
+    assert n_docs > 1, "with a one-document fold this test cannot tell 1 from 1 + n"
+
+    run_ablated_1(tree)
+    ablated = Transport(rules_text=OTHER_RULES)
+    cheap = run_ablated(tree, 2, ablated)
+    assert (ablated.rule_author_calls, ablated.audit_calls) == (1, 0)
+    assert cheap["cost"]["llm_calls"] == 1
+
+    run_round_1(tree)
+    full = Transport(rules_text=OTHER_RULES)
+    dear = run_round(tree, 2, full)
+    assert (full.rule_author_calls, full.audit_calls) == (1, n_docs)
+    assert dear["cost"]["llm_calls"] == 1 + n_docs
+
+
+def test_an_ablated_round_writes_no_report_numbers_no_draw_and_caches_nothing(
+        tree, corpus_present):
+    """The four keys DESIGN §6.3 decided, and the two paths that must stay empty.
+
+    `None` and not a zero or an empty report: a file at `audit_report_path()` saying nothing was
+    flagged is `port-loop`'s most informative outcome, a `draw_index` of 1 says one audit attempt
+    was made and preserved, and a `caching` block of zeros says the round was transported through
+    a cache that returned nothing. All three are statements this arm cannot make, and all three
+    are available-looking values.
+
+    The absent `caching` key is checked in the written file as well as in the return, because
+    schema 8's absent-means-not-cached is a property of the published record.
+    """
+    run_ablated_1(tree)
+    out = run_ablated(tree, 2)
+
+    assert out["audit_report_path"] is None
+    assert out["audit_draw_path"] is None
+    assert out["draw_index"] is None
+    assert out.get("caching") is None
+    assert "caching" not in ablated_metrics(tree, 2)
+
+    report_file, draw_file = audit_paths(tree, 2)
+    assert not report_file.exists()
+    assert not draw_file.parent.exists(), "a draw directory for an attempt nobody made"
+
+
+def test_the_ablated_rounds_section_1_3_is_empty_in_place(tree, corpus_present):
+    """Read off the bytes that were sent, and two-sided.
+
+    One side is that the ablated arm's RuleAuthor prompt carries the empty half; the other is
+    that `port-loop`'s round 2 does not. Without the second, an assembler that rendered the
+    empty block on *every* arm would pass — and that arm would then be shown neither the flags
+    nor a reason for their absence.
+
+    The position is asserted too: the empty half sits between §1.2's rule file and §1.4's
+    error spans, where the full one sits. That is what makes the difference between the two
+    prompts the component rather than the component plus an edit.
+    """
+    run_ablated_1(tree)
+    ablated = Transport()
+    run_ablated(tree, 2, ablated)
+    # Sliced at the banner before the positions are read: the template above it *describes*
+    # §§1.1-1.4 and carries their numbers in its own prose, so an unsliced `index` finds the
+    # description rather than the block and the assertion passes or fails on the wrong bytes.
+    inputs = sent_text(ablated.sent[-1]).split(INPUT_BANNER, 1)[1]
+    assert EMPTY_HALF in inputs
+    assert inputs.index("### 1.2") < inputs.index(EMPTY_HALF) < inputs.index("### 1.4")
+
+    run_round_1(tree)
+    full = Transport()
+    run_round(tree, 2, full)
+    authored = [sent_text(c) for c in full.sent if "Auditor prompt" not in sent_text(c)]
+    assert EMPTY_HALF not in authored[-1], (
+        "`port-loop`'s round 2 was shown the empty half, so the block is being rendered from "
+        "the round rather than from the arm's declaration (DESIGN §6.3)")
+
+
+def test_an_ablated_round_does_not_read_the_previous_rounds_spans(tree, corpus_present,
+                                                                  monkeypatch):
+    """Nothing here masks, so the masker's input is not read at all.
+
+    Asserted by making the read itself fail rather than by deleting `spans.jsonl`: a missing
+    file reads as an empty prediction set, so the deletion leaves both arms running and
+    measures nothing. With the reader replaced the claim is exact — the ablated round scores
+    and `port-loop`'s round 2 dies in the reader, which is the two-sidedness. An ablated round
+    that still read it would be carrying a dependency for a step it does not take.
+    """
+    def refuse(**kwargs):
+        raise RuntimeError("spans were read")
+
+    monkeypatch.setattr(loop, "read_spans", refuse)
+    run_ablated_1(tree)
+    assert run_ablated(tree, 2)["outcome"] == SCORED
+
+    run_round_1(tree)
+    with pytest.raises(RuntimeError, match="spans were read"):
+        run_round(tree, 2)
+
+
+def test_the_ablated_rounds_abandoned_spend_is_still_measured_from_the_log(
+        tree, corpus_present):
+    """**The one §5.5.2 field that stays live here**, and the reason it does.
+
+    The block is gated on the union of two records — a preserved draw, or a logged line — and on
+    this arm the first member is empty at every round, permanently: `draws_before` is 0 because
+    nothing is ever preserved. So the log line is the whole of the gate, which is the smaller
+    frame the same correction holds in. An attempt that lost its one RuleAuthor call left a line,
+    and a driver that had carried the draw count into the gate would report nothing abandoned.
+
+    `calls_abandoned` is 1 rather than 1 + n here, which is the ablation showing up in the
+    abandoned figure too — it is read from the lines, and there are no audit lines to read.
+    """
+    run_ablated_1(tree)
+    first = run_ablated(tree, 2)
+    assert first["abandoned_spend"] is None, "the first attempt at a round abandons nothing"
+
+    second = run_ablated(tree, 2)
+    block = second["abandoned_spend"]
+    assert block["attempts_abandoned"] == 1
+    assert block["calls_abandoned"] == 1 == first["cost"]["llm_calls"]
+    assert block["calls_unmeasured"] == 0
+    assert ablated_metrics(tree, 2)["abandoned_spend"] == block
+    assert second["draw_index"] is None, (
+        "a second attempt at an ablated round numbered a draw, so the abandoned block and the "
+        "draw count are being read from each other")
+
+
+def test_the_freeze_record_and_the_spend_come_from_the_one_accessor(tree, corpus_present):
+    """`agents_absent` in the record and the calls that were made, asserted together.
+
+    Both are `arm_calls_agent`/`arm_absent_agents` over `config/naming.yaml`, which is what makes
+    them incapable of disagreeing — the property this test pins is that there is no second place
+    to edit. A driver with its own answer would let a record that says the Auditor is absent sit
+    beside a round that called it 250 times, and the published arm would then be defined by
+    whichever of the two a reader happened to open.
+    """
+    run_ablated_1(tree)
+    fake = Transport()
+    run_ablated(tree, 2, fake)
+    record = json.loads(freeze_path(*NOAUDIT_ARM).read_text(encoding="utf-8"))
+    assert record["agents_absent"] == [loop.AUDITOR]
+    assert fake.audit_calls == 0

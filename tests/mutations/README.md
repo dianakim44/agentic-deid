@@ -1597,6 +1597,94 @@ expected to survive, which is what the four cells in the table above that origin
 their `min_kills` instead of their measured count did not do — they were corrected upward
 (4 → 9, 2 → 3, 2 → 3, 3 → 6) by the run, and the probe had already said so.
 
+### Four on the driver that pays for the agent the arm declares absent — 2026-10-11
+
+The declaration landed one commit before the driver did, and the gap between them is worth
+stating plainly because it is the shape of the defect all four of these mutations restore.
+`arm_calls_agent()` was consulted by the prompt assembler — `audits = porting is None or
+arm_calls_agent(porting, AUDITOR_ROLE)` in `src/llm/prompt.py` — so an ablated round
+rendered §1.3's Auditor half empty and in place. It was **not** consulted by
+`src/porting/loop.py`, which audited every round of every arm. So the arm sent the ablated
+prompt and paid the full bill: one Auditor call per dev document per round, under
+`port-loop-noaudit`'s name, visible only in the cost block, which is read after the money is
+spent. This commit moves the same accessor into the driver.
+
+| mutation | changes | breaks | tests that catch it |
+|---|---|---|---|
+| `the_driver_audits_on_every_arm` | `audits = arm_calls_agent(porting, AUDITOR)` becomes `audits = True` | **the gap as it actually stood.** The prompt is the ablated arm's and the spend is the counterpart's: the empty §1.3 still renders in place, the round still completes, `metrics.json` is still schema-valid, and the ablation's only visible trace is a cost block reporting 1 + *N* calls for an arm defined by not making the *N*. The two findings this experiment can produce — the Auditor was worth something, or it was not — are both still obtainable from the scores, which is what makes the wrong bill survivable | **6** |
+| `an_ablated_round_numbers_a_draw` | the `if audits else None` is dropped from `audit.next_draw(...)` | a draw is reserved and numbered for a sample nobody drew, so `draw_index` names a directory with no draw in it — and §5.5.2 reads `draws_before = draw_index - 1`, which turns the phantom into an attempt. The ablated round's abandoned-spend lower bound then rises for a round that made no Auditor call at all, and the number is internally consistent with the directory it points at | **2** |
+| `the_ablated_rounds_abandoned_spend_is_dropped` | the `_abandoned_spend(...)` call is moved inside the `if audits` expression, so an ablated round records `None` | DESIGN §6.3 keeps this field live on an ablated round for one reason: §5.5.2 sources it from the **call log**, not from the draws, so a round whose single RuleAuthor call failed validation and was re-attempted has lines to report and no draw to report them against. Dropping the call removes the only artefact that says so, exactly in the branch where money was spent and no metrics were written — and `None` is the field's own documented value for *nothing to report*, so the record reads as a clean round | **1** |
+| `the_assembler_is_not_told_which_arm_the_round_is` | `porting=porting` is dropped from the assembler call | the assembler's default is `porting is None` → audits, so the ablated round sends the counterpart's §1.3 with the previous round's residual-PHI summary in it. Nothing raises, the window record is self-consistent, and the per-line hashes agree with it, because the template bytes did not move — what moved is the input block, which is where the ablation is. The round-1 byte-identity check cannot see it either: round 1's §1.3 is empty on both arms by DESIGN §4 | **6** |
+
+**The two to read are the first and the third.**
+
+`the_driver_audits_on_every_arm` is the pair of `arm_calls_agent_answers_for_every_arm_alike`
+from the thirteen above, and the pairing is the argument for having both. That one breaks the
+accessor; this one leaves the accessor correct and stops the one caller that spends money from
+asking it. An accessor that answers truthfully to a driver that does not consult it is the
+cheapest possible version of this defect and the hardest to see from the config, which
+declares `agents_absent: [auditor]` and is honoured — by the prompt, in full, and by the
+bill, not at all.
+
+`the_ablated_rounds_abandoned_spend_is_dropped` is the inverse of
+`the_absent_audit_reference_reports_zeros`, and the two together are why §6.3 had to decide
+the ablated round's record field by field rather than by a rule. There, absent had to stay
+`None` instead of becoming a measured zero. Here, a quantity that *is* measured on an ablated
+round had to stay measured instead of becoming absent, because it is sourced from a log the
+ablation does not touch. "Absent is not zero" and "zero is not absent" are the same
+convention read from either side, and a per-arm `None` sweep over the audit fields obeys the
+first while breaking the second.
+
+**No mutation is anchored in `tools/run_loop.py`, and that is a deliberate hole.** The CLI's
+plan block learned the same declaration — it prints `calls        1 rule_author`, `declares
+auditor absent`, and an `attempts` line asking whether the round spent anything before the
+operator confirms. Four tests cover it in `tests/test_run_loop_cli.py`, which is **outside
+`TEST_FILES`**: a mutation there could not be killed by construction, and would record a
+survivor that means "the gate does not look here" while reading as "the tests do not catch
+this." The hole is the honest record of it.
+
+**Five were probed, all five caught.** The four new ones plus the re-anchored
+`a_later_round_audits_and_samples_round_one` ran in five concurrent processes against one
+tree (`7abdc95010354530`, baseline 2,451), about 7.5 minutes each: **6, 2, 1, 6, 2** against
+thresholds 4, 2, 1, 2, 2. The re-anchor was required to be re-measured whether or not it fell
+in scope — its `read_spans` anchor moved under `if audits:` and stopped matching — and it
+reproduced its sidecar entry of **2**, so its cell is not marked.
+
+**The probe also bought a contention datum that is free of the usual confound.** The same
+tree was then timed standalone — `2451 passed … in 427.46s`, 430.04 s wall — so the five
+probe baselines (437.18, 446.74, 447.41, 450.56, 450.59 s; mean 449.3 s) are the *same
+suite on the same bytes* under five-way load: a factor of **1.045 at five processes**,
+beside the 1.150 measured at eight on 2026-10-08. Every earlier contention figure here
+divided two different suites by each other, which mixes the factor with the suite's own
+growth. And the growth is the other half of this measurement: 397 s at baseline 2,444 →
+430 s at 2,451 is **+8.3 % of time for +0.25 % of tests**, because the six new tests drive
+the whole round through the corpus registry. The count ratio predicted 398 s. That is the
+largest single-step margin recorded in this file for the direction CLAUDE.md warns about,
+and it is why the cost basis below is the serial measurement and not the ratio.
+
+So the deferred full run is planned at 430.04 × 1.16 ÷ 8 = **62.4 s per mutation**, i.e.
+**5.30 h for 306** — against 4.84 h if the count ratio had been used, and 4.77 h actually
+measured for 302 two days ago. The 48 minutes the scope distinction buys is computed below
+at the old basis; at this one the 49 out-of-scope mutations are 51 minutes (4.45 h against
+5.30 h), and the conclusion does not change.
+
+**The remaining 301 are deferred, not exempt, and the deferral has a date attached to it.**
+The impact scope was measured rather than named — `sys.modules` plus an `open` audit hook,
+plus a `sys.settrace` call-event pass that ignores `<module>` frames — and the six new tests
+in `tests/test_loop.py` execute 21 modules under `src/`, because the loop drives the loaders
+through the corpus registry. That puts **257** of the 306 mutations on a reached path under
+the executed-function reading (276 under every reached path, 218 if the registry-reached
+loaders are excluded), so a scope run costs ≈4.0 h against ≈4.8 h for all 306: the
+distinction buys 48 minutes, which is the reason the choice here was between paying the full
+run again and deferring the lot. By CLAUDE.md this change is not a full-run reason — one
+`src/` module, one `tools/` function, `TEST_FILES` unchanged at 35, mutation addition and
+re-anchoring both being impact-scope reasons — and the full run of 2026-10-09 is less than
+two days old, so the 301 are recorded as **deferred since `6ba6d9a`, reason: the B1a
+schedule.** The deferred run is owed after B1a and B2 have finished, and not beside them:
+the harness copies and mutates `src/` into its own tree, and a multi-hour eight-process load
+running next to a metered LLM experiment is a way to make two measurements explain each
+other's variance. B3 is registered after that run, not before.
+
 ## The sampling mutations
 
 `src/sample.py` decides which dev errors a rule author is shown at a given iteration,

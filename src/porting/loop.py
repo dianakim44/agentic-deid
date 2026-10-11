@@ -129,7 +129,7 @@ import json
 from pathlib import Path
 
 from .. import orchestrate
-from ..corpora.base import rule_langs
+from ..corpora.base import arm_calls_agent, rule_langs
 from ..eval.run_fold import DEFAULT_SPLIT, load_fold, read_errors, read_spans, run_fold
 from ..eval.scorer import iter_metrics_path, sum_caching, sum_costs
 from ..llm.bedrock import invoke, model_lifecycle
@@ -789,6 +789,19 @@ def run_iteration(iteration: int, *, corpus: str, lang: str, model_id: str,
     caller holding one without the other holds the number §11.3 warns about. Round 1 has no such
     key at all, and that is not an omission: it makes no audit call, so nothing was cached.
 
+    **An arm that declares the Auditor absent makes round 1's version of every round** (DESIGN
+    §6.3). `arm_calls_agent()` is asked once, from the arm's declaration rather than from its
+    name, and four of the nine keys change: `audit_report_path`, `audit_draw_path` and
+    `draw_index` are `None` and `caching` is `None`. The cost is **1 call rather than 1 + N**,
+    which is the whole quantity that rung measures. `abandoned_spend` is the one that does
+    *not* change, because it reads the call log and not the draw count — the correction §5.5.2
+    records, met here in a smaller frame: an attempt that lost its single call to a transport
+    error left a line, and gating on the draw count alone would report it as a virgin round.
+    Nothing else in the body is conditional, and that is the claim this arm rests on: the
+    prompt is assembled by the same call, the response is unwrapped by the same policy, the
+    rule file is written to the same path and scored by the same `run_fold`, so the difference
+    between this arm and `port-loop` is the Auditor and the bytes of §1.3's Auditor half.
+
     The steps, and what each one is not allowed to do:
 
     1. **Refuse a round that is not a later round, assert the arm has called, do not freeze.**
@@ -926,46 +939,78 @@ def run_iteration(iteration: int, *, corpus: str, lang: str, model_id: str,
             "past the stop is a round whose own termination block the rule cannot evaluate."
         )
 
+    # **Whether this round calls the Auditor, asked of the arm's own declaration.** Not of its
+    # name, and not of anything derivable from the round: `arm_calls_agent()` reads
+    # `porting_arms[porting].agents_absent` and is the same accessor the freeze record's
+    # `agents_absent` field is written from, which is what makes the record and the spend
+    # incapable of disagreeing (DESIGN §6.3). The ask is here rather than inside `_audit_fold`
+    # because what is skipped is not only the calls: it is the draw numbering, the two report
+    # files and the predictions read that feeds them, and a helper that returned an empty report
+    # would still have written a `draw1/` directory for an attempt nobody made.
+    audits = arm_calls_agent(porting, AUDITOR)
+
     # Which attempt at this round this is, read off the draw directories rather than counted in
     # memory (DESIGN §5.5.2). Taken *before* the audit calls are made, because the number goes
     # into the report those calls produce and because the spend of the earlier attempts has to be
     # totalled from the log as it stands now — after this attempt logs its own 250 lines the two
     # are no longer separable. Named `draw_index` and not `draw`: `draw` is this module's
-    # imported sampler (`..sample.draw`, used forty lines below for §1.4), and a local of that
-    # name shadows it — the failure is a `TypeError` at the sampling call, which is late enough to
-    # be after the audit's 250 calls have been paid for.
+    # imported sampler (`..sample.draw`, used sixty lines below for §1.4), and a local of that
+    # name shadows it — the failure is a `TypeError` at the sampling call, which is late enough
+    # to be after the audit's 250 calls have been paid for.
+    #
+    # `None` on an ablated arm, and `draws_before` is 0 there at every round (DESIGN §6.3): a
+    # draw numbers a *preserved audit report* and this arm writes none, ever, so there is no
+    # attempt for the number to count. `1` would be the available-looking value and it says one
+    # audit attempt was made and preserved.
     draw_index = audit.next_draw(corpus=corpus, detector=detector, supervision=supervision,
-                                 porting=porting, iteration=iteration, root=orchestrate.ROOT)
-    abandoned = _abandoned_spend(corpus, detector, supervision, porting,
-                                 iteration=iteration, draws_before=draw_index - 1)
+                                 porting=porting, iteration=iteration,
+                                 root=orchestrate.ROOT) if audits else None
+    # And `abandoned_spend` stays live on both, because it is sourced from the call log and not
+    # from the draw count — §5.5.2's correction, which an ablated arm meets in a smaller frame:
+    # an attempt that lost its one RuleAuthor call to a transport error left a line, and the
+    # union this gates on simply has one member here instead of two.
+    abandoned = _abandoned_spend(corpus, detector, supervision, porting, iteration=iteration,
+                                 draws_before=(draw_index - 1) if audits else 0)
 
-    predictions = read_spans(corpus=corpus, detector=detector, supervision=supervision,
-                             porting=porting, iteration=previous, root=orchestrate.ROOT)
+    # Loaded on both arms: §1.4's error window quotes the document around each error span, so
+    # the fold is this round's input whether or not anything is audited.
     documents = load_fold(corpus, split)
-    report, audit_costs, audit_caching = _audit_fold(
-        documents, predictions, corpus=corpus, iteration=iteration, model_id=model_id,
-        max_tokens=max_tokens, client=client, control_client=control_client,
-        detector=detector, supervision=supervision, porting=porting,
-        draw_index=draw_index,
-    )
-    report_file = audit.report_path(corpus=corpus, detector=detector,
-                                   supervision=supervision, porting=porting,
-                                   iteration=iteration, root=orchestrate.ROOT)
-    draw_file = audit.draw_path(corpus=corpus, detector=detector, supervision=supervision,
-                                porting=porting, iteration=iteration, draw=draw_index,
-                                root=orchestrate.ROOT)
-    # Two copies, and the difference between them is one key. The draw's own copy is written once
-    # and never touched again, and it omits `draws_total` because that number is not knowable when
-    # it is written (`audit.report`). The canonical copy is rewritten at every draw and carries
-    # `draws_total`, so it is correct at every instant and holds the true total once the round
-    # completes. Writing the draw copy first means a crash between the two leaves the preserved
-    # record and not only the pointer.
-    for path, payload in ((draw_file, report),
-                          (report_file, audit.with_draws_total(report, draw_index))):
-        path.parent.mkdir(parents=True, exist_ok=True)
-        with open(path, "w", encoding="utf-8") as fh:
-            json.dump(payload, fh, ensure_ascii=False, indent=2, sort_keys=False)
-            fh.write("\n")
+    if audits:
+        predictions = read_spans(corpus=corpus, detector=detector, supervision=supervision,
+                                 porting=porting, iteration=previous, root=orchestrate.ROOT)
+        report, audit_costs, audit_caching = _audit_fold(
+            documents, predictions, corpus=corpus, iteration=iteration, model_id=model_id,
+            max_tokens=max_tokens, client=client, control_client=control_client,
+            detector=detector, supervision=supervision, porting=porting,
+            draw_index=draw_index,
+        )
+        report_file = audit.report_path(corpus=corpus, detector=detector,
+                                        supervision=supervision, porting=porting,
+                                        iteration=iteration, root=orchestrate.ROOT)
+        draw_file = audit.draw_path(corpus=corpus, detector=detector, supervision=supervision,
+                                    porting=porting, iteration=iteration, draw=draw_index,
+                                    root=orchestrate.ROOT)
+        # Two copies, and the difference between them is one key. The draw's own copy is written
+        # once and never touched again, and it omits `draws_total` because that number is not
+        # knowable when it is written (`audit.report`). The canonical copy is rewritten at every
+        # draw and carries `draws_total`, so it is correct at every instant and holds the true
+        # total once the round completes. Writing the draw copy first means a crash between the
+        # two leaves the preserved record and not only the pointer.
+        for path, payload in ((draw_file, report),
+                              (report_file, audit.with_draws_total(report, draw_index))):
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with open(path, "w", encoding="utf-8") as fh:
+                json.dump(payload, fh, ensure_ascii=False, indent=2, sort_keys=False)
+                fh.write("\n")
+    else:
+        # No report, no files, and no cost — three `None`s and two empty sequences rather than an
+        # empty report written to the usual path (DESIGN §6.3). An empty report at
+        # `audit.report_path()` would be a file saying the Auditor audited this round and flagged
+        # nothing, which is `port-loop`'s most informative outcome and the one thing this arm
+        # cannot produce. `read_spans()` is skipped with them: the previous round's predictions
+        # are the masker's input and nothing here masks.
+        report, report_file, draw_file = None, None, None
+        audit_costs, audit_caching = (), ()
 
     # §1.4: the previous round's errors, drawn here rather than in the assembler. `practice`
     # is not passed — `check_iteration` refuses a real arm the reserved band and this is a real
@@ -990,7 +1035,12 @@ def run_iteration(iteration: int, *, corpus: str, lang: str, model_id: str,
         context_chars=sampling_config()["context_chars"],
         # The report as `audit.report()` assembled it, passed through unmodified: both of its
         # numbers are taken as given and `prompt._audit_block` checks both against this round.
+        # `None` on an ablated arm, where the assembler renders §1.3's Auditor half empty in
+        # place rather than omitting it — and `porting` is what tells it which of those two a
+        # `None` here means. Without the arm, a missing report at a round ≥ 2 is a driver that
+        # dropped a block, which `assemble_iteration_prompt` refuses and should (DESIGN §6.3).
         audit_report=report,
+        porting=porting,
     )
     reference = prompt.reference()
 
@@ -1014,6 +1064,11 @@ def run_iteration(iteration: int, *, corpus: str, lang: str, model_id: str,
     # transported. A reader wanting the arm's cache total sums the rounds; a reader wanting the
     # arm's billed basis needs `cost_to_date.prompt_tokens` minus each round's reads, which is
     # why the per-round figure is the one that must exist.
+    #
+    # **On an ablated arm it never is**, and the block comes out `None` for the same reason
+    # round 1 has no block at all: the RuleAuthor's call is not cached, it is the round's only
+    # call, and absence is how "this round was not cached" is written (schema 8, DESIGN §6.3).
+    # The propagation rule above is what produces that without a branch here.
     caching = sum_caching([response.caching(), *audit_caching])
 
     # Before the response is judged (round 1's step 4). `role` and `sample_reference` are the

@@ -365,10 +365,15 @@ def test_a_later_rounds_plan_promises_the_audit_report_and_the_fold_of_calls(mon
     assert "sealed/" not in plan
 
 
-def _later_plan(monkeypatch, iteration=2, root=None):
+def _later_plan(monkeypatch, iteration=2, root=None, porting=None):
     """`_plan()` for a later round, with a fabricated history. The helper the two draw tests
     share; extracted rather than copied because the fabrication is four lines of setup that say
-    nothing about what is being asserted."""
+    nothing about what is being asserted.
+
+    `porting` overrides the arm, for the ablation tests at the end of this file: which agents an
+    arm calls is read from its declaration (DESIGN §6.3), so the plan's call count is a function
+    of this argument and of nothing else the helper sets.
+    """
     import argparse
     import importlib.util
 
@@ -380,9 +385,10 @@ def _later_plan(monkeypatch, iteration=2, root=None):
     if root is not None:
         monkeypatch.setattr(module, "ROOT", root)
 
-    detector, supervision, porting = uncalled_cell()
+    detector, supervision, default_porting = uncalled_cell()
     args = argparse.Namespace(corpus=CORPUS, lang=LANG, iteration=iteration, model_id=ALIAS,
-                              detector=detector, supervision=supervision, porting=porting,
+                              detector=detector, supervision=supervision,
+                              porting=porting or default_porting,
                               split="dev", max_tokens=None, dry_run=True)
     rates = [0.42] * (iteration - 1)
     monkeypatch.setattr(orchestrate, "window_drift", lambda *a, **k: [])
@@ -589,3 +595,89 @@ def test_the_tool_runs_one_round_and_offers_no_run_to_completion_flag():
         "round N + 1 is assembled from it — and a tool that dropped it would grow the flag.")
     for flag in ("--through", "--until", "--all", "--rounds", "--max-iterations"):
         assert flag not in options, flag
+
+
+# ─── the arm that declares the Auditor absent (DESIGN §6.3) ──────────────────
+
+#: The ablation's id, as `config/naming.yaml`'s `porting_arms` spells it.
+NOAUDIT = "port-loop-noaudit"
+
+
+def test_an_ablated_later_rounds_plan_states_one_call_and_promises_no_report(monkeypatch):
+    """**The one line of a plan that cannot be corrected after the fact.**
+
+    The operator approves the round by reading the `calls` line, so on this arm it has to say
+    `1` before the spend. `1 + 250 = 251` there would over-state the cheap arm by 250 calls —
+    the direction nobody checks, because an over-estimate never shows up as a surprise in the
+    bill. `= 251` is asserted absent as well as `1 RuleAuthor` present: a plan that printed both
+    the right total and the Auditor's fan-out would read as a correction of itself.
+
+    The two path lines go with it. A promise of `audit_report.json` is a promise of a file this
+    arm never writes, and a reader who went looking for it would find the round's output
+    incomplete rather than the plan wrong.
+    """
+    _, _, plan = _later_plan(monkeypatch, porting=NOAUDIT)
+    assert f"calls        1 {orchestrate.RULE_AUTHOR}" in plan
+    assert f"declares {loop.AUDITOR} absent" in plan
+    assert "= 251" not in plan
+    assert f"{loop.AUDITOR} (one per" not in plan
+    assert "auditreport" not in plan
+    assert "auditdraw" not in plan
+    assert "draw         " not in plan, "a draw number on an arm that preserves no report"
+
+
+def test_an_ablated_later_rounds_plan_still_asks_whether_the_round_spent_anything(monkeypatch):
+    """The draw is gone and the second record is not, which is §5.5.2 in a smaller frame.
+
+    `abandoned_spend` is read from the call log on both arms, so "has this round already spent
+    something" is still a question the operator must be able to answer before paying again —
+    only the first of its two answers (a preserved draw) is missing here. The first attempt's
+    line says so positively rather than being omitted, for the reason the draw line is printed
+    when it is 1: an absent line cannot be told from a tool that does not print one.
+    """
+    _, _, plan = _later_plan(monkeypatch, porting=NOAUDIT)
+    assert "attempts     no logged calls for this round" in plan
+    assert f"{loop.AUDITOR} declared absent" in plan
+
+
+def test_an_ablated_round_with_logged_calls_is_announced_before_it_is_paid_for(monkeypatch,
+                                                                              tmp_path):
+    """One line here is worth one call, not 251 — and it is still the only warning there is.
+
+    An attempt that lost its single RuleAuthor call to a transport error left a line and no
+    draw, which on `port-loop` is round 6's case and on this arm is the *only* case: nothing is
+    ever preserved, so the log is the whole of the record. A plan that printed nothing would tell
+    the operator the round was untouched, and the round would then be re-run over a
+    `metrics.json` that may already exist (DESIGN §6).
+    """
+    import json as _json
+
+    detector, supervision, _ = uncalled_cell()
+    monkeypatch.setattr(orchestrate, "ROOT", tmp_path)
+    path = orchestrate.log_path(CORPUS, detector, supervision, NOAUDIT)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write(_json.dumps({
+            "call_id": "h0", "iteration": 2, "role": orchestrate.RULE_AUTHOR,
+            "cost": {"llm_calls": 1, "prompt_tokens": 100, "completion_tokens": 10,
+                     "wall_seconds": 2.0}}) + "\n")
+    _, _, plan = _later_plan(monkeypatch, root=tmp_path, porting=NOAUDIT)
+    assert "attempts     1 logged call(s) for this round" in plan
+    assert "recorded as abandoned" in plan
+    assert "Confirm this round wrote no metrics.json" in plan
+    assert "draw         " not in plan
+
+
+def test_the_plans_call_count_follows_the_declaration_and_not_the_arms_name(monkeypatch):
+    """Both arms' later-round plans, from one helper, differing in the `porting` argument alone.
+
+    This is the pair rather than two separate assertions because the claim is a comparison: the
+    same code path produces `251` and `1`, and what selects between them is
+    `arm_calls_agent()` over `config/naming.yaml`. A tool that derived the answer from the
+    arm's name would pass both halves today and classify the next `-noaudit`-free ablation as
+    an auditing arm (CLAUDE.md's prohibition on deriving a value from a string that carries it).
+    """
+    _, _, full = _later_plan(monkeypatch)
+    _, _, ablated = _later_plan(monkeypatch, porting=NOAUDIT)
+    assert "= 251" in full and "= 251" not in ablated
+    assert "auditreport" in full and "auditreport" not in ablated

@@ -4426,6 +4426,33 @@ nothing ran under. So the implemented set is a constant in `src/sample.py`, decl
 it is refused, and widening it means threading the arm through that file's reader in the same
 commit.
 
+**What an ablated round writes where `port-loop` writes an audit report — decided 2026-10-09.**
+The subsection above settles the declaration and the record; this settles the four fields the
+round itself cannot leave undecided, because the driver has to write something in each of them
+and every plausible value says something false. **`audit_report_path`, `audit_draw_path` and
+`draw_index` are `null`, and the `caching` block is absent.** All four are the
+absent-means-unrecorded convention already in force (§5.4's `caching`, §5.5.2's
+`abandoned_spend`) rather than a new one, and the alternative in each case is a statement about
+an Auditor that was not called: a `draw_index` of 1 says one audit attempt was made and
+preserved, a `caching` block of zeros says the round was transported through a cache that
+returned nothing — where the truth is that this round's one call is not cached at all, which is
+exactly what round 1's missing block already says — and a path says a map of the identifiers the
+previous round missed is on disk. The round's cost is **1 call and not 1 + N**, which is the
+whole quantity the rung exists to measure, so `tools/run_loop.py`'s plan must say `1` before the
+spend and must not promise `paths.auditreport` among the files the round will write. A plan that
+over-states the call count on the cheap arm is the one failure here that cannot be caught after
+the fact, because the operator approves the round by reading it.
+
+**`abandoned_spend` is the exception and stays live.** It is sourced from the call log and not
+from the draw count, which is the correction §5.5.2 records: a round that spent calls and died
+leaves lines whatever killed it, and an ablated round that lost its RuleAuthor call to a
+transport error is the same hole in a smaller frame. What changes is only that its draw gate is
+never satisfied on this arm — `draws_before` is 0 at every round, permanently — so the union of
+the two records that §5.5.2 gates on has one member here, and the log line is the whole of it.
+Nothing in the block's arithmetic is arm-specific, so nothing in it is re-decided: on this arm
+`attempts_abandoned` is `1 if any line else 0` by that formula, and the lower-bound status §5.5.2
+gives it is unchanged.
+
 ### 6.4 Which arm and which round open the seal — pre-registered 2026-08-26, before any sealed value exists
 
 §6.1 makes a sealed read recordable and §6.2 makes the fold verifiable. Neither says *which* read

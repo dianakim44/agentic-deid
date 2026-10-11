@@ -6486,16 +6486,21 @@ MUTATIONS = [
     Mutation(
         name="a_later_round_audits_and_samples_round_one",
         path=LOOP,
+        # Re-anchored 2026-10-09: the read moved under `if audits:` when the driver half of the
+        # Auditor ablation landed (DESIGN §6.3), so the indentation changed and the anchor
+        # stopped matching. The mutation is the same one — the round number is still what it
+        # edits — and it was re-measured on the move, which CLAUDE.md requires of a re-anchor
+        # whether or not it fell inside the measured scope.
         anchor=(
-            "    predictions = read_spans(corpus=corpus, detector=detector, "
+            "        predictions = read_spans(corpus=corpus, detector=detector, "
             "supervision=supervision,\n"
-            "                             porting=porting, iteration=previous, "
+            "                                 porting=porting, iteration=previous, "
             "root=orchestrate.ROOT)"
         ),
         replacement=(
-            "    predictions = read_spans(corpus=corpus, detector=detector, "
+            "        predictions = read_spans(corpus=corpus, detector=detector, "
             "supervision=supervision,\n"
-            "                             porting=porting, iteration=ITERATION, "
+            "                                 porting=porting, iteration=ITERATION, "
             "root=orchestrate.ROOT)"
         ),
         also=((
@@ -7888,6 +7893,122 @@ MUTATIONS = [
             "arm demands a report it was built not to have."
         ),
         min_kills=3,
+    ),
+    Mutation(
+        name="the_driver_audits_on_every_arm",
+        path=LOOP,
+        # The ask is removed and the flag it set stays, so every branch below still exists and
+        # every one of them takes the auditing side. This is the state `c08b9a0` left the
+        # repository in: the declaration was in `naming.yaml`, in the freeze record, in the
+        # assembler and on the plan's call line, and the driver audited regardless.
+        anchor="    audits = arm_calls_agent(porting, AUDITOR)\n",
+        replacement="    audits = True\n",
+        breaks=(
+            "**The ablation exists everywhere except where it is paid for.** The arm's record "
+            "says `agents_absent: [auditor]`, the plan says one call, the assembler is built to "
+            "render §1.3's Auditor half empty — and the round makes one Auditor call per dev "
+            "document, 250 of them, before assembling anything.\n"
+            "\n"
+            "What saves it from being silent is an accident of the other half: the driver then "
+            "hands the report to `assemble_iteration_prompt`, which refuses a report on an arm "
+            "that declares the Auditor absent, so the round dies *after* the 250 calls and "
+            "before the RuleAuthor's. That is the loudest version of this defect and it is not "
+            "the only possible one — remove the refusal as well (`an_audit_report_for_an_"
+            "ablated_arm_is_dropped`, two entries up) and the arm runs to completion producing "
+            "`port-loop`'s numbers at `port-loop`'s cost under the ablated arm's name. The "
+            "cost block is where the two would differ, which is after the money.\n"
+            "\n"
+            "Caught by `test_an_ablated_round_is_one_call_where_port_loop_pays_one_plus_the_"
+            "fold`, which asserts the transport's call counts and the round's `llm_calls` "
+            "separately — a driver that skipped the calls and summed a stale `audit_costs` is "
+            "the same failure read the other way — and by every other test in that section, "
+            "which reach the refusal."
+        ),
+        min_kills=4,
+    ),
+    Mutation(
+        name="an_ablated_round_numbers_a_draw",
+        path=LOOP,
+        # The calls, the report files and the predictions read all stay conditional. Only the
+        # number changes, and it changes to the value that looks available.
+        anchor="                                 root=orchestrate.ROOT) if audits else None\n",
+        replacement="                                 root=orchestrate.ROOT)\n",
+        breaks=(
+            "**Writes `draw_index: 1` on a round that preserved nothing.** A draw numbers a "
+            "preserved audit report (DESIGN §5.5.2); this arm writes none, ever, so `1` is a "
+            "claim that one audit attempt was made and kept. `next_draw` counts directories "
+            "and there are none, so it returns 1 at every round — and the number is stable, "
+            "plausible and in the position a reader of `port-loop`'s record expects it.\n"
+            "\n"
+            "The second-order damage is in the abandoned block: `draws_before` becomes "
+            "`draw_index - 1`, which is 0 here, so §5.5.2's gate still reads the log and the "
+            "figures stay right. That is what makes this mutation survivable — nothing it "
+            "produces is internally inconsistent. A reader comparing the two arms' round 2 "
+            "sees the same `draw_index` and concludes the ablated arm's Auditor ran and left "
+            "one report, and the `draw1/` directory it names is simply missing.\n"
+            "\n"
+            "Caught by `test_an_ablated_round_writes_no_report_numbers_no_draw_and_caches_"
+            "nothing` and by the second assertion of "
+            "`test_the_ablated_rounds_abandoned_spend_is_still_measured_from_the_log`, which "
+            "checks the number on a *second* attempt — where a draw count read from the "
+            "abandoned block would be the confusion this arm makes easy."
+        ),
+        min_kills=2,
+    ),
+    Mutation(
+        name="the_ablated_rounds_abandoned_spend_is_dropped",
+        path=LOOP,
+        # The one §5.5.2 field that stays live on this arm, made conditional on the thing it is
+        # deliberately not sourced from. The call is still made on `port-loop`, so every
+        # abandoned-spend test above this arm's section still passes.
+        anchor="                                 draws_before=(draw_index - 1) if audits else 0)\n",
+        replacement="                                 draws_before=(draw_index - 1)) if audits else None\n",
+        breaks=(
+            "**Round 6's lesson, un-learnt on the one arm where the log is the whole record.** "
+            "`abandoned_spend` is gated on the union of two records — a preserved draw, or a "
+            "logged call — because an attempt dies wherever it dies. On an ablated arm the "
+            "first member is empty permanently, so the union has one member and this mutation "
+            "removes it.\n"
+            "\n"
+            "An attempt that lost its single RuleAuthor call to a transport error left a line "
+            "in `agent_calls.jsonl` and nothing else. Under this version the re-run publishes "
+            "no block, and absence is defined to mean *unrecorded*, so the file says nothing "
+            "was abandoned — which is the silent disappearance the block exists to prevent, in "
+            "the one place no draw directory can contradict it. Cheaper than round 6 by 122 "
+            "calls and harder to notice by exactly as much.\n"
+            "\n"
+            "Caught by `test_the_ablated_rounds_abandoned_spend_is_still_measured_from_the_"
+            "log`. Nothing in `port-loop`'s own abandoned-spend tests moves: the call is still "
+            "made on the arm that audits, which is what makes this a one-arm defect."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="the_assembler_is_not_told_which_arm_the_round_is",
+        path=LOOP,
+        # The kwarg dropped at the call site, which is the edit a person adding this branch
+        # makes by forgetting rather than by deciding.
+        anchor="        audit_report=report,\n        porting=porting,\n    )\n",
+        replacement="        audit_report=report,\n    )\n",
+        breaks=(
+            "**`None` stops being two different facts.** `assemble_iteration_prompt` reads the "
+            "arm to decide which kind of `None` a missing report is: an arm that declares the "
+            "Auditor absent gets §1.3's empty half, and an arm that does not gets a refusal, "
+            "because at a round ≥ 2 a missing block is a driver that dropped one. With the "
+            "argument gone every round takes the second answer, and both ablated arms die in "
+            "the assembler on a report they were built not to have.\n"
+            "\n"
+            "Loud, and worth an entry for what else goes with it: `porting` is also what "
+            "selects the declared template revision, so a version of this mutation that "
+            "reached the model — the refusal removed as well — would send today's example-free "
+            "`rule_author.md` under the arm that exists to send `ddc48bdb`. That is the "
+            "confound the pin was added to remove, arriving through the driver instead of "
+            "through `arm_window()`.\n"
+            "\n"
+            "Caught by `test_the_ablated_rounds_section_1_3_is_empty_in_place` and by every "
+            "other ablated-round test, which cannot reach their assertions."
+        ),
+        min_kills=2,
     ),
 ]
 

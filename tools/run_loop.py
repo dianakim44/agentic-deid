@@ -26,6 +26,12 @@ precondition discovered afterwards is a precondition discovered too late — and
 "too late" means the Auditor has read the whole fold. `--dry-run` performs every check, prints
 the plan, the window hashes and the call count, and makes no call.
 
+**On an arm that declares the Auditor absent the spend is 1 at every round** (DESIGN §6.3), and
+this tool asks the declaration rather than reading the arm's name. Three lines of the plan move
+with that answer — the call count, the draw number, and whether `paths.auditreport` is among the
+files the round promises to write — and the first is the one that has to be right before the
+money, because the operator approves the round by reading it.
+
 **What it checks that `run_arm.py` cannot.** The round number against the ceiling; that round 1
 has *not* called and that a later round *has* (`arm_has_called()` read both ways — the freeze is
 once per arm, and a round 2 on an arm with no round 1 has no §§1.2–1.4); that every earlier
@@ -68,7 +74,8 @@ sys.path.insert(0, str(ROOT))
 
 from src import orchestrate, split                                    # noqa: E402
 from src.corpora.base import (                                        # noqa: E402
-    CorpusError, corpus_root, path_template, rule_langs, termination_params,
+    CorpusError, arm_calls_agent, corpus_root, path_template, rule_langs,
+    termination_params,
 )
 from src.eval import sealed_log                                       # noqa: E402
 from src.eval.run_fold import DEFAULT_SPLIT                           # noqa: E402
@@ -90,8 +97,10 @@ ARM_KEYS = ("armfreeze", "agentlog", "formatfailure", "metrics", "spans")
 #: predictions the next round masks, the error list the next round's §1.4 is drawn over.
 ROUND_KEYS = ("itermetrics", "iterspans", "itererrors")
 
-#: Round ≥ 2 only. The Auditor runs from round 2 on (`config/naming.yaml` agent_role), so
-#: round 1's plan must not promise a file it will not write.
+#: Round ≥ 2 only, **and only on an arm that calls the Auditor**. The Auditor runs from round 2
+#: on (`config/naming.yaml` agent_role), so round 1's plan must not promise a file it will not
+#: write — and neither must the plan of an arm that declares the role absent (DESIGN §6.3),
+#: where the file is never written at any round.
 AUDIT_KEY = "auditreport"
 
 
@@ -205,8 +214,9 @@ def _plan(args, history, n_docs: int) -> list[str]:
     Carries three things `run_arm.py`'s plan has no reason to: the **window hashes**, because
     from round 2 the Auditor template is in the window and a round is the first thing that can
     have been assembled under a moved one; the **call count**, because 1 + N is the round's
-    cost and a person approving the round is approving that number; and the **history**, since
-    whether this round should run at all is a question about the previous rounds' leak rates.
+    cost — or 1, on an arm that declares the Auditor absent (DESIGN §6.3) — and a person
+    approving the round is approving that number; and the **history**, since whether this round
+    should run at all is a question about the previous rounds' leak rates.
 
     The tree state is here for `run_arm.py`'s reason: `commit` and `tree` go into the run
     block, a dirty tree means the recorded hash does not describe the code that ran, and this
@@ -221,6 +231,12 @@ def _plan(args, history, n_docs: int) -> list[str]:
     resolution = _resolution(args.model_id, args.model_id)
     ceiling = termination_params()["ceiling"]
     first = args.iteration == loop.ITERATION
+    # The arm's declaration, not its name (DESIGN §6.3). This decides the call count, the audit
+    # block below and whether `paths.auditreport` is promised — and the call count is the one
+    # line of this plan that cannot be corrected after the fact, because the operator approves
+    # the round by reading it. A plan that said `1 + 250` on an arm that makes one call would be
+    # over-stating the spend on the cheap arm, which is the direction nobody checks.
+    audits = arm_calls_agent(args.porting, loop.AUDITOR)
 
     lines = [
         f"corpus       {args.corpus}",
@@ -237,6 +253,8 @@ def _plan(args, history, n_docs: int) -> list[str]:
         "",
         f"calls        1 {orchestrate.RULE_AUTHOR}"
         + ("   (round 1 calls no Auditor)" if first else
+           f"   (this arm declares {loop.AUDITOR} absent, so every round is 1 call — "
+           "DESIGN §6.3)" if not audits else
            f" + {n_docs} {loop.AUDITOR} (one per {args.split} document) = {1 + n_docs}"),
     ]
 
@@ -312,33 +330,50 @@ def _plan(args, history, n_docs: int) -> list[str]:
         # 122 logged calls and no draw to number, and a plan reporting only `draw 1` would have
         # read as a virgin round. The logged-call count is a second, independent record and it is
         # shown whenever the two disagree.
+        #
+        # On an ablated arm there is no draw to report and the logged count is the whole of the
+        # record (DESIGN §6.3): a draw numbers a preserved audit report, this arm writes none,
+        # and `draw 1` printed here would be the plan asserting an audit attempt. The second
+        # record is the one that still matters, because `abandoned_spend` is read from the log
+        # on both arms — so the question "has this round spent anything" is still asked, and
+        # only the first of the two answers to it is missing.
         draw = audit.next_draw(corpus=args.corpus, detector=args.detector,
                                supervision=args.supervision, porting=args.porting,
-                               iteration=args.iteration, root=ROOT)
+                               iteration=args.iteration, root=ROOT) if audits else None
         logged = sum(1 for line in orchestrate.read_calls(
             args.corpus, args.detector, args.supervision, args.porting)
             if line.get("iteration") == args.iteration)
-        if draw > 1:
-            note = (f"   — attempts 1-{draw - 1} left reports under draw*/ and their spend will "
-                    "be recorded as abandoned. Confirm this round wrote no metrics.json before "
-                    "proceeding (DESIGN §5.5.2, §6)")
-        elif logged:
-            note = (f"   — no preserved report, but this round already has {logged} logged "
-                    "calls, so an earlier attempt died before finishing its audit. Their spend "
-                    "will be recorded as abandoned. Confirm this round wrote no metrics.json "
-                    "before proceeding (DESIGN §5.5.2, §6)")
+        if not audits:
+            lines.append(
+                "attempts     " + (
+                    f"{logged} logged call(s) for this round, so an earlier attempt died and "
+                    "its spend will be recorded as abandoned. Confirm this round wrote no "
+                    "metrics.json before proceeding (DESIGN §5.5.2, §6)"
+                    if logged else
+                    "no logged calls for this round, and this arm numbers no draws "
+                    f"({loop.AUDITOR} declared absent)"))
         else:
-            note = "   (this round has not been audited before and has spent no calls)"
-        lines.append(f"draw         {draw}{note}")
+            if draw > 1:
+                note = (f"   — attempts 1-{draw - 1} left reports under draw*/ and their spend "
+                        "will be recorded as abandoned. Confirm this round wrote no "
+                        "metrics.json before proceeding (DESIGN §5.5.2, §6)")
+            elif logged:
+                note = (f"   — no preserved report, but this round already has {logged} logged "
+                        "calls, so an earlier attempt died before finishing its audit. Their "
+                        "spend will be recorded as abandoned. Confirm this round wrote no "
+                        "metrics.json before proceeding (DESIGN §5.5.2, §6)")
+            else:
+                note = "   (this round has not been audited before and has spent no calls)"
+            lines.append(f"draw         {draw}{note}")
 
-    keys = (*ARM_KEYS, *ROUND_KEYS) if history is None else \
+    keys = (*ARM_KEYS, *ROUND_KEYS) if history is None or not audits else \
         (*ARM_KEYS, *ROUND_KEYS, AUDIT_KEY)
     lines.append("")
     lines.append(f"{'armrules':14}->  "
                  f"{arm_rules_path(**components, root=ROOT).relative_to(ROOT)}")
     for key in keys:
         lines.append(f"{key:14}->  {path_template(key).format(**components)}")
-    if history is not None:
+    if history is not None and audits:
         lines.append(f"{'auditdraw':14}->  " + path_template("auditdraw").format(
             **components, draw=draw))
     return lines
