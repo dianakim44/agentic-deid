@@ -8010,6 +8010,120 @@ MUTATIONS = [
         ),
         min_kills=2,
     ),
+    Mutation(
+        name="a_declared_repetition_opens_the_seal",
+        path=RUN_SEALED,
+        # The ask removed, the branch and its message left standing. Every other refusal in
+        # `plan_arm` still fires, so the arm still needs a terminated dev record at its final
+        # round — which the repetitions will have, because they are scored on dev.
+        anchor="    repeats = base.porting_repetition_of(porting)\n",
+        replacement="    repeats = None\n",
+        breaks=(
+            "**Three openings for one reported arm.** DESIGN §6.4 grants one, and §6.10 says a "
+            "repetition set is one arm: the opening belongs to the base and the repetitions are "
+            "scored on dev. With the ask gone each repetition passes every remaining check — it "
+            "will have a committed dev record, a termination block and a final round — so the "
+            "fold opens, the row is appended, and the log's own count of openings is the true "
+            "record of what happened.\n"
+            "\n"
+            "The damage is not the row count. The repetitions exist to measure the spread "
+            "between independent runs of one configuration, and that spread computed over test "
+            "numbers is a selection performed on the sealed fold — the range and the mean would "
+            "be statistics of three openings, and the paper's "
+            "\"the test set was evaluated N times\" would be three where it should be one. "
+            "Nothing downstream can withdraw it.\n"
+            "\n"
+            "Caught by `test_a_declared_repetition_may_not_open_the_seal`, which asks for every "
+            "declared repetition rather than one, and held in place by "
+            "`test_the_repetitions_base_is_not_caught_by_that_refusal` — the two fail in "
+            "opposite directions, so neither can be made green by widening the other."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="a_repetition_may_declare_something_else",
+        path=BASE,
+        # The equality refusal removed and the entry still accepted, so the value stays a
+        # declared repetition of the arm it names while sending a different window.
+        anchor="        if arms.get(porting, {}) != arms.get(base, {}):\n",
+        replacement="        if False:\n",
+        breaks=(
+            "**\"Same configuration\" stops being decidable from the config.** A repetition's "
+            "`porting_arms` entry could then name the live `rule_author.md` while `of` still "
+            "named the arm pinned to `ddc48bdb`, and both facts would be true in "
+            "`naming.yaml`: it is declared a repetition, and it declares a different window.\n"
+            "\n"
+            "What makes it quiet is that every downstream artefact stays well-formed. "
+            "`freeze_window()` reads the arm's *own* declaration, so the record would honestly "
+            "report the revision the run sent; the run would complete; the report would put its "
+            "per-round leak rates beside the base's as three runs of one configuration. The "
+            "between-run spread would then contain the revision effect the pin exists to "
+            "remove, and the one place that said so is a freeze record nobody re-reads.\n"
+            "\n"
+            "Caught by `test_a_repetition_that_declares_something_else_is_refused`, and by that "
+            "test **alone** — which is measured and was expected to be 2. "
+            "`test_every_repetition_declares_exactly_what_the_base_declares` asserts the same "
+            "invariant and cannot catch this: the committed config satisfies it, so removing "
+            "the refusal that would reject a divergent one leaves that test true. A removed "
+            "refusal is caught by its positive control or by nothing, which is why the control "
+            "is injected rather than asserted on what is on disk."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="a_repetition_may_be_a_repetition_of_a_repetition",
+        path=BASE,
+        # The one refusal in this block that nothing else subsumes. The self-reference check two
+        # lines up is *not* mutated for the opposite reason: a self-entry is also a chain, so
+        # removing it leaves the configuration refused here, one guard later.
+        anchor="        if base in block:\n",
+        replacement="        if False:\n",
+        breaks=(
+            "**The repetition set splits, and every other check still passes.** `…-rep3` "
+            "declared a repetition *of `…-rep2`* satisfies the equality check — all three arms "
+            "declare the same window — and satisfies the index checks, because grouping by `of` "
+            "gives `rep2` a one-member set whose index is 2. So the configuration would be "
+            "accepted.\n"
+            "\n"
+            "What it produces is two overlapping sets: the base's holds the base and `rep2`, "
+            "`rep3`'s holds `rep2` and `rep3`, and `rep2` is in both. Then "
+            "`porting_repetition_set()` answers a *subset* from every entry point, the reported "
+            "range and mean are over two runs rather than three, and the arm count in the paper "
+            "is wrong in a direction no artefact contradicts. The seal refusal still fires on "
+            "all three, so the one gate that would have made noise stays quiet.\n"
+            "\n"
+            "Caught by `test_a_repetition_of_a_repetition_is_refused`, which asserts the "
+            "message's own phrase rather than the exception type — there are two refusals in "
+            "this block whose messages both contain the word `itself`."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="the_repetition_set_is_the_arm_that_was_asked_about",
+        path=BASE,
+        # The one line that makes any member answer for the whole set, replaced by the reading
+        # that looks right: the set of the arm you asked about.
+        anchor="    base = porting_repetition_of(porting) or porting\n",
+        replacement="    base = porting\n",
+        breaks=(
+            "**A report can then name a subset by asking the wrong member.** Handed "
+            "`…-rep3`, the accessor would answer `('port-loop-noaudit-rep3',)` — a set of one, "
+            "well-formed, with the arm's real name in it. The range and the mean of the "
+            "final-round leak rates would be computed over one run, and a range over one value "
+            "is 0.\n"
+            "\n"
+            "That is the number a reader of the ablation's table would take as the "
+            "between-repetition spread, and 0 is the most consequential value it could wrongly "
+            "take: it says the configuration is deterministic and that one run is enough — "
+            "which is the belief the repetitions were run to test. Asking the base still "
+            "returns all three, so every report that happens to start from the base is right, "
+            "and the defect waits for the one that starts anywhere else.\n"
+            "\n"
+            "Caught by `test_any_member_of_the_set_answers_for_the_whole_set`, which asks from "
+            "every member rather than from the base."
+        ),
+        min_kills=1,
+    ),
 ]
 
 COUNT_RE = re.compile(r"(\d+) (passed|failed|error|errors)")

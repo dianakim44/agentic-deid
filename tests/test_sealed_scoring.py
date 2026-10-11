@@ -32,7 +32,9 @@ import pytest
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
-from src.corpora.base import SealError, axis  # noqa: E402
+from src.corpora.base import (  # noqa: E402
+    SealError, axis, porting_repetition_of, porting_repetitions,
+)
 from src.eval import run_sealed_eval, sealed_log  # noqa: E402
 from src.eval.run_fold import DEFAULT_SPLIT, run_fold  # noqa: E402
 from src.eval.scorer import (  # noqa: E402
@@ -198,6 +200,46 @@ def test_an_undeclared_axis_is_refused():
             corpus=CORPUS, detector="R", supervision="sup-free",
             porting="port-does-not-exist", iteration=1,
         )
+
+
+def test_a_declared_repetition_may_not_open_the_seal():
+    """One opening per *reported* arm, and a repetition set is one arm (DESIGN §6.10).
+
+    The refusal is the gate line the mechanism was asked for, and it is tested on the real
+    declared values rather than an injected block: what it has to be true of is the three
+    runs that are about to happen. Three openings for one configuration would make the
+    between-run spread a spread of test numbers, which is a selection on the sealed fold.
+    """
+    repetitions = sorted(porting_repetitions())
+    assert repetitions, (
+        "config/naming.yaml declares no repetitions, so this test is vacuous. If the "
+        "repetition arms were retired, retire this test in the same commit rather than "
+        "leaving a green assertion about a mechanism nothing uses."
+    )
+    for porting in repetitions:
+        with pytest.raises(SealError, match="declared a repetition"):
+            run_sealed_eval.plan_arm(
+                corpus=CORPUS, detector="R", supervision="sup-free", porting=porting,
+                iteration=1,
+            )
+
+
+def test_the_repetitions_base_is_not_caught_by_that_refusal():
+    """The positive control: the arm the opening belongs to still reaches the later checks.
+
+    `port-loop-noaudit` has not run, so it has no dev record and the refusal it earns is
+    that one — which is the point. A repetition-shaped refusal here would mean the
+    presence-of-an-entry test had swallowed the base, and the arm DESIGN §6.4 grants the
+    opening to would have been locked out by the mechanism meant to protect it (§6.10).
+    """
+    bases = {porting_repetition_of(p) for p in porting_repetitions()}
+    for base_arm in sorted(bases):
+        with pytest.raises(SealError) as caught:
+            run_sealed_eval.plan_arm(
+                corpus=CORPUS, detector="R", supervision="sup-free", porting=base_arm,
+                iteration=1,
+            )
+        assert "declared a repetition" not in str(caught.value), base_arm
 
 
 def test_a_test_split_in_the_dev_record_is_refused(tmp_path, arm_record):

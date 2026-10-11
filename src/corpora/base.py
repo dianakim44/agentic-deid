@@ -451,6 +451,179 @@ def arm_calls_agent(porting: str, role: str) -> bool:
     return check_agent_role(role) not in arm_absent_agents(porting)
 
 
+REPETITION_FIELDS = ("of", "index")
+
+
+@lru_cache(maxsize=1)
+def porting_repetitions() -> dict[str, dict]:
+    """`porting` value -> which arm it repeats and which repetition it is. DESIGN §6.10.
+
+    The one place in this repository where a name carries an ordinal, and the reason is
+    that the configuration cannot supply a name: two independent runs of one arm agree in
+    `templates`, `agents_absent`, `config/sampling.yaml` and the model id, and differ only
+    in when the call was made. `naming.yaml`'s own first rule forbids ordinals — so the
+    exception is opened by a declaration rather than by a spelling, and a `-rep2` with no
+    entry here is still a forbidden name.
+
+    **A repetition is not a rung.** `porting_rungs()` answers "which driver runs this
+    value", and a repetition runs the same driver as the arm it repeats, so it is a member
+    of that rung. What it is *not* is a new point on the ladder (DESIGN §4), a separate
+    termination verdict to compare against the others, or an arm entitled to open the
+    test fold — those three questions are asked here, and this block answers no to all
+    three. `src/eval/run_sealed_eval.py` refuses an arm with an entry here, which is
+    DESIGN §6.4's "one opening per reported arm" applied to a set of runs that are one
+    reported arm.
+
+    Two validations carry the weight:
+
+    - **`of` is the arm being repeated, and it is repetition 1, so it has no entry of its
+      own.** An entry for the base would make it its own repetition and the sealed-eval
+      refusal would swallow the opening the protocol assigns to it. `index` starts at 2
+      for the same reason.
+    - **A repetition's declarations must equal the base's**, field for field. Inheriting
+      them through `of` was the alternative and is worse: the repetition would then be an
+      arm that declares nothing, its freeze record would say so, and the record is what a
+      reader has. Copying them and refusing a divergence keeps the record honest and
+      makes "same configuration" checkable from the config alone, which is what
+      `tests/test_pinned_prompts.py` then asserts rather than assumes.
+    """
+    block = naming().get("porting_repetitions")
+    if block is None:
+        return {}
+    if not isinstance(block, dict):
+        raise CorpusError(
+            "config/naming.yaml's porting_repetitions is not a mapping. It is `porting` "
+            "value -> {of, index} (DESIGN §6.10); an arm that repeats nothing is absent "
+            "from it rather than present and empty."
+        )
+
+    values = set(axis("porting"))
+    arms = porting_arms()
+    out: dict[str, dict] = {}
+    for porting, declared in block.items():
+        if porting not in values:
+            raise CorpusError(
+                f"porting_repetitions names {porting!r}, which is not a value of the "
+                f"`porting` axis (have: {sorted(values)}). An ordinal name with no axis "
+                "value behind it is the name this block exists to keep from being usable."
+            )
+        if not isinstance(declared, dict) or set(declared) != set(REPETITION_FIELDS):
+            raise CorpusError(
+                f"porting_repetitions[{porting!r}] is not a mapping with exactly "
+                f"{list(REPETITION_FIELDS)}. Both are required: `of` without `index` "
+                "cannot say which repetition this is, and `index` without `of` cannot say "
+                "which arm it is a repetition of."
+            )
+        base, index = declared["of"], declared["index"]
+        if base not in values:
+            raise CorpusError(
+                f"porting_repetitions[{porting!r}].of is {base!r}, which is not a value "
+                f"of the `porting` axis (have: {sorted(values)})."
+            )
+        if base == porting:
+            raise CorpusError(
+                f"porting_repetitions[{porting!r}].of names itself. The repeated arm is "
+                "repetition 1 and is never declared here — an entry for it would make the "
+                "sealed-eval refusal apply to the one run DESIGN §6.4 assigns the opening."
+            )
+        if base in block:
+            raise CorpusError(
+                f"porting_repetitions[{porting!r}].of is {base!r}, which is itself "
+                "declared a repetition. Repetitions do not chain: a repetition of a "
+                "repetition has no first run to be the opening's, and two readings of "
+                "which arm is being repeated are two different experiments."
+            )
+        if not isinstance(index, int) or isinstance(index, bool) or index < 2:
+            raise CorpusError(
+                f"porting_repetitions[{porting!r}].index is {index!r}. It is an integer "
+                "from 2 up: 1 is the arm named by `of`, which is not declared here."
+            )
+        if arms.get(porting, {}) != arms.get(base, {}):
+            raise CorpusError(
+                f"porting_repetitions[{porting!r}] repeats {base!r} and declares "
+                "something else in porting_arms. A repetition sends the same prompt "
+                "revision and omits the same agents, or it is a second arm wearing an "
+                "ordinal — and the ordinal is exactly the name that cannot say which "
+                "of the two it is (DESIGN §6.10)."
+            )
+        out[porting] = {"of": base, "index": index}
+
+    for base, repeats in _by_base(out).items():
+        indices = sorted(r["index"] for r in repeats)
+        if len(set(indices)) != len(indices):
+            raise CorpusError(
+                f"porting_repetitions gives {base!r} two repetitions with the same index "
+                f"({indices}). The index is the only thing that distinguishes them, so a "
+                "repeat means one run's trajectory will be reported under another's name."
+            )
+        if indices != list(range(2, len(indices) + 2)):
+            raise CorpusError(
+                f"porting_repetitions gives {base!r} the indices {indices}, which are not "
+                "2..N with no gap. A gap says a repetition was declared and removed, and "
+                "the count of repetitions is a number the report states."
+            )
+    return out
+
+
+def _by_base(repetitions: dict[str, dict]) -> dict[str, list[dict]]:
+    grouped: dict[str, list[dict]] = {}
+    for declared in repetitions.values():
+        grouped.setdefault(declared["of"], []).append(declared)
+    return grouped
+
+
+def porting_repetition_of(porting: str) -> str | None:
+    """The arm this value is a repetition of, or `None` if it is not one. DESIGN §6.10.
+
+    `None` for every arm run to date, including the arm being repeated — repetition 1 is
+    the base and carries no declaration, so a caller asking "is this a repetition" about
+    it gets the answer that lets it open the seal.
+    """
+    if porting not in axis("porting"):
+        raise CorpusError(
+            f"{porting!r} is not a value of the `porting` axis in config/naming.yaml "
+            f"(have: {sorted(axis('porting'))})."
+        )
+    declared = porting_repetitions().get(porting)
+    return declared["of"] if declared else None
+
+
+def porting_repetition_index(porting: str) -> int:
+    """Which repetition this value is: 1 for an arm that is not a declared repetition.
+
+    1 rather than `None` because the base arm genuinely is the first run of its
+    configuration, and a caller comparing indices across the set of runs needs the base's
+    to be a number. Which arm the set belongs to is `porting_repetition_of()`'s answer,
+    and that one is `None` for the base — the two are not the same question and are not
+    answered by one value.
+    """
+    if porting not in axis("porting"):
+        raise CorpusError(
+            f"{porting!r} is not a value of the `porting` axis in config/naming.yaml "
+            f"(have: {sorted(axis('porting'))})."
+        )
+    declared = porting_repetitions().get(porting)
+    return declared["index"] if declared else 1
+
+
+def porting_repetition_set(porting: str) -> tuple[str, ...]:
+    """Every run of this arm's configuration, base first, in index order. DESIGN §6.10.
+
+    The accessor the report layer asks: a repetition set is reported together — per-round
+    leak rates side by side, and the range and mean of the final-round values — because
+    quoting one of three runs of one configuration is a draw selection with a cell path
+    around it. Handed a repetition, this answers for the set it belongs to rather than
+    for the repetition alone, so a caller cannot report a subset by asking the wrong
+    member.
+    """
+    base = porting_repetition_of(porting) or porting
+    repeats = sorted(
+        ((declared["index"], value) for value, declared in porting_repetitions().items()
+         if declared["of"] == base),
+    )
+    return (base, *(value for _, value in repeats))
+
+
 def model_id_absent() -> str:
     """The `model_id` value an arm that called no language model records.
 

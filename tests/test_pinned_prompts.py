@@ -43,8 +43,12 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from src.corpora.base import (arm_absent_agents, arm_calls_agent,   # noqa: E402
-                              arm_templates, porting_arms)
+from src.corpora import base                                        # noqa: E402
+from src.corpora.base import (CorpusError, arm_absent_agents,       # noqa: E402
+                              arm_calls_agent, arm_templates, porting_arms,
+                              porting_repetition_index, porting_repetition_of,
+                              porting_repetition_set, porting_repetitions,
+                              porting_rung)
 from src.llm import prompt as prompt_module                         # noqa: E402
 from src.orchestrate import (freeze_path, recorded_window_fields,    # noqa: E402
                              window_drift)
@@ -64,6 +68,12 @@ PINNED_SHA256 = "ddc48bdb0a0c286ab8194ba38f49e97b3cf95f6463e6e69c93d30915eef52cf
 PAIRED = ("es-meddocan", "R", "sup-free", "port-loop")
 PINNED_RUNG = "port-loop-noaudit"
 CURRENT_RUNG = "port-loop-noaudit-current"
+
+#: The repetition set: the base and its two declared repetitions, in index order
+#: (DESIGN §6.10). Written out rather than read from `porting_repetition_set()`, which is
+#: the accessor several tests below are checking — reading it here would make them compare
+#: the accessor with itself.
+REPETITION_SET = (PINNED_RUNG, "port-loop-noaudit-rep2", "port-loop-noaudit-rep3")
 
 #: `port-loop`'s round-1 prompt, from the `prompt_reference` of line 1 of its
 #: `agent_calls.jsonl`: `text_chars` and `text_sha256`. Copied in as constants because that
@@ -525,3 +535,223 @@ def test_the_source_scan_finds_the_sites_there_are():
     found = sum(len(_call_line_sites(path))
                 for path in sorted((ROOT / "src").rglob("*.py")))
     assert found >= 5, found
+
+
+# ─── 7. the repetitions declare what the base declares ──────────────────────
+
+@pytest.fixture
+def _clear_naming_caches():
+    """For the two refusal tests, which inject a `porting_repetitions` block.
+
+    Scoped to those tests rather than autouse: the rest of this file reads the committed
+    config, and clearing the cache around every test would hide a reader that depends on
+    warm state.
+    """
+    base.naming.cache_clear()
+    base.porting_arms.cache_clear()
+    base.porting_repetitions.cache_clear()
+    yield
+    base.naming.cache_clear()
+    base.porting_arms.cache_clear()
+    base.porting_repetitions.cache_clear()
+
+
+def test_the_set_is_the_base_and_two_repetitions_in_index_order():
+    """Three runs of one configuration, and the base is not one of the declared two.
+
+    The base's absence from `porting_repetitions` is the load-bearing part: the sealed-eval
+    refusal keys on the presence of an entry, so an entry here for `port-loop-noaudit`
+    would refuse the one opening DESIGN §6.4 assigns to it (§6.10).
+    """
+    assert porting_repetition_set(REPETITION_SET[0]) == REPETITION_SET
+    assert sorted(porting_repetitions()) == sorted(REPETITION_SET[1:])
+    assert porting_repetition_of(REPETITION_SET[0]) is None
+    assert porting_repetition_index(REPETITION_SET[0]) == 1
+    for index, porting in enumerate(REPETITION_SET[1:], start=2):
+        assert porting_repetition_of(porting) == REPETITION_SET[0], porting
+        assert porting_repetition_index(porting) == index, porting
+
+
+def test_any_member_of_the_set_answers_for_the_whole_set():
+    """So a report cannot name a subset by asking the wrong member (DESIGN §6.10).
+
+    The range and mean of the final-round leak rates are statements about three runs. A
+    caller holding `…-rep3` and asking what to report has to get all three back, because
+    the alternative is a per-repetition table that reads like a three-arm ladder.
+    """
+    for porting in REPETITION_SET:
+        assert porting_repetition_set(porting) == REPETITION_SET, porting
+
+
+def test_every_repetition_declares_exactly_what_the_base_declares():
+    """The condition on the mechanism, asserted and not only refused.
+
+    `porting_repetitions()` refuses a divergence, so this is the invariant restated where a
+    reader looks for it — and restated field by field against the base's own entry rather
+    than against a copy of the expected values, because a copy would have to be edited in
+    whichever commit moved the base.
+    """
+    expected = porting_arms()[REPETITION_SET[0]]
+    for porting in REPETITION_SET[1:]:
+        assert porting_arms()[porting] == expected, porting
+        assert arm_templates(porting) == {PROMPT_TEMPLATE: PINNED_RULE_AUTHOR}, porting
+        assert arm_absent_agents(porting) == ("auditor",), porting
+        assert arm_calls_agent(porting, "auditor") is False, porting
+
+
+def test_every_repetition_resolves_the_same_window_and_the_same_hashes():
+    """`sampling` and the prompt revision, through the readers that write the record.
+
+    The declaration being equal is a statement about `naming.yaml`; this is the statement
+    about what `freeze_window()` will write. Both are needed: the window is resolved by
+    `src/sample.py` from the declaration, and a reader that ignored the arm would make the
+    three records agree for the wrong reason — so the pinned digest is asserted too.
+    """
+    for porting in REPETITION_SET:
+        assert arm_window(porting) == arm_window(REPETITION_SET[0]), porting
+        assert window_files(porting) == window_files(REPETITION_SET[0]), porting
+        hashes = window_hashes(porting=porting)
+        assert hashes == window_hashes(porting=REPETITION_SET[0]), porting
+        assert hashes["prompt_sha256"] == f"sha256:{PINNED_SHA256}", porting
+
+
+def test_round_one_is_byte_identical_across_the_repetition_set():
+    """Same configuration means the same prompt, which is the premise of the comparison.
+
+    Hashes only in the message, for the reason given in
+    `test_the_two_ablation_rungs_differ_only_in_the_template`: these strings are a measured
+    inventory and the type axis, and the rule against surface forms in output is applied
+    without asking which corpus they came from (CLAUDE.md).
+    """
+    digests = {}
+    for porting in REPETITION_SET:
+        text = prompt_module.assemble_task_prompt(
+            lang=PAIRED_LANG, corpus=PAIRED[0], porting=porting).for_transport()
+        digests[porting] = hashlib.sha256(text.encode("utf-8")).hexdigest()
+    assert len(set(digests.values())) == 1, (
+        "the repetition set's round-1 prompts are not identical, so the runs differ in "
+        f"something other than the minute they were called. Digests: {digests}"
+    )
+    assert digests[REPETITION_SET[0]] == PORT_LOOP_ROUND_1_SHA256.split(":", 1)[1], (
+        "the set's round-1 prompt is no longer `port-loop`'s, which is the byte identity "
+        "the pinned revision exists for (DESIGN §6.3)."
+    )
+
+
+def test_the_repetitions_are_on_their_bases_rung_and_not_a_new_one():
+    """A repetition runs the same driver, so it is rung membership and nothing more.
+
+    The three other questions rung membership is sometimes read for — ladder point,
+    termination verdict, seal opening — are answered no by `porting_repetitions`, and the
+    third of them is tested in `tests/test_sealed_scoring.py` (DESIGN §6.10).
+    """
+    for porting in REPETITION_SET:
+        assert porting_rung(porting) == porting_rung(REPETITION_SET[0]), porting
+
+
+@pytest.mark.parametrize("porting", REPETITION_SET)
+def test_the_frozen_records_of_the_set_agree_where_they_exist(porting):
+    """The prompt hash and the model id, once the runs have happened.
+
+    Skipped until then, on the precedent of
+    `test_the_round_one_hash_is_the_one_port_loop_logged`: a repetition's record is written
+    by `freeze_window()` at its first call, and asserting on an absent file would make this
+    a test that fails for three weeks and is then edited. The assertion is the one the
+    condition asked for — the set's freeze records carry one prompt hash between them — and
+    it is checked pairwise against the base's so that a run under a moved window fails here
+    rather than in the report.
+    """
+    path = freeze_path(*PAIRED[:3], porting)
+    base_path = freeze_path(*PAIRED[:3], REPETITION_SET[0])
+    if not (path.is_file() and base_path.is_file()):
+        pytest.skip(f"{porting} has not frozen a window yet")
+    record = json.loads(path.read_text(encoding="utf-8"))
+    expected = json.loads(base_path.read_text(encoding="utf-8"))
+    assert record["prompt_sha256"] == f"sha256:{PINNED_SHA256}", porting
+    for field in ("prompt_sha256", "sampling_sha256", "agents_absent", "files"):
+        assert record.get(field) == expected.get(field), (porting, field)
+    if "model_id" in expected or "model_id" in record:
+        assert record.get("model_id") == expected.get("model_id"), porting
+
+
+def test_a_repetition_that_declares_something_else_is_refused(_clear_naming_caches,
+                                                              monkeypatch):
+    """The positive control for the equality refusal (DESIGN §6.10).
+
+    Injected rather than committed, for the reason given in
+    `test_a_declaration_outside_the_pinned_directory_is_refused`: the refused shape is not a
+    shape to keep on disk. What it stands for is the real failure — a repetition retargeted
+    to the live template, whose freeze record would then say so while the report called it
+    a repetition of the pinned arm.
+
+    **The divergence is one `porting_arms()` accepts, and the message is pinned by its
+    distinctive phrase.** Both halves were got wrong first and the mutation survived: a
+    `templates: {}` entry is refused by `porting_arms()` itself, two guards upstream, and
+    the assertion `"port-loop-noaudit" in message` is satisfied by *any* message naming
+    `port-loop-noaudit-rep2`, because one name is a prefix of the other. A substring
+    assertion over values with a shared stem cannot say which guard refused.
+    """
+    config = dict(base.naming())
+    arms = {name: dict(entry) for name, entry in config["porting_arms"].items()}
+    arms[REPETITION_SET[1]] = dict(arms[REPETITION_SET[0]], agents_absent=["profiler"])
+    config["porting_arms"] = arms
+    monkeypatch.setattr(base, "naming", lambda: config)
+    base.porting_arms.cache_clear()
+    base.porting_repetitions.cache_clear()
+    with pytest.raises(CorpusError) as caught:
+        base.porting_repetitions()
+    assert "declares something else in porting_arms" in str(caught.value)
+
+
+def test_a_declared_first_repetition_is_refused(_clear_naming_caches, monkeypatch):
+    """`index` starts at 2, and the reason is the seal rather than counting from one.
+
+    An entry for the base would be a true statement — it is the first run — and it would
+    silently withdraw the opening §6.4 grants it, because the refusal in `plan_arm` keys on
+    the presence of an entry. So the shape is refused at the config rather than special-cased
+    at the gate.
+
+    **This refusal is subsumed for refusal purposes and kept for its message**, which is why
+    it carries no mutation: a self-entry is also a chain (`of` names a key of the block, and
+    that key is itself), so removing this check leaves the configuration refused one guard
+    later with a different message. The phrase is asserted rather than the exception type, so
+    the test says which of the two fired — `"itself"` alone is in both messages.
+
+    **The injected block holds the self-entry alone.** With the real repetitions left in it,
+    `rep2` is validated first and its `of` names a key of the block, so the chain refusal
+    fires before the base's own entry is reached and the test would be asserting on a message
+    about a shape it did not inject.
+    """
+    config = dict(base.naming())
+    config["porting_repetitions"] = {
+        REPETITION_SET[0]: {"of": REPETITION_SET[0], "index": 1},
+    }
+    monkeypatch.setattr(base, "naming", lambda: config)
+    base.porting_arms.cache_clear()
+    base.porting_repetitions.cache_clear()
+    with pytest.raises(CorpusError) as caught:
+        base.porting_repetitions()
+    assert "names itself" in str(caught.value)
+
+
+def test_a_repetition_of_a_repetition_is_refused(_clear_naming_caches, monkeypatch):
+    """Chains are the shape that survives every other check (DESIGN §6.10).
+
+    `…-rep3` declared a repetition *of `…-rep2`* passes the equality check — all three arms
+    declare the same thing — and passes the index checks, because grouping by `of` gives
+    `rep2` a set of one whose index is 2. So the configuration would be accepted, and then
+    the repetition set would **split**: the base's set would hold two members and `rep3`'s a
+    different two, with `rep2` in both. A report asking either one would get a subset, and
+    the seal refusal would still fire on all three, so nothing downstream would notice.
+    """
+    config = dict(base.naming())
+    config["porting_repetitions"] = {
+        REPETITION_SET[1]: {"of": REPETITION_SET[0], "index": 2},
+        REPETITION_SET[2]: {"of": REPETITION_SET[1], "index": 2},
+    }
+    monkeypatch.setattr(base, "naming", lambda: config)
+    base.porting_arms.cache_clear()
+    base.porting_repetitions.cache_clear()
+    with pytest.raises(CorpusError) as caught:
+        base.porting_repetitions()
+    assert "do not chain" in str(caught.value)

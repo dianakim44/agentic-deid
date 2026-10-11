@@ -1685,6 +1685,83 @@ the harness copies and mutates `src/` into its own tree, and a multi-hour eight-
 running next to a metered LLM experiment is a way to make two measurements explain each
 other's variance. B3 is registered after that run, not before.
 
+### Three on the one ordinal this repository permits — 2026-10-11
+
+B2 is two more independent runs of `port-loop-noaudit` with nothing changed, and the results
+path had no way to address them: a cell holds one run, and `freeze_window()` refuses a second
+one in a spent cell. `config/naming.yaml`'s first rule forbids ordinals, and an independent
+repetition is the one value the configuration cannot name — being the second run is the whole
+of what distinguishes it. So the ordinal is opened by a declaration, `porting_repetitions`,
+and DESIGN §6.10 states what a repetition is not: not a ladder point, not a separate
+termination verdict, not a seal opening.
+
+| mutation | changes | breaks | tests that catch it |
+|---|---|---|---|
+| `a_declared_repetition_opens_the_seal` | `repeats = base.porting_repetition_of(porting)` becomes `repeats = None` in `plan_arm` | three openings for one reported arm. Each repetition will have what §6.4 asks for — a committed dev record, a termination block, a final round — so nothing else in `plan_arm` refuses, the fold opens and the row is appended. The damage is not the row count: the between-run spread the repetitions exist to measure becomes a spread of *test* numbers, which is a selection performed on the sealed fold, and the paper's "the test set was evaluated N times" is three where it should be one | **1** |
+| `a_repetition_may_declare_something_else` | the `porting_arms` equality refusal becomes `if False:` | "same configuration" stops being decidable from the config. A repetition could then name the live `rule_author.md` while `of` still named the arm pinned to `ddc48bdb`, and every artefact downstream stays well-formed: `freeze_window()` reads the arm's own declaration, so the record honestly reports the revision that was sent, and the report puts the per-round leak rates side by side as three runs of one configuration. The spread would contain the revision effect the pin exists to remove | **1** |
+| `a_repetition_may_be_a_repetition_of_a_repetition` | the chain refusal becomes `if False:` | the repetition set splits in two overlapping halves. `…-rep3` declared a repetition *of `…-rep2`* passes the equality check — all three declare the same window — and passes the index checks, because grouping by `of` gives `rep2` a one-member set whose index is 2. Then `porting_repetition_set()` answers a subset from every entry point, the reported range and mean are over two runs rather than three, and the seal refusal still fires on all three, so the one gate that would have made noise stays quiet | **1** |
+
+**The self-reference refusal carries no mutation, and the reason is that it is subsumed.** An
+entry whose `of` names itself is also a chain — `of` names a key of the block, and that key is
+the entry — so removing the check leaves the configuration refused one guard later. What the
+check adds is the message, and a mutation whose whole effect is a worse message is not a
+defect this table should claim to catch.
+`test_a_declared_first_repetition_is_refused` covers it and asserts the phrase `names itself`
+rather than the exception type, because `itself` appears in both messages.
+
+**Two of four survived the first probe, and both survivals were the assertion rather than the
+code.** The fourth mutation was `the_repeated_arm_may_be_its_own_repetition`, now withdrawn
+for the reason just given; it survived because the chain refusal caught its input and the test
+asserted only `"itself"`. The other survivor is the more instructive one, and it is **the
+sixth member of the family this file calls "an assertion that could not say which guard
+refused"** — with a new variant:
+
+- The injected divergence was `templates: {}`, which `porting_arms()` refuses two guards
+  upstream of the one being tested. So the test saw a `CorpusError` either way.
+- And the assertion `"port-loop-noaudit" in message` was satisfied by a message that named
+  only `port-loop-noaudit-rep2` — **because one value is a prefix of the other.** That is the
+  new variant: a substring assertion over axis values that share a stem cannot identify the
+  subject of the message, and the repetition vocabulary guarantees a shared stem by
+  construction.
+
+The fix is the same both times: inject a divergence the upstream guards accept
+(`agents_absent: ["profiler"]`, which is a well-formed declaration and simply not the base's)
+and assert the refusal's own distinctive phrase.
+
+**The measured count is 1 where 2 was expected, and the gap is worth keeping.**
+`test_every_repetition_declares_exactly_what_the_base_declares` asserts the same invariant
+as the refusal and cannot catch its removal: the committed config satisfies the invariant, so
+deleting the guard that would reject a divergent config leaves that test true. **A removed
+refusal is caught by its positive control or by nothing** — which is the argument for
+injecting the refused shape rather than asserting on what is on disk, and the reason three
+mutations here have thresholds of 1.
+
+**Probe trees and baselines.** Four mutations on `7b56762c20205742` (baseline **2,461**
+passed, 3 skipped, 420.40 s), then the two rewritten ones on `be0c6c9c55d3713b` (baseline
+**2,462**, 417.30 s) — both serial, so both are trunk-serial baselines for the cost basis. The
+suite grew by 11 tests and the serial time *fell*, 430.04 s at 2,451 → 417.30 s at 2,462,
+which is the count ratio wrong-signed again and in the opposite direction from the +8.3 % one
+section up. Only the direction is unstable; that the ratio tracks counts and not time is not.
+Per CLAUDE.md's 2026-10-02 ranking the measurement wins: 417.30 × 1.16 ÷ 8 = **60.5 s per
+mutation**, i.e. **5.21 h for 310**.
+
+**This change is a full-run reason, and the full run stays deferred.** Two `src/` modules
+moved — `src/corpora/base.py` (the accessors and their refusals) and
+`src/eval/run_sealed_eval.py` (the gate line) — which is CLAUDE.md's "two or more modules".
+`TEST_FILES` is unchanged at 35. The run is owed, and the schedule set for the previous
+section still governs: **after B1a and B2, never beside them.** The deferral is therefore
+**306 of 310** — the four measured here are counted as comparable to the current suite, and
+the five measured at baseline 2,451 one section up are not, so they return to the deferral.
+Expecting that number to fall monotonically is how a partial run gets recorded as a full one.
+
+Two of the four were measured at baseline **2,461** rather than 2,462, and their counts are
+carried forward: the test added in between is `test_a_repetition_of_a_repetition_is_refused`,
+which exercises the chain guard, and neither
+`a_declared_repetition_opens_the_seal` nor `the_repetition_set_is_the_arm_that_was_asked_about`
+touches it. That is a judgement and not a measurement, so it is written here rather than left
+implicit: if the deferred full run moves either count by exactly one, this paragraph is where
+it was predicted.
+
 ## The sampling mutations
 
 `src/sample.py` decides which dev errors a rule author is shown at a given iteration,

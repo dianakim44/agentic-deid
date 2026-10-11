@@ -5896,6 +5896,86 @@ fence does not touch it.
 
 ---
 
+### 6.10 An independent repetition of one arm — the one ordinal, and the three things it is not
+
+`config/naming.yaml`'s first rule is that a value is named for what distinguishes it and never
+for its position in a sequence: no `arm1`, no `best`, no `final`. Every axis value in this
+repository obeys it, because every one of them has something to be named after — a detector, a
+supervision regime, a driver, an absent agent.
+
+**An independent repetition is the one case where the configuration supplies no name.** Running
+`port-loop-noaudit` a second time holds `templates`, `agents_absent`, `config/sampling.yaml`
+and the model id fixed; what differs is the wall-clock minute of the call, and the sampling
+temperature downstream of it. There is nothing in the configuration to name the second run
+after, because being the second run is the whole of what it is. So the ordinal is permitted
+here — and permitted **only by declaration**:
+
+```yaml
+porting_repetitions:
+  port-loop-noaudit-rep2:
+    of: port-loop-noaudit
+    index: 2
+```
+
+A `-rep2` suffix with no entry in that block is still a forbidden name, and `porting_arms` is
+still where the configuration lives. The exception is an entry in a table, not a spelling
+convention — which means it can be enumerated, tested, and refused, and the next value that
+wants an ordinal has to be added to the table by hand with a reason.
+
+**Why the repetition carries its own copy of the declarations rather than inheriting them.**
+The alternative was for `port-loop-noaudit-rep2` to declare nothing in `porting_arms` and have
+`of` supply the window. It fails on the artefact: `freeze_window()` writes `agents_absent` and
+the template hashes into `results/{...}/{porting}/window_freeze.json` from the arm's own
+declaration, so an inheriting repetition would publish a freeze record saying it declared
+nothing. The record is what a reader has. So the declarations are copied, and
+`porting_repetitions()` **refuses** a repetition whose `porting_arms` entry differs from its
+base's — field for field, not merely in the fields anyone thought to check. "Same
+configuration" is then decidable from `config/naming.yaml` alone, and
+`tests/test_pinned_prompts.py` asserts it on top rather than assuming it.
+
+**Repetition 1 is the arm named by `of`, and it is never declared.** `index` starts at 2. This
+is not tidiness: the refusals below key on *the presence of an entry*, so an entry for the base
+would apply them to the base, and the one opening DESIGN §6.4 assigns to the arm would be
+refused along with the repetitions'.
+
+#### A repetition is not a rung, not a ladder point, and not a seal opening
+
+`porting_rungs` answers one question — *which driver runs this value* — and a repetition runs
+the same driver as the arm it repeats, so it is a member of that rung and appears in that
+block. Three other questions are sometimes answered by reading the rung list, and for
+repetitions all three answers are **no**:
+
+1. **Not a ladder point.** §4's comparison is between configurations that differ in one thing.
+   Three runs of one configuration differ in nothing, so putting them on the ladder would show
+   a difference where the design says there is none to show — and the reader cannot tell a
+   three-point ladder with two spurious points from a three-point ladder.
+2. **Not a separate termination verdict.** Each repetition terminates under its own
+   pre-registered rule and records its own `termination` block, and those blocks are what the
+   between-run spread is computed from. What a repetition does *not* get is a verdict compared
+   against the other arms as though it were one: "the ablation terminated at round 6" is a
+   statement about a configuration, and it is answered by the set, not by whichever member is
+   quoted.
+3. **Not a seal opening.** §6.4 grants one opening per *reported* arm, and a repetition set is
+   reported as one arm. The opening belongs to the base; the repetitions are scored on dev and
+   never open the fold. `plan_arm` refuses a `porting` value carrying a repetition declaration,
+   upstream of everything else it checks, because the alternative is three openings for one
+   arm — and then the spread the repetitions exist to measure would be a spread of *test*
+   numbers, which is a selection performed on the sealed fold.
+
+#### How a repetition set is reported
+
+Together, always. The per-round leak rate of every member goes in the table side by side, and
+the final-round values are summarised by their **range and mean**. Quoting one member's
+trajectory is a draw selection with a results path around it, and the results path makes it
+look like an arm. `porting_repetition_set()` exists so that a caller handed any member gets
+the whole set back and cannot report a subset by asking the wrong one.
+
+The number of repetitions is itself a reported figure, which is why the indices must be
+`2..N` with no gap: a gap is a repetition that was declared and then removed, and that is a
+thing a reader should see as a changed count rather than not see at all.
+
+---
+
 ## 7. Data
 
 No corpus is redistributed in this repository — neither DUA-restricted

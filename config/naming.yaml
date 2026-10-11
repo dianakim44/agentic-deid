@@ -6,6 +6,11 @@
 # 원칙
 #   - 이름은 설정에서 유도된다. 범례를 봐야 아는 이름은 쓰지 않는다.
 #   - 서수 금지 (arm1, arm2), 상태어 금지 (best, final, deployed).
+#     **예외는 하나이고 선언으로만 열린다**: 같은 설정의 독립 반복은 설정에서
+#     유도할 수 있는 이름이 없다 — 반복 2 와 반복 3 은 템플릿·에이전트·표본·
+#     모델이 전부 같고 다른 것은 호출 시각뿐이다. 그래서 반복 번호는 아래
+#     porting_repetitions 에 선언된 arm 에서만 쓸 수 있고, 선언이 없는 서수
+#     접미어는 여전히 금지다 (DESIGN §6.10).
 #   - 설정이 바뀌면 새 ID를 만든다. 기존 ID의 의미를 바꾸지 않는다.
 
 version: 1
@@ -211,6 +216,20 @@ axes:
       port-loop-noaudit is the revision, and measuring it is why this value
       exists. Not a retry of that arm: neither cell is spent by the other, and
       the two are scored against each other rather than averaged.
+    port-loop-noaudit-rep2: |
+      the second independent repetition of port-loop-noaudit. Every element of the
+      configuration is that arm's — templates, agents_absent, config/sampling.yaml,
+      model id — and the only thing that differs is when the call was made, which is
+      why this name is an ordinal and cannot be anything else. The ordinal is
+      permitted only through the porting_repetitions declaration below (DESIGN
+      §6.10). It is not a rung: not a point on the ladder, and not eligible for the
+      ladder comparison, the termination verdict across arms, or an opening of the
+      test fold. It is not a retry either — repetition 1 keeps its own result.
+    port-loop-noaudit-rep3: |
+      the third repetition of the same arm, declared the same way and existing for
+      the same reason. Two repetitions are not folded into one value because a cell
+      holds one run: the window is frozen once per cell (DESIGN §6.3), and a
+      repetition needs its own cell for its per-round trajectory to exist at all.
     port-multi:    port-loop plus Profiler, Mapper, LexiconBuilder
     port-multi-noexample: |
       the same rung under the example-free prompts. None of the five carries an
@@ -887,9 +906,16 @@ layer_families:
 # 앞의 넷이 DESIGN §4 의 자율성 사다리이고 순서가 곧 자율성이다. human 은
 # 사다리에 없다 — 철회된 arm 이지만 분할이 전체를 덮어야 하므로 자기 rung 을
 # 갖는다. 검증은 src/corpora/base.py 에 있다.
+#
+# **반복 arm 도 여기 들어간다. 이 블록이 답하는 질문은 "어느 드라이버가 도는가"
+# 이고 반복은 반복되는 arm 과 같은 드라이버를 돈다** (DESIGN §6.10). 이 블록의
+# 멤버십이 "사다리의 새 점"을 뜻하지 않는다는 것이 그래서 중요하다 — 그 질문에
+# 답하는 것은 porting_repetitions 이고, 래더 비교·종료 판정·test 개봉은 그쪽을
+# 묻는다. 두 질문을 한 블록으로 답하면 반복을 넣는 순간 사다리가 다섯 점이 된다.
 porting_rungs:
   oneshot:    [port-oneshot, port-oneshot-nofence]
-  loop:       [port-loop, port-loop-noaudit, port-loop-noaudit-current]
+  loop:       [port-loop, port-loop-noaudit, port-loop-noaudit-current,
+               port-loop-noaudit-rep2, port-loop-noaudit-rep3]
   multi:      [port-multi, port-multi-noexample, port-multi-stripfence]
   selfdesign: [port-selfdesign]
   human:      [port-human]
@@ -939,6 +965,49 @@ porting_arms:
     agents_absent: [auditor]
   port-loop-noaudit-current:
     agents_absent: [auditor]
+  # 반복 arm 의 선언은 반복되는 arm 의 선언과 **같아야 한다**. 복사이고 상속이
+  # 아니다 — porting_repetitions 의 `of` 를 따라가 선언을 물려받게 하면, 반복이
+  # 자기 창을 선언하지 않는 arm 이 되고 기록에는 그 사실이 남지 않는다. 대신
+  # 같은 선언을 쓰고, 같다는 것을 src/corpora/base.py 가 거부로 지키고
+  # tests/test_pinned_prompts.py 가 단언한다 (DESIGN §6.10).
+  port-loop-noaudit-rep2:
+    templates:
+      docs/prompts/rule_author.md: docs/prompts/pinned/rule_author.ddc48bdb.md
+    agents_absent: [auditor]
+  port-loop-noaudit-rep3:
+    templates:
+      docs/prompts/rule_author.md: docs/prompts/pinned/rule_author.ddc48bdb.md
+    agents_absent: [auditor]
+
+# ─── 반복 선언: 어느 arm 이 어느 arm 의 몇 번째 반복인가 ─────
+# DESIGN §6.10. 같은 설정을 다시 돌린 실행은 이름을 설정에서 유도할 수 없다 —
+# 반복 2 와 반복 3 은 templates·agents_absent·sampling·모델 ID 가 전부 같고
+# 다른 것은 호출 시각뿐이다. 그래서 이 파일 머리의 서수 금지에 예외가 하나
+# 필요하고, 그 예외는 **여기 선언된 값에만** 열린다. 선언이 없는 -rep2 는
+# 여전히 금지된 이름이다.
+#
+# **반복은 rung 이 아니다.** porting_rungs 멤버십은 "어느 드라이버가 도는가" 이고
+# 반복은 같은 드라이버를 돈다. 사다리의 점인지, 래더 비교에 들어가는지, test
+# 개봉 자격이 있는지를 묻는 곳은 이 블록이다. 세 질문의 답은 전부 "아니다" 다:
+#   - 사다리(DESIGN §4)는 반복을 세지 않는다. 반복은 한 점의 폭이다.
+#   - 종료 판정은 반복마다 자기 것이다. 반복들의 종료 회차가 다를 수 있고,
+#     그 차이가 측정 대상이므로 평균하거나 한쪽을 택하지 않는다.
+#   - test 개봉은 반복 1 의 것이다 (DESIGN §6.4 "one opening per reported arm").
+#     여기 항목이 있는 arm 에서는 src/eval/run_sealed_eval.py 가 거부한다.
+#
+# `of` 는 반복되는 arm 이고 그것이 반복 1 이다. 반복 1 은 여기 선언되지 않는다 —
+# 선언되면 자기 자신을 반복하는 항목이 되고, 위의 개봉 거부가 반복 1 까지
+# 삼킨다. `index` 는 2 부터이고, 1 은 거부된다.
+#
+# 보고는 반복 전체를 함께 낸다: 회차별 누출률을 나란히 적고, 최종 회차 값의
+# 범위와 평균을 함께 적는다. 한 반복만 인용하는 것은 draw 선택이다.
+porting_repetitions:
+  port-loop-noaudit-rep2:
+    of: port-loop-noaudit
+    index: 2
+  port-loop-noaudit-rep3:
+    of: port-loop-noaudit
+    index: 3
 
 # ─── 코퍼스 → 로드할 규칙 파일 목록 ──────────────────────────
 # 탐지 실행은 이 목록의 파일을 **전부** 로드하고 매치를 합집합한다.

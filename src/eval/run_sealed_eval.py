@@ -22,7 +22,7 @@ this module adds on top of the gate:
     commit hash in the log describes the code that ran (see `--allow-dirty`).
 
 **The order of the file is the order of the guarantees, and that is the design.**
-`plan_arm` reads only committed dev artefacts and can refuse for eight reasons;
+`plan_arm` reads only committed dev artefacts and can refuse for nine reasons;
 `load_sealed` appends the log row and opens the fold; `evaluate` scores. Every
 checkable refusal is upstream of the append, because the append is the point past
 which the opening has happened whether or not the scoring did.
@@ -195,21 +195,24 @@ def plan_arm(
 
     1. **The axes are `naming.yaml` values** (via `sealed_log.Arm`). A results path
        assembled from an undeclared axis mints a cell rather than failing.
-    2. **The arm has a committed dev `metrics.json`.** An arm with no dev headline has
+    2. **The arm is not a declared repetition** (DESIGN §6.10). §6.4 gives one opening per
+       *reported* arm, and a repetition set is one reported arm — so the opening belongs
+       to the run named by `of`, and the repetitions score dev only.
+    3. **The arm has a committed dev `metrics.json`.** An arm with no dev headline has
        nothing for a test score to be compared against, and the comparison is the claim.
-    3. **That record is a dev record.** `split` is a required run field and not a path
+    4. **That record is a dev record.** `split` is a required run field and not a path
        component, so a file at `paths.metrics` saying `test` is a record that has already
        been through something this protocol forbids.
-    4. **It carries a `termination` block.** `port-oneshot-nofence`'s file predates the
+    5. **It carries a `termination` block.** `port-oneshot-nofence`'s file predates the
        block (schema 6), and an arm whose stopping state is unrecorded has no final round
        to identify — so the round being asked for cannot be checked against anything.
-    5. **The arm has terminated.** `reason: null` is the record of an arm still running
+    6. **The arm has terminated.** `reason: null` is the record of an arm still running
        (`termination.Termination.stop`), and DESIGN §6.4 opens the seal after termination.
-    6. **The round asked for is the arm's final round.** This is §6.4's substance and the
+    7. **The round asked for is the arm's final round.** This is §6.4's substance and the
        one refusal that is about the *number* rather than the arm; see the message.
-    7. **The rule files the dev headline was computed from are still on disk**, at the
+    8. **The rule files the dev headline was computed from are still on disk**, at the
        paths that record names.
-    8. **The round-scoped record agrees with the arm-scoped one** where both exist
+    9. **The round-scoped record agrees with the arm-scoped one** where both exist
        (DESIGN §5.5's duplication rule). Checked rather than assumed: the un-iterated
        file is rewritten every round, so if it were somehow written by a *later* run than
        round N, the two would differ — and the arm-scoped file is where every field this
@@ -221,6 +224,19 @@ def plan_arm(
     termination record.
     """
     arm = sealed_log.Arm(detector=detector, supervision=supervision, porting=porting)
+    repeats = base.porting_repetition_of(porting)
+    if repeats is not None:
+        raise SealedEvalError(
+            f"{porting!r} is declared a repetition of {repeats!r} "
+            "(config/naming.yaml porting_repetitions, DESIGN §6.10), and a repetition "
+            "does not open the seal. §6.4 grants one opening per reported arm; the "
+            f"repetition set is reported as one arm, so the opening is {repeats!r}'s and "
+            "the repetitions are scored on dev. Opening them too would turn one arm's "
+            "one opening into three, and the between-run spread the repetitions exist to "
+            "measure would then be a spread of test numbers — which is a selection on "
+            "the fold this protocol seals. Score this arm with "
+            "`python3 -m src.eval.run_fold`."
+        )
     if not isinstance(iteration, int) or isinstance(iteration, bool) or iteration < 1:
         raise SealedEvalError(
             f"--iteration must be a positive integer, got {iteration!r}. Rounds are "
