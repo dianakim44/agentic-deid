@@ -4539,6 +4539,32 @@ the read, and a round that is not the arm's final round is refused rather than l
   and a re-run whose only difference is a bug fix. If the paper has to say the fold was opened twice
   for one arm, that is the true sentence, and this section grants no exemption from it.
 
+#### 6.4.1 The record cannot say whether the arm terminated — so the rung says it. Added 2026-10-11, after a round-1 record nearly opened the fold
+
+Part 2 above says the stopping rule must already have fired. The gate that enforces it
+(`src/eval/run_sealed_eval.py`) read that from the arm's own `metrics.json`, and **that file cannot
+answer the question.** An arm that does not iterate writes `termination.reason = "not_applicable"`.
+So does **round 1 of an arm that does**: one leak rate has no first difference, so `should_stop`
+cannot be called, and the block round 1 writes is **byte-identical** to the block `port-oneshot`
+writes — deliberately so, and asserted by a test. "Round 1 was final" and "round 1 of eight" are
+therefore indistinguishable from the record, and the gate was reading the record.
+
+Found by a run that was already void for an unrelated reason (`docs/notes/arm-port-loop-noaudit-es.md`
+§10): `port-loop-noaudit` had one round on disk, the registered byte-identity check had failed, and
+`--iteration 1` passed every other refusal in the gate. Nine refusals and none of them was this one.
+
+**The discriminator is a declaration, because every derivable one is wrong.** The record is
+ambiguous by construction. The round number is not it either — round 1 is a legitimate final round
+for a rung that does not iterate. Deriving it from the arm's name is what §6.3 forbids for
+`templates` and `agents_absent`, for the same reason: a name is not a fact about the run. So the
+axis is named in `config/naming.yaml` as `porting_rungs_without_termination`, read through
+`src/corpora/base.porting_iterates()`, and **fail-closed** — a rung missing from the list is treated
+as iterating. The cost of that default is a refusal that can be explained and withdrawn; the cost of
+the other default is an opening that cannot.
+
+This adds no rule to §6.4. Part 2 already said what had to be true, and the gate was checking a
+field that could not establish it.
+
 ### 6.5 Two corpora that share a source release — **decided 2026-08-27: D + A; dormant from 2026-08-27**
 
 > **Correction, 2026-08-27, same day as the decision.** This section was written on the

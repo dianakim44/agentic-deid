@@ -1762,6 +1762,92 @@ touches it. That is a judgement and not a measurement, so it is written here rat
 implicit: if the deferred full run moves either count by exactly one, this paragraph is where
 it was predicted.
 
+### One on the sibling call site, which a run found and this file had already described — 2026-10-11
+
+`src/porting/loop.py` builds round 1's prompt through `assemble_task_prompt()` and every
+later round through `assemble_iteration_prompt()`. Both take `porting`, and `porting` selects
+which revision of the template is sent (DESIGN §6.3). The round ≥ 2 call passed it. **The
+round 1 call did not**, from the day the pin was added until today, and the first run of
+`port-loop-noaudit` is void for it: the live `rule_author.md` went to the model while
+`window_freeze.json` and the call line's `prompt_sha256` — both written from the declaration,
+not from the bytes — named the pinned revision. The arm's own pre-registered check 1
+(round 1 byte identity against `port-loop`'s round 1) is what refused it, after the money.
+
+| mutation | changes | breaks | tests that catch it |
+|---|---|---|---|
+| `round_one_is_not_told_which_arm_it_is` | `porting=porting` is dropped from the round 1 assembler call — the state the file shipped in | **the record stops being about its own prompt, and nothing raises.** At round 1 there is no audit report to refuse over, so the drop is silent where the round ≥ 2 version is loud: the template is substituted and every artefact written from the declaration keeps saying the declared revision. The arm that exists to remove a template confound introduces one and reports that it did not. The one honest field is `prompt_reference.window_files`, three levels inside the call log, keyed by the path that was actually read — a place no reader of the arm's headline opens | **2** |
+
+**The row one section up predicted this, in writing, about the other call site.**
+`the_assembler_is_not_told_which_arm_the_round_is` is the same dropped kwarg at the round ≥ 2
+call, and its prose says the window record stays self-consistent and the per-line hashes
+agree with it "because the template bytes did not move". That clause is what does *not* carry
+over: at round ≥ 2 the ablated arms die in the assembler on the `None` disambiguation before
+any template is chosen, so the bytes were never the exposure there. At round 1 the bytes are
+the entire exposure, and nothing stands between the omission and the model.
+
+**Why the suite did not have it.** `tests/test_pinned_prompts.py` tests the *assembler* —
+given `porting`, does it send the declared revision — and the assembler was already right.
+Nothing asserted that the *driver* passes `porting`, which is the tenth move's lesson
+(`the_driver_audits_on_every_arm`: an accessor that answers truthfully to a caller that does
+not consult it) one layer down and on a different accessor. The three tests added with this
+mutation are therefore driver-level: they drive `run_iteration` with a fake client and read
+the bytes off the recorded call, and the first of them asserts `pinned != live` before
+asserting `sent == pinned`, so a future pin that happens to equal the live file cannot make
+the test vacuous.
+
+`test_the_record_and_the_prompt_agree_about_which_revision_was_sent` is the one that would
+have caught the void run in the form it actually took. It does not compare a digest to a
+constant; it asserts that `record["files"][0]` is a key of `prompt_reference.window_files`
+and that the digest under that key equals `record["prompt_sha256"]` — the path *and* the
+bytes. The void run satisfies neither half: the record's path is the pinned one and the
+window's only key is the live one. A digest-only assertion would have passed on a run whose
+window named a file it never read.
+
+### Three on the one record two different arms write — 2026-10-11
+
+`termination.not_applicable()` means "no stopping rule applied to this arm", and
+`run_sealed_eval.plan_arm` read it as a termination: the arm stopped, its final round is
+`iterations`, and `--iteration` may match it. That reading is right for `port-oneshot` and
+wrong for round 1 of `port-loop`, **and the two records are byte-identical** — round 1 of an
+iterating arm writes `not_applicable` because one leak rate has no first difference to test,
+which is a deliberate choice with its own test
+(`test_round_one_records_not_applicable_and_the_arm_continues`) and the right one: at that
+point the two arms have done the same thing.
+
+So the gate had no way to tell "round 1 was final" from "round 1 of eight", and it took the
+permissive reading. `port-loop-noaudit`'s first round — the one the arm's own registered
+check had just voided — passed **all nine** refusals `plan_arm` then had, and
+`--iteration 1` would have opened the sealed fold on it. Nobody opened it. The hole was
+found by asking why a test that said the arm "has not run" had started failing.
+
+The fix is a declaration, `porting_rungs_without_termination: [oneshot]`, read by
+`base.porting_iterates()`; a rung absent from it iterates, so the gate errs toward a refusal
+it can explain rather than toward an opening it cannot withdraw.
+
+| mutation | changes | breaks | tests that catch it |
+|---|---|---|---|
+| `round_ones_record_is_taken_for_a_termination` | the new refusal becomes `if False:` | **the state the gate shipped in.** An arm that has run one round of eight is read as terminated at its final round, every remaining refusal is satisfied by a record the driver wrote correctly, and the log row is appended before the scoring — so an opening DESIGN §6.4 grants once is spent on a round nobody pre-registered as final, and cannot be withdrawn | **1** |
+| `nothing_iterates_so_round_one_is_always_final` | `porting_iterates()` returns `False` instead of reading the declaration | the refusal is still there to read, with its message and its `port-oneshot`-direction test, and no input can reach it. This is the direction a hurried fix takes: the accessor raises on a malformed block, and a `return False` to get past that raise looks like a default and behaves like an unsealing | **2** |
+| `a_rung_misspelt_in_the_declaration_is_accepted` | the unknown-rung validation becomes `if False:` | a typo (`oneshoot`, or a `porting` value where a rung name belongs) leaves the block syntactically fine and semantically empty. Every rung then iterates — the *safe* direction, which is the problem: nothing fails until someone opens a `port-oneshot` arm's seal, once per arm, after the dev number is published, and the message blames the record for a defect in another file | **2** |
+
+**The positive control is the whole argument for the declaration**, and the two sealed-scoring
+tests differ in the `porting` value and in nothing else: both plant
+`not_applicable(CORPUS).record()`, one on `port-loop` and one on `port-oneshot`. A refusal
+that read the *record* would fail one of them; a refusal that read the arm's *name* would pass
+both for the wrong reason. The second test does not assert a plan — under `tmp_path` the arm's
+rule files are not on disk, so it reaches a later refusal — it asserts only that the refusal is
+not this one. Claiming more would mean building a whole arm's tree to test one branch.
+
+**One test was rewritten in the same commit, and it is a kind of defect worth naming.**
+`test_the_repetitions_base_is_not_caught_by_that_refusal` asserted `pytest.raises(SealError)`
+on the stated ground that `port-loop-noaudit` "has not run, so it has no dev record" — true
+when written, false the moment the arm it is about ran its first round. **A control that turns
+red when the experiment it guards makes progress is a control nobody keeps**: the failure is
+not about the mechanism, so it gets read as noise, and the next one gets read as noise too. It
+now asserts what it always meant — whatever `plan_arm` decides, it does not decide *this* —
+and is indifferent to whether the arm has run. The rewrite is why the gate hole was found at
+all: its failure was the thread that led here.
+
 ## The sampling mutations
 
 `src/sample.py` decides which dev errors a rule author is shown at a given iteration,

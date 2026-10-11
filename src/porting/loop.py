@@ -430,7 +430,14 @@ def run_iteration_1(*, corpus: str, lang: str, model_id: str,
         freeze_window(corpus, detector, supervision, porting, sections=ONESHOT_SECTIONS)
         drift = []
 
-    prompt = assemble_task_prompt(lang=lang, corpus=corpus)
+    # `porting` is passed for the reason `run_iteration` passes it: it selects which revision
+    # of the template is sent (DESIGN §6.3). Omitting it here sent the live file while the
+    # freeze record and the call line — both written from the declaration — said the declared
+    # revision, so the record was a false statement about its own prompt and the one honest
+    # field was `prompt_reference.window_files`, three levels in. The 2026-10-11 round 1 of
+    # `port-loop-noaudit` ran that way and is void for it. Tested through the driver rather
+    # than through the assembler, because the assembler was already right.
+    prompt = assemble_task_prompt(lang=lang, corpus=corpus, porting=porting)
     reference = prompt.reference()
 
     lifecycle = model_lifecycle(model_id, client=control_client)

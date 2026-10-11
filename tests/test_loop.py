@@ -1585,3 +1585,101 @@ def test_the_freeze_record_and_the_spend_come_from_the_one_accessor(tree, corpus
     record = json.loads(freeze_path(*NOAUDIT_ARM).read_text(encoding="utf-8"))
     assert record["agents_absent"] == [loop.AUDITOR]
     assert fake.audit_calls == 0
+
+
+# ─── which revision the driver actually sent (DESIGN §6.3) ───────────────────
+#
+# The gap these close was found by a run and not by this file. `c08b9a0` put `porting` into
+# `assemble_task_prompt` and `tests/test_pinned_prompts.py` asserted the assembler returns the
+# declared revision's bytes — and `run_iteration_1` called that assembler without the argument,
+# so the 2026-10-11 round 1 of `port-loop-noaudit` sent the live file while its freeze record
+# and its call line, both written from the declaration, said the pinned one. The record was a
+# false statement about its own prompt. That run is void.
+#
+# So the subject here is the driver and not the assembler, and the assertions are on the bytes
+# the transport carried rather than on anything the driver chose to report.
+
+
+def declared_text(porting: str | None) -> str:
+    """The prompt the assembler builds for this arm, independent of any driver.
+
+    `for_transport()` because `FilledPrompt` has no `.text` and that is deliberate (DESIGN
+    §5.4): the text-bearing exits are named for their destinations, and the destination here is
+    the same one the transport read.
+    """
+    from src.llm.prompt import assemble_task_prompt
+
+    return assemble_task_prompt(
+        lang=LANG, corpus=CORPUS, porting=porting).for_transport()
+
+
+def test_round_one_sends_the_revision_the_arm_declares_and_not_the_live_file(
+        tree, corpus_present):
+    """The void run's defect, as a test.
+
+    Both halves are asserted because either alone passes on a wrong driver: "equals the declared
+    revision" is satisfied by an arm whose declaration happens to name the live file, and "differs
+    from the live file" is satisfied by a driver that sent some third thing. The two revisions are
+    checked to differ first, so a fixture that copied the same bytes to both paths cannot make
+    this test vacuous — that is the shape the whole ablation would have been reported in.
+    """
+    pinned, live = declared_text(NOAUDIT), declared_text(None)
+    assert pinned != live, (
+        "the declared and live revisions assemble to the same bytes, so this test cannot tell "
+        "a driver that passes the declaration from one that drops it")
+
+    fake = Transport()
+    run_ablated_1(tree, fake)
+    assert fake.rule_author_calls == 1
+    sent = sent_text(fake.sent[0])
+    assert sent == pinned, "round 1 did not send the revision the arm declares"
+    assert sent != live, "round 1 sent the live file over the arm's declaration"
+
+
+def test_a_later_round_sends_it_too(tree, corpus_present):
+    """`run_iteration` passed `porting` already; nothing asserted that it did.
+
+    Written with round 1, not after it: the hole was in one of two sibling call sites, and a
+    test covering only the site that was wrong leaves the other free to drift the same way.
+    Round 2's prompt is a different assembler with the four blocks filled, so the comparison is
+    the template's banner rather than whole bytes — `INPUT_BANNER` is the first thing either
+    revision prints and the two revisions print different ones.
+    """
+    run_ablated_1(tree)
+    fake = Transport()
+    run_ablated(tree, 2, fake)
+    sent = sent_text(fake.sent[-1])
+    assert fake.blocks[-1] == "rules", "the last call of an ablated round is the RuleAuthor's"
+    assert sent.startswith(declared_text(NOAUDIT)[:len(INPUT_BANNER)])
+
+
+def test_the_record_and_the_prompt_agree_about_which_revision_was_sent(
+        tree, corpus_present):
+    """The invariant the void run broke, stated over the two places that disagreed.
+
+    `window_freeze.json`'s `prompt_sha256` and the call line's `prompt_sha256` are both written
+    from the declaration; `prompt_reference.window_files` is written from the bytes that were
+    assembled. In the void run the first two said the pinned digest and the third said the live
+    one, and nothing compared them — so the one honest field was three levels in, in the one
+    place a reader of the arm's headline never looks.
+
+    Asserted for both arms in one tree. On `port-loop`, which declares nothing, the same equality
+    has to hold with the live digest on both sides, and a driver that read the declaration for
+    the record and the disk for the prompt would satisfy it there and fail here.
+    """
+    for arm, run_first in ((NOAUDIT_ARM, run_ablated_1), (ARM, run_round_1)):
+        run_first(tree)
+        record = json.loads(freeze_path(*arm).read_text(encoding="utf-8"))
+        line = calls(*arm)[0]
+        # Keyed by the path the revision lives at, so the key is part of the claim: a declared
+        # revision keys `docs/prompts/pinned/…` and the live one keys `docs/prompts/…`. The
+        # record's `files[0]` is the same path, written from the same declaration, which is why
+        # comparing both the key and the digest says more than comparing the digest alone.
+        window = line["prompt_reference"]["window_files"]
+        assert record["files"][0] in window, (
+            f"{arm}: the freeze record's first window file is not the file the prompt was "
+            f"assembled from — assembled from {sorted(window)[:1]}")
+        assert line["prompt_sha256"] == record["prompt_sha256"], arm
+        assert window[record["files"][0]] == record["prompt_sha256"], (
+            f"{arm}: the freeze record names one revision of the RuleAuthor template and the "
+            "prompt was assembled from another")

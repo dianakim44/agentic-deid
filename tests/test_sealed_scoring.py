@@ -166,6 +166,59 @@ def test_an_arm_that_has_not_terminated_is_refused(tmp_path, arm_record):
         )
 
 
+def test_a_round_one_record_on_an_iterating_rung_is_refused(tmp_path, arm_record):
+    """`not_applicable` on a rung that iterates is round 1's record, not a termination.
+
+    Found on 2026-10-11 and not by this file: `port-loop-noaudit`'s first round wrote the
+    arm-scoped record, that record passed **every** refusal `plan_arm` then had, and
+    `--iteration 1` would have opened the fold on a run its own pre-registered check had
+    already voided. The planted block is `not_applicable(CORPUS).record()` rather than a
+    hand-edited copy, because the claim under test is that round 1 writes the same bytes a
+    non-iterating arm writes — if that stops being true, this test should start failing.
+    """
+    from src.termination import not_applicable
+
+    record = json.loads(json.dumps(arm_record))
+    record["termination"] = not_applicable(CORPUS).record()
+    _plant(tmp_path, record, **TERMINATED)
+    with pytest.raises(SealError, match="rung that iterates"):
+        run_sealed_eval.plan_arm(
+            corpus=CORPUS, **TERMINATED, iteration=1, root=tmp_path,
+        )
+
+
+def test_the_same_record_is_a_termination_on_a_rung_that_does_not_iterate(
+        tmp_path, arm_record):
+    """The positive control, and it carries the whole argument for the declaration.
+
+    The two records are byte-identical, so this test and the one above differ in the
+    `porting` value and in nothing else. A refusal that read the record rather than the
+    rung would fail one of the two, and a refusal that read the arm's *name* would pass
+    both for the wrong reason — which is why `porting_iterates()` asks
+    `porting_rungs_without_termination` (CLAUDE.md's rule against deriving a value from a
+    string that happens to carry it).
+    """
+    from src.termination import not_applicable
+
+    record = json.loads(json.dumps(arm_record))
+    record["termination"] = not_applicable(CORPUS).record()
+    assert record["termination"] == json.loads(json.dumps(
+        not_applicable(CORPUS).record())), "the two plantings must be the same bytes"
+    oneshot = dict(NO_RECORD)
+    record["run"].update(oneshot)
+    _plant(tmp_path, record, **oneshot)
+    try:
+        run_sealed_eval.plan_arm(
+            corpus=CORPUS, **oneshot, iteration=1, root=tmp_path,
+        )
+    except SealError as refused:
+        # It reaches the later checks and is refused by one of them — under `tmp_path` the
+        # arm's rule files are not there. What this test claims is only that the refusal is
+        # not the one above; asserting a *plan* would mean populating a whole arm's tree to
+        # test one branch, and the branch is "did this check fire".
+        assert "rung that iterates" not in str(refused)
+
+
 def test_an_arm_with_no_termination_block_is_refused():
     """The real `port-oneshot-nofence` case: a record that predates schema 6.
 
@@ -225,21 +278,32 @@ def test_a_declared_repetition_may_not_open_the_seal():
 
 
 def test_the_repetitions_base_is_not_caught_by_that_refusal():
-    """The positive control: the arm the opening belongs to still reaches the later checks.
+    """The positive control: the arm the opening belongs to is not refused as a repetition.
 
-    `port-loop-noaudit` has not run, so it has no dev record and the refusal it earns is
-    that one — which is the point. A repetition-shaped refusal here would mean the
-    presence-of-an-entry test had swallowed the base, and the arm DESIGN §6.4 grants the
-    opening to would have been locked out by the mechanism meant to protect it (§6.10).
+    A repetition-shaped refusal here would mean the presence-of-an-entry test had swallowed
+    the base, and the arm DESIGN §6.4 grants the opening to would have been locked out by
+    the mechanism meant to protect it (§6.10).
+
+    **Indifferent to whether the base arm has run, and that is a correction.** Until
+    2026-10-11 this asserted `pytest.raises(SealError)` on the ground that
+    `port-loop-noaudit` had no dev record yet — true when it was written, and false the
+    moment the arm it is about ran its first round. A control that turns red when the
+    experiment it guards makes progress is a control nobody can keep: the failure is not
+    about the mechanism, so it gets read as noise, and the next one gets read as noise too.
+    So the claim is made the way it was always meant: whatever `plan_arm` decides, it does
+    not decide *this*.
     """
     bases = {porting_repetition_of(p) for p in porting_repetitions()}
+    assert bases, "no repetitions are declared, so there is no base to control for"
     for base_arm in sorted(bases):
-        with pytest.raises(SealError) as caught:
+        assert porting_repetition_of(base_arm) is None, base_arm
+        try:
             run_sealed_eval.plan_arm(
                 corpus=CORPUS, detector="R", supervision="sup-free", porting=base_arm,
                 iteration=1,
             )
-        assert "declared a repetition" not in str(caught.value), base_arm
+        except SealError as refused:
+            assert "declared a repetition" not in str(refused), base_arm
 
 
 def test_a_test_split_in_the_dev_record_is_refused(tmp_path, arm_record):

@@ -22,7 +22,7 @@ this module adds on top of the gate:
     commit hash in the log describes the code that ran (see `--allow-dirty`).
 
 **The order of the file is the order of the guarantees, and that is the design.**
-`plan_arm` reads only committed dev artefacts and can refuse for nine reasons;
+`plan_arm` reads only committed dev artefacts and can refuse for ten reasons;
 `load_sealed` appends the log row and opens the fold; `evaluate` scores. Every
 checkable refusal is upstream of the append, because the append is the point past
 which the opening has happened whether or not the scoring did.
@@ -56,6 +56,7 @@ from ..corpora import doctype
 from ..corpora.base import CorpusError, Document, SealError
 from ..rules import RuleError, load_for_corpus
 from ..rules import _relative as rules_relative
+from ..termination import NOT_APPLICABLE
 from . import sealed_log
 from .run_fold import DEFAULT_SPLIT, detect_fold, load_fold
 from .scorer import (
@@ -208,11 +209,16 @@ def plan_arm(
        to identify — so the round being asked for cannot be checked against anything.
     6. **The arm has terminated.** `reason: null` is the record of an arm still running
        (`termination.Termination.stop`), and DESIGN §6.4 opens the seal after termination.
-    7. **The round asked for is the arm's final round.** This is §6.4's substance and the
+    7. **`not_applicable` is a termination only on a rung that does not iterate.** On an
+       iterating rung it is round 1's record — the same block, byte for byte, because at
+       round 1 the stopping rule has one observation and cannot be called. Which case this
+       is comes from `porting_rungs_without_termination`, since it cannot come from the
+       record.
+    8. **The round asked for is the arm's final round.** This is §6.4's substance and the
        one refusal that is about the *number* rather than the arm; see the message.
-    8. **The rule files the dev headline was computed from are still on disk**, at the
+    9. **The rule files the dev headline was computed from are still on disk**, at the
        paths that record names.
-    9. **The round-scoped record agrees with the arm-scoped one** where both exist
+    10. **The round-scoped record agrees with the arm-scoped one** where both exist
        (DESIGN §5.5's duplication rule). Checked rather than assumed: the un-iterated
        file is rewritten every round, so if it were somehow written by a *later* run than
        round N, the two would differ — and the arm-scoped file is where every field this
@@ -294,6 +300,20 @@ def plan_arm(
             "`reason is not None`). DESIGN §6.4 opens the seal *after* termination by the "
             "arm's own pre-registered rule, so there is no final round yet — the round "
             "this file describes is simply the most recent one."
+        )
+    if termination.get("reason") == NOT_APPLICABLE and base.porting_iterates(porting):
+        raise SealedEvalError(
+            f"{rules_relative(dev_file)} records termination.reason="
+            f"{NOT_APPLICABLE!r}, and {porting!r} is on a rung that iterates "
+            "(config/naming.yaml porting_rungs_without_termination). On an iterating arm "
+            "that is **round 1's record and not a termination**: one leak rate has no "
+            "first difference, so round 1 cannot call the stopping rule and writes the "
+            "same block a non-iterating arm writes — the two are byte-identical, which is "
+            "why this refusal reads the rung rather than the record. So this arm has run "
+            "its first round and stopped for some reason outside its stopping rule, and "
+            "the round this file describes is not a final round. Run the arm to its "
+            "pre-registered termination first. Found on 2026-10-11, by a round-1 record "
+            "that passed every other refusal here."
         )
     final = termination.get("iterations")
     if not isinstance(final, int) or final < 1:

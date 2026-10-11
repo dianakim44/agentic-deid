@@ -298,6 +298,49 @@ def porting_rung(porting: str) -> str:
     )
 
 
+def porting_iterates(porting: str) -> bool:
+    """Whether the stopping rule applies to this arm's rung. Declared, and fail-closed.
+
+    `termination.not_applicable()` means "no stopping rule applied to this arm", and the
+    block it writes is **byte-identical** to the one an iterating arm's round 1 writes —
+    deliberately so, because at round 1 the two arms have done the same thing and one leak
+    rate has no first difference to test (`tests/test_loop.py`'s
+    `test_round_one_records_not_applicable_and_the_arm_continues` is where that choice is
+    written down). So "round 1 was final" and "round 1 of eight" cannot be told apart from
+    the record. What tells them apart is the rung, and the rung is a declaration.
+
+    **A rung absent from `porting_rungs_without_termination` iterates.** The default is the
+    one that makes `run_sealed_eval` refuse rather than open: a new rung added without
+    touching that line is treated as iterating, so the seal gate errs toward a refusal it
+    can explain. The cost is a line to edit when a non-iterating rung is added, and the
+    gate's message says so.
+    """
+    declared = naming().get("porting_rungs_without_termination")
+    if declared is None:
+        raise CorpusError(
+            "config/naming.yaml has no porting_rungs_without_termination block. The "
+            "sealed-evaluation gate asks whether an arm recording "
+            "termination.not_applicable has terminated or has only run its first round, "
+            "and the two records are identical — so the answer comes from the rung and "
+            "nothing else can supply it."
+        )
+    if not isinstance(declared, list):
+        raise CorpusError(
+            "porting_rungs_without_termination is not a list. A single rung is written as "
+            "a list too, so that it is not a special case."
+        )
+    rungs = porting_rungs()
+    unknown = sorted(set(declared) - set(rungs))
+    if unknown:
+        raise CorpusError(
+            f"porting_rungs_without_termination names {unknown}, which are not rungs of "
+            f"porting_rungs (have: {sorted(rungs)}). A rung name misspelt here reads as "
+            "'this rung iterates', which is the safe direction and the silent one — so it "
+            "is refused instead."
+        )
+    return porting_rung(porting) not in set(declared)
+
+
 ARM_DECLARATIONS = ("templates", "agents_absent")
 
 

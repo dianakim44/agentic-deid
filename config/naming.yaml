@@ -920,6 +920,32 @@ porting_rungs:
   selfdesign: [port-selfdesign]
   human:      [port-human]
 
+# ─── 종료 규칙이 적용되지 않는 rung ─────────────────────────
+# 위 termination_reason 의 not_applicable 은 "이 arm 은 반복하지 않으므로 종료
+# 규칙의 적용 대상이 아니다" 를 뜻하고, 그런 arm 의 최종 회차는 1 이다. 봉인
+# 개봉은 최종 회차를 그 블록에서 읽으므로(DESIGN §6.4) 이 값은 개봉 가능한
+# 상태다.
+#
+# **그런데 반복하는 rung 의 회차 1 기록도 같은 값을 쓴다.** 관측이 하나뿐이면
+# 1차 차분이 없어 should_stop 을 부를 수 없고, 그래서 회차 1 은 port-oneshot 과
+# **같은 블록**을 쓴다 — 바이트 동일하고, 그것이 옳다(그 시점까지 두 arm 은 같은
+# 일을 했다. tests/test_loop.py 의
+# test_round_one_records_not_applicable_and_the_arm_continues 가 그 선택을
+# 적어둔 자리다). 그러므로 "최종 회차 1" 과 "8회차 중 1회차까지" 는 블록 내용으로
+# 구별되지 않는다. 구별하는 것은 rung 이고, rung 은 선언이다.
+#
+# **여기 없는 rung 은 반복하는 것으로 취급한다 (fail-closed).** 새 rung 이 선언
+# 없이 추가되면 봉인 게이트는 거절하는 쪽으로 틀린다 — 봉인은 틀리면 실험 전체가
+# 무효인 규율이므로(CLAUDE.md) 기본값이 "개봉 허용" 이면 안 된다. 그 대가는
+# 반복하지 않는 rung 을 새로 만들 때 이 줄을 고쳐야 한다는 것이고, 그때는 게이트가
+# 메시지로 말한다.
+#
+# 2026-10-11 에 추가됐다. 계기는 port-loop-noaudit 의 회차 1 기록이
+# run_sealed_eval.plan_arm 의 아홉 거절을 **전부 통과했다**는 것이다 — 그 run 은
+# 사전등록된 회차 1 검사에서 무효로 판정된 run 이었고, --iteration 1 로 부르면
+# 봉인이 열렸을 것이다.
+porting_rungs_without_termination: [oneshot]
+
 # ─── arm 선언: 읽는 프롬프트 판본과 부재하는 에이전트 ───────
 # DESIGN §6.3 의 "An arm may declare which prompt revision it sends" 절이
 # 선언하는 블록. 두 사실을 한 항목에 담는다 — 이 arm 이 어느 판본을 보내는가,

@@ -8011,6 +8011,38 @@ MUTATIONS = [
         min_kills=2,
     ),
     Mutation(
+        name="round_one_is_not_told_which_arm_it_is",
+        path=LOOP,
+        # The same dropped kwarg as the mutation above, at the sibling call site. This is not a
+        # hypothetical edit: it is the state the file shipped in until 2026-10-11, and the state
+        # that voided `port-loop-noaudit`'s round 1.
+        anchor="    prompt = assemble_task_prompt(lang=lang, corpus=corpus, porting=porting)\n",
+        replacement="    prompt = assemble_task_prompt(lang=lang, corpus=corpus)\n",
+        breaks=(
+            "**The record stops being about its own prompt, and nothing raises.** At round 1 "
+            "there is no report to refuse over, so dropping `porting` here is silent in a way "
+            "the round ≥ 2 version is not: the live `rule_author.md` is assembled and sent, "
+            "while `window_freeze.json` and the call line's `prompt_sha256` — both written from "
+            "the declaration — name the pinned revision. The arm that exists to remove a "
+            "template confound introduces it, and reports that it did not.\n"
+            "\n"
+            "The one honest field is `prompt_reference.window_files`, three levels inside the "
+            "call log, in the place a reader of the arm's headline never opens. That asymmetry "
+            "is why this is worse than a loud failure: an ablation run this way scores, "
+            "terminates, publishes, and compares against a pair it does not match.\n"
+            "\n"
+            "Found by a run and not by this suite. The mutation above says in its own prose "
+            "that a version of it reaching the model would send today's template under the arm "
+            "that exists to send `ddc48bdb` — written about round ≥ 2, true of round 1, and "
+            "unchecked there, because `tests/test_pinned_prompts.py` tested the assembler and "
+            "the assembler was already right.\n"
+            "\n"
+            "Caught by `test_round_one_sends_the_revision_the_arm_declares_and_not_the_live_"
+            "file` and by `test_the_record_and_the_prompt_agree_about_which_revision_was_sent`."
+        ),
+        min_kills=2,
+    ),
+    Mutation(
         name="a_declared_repetition_opens_the_seal",
         path=RUN_SEALED,
         # The ask removed, the branch and its message left standing. Every other refusal in
@@ -8123,6 +8155,93 @@ MUTATIONS = [
             "every member rather than from the base."
         ),
         min_kills=1,
+    ),
+    Mutation(
+        name="round_ones_record_is_taken_for_a_termination",
+        path=RUN_SEALED,
+        # The refusal removed and everything around it left standing. This is the state the
+        # gate shipped in until 2026-10-11, when a round-1 record passed all nine of its
+        # refusals.
+        anchor=(
+            '    if termination.get("reason") == NOT_APPLICABLE '
+            "and base.porting_iterates(porting):\n"
+        ),
+        replacement="    if False:\n",
+        breaks=(
+            "**The seal opens on an arm that has run one round of eight.** `not_applicable` "
+            "means 'no stopping rule applied', and on an iterating rung round 1 writes it "
+            "because one leak rate has no first difference — the same block a `port-oneshot` "
+            "arm writes, byte for byte, deliberately. So `iterations: 1` is read as a final "
+            "round, `--iteration 1` matches it, and every remaining refusal is satisfied by a "
+            "record the driver wrote correctly.\n"
+            "\n"
+            "**This is the one defect in this file that cannot be undone.** The log row is "
+            "appended before the scoring and the paper reports its count, so an arm opened "
+            "mid-loop spends an opening that DESIGN §6.4 grants once — and spends it on a "
+            "round nobody pre-registered as final. It is also the shape in which the hole was "
+            "found: `port-loop-noaudit`'s round 1 had already been voided by the arm's own "
+            "registered byte-identity check, and `--iteration 1` would have opened the fold on "
+            "it.\n"
+            "\n"
+            "Caught by `test_a_round_one_record_on_an_iterating_rung_is_refused`, and held in "
+            "place from the other side by "
+            "`test_the_same_record_is_a_termination_on_a_rung_that_does_not_iterate`."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="nothing_iterates_so_round_one_is_always_final",
+        path=BASE,
+        # The accessor answering the fail-open default instead of reading the declaration.
+        # Written as the value rather than as a deleted line, because a function that returns
+        # nothing would fail differently and for the wrong reason.
+        anchor="    return porting_rung(porting) not in set(declared)\n",
+        replacement="    return False\n",
+        breaks=(
+            "**The declaration stops being consulted and the gate's answer is the permissive "
+            "one.** Every arm is then a non-iterating arm, so `not_applicable` is a "
+            "termination everywhere and the refusal above is unreachable by any input — which "
+            "is worse than deleting the refusal, because the refusal is still there to read "
+            "and still has its message and its test for the `port-oneshot` direction.\n"
+            "\n"
+            "The reason the fail-open direction is the one to mutate: it is the direction a "
+            "hurried fix takes. `porting_iterates()` raises on a malformed block, and a "
+            "`return False` added to get past that raise would look like a default and behave "
+            "like an unsealing.\n"
+            "\n"
+            "Caught by "
+            "`test_every_rung_but_the_oneshot_one_iterates_and_the_default_is_the_safe_one`, "
+            "which asks over the whole committed axis rather than for one arm, and by the "
+            "gate test above."
+        ),
+        min_kills=2,
+    ),
+    Mutation(
+        name="a_rung_misspelt_in_the_declaration_is_accepted",
+        path=BASE,
+        # The validation of the block's members removed. The accessor still answers, and for
+        # every rung it answers "iterates" — which is the safe direction, so nothing downstream
+        # looks wrong.
+        anchor="    unknown = sorted(set(declared) - set(rungs))\n    if unknown:\n",
+        replacement="    unknown = sorted(set(declared) - set(rungs))\n    if False:\n",
+        breaks=(
+            "**A typo turns the block off and the symptom lands on the arm's record.** "
+            "`oneshoot`, or a `porting` value written where a rung name belongs, leaves the "
+            "declaration syntactically fine and semantically empty: every rung then iterates, "
+            "so the one arm family that legitimately records `not_applicable` as its "
+            "termination can no longer be opened at all — and the gate's message blames the "
+            "record, which is correct, for a reason that is in a different file.\n"
+            "\n"
+            "Refusing is the only option that says where to look. The safe direction is still "
+            "the safe one and that is exactly the problem: nothing fails until someone tries "
+            "to open a `port-oneshot` arm's seal, which happens once per arm, after the rules "
+            "are written and the dev number is published.\n"
+            "\n"
+            "Caught by `test_a_malformed_without_termination_block_is_refused`, which injects "
+            "both spellings rather than asserting that the committed block is clean — a "
+            "removed refusal is caught by its positive control or by nothing."
+        ),
+        min_kills=2,
     ),
 ]
 

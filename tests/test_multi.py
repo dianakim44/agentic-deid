@@ -1010,6 +1010,51 @@ def test_an_absent_block_is_refused_rather_than_defaulted(monkeypatch):
         base.porting_rungs()
 
 
+def test_every_rung_but_the_oneshot_one_iterates_and_the_default_is_the_safe_one():
+    """`porting_iterates()` over the committed axis, and the fail-closed default.
+
+    The question it answers is the one `termination.not_applicable` cannot: that block is
+    byte-identical on a non-iterating arm and on round 1 of an iterating one, so the seal
+    gate reads the rung. A rung absent from `porting_rungs_without_termination` is treated
+    as iterating, which makes `run_sealed_eval` refuse rather than open — the direction a
+    rule whose violation voids the experiment has to fail in."""
+    from src.corpora.base import axis, porting_iterates, porting_rung
+
+    for value in sorted(axis("porting")):
+        assert porting_iterates(value) is (porting_rung(value) != "oneshot"), value
+
+
+def test_the_absent_without_termination_block_is_refused(monkeypatch):
+    """No default, for `porting_rungs()`' reason: a literal here is a second declaration."""
+    from src.corpora import base
+
+    _with_naming(monkeypatch, _naming())
+    with pytest.raises(CorpusError, match="no porting_rungs_without_termination block"):
+        base.porting_iterates("port-loop")
+
+
+@pytest.mark.parametrize("declared, match", [
+    (["oneshoot"], r"not rungs of porting_rungs"),
+    (["port-oneshot"], r"not rungs of porting_rungs"),
+    ("oneshot", r"is not a list"),
+])
+def test_a_malformed_without_termination_block_is_refused(monkeypatch, declared, match):
+    """A rung misspelt here reads as "that rung iterates", which is safe **and silent**.
+
+    Safe is not enough: the two spellings in the parametrisation are the two mistakes that
+    look like the thing they are not — a typo, and a `porting` value written where a rung
+    name belongs. Either one quietly puts `port-oneshot` back under the refusal, and an arm
+    that genuinely does not iterate then cannot be opened at all, with the gate blaming the
+    arm's record. So the block is validated instead of being trusted in the safe direction."""
+    from src.corpora import base
+
+    naming = _naming()
+    naming["porting_rungs_without_termination"] = declared
+    _with_naming(monkeypatch, naming)
+    with pytest.raises(CorpusError, match=match):
+        base.porting_iterates("port-loop")
+
+
 def test_a_rung_renamed_out_from_under_this_module_is_refused(monkeypatch):
     """The second silent `False`, and it is not worth trading for the first.
 
