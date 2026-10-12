@@ -1803,6 +1803,55 @@ bytes. The void run satisfies neither half: the record's path is the pinned one 
 window's only key is the live one. A digest-only assertion would have passed on a run whose
 window named a file it never read.
 
+### One at the third call site, where the gate's own counts say why it stayed wrong — 2026-10-12
+
+The section above is about `src/porting/loop.py`. `src/orchestrate.py` held the same dropped
+kwarg at the single-call driver's assembler call, and it was still holding it a day after the
+void run, after the sibling site was fixed, and after `tools/make_figures.py` was found with a
+third version of the same shape. The arm record that reported the void run names this site in
+its own §12.7 as the thing to fix alongside — which means it was known and open, not missed.
+
+| mutation | changes | breaks | tests that catch it |
+|---|---|---|---|
+| `the_single_call_arm_is_not_told_which_arm_it_is` | `porting=porting` is dropped from `run_arm()`'s assembler call — the state the file shipped in until 2026-10-12 | **every artefact of a declaring single-call arm makes a false statement about its own prompt, and nothing raises.** `freeze_window()` two calls up and `window_hashes(porting=porting)` in the line below both resolve through the declaration, so `window_freeze.json` and `agent_calls.jsonl` name the pinned revision while the live `rule_author.md` is what the model reads. The arm scores, writes `metrics.json`, and compares against a counterpart it does not match. The one honest field is `prompt_reference.window_files`, three levels inside the call log | **2** |
+| `the_prompt_is_sent_without_being_checked_against_the_freeze` | the pre-send `check_prompt_window()` call is deleted from `run_arm()` | **the sixth site of the same dropped declaration becomes undetectable again.** Nothing else notices: `window_drift()` resolves the declaration on both of its sides, so a prompt assembled from the live template reads as no drift, and the call line's `prompt_sha256` is written from the declaration too. The arm pays for the call, scores it, and publishes a window block describing a prompt that was not sent | **1** |
+
+**This is the site the suite could not have found, and the reason is in `arm_window()`.** No
+single-call arm declares a `templates` entry today, so the mapping is the identity, the
+declared revision *is* the live file, and the two branches are byte-identical for everything
+this driver has ever run. A mutation added before the fix would have been stale in the sense
+that matters: applied, parsed, and killed by nobody, because no test could construct a tree in
+which the omission changes an outcome. The three tests added with it therefore **invent a
+declaration** — `base.porting_arms` is patched so `port-oneshot` declares the committed pinned
+revision — and the second of them asserts the same path-and-digest agreement the sibling
+section argues for, with the undeclared arm asserted separately so the equality cannot pass
+by both sides being live.
+
+**What makes it due rather than tidy is A5′**, which pins a revision for
+`port-oneshot-nofence`: run under this driver as it stood, those five repetitions would have
+sent the live template and recorded that they had not — five rows of a stability probe whose
+whole purpose is that nothing but the seed moved.
+
+**The second row is the guard, and it is here because a test per site catches the sites that
+exist.** Five of them were found one at a time between 2026-10-11 and 2026-10-12, each by a
+different accident: a voided run, a docstring, a red test file, a fourth read of the same
+sibling. Adding a sixth test named after a sixth caller would continue that series rather than
+end it, so the driver now compares the window the assembler produced against the window that
+was frozen, immediately before `invoke()`, and refuses the call on a disagreement. The
+comparison is asymmetric on purpose — the frozen side resolves the declaration itself, the
+prompt side reports the `porting` it was handed — and a check whose two sides both resolved the
+declaration would have passed in all five cases. What it cannot cover is an assembler that
+reports one revision and sends another; neither side is the bytes on the wire, and
+`tests/test_pinned_prompts.py` holds that at the layer that can.
+
+Its killer injects the defect **at the seam** rather than doctoring a record: `monkeypatch`
+replaces this module's `assemble_task_prompt` with one that drops `porting`, which is the
+mistake as it actually occurred at five sites, and then asserts the client was never called —
+a guard that raised after `invoke()` would leave the fake with one call and the arm with a
+bill. The three unit assertions beside it (the fresh-freeze control, a file edited between the
+freeze and the send, and an absent `window_files` block) do not move this count, because
+removing the call from `run_arm()` leaves the function they exercise intact.
+
 ### Three on the one record two different arms write — 2026-10-11
 
 `termination.not_applicable()` means "no stopping rule applied to this arm", and

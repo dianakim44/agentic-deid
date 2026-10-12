@@ -7735,6 +7735,76 @@ MUTATIONS = [
         min_kills=1,
     ),
     Mutation(
+        name="the_single_call_arm_is_not_told_which_arm_it_is",
+        path=ORCHESTRATE,
+        # The same dropped kwarg as `round_one_is_not_told_which_arm_it_is`, at the third
+        # sibling call site. Not a hypothetical edit: it is the state this file shipped in
+        # until 2026-10-12, a day after the same shape voided a run in `src/porting/loop.py`
+        # and was found again in `tools/make_figures.py`.
+        anchor="        prompt = assemble_task_prompt(lang=lang, corpus=corpus, "
+               "porting=porting)\n",
+        replacement="        prompt = assemble_task_prompt(lang=lang, corpus=corpus)\n",
+        breaks=(
+            "**Every artefact of a declaring single-call arm makes a false statement about "
+            "its own prompt, and nothing raises.** `freeze_window()` two calls up and "
+            "`window_hashes(porting=porting)` in the line below both resolve through the "
+            "declaration, so `window_freeze.json` and `agent_calls.jsonl` name the pinned "
+            "revision while the live `rule_author.md` is what the model reads. The arm "
+            "scores, writes `metrics.json`, and compares against a counterpart it does not "
+            "match.\n"
+            "\n"
+            "The one honest field is `prompt_reference.window_files`, three levels inside "
+            "the call log — the same asymmetry the sibling mutation describes, and the "
+            "reason that run was found by a hash check and not by a reader.\n"
+            "\n"
+            "**This is the site the suite could not have found, and the gate's own counts "
+            "are why.** No single-call arm declares a `templates` entry today, so "
+            "`arm_window()` returns the identity mapping, the declared revision *is* the "
+            "live file, and the two branches are byte-identical for everything this driver "
+            "has ever run. The tests that existed called `freeze_window()` and `call_line()` "
+            "directly — the half that was already right. A5′ pins a revision for "
+            "`port-oneshot-nofence`, which makes this the first arm that would have paid for "
+            "it: five repetitions sending the live template and recording that they had "
+            "not.\n"
+            "\n"
+            "Caught by "
+            "`test_the_driver_sends_the_revision_the_arm_declares_and_not_the_live_file` and "
+            "by `test_the_record_and_the_prompt_agree_about_which_revision_was_sent`, both "
+            "of which drive `run_arm()` against an invented declaration because no committed "
+            "one exists — waiting for a real one is what let this stand."
+        ),
+        min_kills=2,
+    ),
+    Mutation(
+        name="the_prompt_is_sent_without_being_checked_against_the_freeze",
+        path=ORCHESTRATE,
+        # The guard, not the defect: the mutation above is the mistake and this is the
+        # check that was added because a test per site catches the sites that exist.
+        anchor="        check_prompt_window(reference, frozen, porting)\n",
+        replacement="",
+        breaks=(
+            "**The sixth site of the dropped declaration becomes undetectable again.** "
+            "With the check gone, the only thing standing between a caller that resolves "
+            "the window for the record and drops it on the way to the assembler is a test "
+            "naming that caller. Five such sites were found one at a time between "
+            "2026-10-11 and 2026-10-12, each by a different accident — a voided run, a "
+            "docstring, a red test file — so the per-site tests are a record of what has "
+            "been looked at and not of what is right.\n"
+            "\n"
+            "Nothing else notices. `window_drift()` compares the record against today's "
+            "files and both of its sides resolve the declaration, so it reads a prompt "
+            "assembled from the live template as no drift at all. The call line's "
+            "`prompt_sha256` is written from the declaration too. The arm pays for the "
+            "call, scores it, and publishes a `metrics.json` whose window block describes "
+            "a prompt that was not sent.\n"
+            "\n"
+            "Caught by `test_a_prompt_built_without_the_arm_is_refused_before_the_call`, "
+            "which injects the dropped kwarg at the seam rather than doctoring a record — "
+            "so the mutation and its killer are the two halves of the same event."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
         name="the_absent_audit_block_is_omitted_instead_of_empty",
         path=PROMPT,
         anchor='    block_text = "\\n".join(lines)\n    reference = {name: None '

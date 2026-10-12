@@ -132,8 +132,8 @@ from .llm.prompt import assemble_task_prompt
 # format-failure record answers the same question about the same kind of path, and a
 # private name imported across two modules of one package is cheaper than two answers.
 from .rules import RuleError, _relative as rules_relative, arm_rules_path, load_rules
-from .sample import (WINDOW_FILES, recorded_window_fields, window_files,
-                     window_hashes)
+from .sample import (WINDOW_FILES, WINDOW_HASH_FIELDS, arm_window,
+                     recorded_window_fields, window_files, window_hashes)
 
 #: The three `paths` keys this arm writes and reads, all from `config/naming.yaml` and none
 #: as a literal here (DESIGN §11.2 requires it of an output path: a module holding its own
@@ -705,6 +705,73 @@ def window_drift(corpus: str, detector: str, supervision: str,
     # calls never saw.
     return [field for field in recorded_window_fields(frozen)
             if frozen.get(field) != now[field]]
+
+
+def check_prompt_window(reference: dict, frozen: dict,
+                        porting: str = PORTING) -> None:
+    """Refuse the call if the assembled prompt is not the window that was frozen.
+
+    Run immediately before `invoke()` and not after, because the only remedy for a prompt
+    that does not match the record is to not send it: a mismatch found afterwards is a paid
+    call whose artefacts describe a different prompt, which is what `window_drift()` can
+    report and nobody can undo.
+
+    **The two sides are two statements and that is the whole point.** `frozen` is written
+    from the arm's declaration — `freeze_window()` resolves `porting` itself — while
+    `reference["window_files"]` is written by the assembler from the `porting` it was
+    actually *handed*. So a driver that resolves the window for the record and drops it on
+    the way to the prompt has the two sides disagree here, which is the failure that voided
+    `port-loop-noaudit`'s round 1 on 2026-10-11 and that three sibling sites have held
+    since. A check comparing the declaration against itself would pass in every one of
+    those cases; this one is asymmetric on purpose.
+
+    What it does not cover: an assembler that reports the declared revision and sends
+    another. Both sides here are accounts of the window, neither is the bytes on the wire,
+    and no comparison available to this driver can close that — `tests/test_pinned_prompts.py`
+    holds it at the layer that can.
+
+    Paths and digests only in the message (CLAUDE.md): it reaches a terminal, and a prompt
+    is the one artefact in this pipeline that can carry corpus text.
+    """
+    sent = reference.get("window_files")
+    if not isinstance(sent, dict) or not sent:
+        raise OrchestrateError(
+            f"{porting}: the assembled prompt's reference carries no window_files block, "
+            f"so it makes no statement about which revisions it was built from (have: "
+            f"{sorted(reference)}). Treated as a mismatch rather than as nothing to "
+            "compare: a prompt that cannot say what it is built from is not one to send "
+            "under a freeze record that says precisely that (DESIGN §6.3)."
+        )
+    declared: dict[str, str] = {}
+    for default, resolved in arm_window(porting).items():
+        field = WINDOW_HASH_FIELDS[default]
+        if field not in frozen:
+            raise OrchestrateError(
+                f"{porting}: the freeze record carries no {field}, so it does not attest "
+                f"to {resolved}, which the prompt about to be sent was built from. "
+                "Re-freeze before the call rather than sending under a partial record "
+                "(DESIGN §6.3)."
+            )
+        declared[resolved] = frozen[field]
+    if sent == declared:
+        return
+    rows = "\n".join(
+        f"  {path}: sent={sent.get(path, '(absent)')} "
+        f"frozen={declared.get(path, '(absent)')}"
+        for path in sorted(set(sent) | set(declared))
+        if sent.get(path) != declared.get(path)
+    )
+    raise OrchestrateError(
+        f"{porting}: the prompt assembled for this call does not match the frozen "
+        f"window, so the call is refused before it is made (DESIGN §6.3). The record "
+        f"names {len(declared)} file(s) and the prompt names {len(sent)}; these "
+        f"disagree:\n{rows}\n"
+        "A path on one side only means the two resolved different revisions — the arm's "
+        "declaration reached one of them and not the other. Equal paths with unequal "
+        "digests mean a window file was edited between the freeze and the send. Neither "
+        "is fixed by sending: the first is a caller that must pass the arm through to the "
+        "assembler, the second a re-freeze."
+    )
 
 
 # ─── the call log ───────────────────────────────────────────────────────────
@@ -1343,7 +1410,11 @@ def run_arm(*, corpus: str, model_id: str,
     # rather than after a window has been written.
     langs = rule_langs(corpus)
 
-    freeze_window(corpus, detector, supervision, porting, sections=ONESHOT_SECTIONS)
+    # Kept, because the record is the other half of the pre-send check below. Discarding it
+    # and re-reading the file would be a third statement about the window where two are
+    # what the comparison needs.
+    frozen = freeze_window(corpus, detector, supervision, porting,
+                           sections=ONESHOT_SECTIONS)
 
     # Before the first call and not after, so that if this probe ever does something
     # surprising it does so while the arm is still repeatable. It cannot raise
@@ -1367,8 +1438,27 @@ def run_arm(*, corpus: str, model_id: str,
         # Passing `rules/{lang}.yaml` would show the agent the committed format example as
         # though it were the current rule set, which is the bootstrap file doing a job §5.3
         # took off it.
-        prompt = assemble_task_prompt(lang=lang, corpus=corpus)
+        #
+        # **`porting` is passed, and the third site of one defect is why.** It selects which
+        # revision of the template is sent (DESIGN §6.3). Dropped, this driver sends the live
+        # file while `freeze_window` above and `window_hashes` in the record below — both
+        # written from the declaration — name the declared revision, so every artefact a
+        # reader opens makes a false statement about the prompt that was actually sent. That
+        # is the defect that voided `port-loop-noaudit`'s round 1 on 2026-10-11 at the
+        # sibling site in `src/porting/loop.py`, and `tools/make_figures.py` held the same
+        # shape a day later. No single-call arm declares a revision today, which is exactly
+        # why this was the site that stayed wrong: nothing it ran could expose it, and the
+        # first arm to declare one would have been the measurement that paid for it.
+        prompt = assemble_task_prompt(lang=lang, corpus=corpus, porting=porting)
         reference = prompt.reference()
+
+        # The line above is one argument away from the defect it documents, so the window
+        # it produced is compared against the frozen record before anything is sent, and a
+        # disagreement refuses the call. Per language rather than once per arm: the window
+        # does not depend on `lang`, but the thing being checked is this prompt, and a
+        # check hoisted out of the loop would be a check of the first one standing in for
+        # the rest. It costs two dict comparisons against a call that costs money.
+        check_prompt_window(reference, frozen, porting)
 
         response = invoke(prompt, model_id=model_id, client=client, **kwargs)
         cost = response.cost()

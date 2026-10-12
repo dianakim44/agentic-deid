@@ -58,7 +58,8 @@ from src.orchestrate import (                                   # noqa: E402
     CALLED, FORMAT_FAILURE, INPUT_BLOCKS, IN_LOG, IN_RESULTS, ITERATION,
     ONESHOT_SECTIONS, REQUIRED_MODEL, SAMPLING_SECTION, SCORED,
     OrchestrateError, arm_has_called, call_line, called_where, failure_path,
-    freeze_path, freeze_window, log_path, prompt_blocks, run_arm, window_drift,
+    check_prompt_window, freeze_path, freeze_window, log_path, prompt_blocks, run_arm,
+    window_drift,
 )
 from src.sample import WINDOW_FILES, window_hashes              # noqa: E402
 
@@ -1701,6 +1702,241 @@ def test_the_freeze_record_and_the_prompt_agree_on_the_sections(arm):
     reference = calls()[0]["prompt_reference"]
     assert reference["sections_filled"] == record["sections_shown"]
     assert reference["sections_empty"] == record["sections_empty"]
+
+
+# ─── which revision this driver sent (DESIGN §6.3) ───────────────────────────
+#
+# The third site of one defect. `src/porting/loop.py`'s round 1 assembled its prompt without
+# `porting` and so sent the live template while its freeze record and call line, both written
+# from the declaration, named the pinned one — that is what voided `port-loop-noaudit`'s round 1
+# on 2026-10-11, and `tools/make_figures.py` held the same shape a day later. This driver held it
+# too, and **nothing it ran could have shown it**: no single-call arm declares a revision today,
+# so `arm_window()` returned the identity mapping and the live file was also the declared one.
+# Every assertion in the section above is about `freeze_window()` and `call_line()` called
+# directly, which is exactly the half that was already right.
+#
+# So the subject here is the driver, and the assertions are on the bytes the transport carried.
+# A5′ is what makes this due rather than tidy: it pins a revision for `port-oneshot-nofence`,
+# and run under this driver as it stood, the five repetitions would have sent the live file and
+# recorded that they had not.
+
+
+def declared_text(porting: str | None) -> str:
+    """The prompt the assembler builds for this arm, independent of any driver.
+
+    `for_transport()` for the reason `tests/test_loop.py`'s twin gives: `FilledPrompt` has no
+    `.text` (DESIGN §5.4), the text-bearing exits are named for their destinations, and the
+    destination here is the one the transport read.
+    """
+    from src.llm.prompt import assemble_task_prompt
+
+    return assemble_task_prompt(lang="es", corpus=ARM_KW["corpus"],
+                                porting=porting).for_transport()
+
+
+@pytest.fixture
+def declaring_oneshot(arm, pinned_tree, monkeypatch):
+    """`port-oneshot` declared as sending the pinned RuleAuthor revision.
+
+    **A declaration has to be invented because none exists.** The three arms that declare a
+    `templates` entry are all iterating ones, so running one of them through this function
+    would be a test of an arm this module does not drive — and waiting for a single-call arm to
+    declare one is what let the defect stand. The pinned file is the committed one
+    (`pinned_tree`) rather than a stub, so the bytes that are compared are bytes a run could
+    actually have sent.
+
+    Patched at `base.porting_arms` and not at `base.naming`: `porting_arms` is `lru_cache`d, so a
+    patch one level up is read only if nothing warmed the cache first — a test that passes or
+    fails on import order. One patch here moves both readers that matter, because
+    `arm_templates()` resolves it as a module global and `src/sample.py` imports that function
+    rather than the block. The real entries are kept so the arms that do declare something are
+    still themselves.
+    """
+    from src.corpora import base
+
+    pinned = f"{sample.PINNED_PROMPT_DIR}/rule_author.ddc48bdb.md"
+    declared = {**base.porting_arms(),
+                orchestrate.PORTING: {"templates": {sample.PROMPT_TEMPLATE: pinned}}}
+    monkeypatch.setattr(base, "porting_arms", lambda: declared)
+    assert sample.template_path(sample.PROMPT_TEMPLATE, orchestrate.PORTING) == pinned, (
+        "the declaration did not reach src/sample.py; every assertion below would be about "
+        "the undeclared arm")
+    return pinned
+
+
+def test_the_driver_sends_the_revision_the_arm_declares_and_not_the_live_file(
+        declaring_oneshot):
+    """The void run's defect at this driver's call site.
+
+    Both halves are asserted because either alone passes on a wrong driver: "equals the declared
+    revision" is satisfied by an arm whose declaration happens to name the live file, and
+    "differs from the live file" is satisfied by a driver that sent some third thing. The two
+    revisions are checked to differ first, so a fixture that put the same bytes at both paths
+    cannot make this test vacuous.
+    """
+    pinned, live = declared_text(orchestrate.PORTING), declared_text(None)
+    assert pinned != live, (
+        "the declared and live revisions assemble to the same bytes, so this test cannot tell "
+        "a driver that passes the declaration from one that drops it")
+
+    fake = an_answer(UNPARSEABLE)
+    run_arm(**ARM_KW, model_id=MODEL, client=fake)
+    sent = sent_text(fake.calls[0])
+    assert sent == pinned, "the arm did not send the revision it declares"
+    assert sent != live, "the arm sent the live file over its own declaration"
+
+
+def test_the_record_and_the_prompt_agree_about_which_revision_was_sent(declaring_oneshot):
+    """The invariant the void run broke, over the two places that disagreed.
+
+    `window_freeze.json`'s `prompt_sha256` and the call line's `prompt_sha256` are both written
+    from the declaration; `prompt_reference.window_files` is written from the bytes that were
+    assembled. In the void run the first two said the pinned digest and the third said the live
+    one, and nothing compared them — the one honest field was three levels inside the call log,
+    where a reader of the arm's headline never looks.
+
+    The key is part of the claim and not only the digest: a declared revision keys
+    `docs/prompts/pinned/…` and the live one keys `docs/prompts/…`, and the record's `files[0]`
+    is the same path written from the same declaration.
+    """
+    fake = an_answer(UNPARSEABLE)
+    run_arm(**ARM_KW, model_id=MODEL, client=fake)
+    record = json.loads(freeze_path(*ARM).read_text(encoding="utf-8"))
+    window = calls()[0]["prompt_reference"]["window_files"]
+    assert record["files"][0] == declaring_oneshot
+    assert record["files"][0] in window, (
+        "the freeze record's first window file is not the file the prompt was assembled "
+        f"from — assembled from {sorted(window)[:1]}")
+    assert calls()[0]["prompt_sha256"] == record["prompt_sha256"]
+    assert window[record["files"][0]] == record["prompt_sha256"], (
+        "the freeze record names one revision of the RuleAuthor template and the prompt was "
+        "assembled from another")
+
+
+def test_an_arm_declaring_nothing_sends_the_live_revision_and_says_so(arm):
+    """The default, which is every arm run to date, and the reason the fix moves none of them.
+
+    Same three fields as the test above and the same equality, with the live digest on both
+    sides. A driver that read the declaration for the record and the disk for the prompt passes
+    here and fails there, which is why this is not redundant: it is the half that says the
+    seven published records are unaffected, and it is the half that was silently true while the
+    defect stood.
+    """
+    fake = an_answer(UNPARSEABLE)
+    run_arm(**ARM_KW, model_id=MODEL, client=fake)
+    record = json.loads(freeze_path(*ARM).read_text(encoding="utf-8"))
+    window = calls()[0]["prompt_reference"]["window_files"]
+    assert sent_text(fake.calls[0]) == declared_text(None)
+    assert record["files"][0] == sample.PROMPT_TEMPLATE
+    assert window[sample.PROMPT_TEMPLATE] == record["prompt_sha256"]
+    assert record["prompt_sha256"] == window_hashes()["prompt_sha256"]
+
+
+# ─── and the check that does not depend on this driver being right ───────────
+#
+# The fix above is one argument at one call site, and the same argument has been dropped at five
+# sites in this repository. A test per site catches the sites that exist; it does not catch the
+# sixth. So the driver now compares the window the assembler produced against the window that was
+# frozen, immediately before `invoke()`, and refuses the call on a disagreement. The comparison is
+# asymmetric on purpose: the frozen side resolves the declaration itself, the prompt side reports
+# the `porting` it was handed, and a check whose two sides were both declaration-derived would
+# have passed in every one of the five cases.
+
+def test_a_prompt_built_without_the_arm_is_refused_before_the_call(
+        declaring_oneshot, monkeypatch):
+    """The void run, re-introduced at the seam, and stopped before it costs anything.
+
+    The defect is injected where it actually occurred — a caller that drops `porting` on the way
+    to the assembler — rather than by doctoring a record, so what is asserted is that this guard
+    catches *this* mistake and not a hand-made one that resembles it. `fake.calls` is the claim
+    that matters: a guard that raised after `invoke()` would leave this list with one element and
+    a bill to go with it.
+    """
+    from src.llm import prompt as prompt_module
+
+    monkeypatch.setattr(
+        orchestrate, "assemble_task_prompt",
+        lambda *, lang, corpus, porting=None, rules_path=None:
+            prompt_module.assemble_task_prompt(lang=lang, corpus=corpus,
+                                               rules_path=rules_path))
+
+    fake = an_answer(UNPARSEABLE)
+    with pytest.raises(OrchestrateError) as e:
+        run_arm(**ARM_KW, model_id=MODEL, client=fake)
+    message = str(e.value)
+    assert declaring_oneshot in message, "the message does not name the declared revision"
+    assert sample.PROMPT_TEMPLATE in message, "the message does not name what was sent instead"
+    assert fake.calls == [], "the call was made and then found to be unrecordable"
+    assert calls() == [], "a refused call was logged as a call"
+
+
+def test_a_freshly_frozen_window_is_not_refused(tree):
+    """The negative control, in the shape `window_drift()`'s has.
+
+    A guard that refused everything would pass the test above and take the seven published
+    arms with it. The three driver tests in the section above exercise the same path, but they
+    would fail for either reason; this one separates them.
+    """
+    from src.llm.prompt import assemble_task_prompt
+
+    frozen = freeze_window(*ARM)
+    reference = assemble_task_prompt(lang="es", corpus=ARM_KW["corpus"]).reference()
+    assert check_prompt_window(reference, frozen) is None
+
+
+def test_a_window_file_edited_between_the_freeze_and_the_send_is_refused(tree):
+    """The other direction, which no per-site test covers at all.
+
+    `window_drift()` reports this and does not refuse — correctly, because after the call only a
+    person can say whether the edit mattered. Before the call there is nothing to weigh: the
+    record would describe bytes that were not sent. The edited file is `config/sampling.yaml`
+    rather than the template, so the assertion is about the comparison and not about the one
+    field the declaration can move.
+    """
+    from src.llm.prompt import assemble_task_prompt
+
+    frozen = freeze_window(*ARM)
+    path = tree / "config" / "sampling.yaml"
+    path.write_text(path.read_text(encoding="utf-8") + "\n# moved\n", encoding="utf-8")
+    reference = assemble_task_prompt(lang="es", corpus=ARM_KW["corpus"]).reference()
+    with pytest.raises(OrchestrateError) as e:
+        check_prompt_window(reference, frozen)
+    assert "config/sampling.yaml" in str(e.value)
+    assert window_drift(*ARM) == ["sampling_sha256"], (
+        "the same event read two ways: reported after the call, refused before it")
+
+
+def test_a_prompt_that_states_no_window_is_a_mismatch_and_not_a_pass(tree):
+    """`reference.get("window_files")` is a `.get`, and the absent case has to be the loud one.
+
+    An assembler that stopped writing the block — or a caller handing this a record of something
+    else — would otherwise turn the guard off silently, which is the failure mode of every check
+    written as a comparison against something that might not be there.
+    """
+    frozen = freeze_window(*ARM)
+    for reference in ({}, {"window_files": {}}, {"window_files": None}):
+        with pytest.raises(OrchestrateError) as e:
+            check_prompt_window(reference, frozen)
+        assert "window_files" in str(e.value)
+
+
+def test_a_record_missing_the_field_for_a_sent_file_is_refused(tree):
+    """A partial record is not a partial check.
+
+    `window_hashes()` raises on a window file with no field, so this shape cannot arise from the
+    writers in `src/` today; it can arise from a record frozen under an older window, which is
+    exactly what `recorded_window_fields()` exists for. There the right answer is to compare only
+    what the record names, because the call already happened. Here the call has not happened, and
+    a file the record cannot speak for is a reason to re-freeze rather than to send.
+    """
+    from src.llm.prompt import assemble_task_prompt
+
+    frozen = freeze_window(*ARM)
+    reference = assemble_task_prompt(lang="es", corpus=ARM_KW["corpus"]).reference()
+    del frozen["auditor_sha256"]
+    with pytest.raises(OrchestrateError) as e:
+        check_prompt_window(reference, frozen)
+    assert "auditor_sha256" in str(e.value)
 
 
 # ─── reading the call log back (`read_calls`, DESIGN §5.5.2) ─────────────────
