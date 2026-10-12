@@ -1,0 +1,330 @@
+version: 2
+lang: es
+rules:
+  - rule_id: title_dr_prefix
+    layer: context_cue
+    phi_type: NAME
+    cue: ["Dr.", "Dra.", "DR.", "DRA.", "Dr ", "Dra "]
+    then: capitalised_words
+    score: 0.9
+    comment: >
+      Clinician names preceded by doctor title prefix.
+
+  - rule_id: title_licenciado_prefix
+    layer: context_cue
+    phi_type: NAME
+    cue: ["Lic.", "Lcdo.", "Lcda."]
+    then: capitalised_words
+    score: 0.8
+    comment: >
+      Names preceded by licenciado prefix common in clinical notes.
+
+  - rule_id: patient_cue
+    layer: context_cue
+    phi_type: NAME
+    cue: ["Paciente:", "PACIENTE:", "Nombre:", "NOMBRE:", "Nombre del paciente:"]
+    then: capitalised_words
+    score: 0.9
+    comment: >
+      Patient name following explicit label.
+
+  - rule_id: apellidos_cue
+    layer: context_cue
+    phi_type: NAME
+    cue: ["Apellidos:", "APELLIDOS:", "Apellido:"]
+    then: capitalised_words
+    score: 0.9
+    comment: >
+      Surname following apellidos label.
+
+  - rule_id: remitido_por_cue
+    layer: context_cue
+    phi_type: NAME
+    cue: ["Remitido por:", "REMITIDO POR:", "Remitido por"]
+    then: capitalised_words
+    gap: 5
+    score: 0.85
+    comment: >
+      Referring physician name following remitido por label.
+
+  - rule_id: medico_cue
+    layer: context_cue
+    phi_type: NAME
+    cue: ["Médico:", "MÉDICO:", "Medico:"]
+    then: capitalised_words
+    score: 0.85
+    comment: >
+      Physician name following medico label.
+
+  - rule_id: responsable_clinico_cue
+    layer: context_cue
+    phi_type: NAME
+    cue: ["Responsable clínico:", "Responsable clinico:", "RESPONSABLE CLÍNICO:"]
+    then: capitalised_words
+    gap: 5
+    score: 0.85
+    comment: >
+      Responsible clinician name following label.
+
+  - rule_id: birthdate_cue
+    layer: context_cue
+    phi_type: DATE
+    cue: ["Fecha de nacimiento:", "F. nacimiento:", "F.Nac:", "FN:", "Nacido el", "Nacida el", "nacido el", "nacida el"]
+    then: digits
+    score: 0.9
+    comment: >
+      Birth date following date of birth label.
+
+  - rule_id: admission_date_cue
+    layer: context_cue
+    phi_type: DATE
+    cue: ["Fecha de ingreso:", "Fecha ingreso:", "Ingresado el", "Ingresada el", "Fecha de Ingreso:"]
+    then: digits
+    score: 0.85
+    comment: >
+      Admission date following admission label.
+
+  - rule_id: discharge_date_cue
+    layer: context_cue
+    phi_type: DATE
+    cue: ["Fecha de alta:", "Alta el", "Dado de alta el", "Dada de alta el"]
+    then: digits
+    score: 0.85
+    comment: >
+      Discharge date following discharge label.
+
+  - rule_id: report_date_cue
+    layer: context_cue
+    phi_type: DATE
+    cue: ["Fecha del informe:", "Fecha informe:", "Fecha:"]
+    then: digits
+    score: 0.8
+    comment: >
+      Report date following date label.
+
+  - rule_id: date_month_name_pattern
+    layer: regex_checksum
+    phi_type: DATE
+    pattern: '\b\d{1,2}\s*(?:de\s+)?(?:enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre)\s*(?:de\s+|del\s+)?\d{4}\b'
+    flags: [ignorecase]
+    score: 0.85
+    comment: >
+      Dates with Spanish month names like 10 de marzo de 2006.
+
+  - rule_id: date_slash_pattern
+    layer: regex_checksum
+    phi_type: DATE
+    pattern: '\b\d{1,2}/\d{1,2}/\d{4}\b'
+    score: 0.7
+    comment: >
+      Dates in dd/mm/yyyy format.
+
+  - rule_id: dni_checksum
+    layer: regex_checksum
+    phi_type: ID
+    pattern: '\b\d{8}[A-Za-z]\b'
+    checksum: dni_mod23
+    score: 0.95
+    comment: >
+      Spanish national identifier with mod23 letter checksum.
+
+  - rule_id: nie_checksum
+    layer: regex_checksum
+    phi_type: ID
+    pattern: '\b[XYZxyz]\d{7}[A-Za-z]\b'
+    checksum: nie_mod23
+    score: 0.95
+    comment: >
+      Foreign resident identifier with mod23 checksum.
+
+  - rule_id: medical_record_number
+    layer: regex_checksum
+    phi_type: ID
+    pattern: '\b(?:NHC|HC|Nº?\s*Historia)[:\s]*\d{4,10}\b'
+    flags: [ignorecase]
+    score: 0.85
+    comment: >
+      Medical record number with common prefixes.
+
+  - rule_id: nass_pattern
+    layer: regex_checksum
+    phi_type: ID
+    pattern: '\b\d{2}\s+\d{8}\s+\d{2}\b'
+    score: 0.85
+    comment: >
+      Social security number NASS format with spaces.
+
+  - rule_id: nass_cue
+    layer: context_cue
+    phi_type: ID
+    cue: ["NASS:", "NASS"]
+    then: digits
+    gap: 3
+    score: 0.9
+    comment: >
+      Social security number following NASS label.
+
+  - rule_id: ncol_pattern
+    layer: regex_checksum
+    phi_type: ID
+    pattern: '\bNºCol[:\s]*\d{2}\s+\d{2}\s+\d{4,6}\b'
+    score: 0.9
+    comment: >
+      Physician college number pattern.
+
+  - rule_id: episodio_cue
+    layer: context_cue
+    phi_type: ID
+    cue: ["Episodio:", "EPISODIO:"]
+    then: digits
+    score: 0.85
+    comment: >
+      Episode identifier following label.
+
+  - rule_id: phone_number
+    layer: regex_checksum
+    phi_type: CONTACT
+    pattern: '\b(?:\+34\s?)?[6789]\d{2}[\s.-]?\d{3}[\s.-]?\d{3}\b'
+    score: 0.85
+    comment: >
+      Spanish phone numbers mobile and landline with optional country code.
+
+  - rule_id: phone_cue
+    layer: context_cue
+    phi_type: CONTACT
+    cue: ["Tel:", "Tel.:", "Teléfono:", "Tfno:", "Tfno.:", "Móvil:", "Fax:", "Tfno."]
+    then: digits
+    score: 0.9
+    comment: >
+      Phone or fax number following telephone label.
+
+  - rule_id: email_pattern
+    layer: regex_checksum
+    phi_type: CONTACT
+    pattern: '\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b'
+    score: 0.9
+    comment: >
+      Email addresses standard pattern.
+
+  - rule_id: age_years_suffix
+    layer: regex_checksum
+    phi_type: AGE
+    pattern: '\b(?:Edad:\s*)?\d{1,3}\s*años\b'
+    flags: [ignorecase]
+    score: 0.85
+    comment: >
+      Age in years with anos suffix including Edad prefix.
+
+  - rule_id: age_months_suffix
+    layer: regex_checksum
+    phi_type: AGE
+    pattern: '\b\d{1,2}\s*meses\b'
+    flags: [ignorecase]
+    score: 0.85
+    comment: >
+      Age in months with meses suffix.
+
+  - rule_id: postal_code_cue
+    layer: context_cue
+    phi_type: LOCATION_AREA
+    cue: ["CP:", "C.P.:", "Código postal:"]
+    then: digits
+    score: 0.85
+    comment: >
+      Postal code following CP label.
+
+  - rule_id: localidad_cue
+    layer: context_cue
+    phi_type: LOCATION_AREA
+    cue: ["Localidad/ Provincia:", "Localidad/Provincia:", "Localidad:", "Provincia:"]
+    then: capitalised_words
+    score: 0.8
+    comment: >
+      City or province following localidad label.
+
+  - rule_id: street_calle_cue
+    layer: context_cue
+    phi_type: LOCATION_STREET
+    cue: ["C/", "c/", "Calle", "calle", "CALLE", "Avda.", "Avda", "Avenida", "Pza.", "Plaza", "Paseo", "Ronda", "Camino", "Av/", "Travessera"]
+    then: capitalised_words
+    gap: 5
+    score: 0.8
+    comment: >
+      Street address following street type indicator.
+
+  - rule_id: address_cue
+    layer: context_cue
+    phi_type: LOCATION_STREET
+    cue: ["Domicilio:", "Dirección:", "Direccion:", "DOMICILIO:", "DIRECCIÓN:"]
+    then: rest_of_line
+    score: 0.85
+    comment: >
+      Full address following address label.
+
+  - rule_id: ctra_street_cue
+    layer: context_cue
+    phi_type: LOCATION_STREET
+    cue: ["Ctra.", "Carretera"]
+    then: capitalised_words
+    gap: 5
+    score: 0.8
+    comment: >
+      Road or highway address.
+
+  - rule_id: hospital_gaz
+    layer: gazetteer
+    phi_type: ORGANISATION
+    cue: ["Hospital Universitario", "Hospital General", "Hospital de"]
+    then: capitalised_words
+    gap: 3
+    score: 0.8
+    comment: >
+      Hospital names with university or general prefix.
+
+  - rule_id: clinica_prefix
+    layer: context_cue
+    phi_type: ORGANISATION
+    cue: ["Clínica", "Clinica", "CLÍNICA"]
+    then: capitalised_words
+    gap: 3
+    score: 0.75
+    comment: >
+      Clinic names following clinica prefix.
+
+  - rule_id: centro_salud_prefix
+    layer: context_cue
+    phi_type: ORGANISATION
+    cue: ["Centro de Salud", "C.S.", "CS "]
+    then: capitalised_words
+    gap: 3
+    score: 0.75
+    comment: >
+      Health center names.
+
+  - rule_id: instituto_prefix
+    layer: context_cue
+    phi_type: ORGANISATION
+    cue: ["Instituto", "INSTITUTO", "IML"]
+    then: capitalised_words
+    gap: 3
+    score: 0.7
+    comment: >
+      Institute names following instituto prefix.
+
+  - rule_id: profession_cue
+    layer: context_cue
+    phi_type: PROFESSION
+    cue: ["Profesión:", "Profesion:", "PROFESIÓN:", "Ocupación:", "Ocupacion:", "Trabaja como", "trabaja como", "Trabajo:", "trabajo:"]
+    then: capitalised_words
+    score: 0.8
+    comment: >
+      Profession or occupation following label.
+
+  - rule_id: profession_pattern
+    layer: regex_checksum
+    phi_type: PROFESSION
+    pattern: '\b(?:carpintero|albañil|electricista|fontanero|mecánico|agricultor|conductor|obrero|funcionario|empleado|comerciante|jubilado)\b'
+    flags: [ignorecase]
+    score: 0.7
+    comment: >
+      Common profession terms.

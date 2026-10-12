@@ -1,0 +1,500 @@
+{
+  "schema_version": 4,
+  "corpus": "es-meddocan",
+  "detector": "R",
+  "supervision": "sup-free",
+  "porting": "port-loop-noaudit-rep2",
+  "split": "dev",
+  "model_id": "us.anthropic.claude-opus-4-5-20251101-v1:0",
+  "model_id_reported": "claude-opus-4-5-20251101",
+  "model_id_resolution": "dated",
+  "model_lifecycle": {
+    "model_arn": "arn:aws:bedrock:us-east-1::foundation-model/anthropic.claude-opus-4-5-20251101-v1:0",
+    "model_name": "Claude Opus 4.5",
+    "status": "ACTIVE",
+    "start_of_life_time": "2025-11-24T00:00:00+00:00"
+  },
+  "generated": "2026-10-12T04:45:33Z",
+  "rules_path": "results/es-meddocan/R/sup-free/port-loop-noaudit-rep2/rules/iter8/es.yaml",
+  "error": "/Users/diana/Claude/agentic-deid/results/es-meddocan/R/sup-free/port-loop-noaudit-rep2/rules/iter8/es.yaml: not parseable as YAML — expected <block end>, but found '<scalar>' while while parsing a block mapping at line 369, column 119. The offending line is not quoted here: an exception message reaches logs the release screener does not (CLAUDE.md), so the position is reported and the content is not.",
+  "response": "version: 8\nlang: es\nrules:\n  - rule_id: titulo_dr\n    layer: context_cue\n    phi_type: NAME\n    cue: [\"Dr. \", \"DR. \"]\n    then: capitalised_words\n    comment: >\n      Clinician name following doctor title prefix masculine form. Tightened cues to require space after period to reduce false positives on abbreviations.\n\n  - rule_id: titulo_dra\n    layer: context_cue\n    phi_type: NAME\n    cue: [\"Dra. \", \"DRA. \"]\n    then: capitalised_words\n    comment: >\n      Clinician name following doctor title prefix feminine form. Tightened cues to require space after period.\n\n  - rule_id: titulo_don\n    layer: context_cue\n    phi_type: NAME\n    cue: [\"Dña. \", \"Doña \", \"Don \"]\n    then: capitalised_words\n    comment: >\n      Name following Spanish honorific prefix don or doña.\n\n  - rule_id: paciente_cue\n    layer: context_cue\n    phi_type: NAME\n    cue: [\"paciente \", \"Paciente \", \"PACIENTE \"]\n    then: capitalised_words\n    comment: >\n      Patient name following paciente keyword.\n\n  - rule_id: nombre_cue\n    layer: context_cue\n    phi_type: NAME\n    cue: [\"Nombre: \", \"NOMBRE: \", \"Nombre : \", \"Nombre:  \", \"Nombre:\"]\n    then: capitalised_words\n    comment: >\n      Name following explicit nombre label in clinical forms.\n\n  - rule_id: apellidos_cue\n    layer: context_cue\n    phi_type: NAME\n    cue: [\"Apellidos: \", \"APELLIDOS: \", \"Apellidos:\"]\n    then: capitalised_words\n    comment: >\n      Surname following apellidos label in clinical forms.\n\n  - rule_id: medico_cue\n    layer: context_cue\n    phi_type: NAME\n    cue: [\"Médico: \", \"Medico: \", \"MÉDICO: \", \"MEDICO: \"]\n    then: capitalised_words\n    comment: >\n      Physician name following medico label. Removed variants without space after colon.\n\n  - rule_id: responsable_cue\n    layer: context_cue\n    phi_type: NAME\n    cue: [\"Responsable clínico: \", \"Responsable clinico: \"]\n    then: capitalised_words\n    comment: >\n      Name following responsable clinico attribution. Simplified to require space after colon.\n\n  - rule_id: fecha_nacimiento_cue\n    layer: context_cue\n    phi_type: DATE\n    cue: [\"Fecha de nacimiento: \", \"Fecha de Nacimiento: \", \"F. nacimiento: \", \"FN: \", \"fecha nacimiento: \"]\n    then: digits\n    gap: 3\n    comment: >\n      Date of birth following birth date label. Tightened cues to require space after colon and reduced gap.\n\n  - rule_id: fecha_pattern\n    layer: regex_checksum\n    phi_type: DATE\n    pattern: '\\b\\d{1,2}[/-]\\d{1,2}[/-]\\d{2,4}\\b'\n    comment: >\n      Date pattern in numeric format with separators.\n\n  - rule_id: fecha_mes_texto\n    layer: regex_checksum\n    phi_type: DATE\n    pattern: '\\b(?:enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre)\\s+(?:de\\s+|del\\s+)?\\d{4}\\b'\n    flags: [ignorecase]\n    comment: >\n      Date with Spanish month name followed by year.\n\n  - rule_id: fecha_dia_mes_texto\n    layer: regex_checksum\n    phi_type: DATE\n    pattern: '\\b\\d{1,2}\\s+de\\s+(?:enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre)(?:\\s+(?:de\\s+|del\\s+)?\\d{4})?\\b'\n    flags: [ignorecase]\n    comment: >\n      Date with day de month pattern optionally followed by year.\n\n  - rule_id: fecha_year_standalone\n    layer: regex_checksum\n    phi_type: DATE\n    pattern: '\\ben\\s+(?:el\\s+)?(?:año\\s+)?\\d{4}\\b'\n    flags: [ignorecase]\n    comment: >\n      Year mentioned with en el año or similar phrasing.\n\n  - rule_id: fecha_principios_finales\n    layer: regex_checksum\n    phi_type: DATE\n    pattern: '\\b(?:principios|finales|mediados)\\s+de\\s+\\d{4}\\b'\n    flags: [ignorecase]\n    comment: >\n      Date reference like principios de 2005.\n\n  - rule_id: fecha_mediados_mes\n    layer: regex_checksum\n    phi_type: DATE\n    pattern: '\\b(?:a\\s+)?mediados\\s+de\\s+(?:enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre)(?:\\s+(?:de\\s+|del\\s+)?\\d{4})?\\b'\n    flags: [ignorecase]\n    comment: >\n      Date reference like a mediados de diciembre de 2000.\n\n  - rule_id: fecha_month_year\n    layer: regex_checksum\n    phi_type: DATE\n    pattern: '\\b(?:enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre)\\s+de\\s+\\d{4}\\b'\n    flags: [ignorecase]\n    comment: >\n      Month de year pattern for dates like febrero de 2007.\n\n  - rule_id: dni_checksum\n    layer: regex_checksum\n    phi_type: ID\n    pattern: '\\b\\d{8}[A-Za-z]\\b'\n    checksum: dni_mod23\n    comment: >\n      Spanish national ID number with mod23 letter validation.\n\n  - rule_id: nie_checksum\n    layer: regex_checksum\n    phi_type: ID\n    pattern: '\\b[XYZxyz]\\d{7}[A-Za-z]\\b'\n    checksum: nie_mod23\n    comment: >\n      Spanish foreigner ID number with mod23 letter validation.\n\n  - rule_id: nss_pattern\n    layer: regex_checksum\n    phi_type: ID\n    pattern: '\\b\\d{2}[/-]?\\d{8}[/-]?\\d{2}\\b'\n    comment: >\n      Spanish social security number pattern twelve digits with optional separators.\n\n  - rule_id: nss_spaced\n    layer: regex_checksum\n    phi_type: ID\n    pattern: '\\b\\d{2}\\s+\\d{8}\\s+\\d{2}\\b'\n    comment: >\n      Spanish social security number pattern with spaces between groups.\n\n  - rule_id: nhc_cue\n    layer: context_cue\n    phi_type: ID\n    cue: [\"NHC: \", \"NHC:\", \"N.H.C.: \", \"Nº Historia: \", \"Historia Clínica: \", \"HC: \", \"Nº HC: \"]\n    then: digits\n    comment: >\n      Clinical record number following NHC or historia label.\n\n  - rule_id: nhc_prefix_pattern\n    layer: regex_checksum\n    phi_type: ID\n    pattern: '\\bnhc-\\d{8}\\b'\n    flags: [ignorecase]\n    comment: >\n      Clinical record number with nhc- prefix format.\n\n  - rule_id: cipa_cue\n    layer: context_cue\n    phi_type: ID\n    cue: [\"CIPA: \", \"cipa: \"]\n    then: digits\n    gap: 3\n    comment: >\n      CIPA identifier following label with space.\n\n  - rule_id: ncol_pattern\n    layer: regex_checksum\n    phi_type: ID\n    pattern: '\\bNºCol:\\s*\\d{2}\\s+\\d{2}\\s+\\d{4,5}\\b'\n    comment: >\n      Medical license number with NºCol label prefix.\n\n  - rule_id: episodio_cue\n    layer: context_cue\n    phi_type: ID\n    cue: [\"Episodio: \"]\n    then: number\n    comment: >\n      Episode number following episodio label with space.\n\n  - rule_id: telefono_cue\n    layer: context_cue\n    phi_type: CONTACT\n    cue: [\"Tel.: \", \"Teléfono: \", \"Tfno.: \", \"Telf.: \"]\n    then: digits\n    comment: >\n      Phone number following telephone label. Tightened to require period and space.\n\n  - rule_id: telefono_pattern\n    layer: regex_checksum\n    phi_type: CONTACT\n    pattern: '\\b[69]\\d{2}\\s+\\d{2}\\s+\\d{2}\\s+\\d{2}\\b'\n    comment: >\n      Spanish phone nine digits starting with 6 or 9 with spaces.\n\n  - rule_id: telefono_pattern_grouped\n    layer: regex_checksum\n    phi_type: CONTACT\n    pattern: '\\b[69]\\d{2}\\s+\\d{3}\\s+\\d{3}\\b'\n    comment: >\n      Spanish phone with 3-3-3 grouping after initial digit.\n\n  - rule_id: telefono_plus_pattern\n    layer: regex_checksum\n    phi_type: CONTACT\n    pattern: '\\+\\s*34\\s*[69]\\d{2}\\s*\\d{2}\\s*\\d{2}\\s*\\d{2}\\b'\n    comment: >\n      Spanish phone with country code.\n\n  - rule_id: telefono_landline_pattern\n    layer: regex_checksum\n    phi_type: CONTACT\n    pattern: '\\b9\\d{2}\\s+\\d{3}\\s+\\d{3}\\b'\n    comment: >\n      Spanish landline phone with three digit groups.\n\n  - rule_id: telefono_intl_pattern\n    layer: regex_checksum\n    phi_type: CONTACT\n    pattern: '\\b34-\\d{9}\\b'\n    comment: >\n      International format phone with country code and dash.\n\n  - rule_id: email_pattern\n    layer: regex_checksum\n    phi_type: CONTACT\n    pattern: '\\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}\\b'\n    comment: >\n      Email address pattern.\n\n  - rule_id: calle_cue\n    layer: context_cue\n    phi_type: LOCATION_STREET\n    cue: [\"C/ \"]\n    then: rest_of_line\n    gap: 1\n    comment: >\n      Street address following C/ prefix. Tightened cue to require space.\n\n  - rule_id: calle_palabra_cue\n    layer: context_cue\n    phi_type: LOCATION_STREET\n    cue: [\"Calle de \", \"calle de \"]\n    then: rest_of_line\n    gap: 1\n    comment: >\n      Street address following Calle de pattern for specific street names.\n\n  - rule_id: avenida_cue\n    layer: context_cue\n    phi_type: LOCATION_STREET\n    cue: [\"Avda. \", \"Avenida \", \"Av. \"]\n    then: rest_of_line\n    gap: 1\n    comment: >\n      Street address following avenida prefix. Tightened cues.\n\n  - rule_id: plaza_paseo_cue\n    layer: context_cue\n    phi_type: LOCATION_STREET\n    cue: [\"Plaza del \", \"Plaza de \", \"Paseo de \", \"Paseo del \"]\n    then: rest_of_line\n    gap: 1\n    comment: >\n      Street address following plaza or paseo with article.\n\n  - rule_id: carretera_cue\n    layer: context_cue\n    phi_type: LOCATION_STREET\n    cue: [\"Carretera \", \"Ctra. \"]\n    then: rest_of_line\n    gap: 1\n    comment: >\n      Road address following carretera prefix.\n\n  - rule_id: domicilio_cue\n    layer: context_cue\n    phi_type: LOCATION_STREET\n    cue: [\"Domicilio: \", \"Dirección: \", \"Direccion: \"]\n    then: rest_of_line\n    comment: >\n      Address following domicilio or direccion label with space after colon.\n\n  - rule_id: ronda_cue\n    layer: context_cue\n    phi_type: LOCATION_STREET\n    cue: [\"Ronda de \"]\n    then: rest_of_line\n    gap: 1\n    comment: >\n      Street address following Ronda de prefix.\n\n  - rule_id: cp_cue\n    layer: context_cue\n    phi_type: LOCATION_AREA\n    cue: [\"CP: \", \"C.P.: \", \"Código Postal: \"]\n    then: number\n    comment: >\n      Postal code following CP label with space.\n\n  - rule_id: localidad_cue\n    layer: context_cue\n    phi_type: LOCATION_AREA\n    cue: [\"Localidad: \", \"Población: \", \"Ciudad: \", \"Localidad/ Provincia: \"]\n    then: capitalised_words\n    comment: >\n      City or town name following locality label.\n\n  - rule_id: pais_cue\n    layer: context_cue\n    phi_type: LOCATION_AREA\n    cue: [\"País: \", \"País de nacimiento: \"]\n    then: capitalised_word\n    comment: >\n      Country name following pais label.\n\n  - rule_id: cp_city_pattern\n    layer: regex_checksum\n    phi_type: LOCATION_AREA\n    pattern: '\\b\\d{5}\\s+[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+(?:\\s+(?:de\\s+(?:la\\s+|las\\s+|los\\s+)?)?[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+)*\\b'\n    comment: >\n      Postal code followed by city name with proper capitalization including articles.\n\n  - rule_id: cp_city_period\n    layer: regex_checksum\n    phi_type: LOCATION_AREA\n    pattern: '\\b\\d{5}\\s+[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+(?:\\s+(?:de\\s+(?:la\\s+|las\\s+|los\\s+)?)?[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+)*\\.'\n    comment: >\n      Postal code followed by city name ending with period.\n\n  - rule_id: provincia_pattern\n    layer: regex_checksum\n    phi_type: LOCATION_AREA\n    pattern: '\\((?:España|Madrid|Barcelona|Valencia|Sevilla|Zaragoza|Málaga|Murcia|Palma|Las Palmas|Bilbao|Alicante|Córdoba|Valladolid|Vigo|Gijón|Asturias|A Coruña|Granada|Cádiz|Almería|Toledo|Badajoz|Argentina|México|Cuba|Guipúzcoa|Cantabria|Cáceres|England|Navarra|Salamanca)\\)'\n    comment: >\n      Country or major region in parentheses including Salamanca.\n\n  - rule_id: ciudad_pattern\n    layer: regex_checksum\n    phi_type: LOCATION_AREA\n    pattern: '\\b(?:San Leandro|California|USA|Bayamo|Granma|Cuba|Oxford|England|Corrientes|Argentina|Huixquilucan|Estado de México|México|Jerez de la Frontera)\\b'\n    comment: >\n      International city state and country names appearing in clinical references.\n\n  - rule_id: ciudad_compuesta_pattern\n    layer: regex_checksum\n    phi_type: LOCATION_AREA\n    pattern: '\\b(?:Santiago de Compostela|Arganda del Rey|Collado Villalba|Santa Coloma de Gramenet|Ciudad Rodrigo|L\\'Hospitalet de Llobregat)\\b'\n    comment: >\n      Spanish compound city names including Ciudad Rodrigo and L\\'Hospitalet.\n\n  - rule_id: localidad_marca_pattern\n    layer: regex_checksum\n    phi_type: LOCATION_AREA\n    pattern: '\\b(?:Alcon Cusi|Llorens),\\s+(?:Barcelona|Madrid|Valencia|Sevilla)\\b'\n    comment: >\n      Brand name followed by city in pharmaceutical references.\n\n  - rule_id: edad_pattern\n    layer: regex_checksum\n    phi_type: AGE\n    pattern: '\\bEdad:\\s*\\d{1,3}\\s*años\\b'\n    flags: [ignorecase]\n    comment: >\n      Age pattern with explicit Edad label followed by años.\n\n  - rule_id: edad_simple_pattern\n    layer: regex_checksum\n    phi_type: AGE\n    pattern: '\\b\\d{1,3}\\s+años\\s+de\\s+edad\\b'\n    flags: [ignorecase]\n    comment: >\n      Age pattern number followed by años de edad suffix.\n\n  - rule_id: edad_meses_pattern\n    layer: regex_checksum\n    phi_type: AGE\n    pattern: '\\b\\d{1,2}\\s+meses\\s+(?:de\\s+edad|Sexo)\\b'\n    flags: [ignorecase]\n    comment: >\n      Age in months pattern followed by de edad or Sexo to reduce false positives.\n\n  - rule_id: edad_recien_nacido\n    layer: regex_checksum\n    phi_type: AGE\n    pattern: '\\bRecién\\s+nacid[oa]\\b'\n    flags: [ignorecase]\n    comment: >\n      Newborn age reference.\n\n  - rule_id: edad_range_pattern\n    layer: regex_checksum\n    phi_type: AGE\n    pattern: '\\bde\\s+los\\s+\\d{1,2}\\s+a\\s+los\\s+\\d{1,2}\\s+años\\b'\n    flags: [ignorecase]\n    comment: >\n      Age range pattern like de los 12 a los 17 años.\n\n  - rule_id: hospital_complejo\n    layer: regex_checksum\n    phi_type: ORGANISATION\n    pattern: '\\bComplejo\\s+Hospitalario\\s+(?:Universitario\\s+)?(?:de\\s+)?[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+(?:\\s+[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+)*\\b'\n    comment: >\n      Complejo hospitalario followed by location name.\n\n  - rule_id: hospital_universitario\n    layer: regex_checksum\n    phi_type: ORGANISATION\n    pattern: '\\bHospital\\s+Universitario\\s+(?:de\\s+)?[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+(?:\\s+(?:de\\s+(?:las?\\s+)?)?[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+)*\\b'\n    comment: >\n      Hospital universitario followed by name.\n\n  - rule_id: hospital_universitari\n    layer: regex_checksum\n    phi_type: ORGANISATION\n    pattern: '\\bHospital\\s+Universitari\\s+(?:de\\s+)?[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+\\b'\n    comment: >\n      Catalan hospital universitari followed by name.\n\n  - rule_id: hospital_militar\n    layer: regex_checksum\n    phi_type: ORGANISATION\n    pattern: '\\bHospital\\s+Militar\\s+(?:Dr\\.\\s+)?[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+(?:\\s+[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+)*\\b'\n    comment: >\n      Military hospital with name.\n\n  - rule_id: hospital_specific_pattern\n    layer: regex_checksum\n    phi_type: ORGANISATION\n    pattern: '\\bHospital\\s+(?:de\\s+(?:la\\s+)?)?(?:Santa\\s+Creu|Carlos\\s+Haya|Ramón\\s+y\\s+Cajal|García\\s+Orcoyen|MAZ|Virgen\\s+Del\\s+Puerto|Poniente|San\\s+Rafael|12\\s+de\\s+Octubre|Regional\\s+Universitario\\s+Carlos\\s+Haya)\\b'\n    flags: [ignorecase]\n    comment: >\n      Specific hospital names pattern including Hospital Regional Universitario Carlos Haya.\n\n  - rule_id: hospital_dr_pattern\n    layer: regex_checksum\n    phi_type: ORGANISATION\n    pattern: '\\bHospital\\s+Dr\\.\\s+[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+(?:\\s+[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+)*\\b'\n    comment: >\n      Hospital named after a doctor.\n\n  - rule_id: hospital_general_pattern\n    layer: regex_checksum\n    phi_type: ORGANISATION\n    pattern: '\\bHospital\\s+General\\s+de\\s+[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+\\b'\n    comment: >\n      General hospital with location name.\n\n  - rule_id: hospital_clinico_pattern\n    layer: regex_checksum\n    phi_type: ORGANISATION\n    pattern: '\\bHospital\\s+Clínico\\s+(?:Universitario\\s+)?(?:San\\s+)?[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+(?:\\s+(?:de\\s+)?[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+)*\\b'\n    comment: >\n      Clinical hospital with name.\n\n  - rule_id: hospital_angeles_pattern\n    layer: regex_checksum\n    phi_type: ORGANISATION\n    pattern: '\\bHospital\\s+Ángeles\\s+(?:de\\s+(?:las?\\s+)?)?[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+\\b'\n    comment: >\n      Hospital Angeles chain with location.\n\n  - rule_id: hospital_jose_pattern\n    layer: regex_checksum\n    phi_type: ORGANISATION\n    pattern: '\\bHospital\\s+José\\s+[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+(?:\\s+[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+)*\\b'\n    comment: >\n      Hospital named after Jose person.\n\n  - rule_id: centro_salud\n    layer: context_cue\n    phi_type: ORGANISATION\n    cue: [\"Centro de Salud \", \"Centro Médico \", \"Centro de Especialidades \"]\n    then: capitalised_words\n    comment: >\n      Healthcare center name following type prefix.\n\n  - rule_id: centro_hemodialisis\n    layer: regex_checksum\n    phi_type: ORGANISATION\n    pattern: '\\bCentro\\s+Hemodiálisis\\s+\"[^\"]+\"\\b'\n    comment: >\n      Hemodialysis center with quoted name.\n\n  - rule_id: clinica_cue\n    layer: context_cue\n    phi_type: ORGANISATION\n    cue: [\"Clínica \", \"Clinica \"]\n    then: capitalised_words\n    comment: >\n      Clinic name following clinica prefix.\n\n  - rule_id: facultad_pattern\n    layer: regex_checksum\n    phi_type: ORGANISATION\n    pattern: '\\bFacultad\\s+de\\s+[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+(?:\\s+y\\s+[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+)*\\b'\n    comment: >\n      University faculty name.\n\n  - rule_id: universidad_pattern\n    layer: regex_checksum\n    phi_type: ORGANISATION\n    pattern: '\\bUniversidad\\s+de\\s+[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+\\b'\n    comment: >\n      University name.\n\n  - rule_id: clinica_universitaria\n    layer: regex_checksum\n    phi_type: ORGANISATION\n    pattern: '\\bClínica\\s+Universitaria\\s+de\\s+[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+\\b'\n    comment: >\n      University clinic name.\n\n  - rule_id: fundacio_pattern\n    layer: regex_checksum\n    phi_type: ORGANISATION\n    pattern: '\\bFundació\\s+[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+\\b'\n    comment: >\n      Catalan foundation name.\n\n  - rule_id: fundacion_pattern\n    layer: regex_checksum\n    phi_type: ORGANISATION\n    pattern: '\\bFundación\\s+[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+(?:\\s+[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+)*(?:-UTE)?\\b'\n    comment: >\n      Spanish foundation name with optional UTE suffix.\n\n  - rule_id: centro_nacional_pattern\n    layer: regex_checksum\n    phi_type: ORGANISATION\n    pattern: '\\bCentro\\s+Nacional\\s+de\\s+[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+(?:\\s+(?:de\\s+)?[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+)*\\b'\n    comment: >\n      National center name.\n\n  - rule_id: instituto_pattern\n    layer: regex_checksum\n    phi_type: ORGANISATION\n    pattern: '\\bInstituto\\s+(?:de\\s+)?[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+(?:\\s+(?:de\\s+)?[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+)*\\b'\n    comment: >\n      Institute name pattern.\n\n  - rule_id: servicio_hospital_pattern\n    layer: regex_checksum\n    phi_type: ORGANISATION\n    pattern: '\\bServicio\\s+de\\s+[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+(?:\\s+(?:y\\s+)?[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+)*\\.\\s+Hospital\\s+[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+(?:\\s+(?:de\\s+)?[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+)*\\b'\n    comment: >\n      Hospital service with period then full hospital name.\n\n  - rule_id: asociacion_pattern\n    layer: regex_checksum\n    phi_type: ORGANISATION\n    pattern: '\\bAsociación\\s+para\\s+[A-Za-záéíóúñÁÉÍÓÚÑ][a-záéíóúñ]+(?:\\s+[a-záéíóúñA-ZÁÉÍÓÚÑ]+)*\\b'\n    comment: >\n      Association name pattern.\n\n  - rule_id: profesion_pattern\n    layer: regex_checksum\n    phi_type: PROFESSION\n    pattern: '\\b(?:carpintero|albañil|electricista|fontanero|mecánico|agricultor|ganadero|pescador|minero|conductor|taxista|camionero|panadero|cocinero|camarero|peluquero|sastre|zapatero|jornalero)\\b'\n    flags: [ignorecase]\n    comment: >\n      Common profession terms without medical specialist to reduce false positives.",
+  "response_chars": 18713,
+  "response_sha256": "sha256:6615085a53d0a3ca2918fc311a37590f25538168effa25b378493152a4bca2a0",
+  "envelope": "refused",
+  "fence_lines": 0,
+  "parsed_chars": null,
+  "parsed_sha256": null,
+  "prompt_reference": {
+    "block": "iteration",
+    "lang": "es",
+    "corpus": "es-meddocan",
+    "iteration": 8,
+    "feedback_from_iteration": 7,
+    "sections_filled": [
+      "1.1",
+      "1.2",
+      "1.3",
+      "1.4"
+    ],
+    "sections_empty": [],
+    "rules_source": "results/es-meddocan/R/sup-free/port-loop-noaudit-rep2/rules/iter7/es.yaml",
+    "rules_chars": 17053,
+    "rules_sha256": "sha256:9f38c26068e6704272cfdd8e98bab71536bdb8a8c678665605e24b0076b2da4e",
+    "rules_empty": false,
+    "score_modes": [
+      "fully_covered",
+      "relaxed"
+    ],
+    "score_types": [
+      "AGE",
+      "CONTACT",
+      "DATE",
+      "ID",
+      "LOCATION_AREA",
+      "LOCATION_STREET",
+      "NAME",
+      "ORGANISATION",
+      "OTHER",
+      "PROFESSION"
+    ],
+    "score_rules": [
+      "es:apellidos_cue",
+      "es:avenida_cue",
+      "es:calle_cue",
+      "es:calle_palabra_cue",
+      "es:carretera_cue",
+      "es:centro_nacional_pattern",
+      "es:centro_salud",
+      "es:cipa_cue",
+      "es:ciudad_compuesta_pattern",
+      "es:ciudad_pattern",
+      "es:clinica_cue",
+      "es:clinica_universitaria",
+      "es:cp_city_pattern",
+      "es:cp_city_period",
+      "es:cp_cue",
+      "es:domicilio_cue",
+      "es:edad_meses_pattern",
+      "es:edad_pattern",
+      "es:edad_recien_nacido",
+      "es:email_pattern",
+      "es:episodio_cue",
+      "es:facultad_pattern",
+      "es:fecha_dia_mes_texto",
+      "es:fecha_mediados_mes",
+      "es:fecha_mes_texto",
+      "es:fecha_nacimiento_cue",
+      "es:fecha_pattern",
+      "es:fecha_principios_finales",
+      "es:fecha_year_standalone",
+      "es:fundacio_pattern",
+      "es:fundacion_pattern",
+      "es:hospital_angeles_pattern",
+      "es:hospital_clinico_pattern",
+      "es:hospital_complejo",
+      "es:hospital_dr_pattern",
+      "es:hospital_general_pattern",
+      "es:hospital_jose_pattern",
+      "es:hospital_militar",
+      "es:hospital_specific_pattern",
+      "es:hospital_universitario",
+      "es:instituto_pattern",
+      "es:localidad_cue",
+      "es:medico_cue",
+      "es:nass_cue",
+      "es:ncol_pattern",
+      "es:nhc_cue",
+      "es:nombre_cue",
+      "es:nss_pattern",
+      "es:nss_spaced",
+      "es:pais_cue",
+      "es:plaza_paseo_cue",
+      "es:profesion_pattern",
+      "es:provincia_pattern",
+      "es:remitido_por_cue",
+      "es:responsable_cue",
+      "es:servicio_de_pattern",
+      "es:telefono_cue",
+      "es:telefono_intl_pattern",
+      "es:telefono_landline_pattern",
+      "es:telefono_pattern",
+      "es:telefono_pattern_compact",
+      "es:telefono_plus_pattern",
+      "es:titulo_dr",
+      "es:titulo_dra",
+      "es:universidad_pattern"
+    ],
+    "score_block_sha256": "sha256:3ed7fc4e9a706abbaf374a5d3fefdd1203b480afa25fd33a3b97c62432e427b7",
+    "score_block_chars": 17409,
+    "audit_agent_absent": true,
+    "audit_iteration": null,
+    "audit_masked_from_iteration": null,
+    "audit_flags": null,
+    "audit_refused": null,
+    "audit_documents": null,
+    "audit_flags_corroborated": null,
+    "audit_flags_unresolved": null,
+    "audit_unflagged_missed_spans": null,
+    "audit_sample_missed_spans": null,
+    "audit_block_sha256": "sha256:dc02744cd9a41b480e7033c04d0ddbf71e168f04a9d629a7e26791258b256dec",
+    "error_spans": {
+      "block": "error_spans",
+      "spans": [
+        {
+          "doc_id": "S0004-06142008000400016-1",
+          "span_index": 5,
+          "phi_type": "DATE",
+          "kind": "false_positive",
+          "start": 229,
+          "end": 240
+        },
+        {
+          "doc_id": "S0210-48062005000700013-1",
+          "span_index": 2,
+          "phi_type": "ORGANISATION",
+          "kind": "missed",
+          "start": 1771,
+          "end": 1814
+        },
+        {
+          "doc_id": "S0210-48062005000700015-1",
+          "span_index": 4,
+          "phi_type": "NAME",
+          "kind": "false_positive",
+          "start": 4125,
+          "end": 4127
+        },
+        {
+          "doc_id": "S0210-48062006000300016-1",
+          "span_index": 3,
+          "phi_type": "ORGANISATION",
+          "kind": "missed",
+          "start": 5384,
+          "end": 5410
+        },
+        {
+          "doc_id": "S0210-48062009000300013-6",
+          "span_index": 12,
+          "phi_type": "CONTACT",
+          "kind": "false_positive",
+          "start": 1779,
+          "end": 1782
+        },
+        {
+          "doc_id": "S0211-57352013000300012-1",
+          "span_index": 12,
+          "phi_type": "AGE",
+          "kind": "missed",
+          "start": 1058,
+          "end": 1060
+        },
+        {
+          "doc_id": "S0211-69952013000500019-1",
+          "span_index": 4,
+          "phi_type": "LOCATION_STREET",
+          "kind": "missed",
+          "start": 4438,
+          "end": 4461
+        },
+        {
+          "doc_id": "S0211-69952015000500015-2",
+          "span_index": 14,
+          "phi_type": "ID",
+          "kind": "false_positive",
+          "start": 82,
+          "end": 84
+        },
+        {
+          "doc_id": "S0212-16112007000800011-1",
+          "span_index": 30,
+          "phi_type": "PROFESSION",
+          "kind": "false_positive",
+          "start": 5630,
+          "end": 5638
+        },
+        {
+          "doc_id": "S0212-16112013000300055-1",
+          "span_index": 22,
+          "phi_type": "ID",
+          "kind": "missed",
+          "start": 69,
+          "end": 77
+        },
+        {
+          "doc_id": "S0212-71992004001100007-1",
+          "span_index": 9,
+          "phi_type": "ID",
+          "kind": "false_positive",
+          "start": 81,
+          "end": 83
+        },
+        {
+          "doc_id": "S0212-71992007000300006-1",
+          "span_index": 2,
+          "phi_type": "LOCATION_AREA",
+          "kind": "missed",
+          "start": 4520,
+          "end": 4525
+        },
+        {
+          "doc_id": "S0365-66912005001100008-1",
+          "span_index": 17,
+          "phi_type": "LOCATION_AREA",
+          "kind": "missed",
+          "start": 765,
+          "end": 772
+        },
+        {
+          "doc_id": "S0365-66912006000500008-1",
+          "span_index": 11,
+          "phi_type": "ORGANISATION",
+          "kind": "missed",
+          "start": 1446,
+          "end": 1477
+        },
+        {
+          "doc_id": "S0365-66912006001200010-1",
+          "span_index": 15,
+          "phi_type": "LOCATION_STREET",
+          "kind": "false_positive",
+          "start": 114,
+          "end": 139
+        },
+        {
+          "doc_id": "S0365-66912007000800012-1",
+          "span_index": 5,
+          "phi_type": "DATE",
+          "kind": "false_positive",
+          "start": 208,
+          "end": 219
+        },
+        {
+          "doc_id": "S0365-66912010000700004-1",
+          "span_index": 12,
+          "phi_type": "LOCATION_STREET",
+          "kind": "false_positive",
+          "start": 117,
+          "end": 143
+        },
+        {
+          "doc_id": "S0376-78922011000100010-1",
+          "span_index": 8,
+          "phi_type": "NAME",
+          "kind": "missed",
+          "start": 296,
+          "end": 317
+        },
+        {
+          "doc_id": "S0376-78922011000100010-1",
+          "span_index": 1,
+          "phi_type": "NAME",
+          "kind": "false_positive",
+          "start": 3385,
+          "end": 3403
+        },
+        {
+          "doc_id": "S0376-78922016000200012-1",
+          "span_index": 4,
+          "phi_type": "NAME",
+          "kind": "false_positive",
+          "start": 4173,
+          "end": 4175
+        },
+        {
+          "doc_id": "S0378-48352006000600006-1",
+          "span_index": 37,
+          "phi_type": "AGE",
+          "kind": "false_positive",
+          "start": 5206,
+          "end": 5214
+        },
+        {
+          "doc_id": "S0465-546X2009000300008-1",
+          "span_index": 22,
+          "phi_type": "AGE",
+          "kind": "false_positive",
+          "start": 3118,
+          "end": 3125
+        },
+        {
+          "doc_id": "S1130-01082008000100009-1",
+          "span_index": 10,
+          "phi_type": "ID",
+          "kind": "false_positive",
+          "start": 88,
+          "end": 90
+        },
+        {
+          "doc_id": "S1130-05582013000400005-1",
+          "span_index": 2,
+          "phi_type": "DATE",
+          "kind": "missed",
+          "start": 479,
+          "end": 484
+        },
+        {
+          "doc_id": "S1131-57682001000100007-2",
+          "span_index": 12,
+          "phi_type": "LOCATION_STREET",
+          "kind": "false_positive",
+          "start": 70,
+          "end": 81
+        },
+        {
+          "doc_id": "S1134-80462013000400006-2",
+          "span_index": 11,
+          "phi_type": "LOCATION_STREET",
+          "kind": "false_positive",
+          "start": 94,
+          "end": 115
+        },
+        {
+          "doc_id": "S1134-80462015000100006-1",
+          "span_index": 10,
+          "phi_type": "LOCATION_STREET",
+          "kind": "false_positive",
+          "start": 81,
+          "end": 88
+        },
+        {
+          "doc_id": "S1137-66272009000100010-1",
+          "span_index": 4,
+          "phi_type": "DATE",
+          "kind": "false_positive",
+          "start": 200,
+          "end": 211
+        },
+        {
+          "doc_id": "S1137-66272016000200014-1",
+          "span_index": 20,
+          "phi_type": "AGE",
+          "kind": "false_positive",
+          "start": 4059,
+          "end": 4066
+        },
+        {
+          "doc_id": "S1137-66272016000300012-1",
+          "span_index": 15,
+          "phi_type": "LOCATION_STREET",
+          "kind": "false_positive",
+          "start": 96,
+          "end": 129
+        },
+        {
+          "doc_id": "S1139-76322009000500006-1",
+          "span_index": 4,
+          "phi_type": "NAME",
+          "kind": "false_positive",
+          "start": 2104,
+          "end": 2106
+        },
+        {
+          "doc_id": "S1139-76322012000400010-1",
+          "span_index": 9,
+          "phi_type": "CONTACT",
+          "kind": "false_positive",
+          "start": 1954,
+          "end": 1957
+        },
+        {
+          "doc_id": "S1139-76322014000100006-1",
+          "span_index": 5,
+          "phi_type": "DATE",
+          "kind": "false_positive",
+          "start": 197,
+          "end": 208
+        },
+        {
+          "doc_id": "S1698-44472005000400002-1",
+          "span_index": 5,
+          "phi_type": "DATE",
+          "kind": "false_positive",
+          "start": 214,
+          "end": 225
+        },
+        {
+          "doc_id": "S1698-44472005000400012-1",
+          "span_index": 17,
+          "phi_type": "LOCATION_STREET",
+          "kind": "false_positive",
+          "start": 116,
+          "end": 134
+        },
+        {
+          "doc_id": "S1699-695X2015000100011-1",
+          "span_index": 11,
+          "phi_type": "ID",
+          "kind": "missed",
+          "start": 388,
+          "end": 395
+        },
+        {
+          "doc_id": "S1699-695X2016000200013-1",
+          "span_index": 27,
+          "phi_type": "AGE",
+          "kind": "false_positive",
+          "start": 3535,
+          "end": 3543
+        },
+        {
+          "doc_id": "S1888-75462016000400180-1",
+          "span_index": 24,
+          "phi_type": "LOCATION_AREA",
+          "kind": "missed",
+          "start": 2859,
+          "end": 2865
+        },
+        {
+          "doc_id": "S2254-28842014000300010-1",
+          "span_index": 6,
+          "phi_type": "LOCATION_AREA",
+          "kind": "missed",
+          "start": 3126,
+          "end": 3135
+        },
+        {
+          "doc_id": "S2340-98942015000100005-1",
+          "span_index": 3,
+          "phi_type": "LOCATION_AREA",
+          "kind": "missed",
+          "start": 2467,
+          "end": 2487
+        }
+      ],
+      "n_spans": 40,
+      "context_chars": 120,
+      "text_chars": 13463,
+      "text_sha256": "sha256:2ab988595aad5b070433d270eaa53f65bce9ed99442b8aaecf4fecf81d54bffd",
+      "window_files": {
+        "docs/prompts/rule_author.md": "sha256:bcef6f397aa957d4cc5eb4497b940b7cb29f84cf155adea53c6e5afb50473108",
+        "docs/prompts/auditor.md": "sha256:a49739eec170f4e2fc8751b977b23e5aab18dd3e647a3f505f79f4f642135b26",
+        "config/sampling.yaml": "sha256:4c0e2cc725d357a1bdfa5c718d243c850ae52f5f236543bbac45b5d8e6ecb615",
+        "docs/prompts/profiler.md": "sha256:b4434e1807e5230da0a5ea76c108f96ec10fa280d3e4e970130a104de93ac781",
+        "docs/prompts/mapper.md": "sha256:63bc99c04f371d4d5b4dd01c86b8a4503f9b810aa5145f1714b2ce5cd71cc976",
+        "docs/prompts/lexicon_builder.md": "sha256:62a7c54b81028e4c838c59c4e22cb581bf4d7064c3f7292b5839b868844afc63"
+      }
+    },
+    "text_chars": 102684,
+    "text_sha256": "sha256:367d72c2fc822df255399885317ae8ed723c6b2dc2450bc9e21b1296d9246d01",
+    "window_files": {
+      "docs/prompts/pinned/rule_author.ddc48bdb.md": "sha256:ddc48bdb0a0c286ab8194ba38f49e97b3cf95f6463e6e69c93d30915eef52cfa",
+      "docs/prompts/auditor.md": "sha256:a49739eec170f4e2fc8751b977b23e5aab18dd3e647a3f505f79f4f642135b26",
+      "config/sampling.yaml": "sha256:4c0e2cc725d357a1bdfa5c718d243c850ae52f5f236543bbac45b5d8e6ecb615",
+      "docs/prompts/profiler.md": "sha256:b4434e1807e5230da0a5ea76c108f96ec10fa280d3e4e970130a104de93ac781",
+      "docs/prompts/mapper.md": "sha256:63bc99c04f371d4d5b4dd01c86b8a4503f9b810aa5145f1714b2ce5cd71cc976",
+      "docs/prompts/lexicon_builder.md": "sha256:62a7c54b81028e4c838c59c4e22cb581bf4d7064c3f7292b5839b868844afc63"
+    }
+  },
+  "cost": {
+    "llm_calls": 1,
+    "prompt_tokens": 31660,
+    "completion_tokens": 7272,
+    "wall_seconds": 84.738
+  },
+  "prompt_sha256": "sha256:ddc48bdb0a0c286ab8194ba38f49e97b3cf95f6463e6e69c93d30915eef52cfa",
+  "auditor_sha256": "sha256:a49739eec170f4e2fc8751b977b23e5aab18dd3e647a3f505f79f4f642135b26",
+  "sampling_sha256": "sha256:4c0e2cc725d357a1bdfa5c718d243c850ae52f5f236543bbac45b5d8e6ecb615",
+  "profiler_sha256": "sha256:b4434e1807e5230da0a5ea76c108f96ec10fa280d3e4e970130a104de93ac781",
+  "mapper_sha256": "sha256:63bc99c04f371d4d5b4dd01c86b8a4503f9b810aa5145f1714b2ce5cd71cc976",
+  "lexicon_builder_sha256": "sha256:62a7c54b81028e4c838c59c4e22cb581bf4d7064c3f7292b5839b868844afc63"
+}
