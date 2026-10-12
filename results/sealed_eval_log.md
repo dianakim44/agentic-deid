@@ -45,6 +45,7 @@ records what happens to a run that fails *after* the row exists.
 | # | timestamp (UTC) | commit | tree | corpus | fold | arm | round | purpose |
 |---|---|---|---|---|---|---|---|---|
 | 1 | 2026-08-28T07:29:58Z | 496df71476a47c35396491d620119121c238c668 | clean | es-meddocan | test | R/sup-free/port-loop | 8 | port-loop arm terminated at iteration 8 (ceiling); sole pre-registered opening for this arm per DESIGN §6.4 |
+| 2 | 2026-10-12T04:08:40Z | aa2ce344c33a17a6646908ddb80a4c8c9f8a11db | clean | es-meddocan | test | R/sup-free/port-loop-noaudit | 8 | pre-registered single test evaluation of the Auditor-ablation arm at its ceiling round (B1a; docs/notes/arm-port-loop-noaudit-es.md §9) |
 
 `tree` is `clean` or `dirty`. A dirty tree means the commit hash does not describe
 the code that ran, so the row is honest only if it says so.
