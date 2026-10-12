@@ -89,11 +89,14 @@ from make_figures import (  # noqa: E402  (same directory, shared loaders)
     discover,
     label_lines,
     load_json,
+    manuscript_subject_arm,
     naming,
     one,
     reference_kind,
     tokens,
 )
+
+from src.corpora import base  # noqa: E402  (REPO is on the path via make_figures)
 
 #: The column headers of Tables A.1 and A.2 against the `layer` axis of
 #: `config/naming.yaml`. The manuscript names the layers in prose and the files
@@ -347,7 +350,14 @@ class Subject:
 def subject() -> Subject:
     paths = naming()["paths"]
     dev = [a for a in discover(paths, "metrics") if a.split == "dev"]
-    loop = one([a for a in dev if a.iterations > 1], "iterating arm")
+    # The arm is DECLARED, not read off `termination.iterations`. See
+    # `make_figures.manuscript_subject_arm`: the derived form found two arms the
+    # moment an ablation reached the same ceiling, and round 1 of an iterating
+    # arm records `iterations: 1` anyway, so the number never said which rung an
+    # arm is on (DESIGN §6.4.1).
+    primary = manuscript_subject_arm()
+    loop = one([a for a in dev if a.porting == primary],
+               f"dev record for the manuscript's primary arm {primary!r}")
 
     rounds = []
     for i in range(1, loop.iterations + 1):
@@ -363,7 +373,7 @@ def subject() -> Subject:
     )
 
     singles: dict[str, list[Arm]] = {}
-    for arm in (a for a in dev if a.iterations == 1):
+    for arm in (a for a in dev if not base.porting_iterates(a.porting)):
         singles.setdefault(arm.corpus, []).append(arm)
 
     return Subject(

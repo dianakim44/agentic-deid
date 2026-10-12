@@ -565,6 +565,44 @@ def manuscript_figure_arms(figure: str) -> tuple[str, list[str]]:
     return primary, list(comparison)
 
 
+def manuscript_subject_arm() -> str:
+    """The arm the manuscript's tables and captions report, from the declaration.
+
+    The tables report the same arm the figures draw, so this is not a second
+    declaration: it is the one `manuscript_figures` already makes, read across
+    every figure and **refused if they disagree** rather than taken from
+    whichever figure is named first. A future figure whose primary differs is a
+    real question about what the tables report, and it should stop the checker
+    instead of being resolved by dict order.
+
+    `tools/check_manuscript_numbers.py` used `termination.iterations > 1` here
+    until 2026-10-12. The 2026-10-11 change (DESIGN §6.4.1) converted this
+    module's selection and said in `manuscript_figure_arms` that the checker
+    imports the accessor from here — but the checker's own `subject()` was left
+    on the derived form, so the same defect survived in the sibling. It fired
+    the moment a second iterating arm existed: `port-loop-noaudit` iterates to
+    the same ceiling, `one()` found two, and nineteen tests went red. That is
+    the shape the twelfth move recorded — a control that reddens when the
+    experiment it guards makes progress is a control nobody keeps.
+    """
+    block = naming().get("manuscript_figures")
+    if block is None:
+        raise SystemExit(
+            "config/naming.yaml has no manuscript_figures block; it declares "
+            "which arm the manuscript reports and nothing here infers it"
+        )
+    primaries = {figure: manuscript_figure_arms(figure)[0] for figure in sorted(block)}
+    distinct = sorted(set(primaries.values()))
+    if len(distinct) != 1:
+        raise SystemExit(
+            "config/naming.yaml manuscript_figures declares more than one primary "
+            f"arm ({', '.join(f'{f}={p!r}' for f, p in sorted(primaries.items()))}); "
+            "which arm the manuscript's tables report is then ambiguous and this "
+            "refuses rather than picking one"
+        )
+    return distinct[0]
+
+
 def comparison_arms(paths: dict, figure: str) -> list[Arm]:
     """The declared comparison arms that have a dev record, in declared order.
 
