@@ -37,6 +37,22 @@ axes:
     RT-Arb:        RT with an agent arbitrating disagreeing spans
     RT-Aud:        RT with a leak auditor re-reading the de-identified output
     RT-Arb-Aud:    RT with both
+    # 2026-10-14, v24 등록 (DESIGN §12). RT-Arb 의 결정론적 대조군이다.
+    #
+    # **에이전트 약어가 붙지 않는 네 번째 값이고, 그것이 이 값의 요점이다.**
+    # 축 머리의 규약("에이전트는 역할 약어를 뒤에 붙인다")은 RT-Arb·RT-Aud·
+    # RT-Arb-Aud 가 에이전트를 하나씩 더 부르는 구성이라는 사실에서 나왔다.
+    # -Sel 은 에이전트를 부르지 않는다 — 같은 정책 공간에서 같은 목표 함수를
+    # dev 집계만으로 푸는 결정론적 선택기다 (naming.yaml 의 merge_policy).
+    # 이름이 역할이 아니라 기제를 가리키는 것은 porting 축의 -stripfence 와 같은
+    # 형태다: 바뀐 것이 호출 구성이 아니라 그것을 고르는 쪽일 때는 고르는 쪽을
+    # 이름한다.
+    #
+    # 이 값이 있어야 RT-Arb 의 결과가 읽힌다. Arbiter 가 RT 를 이기는 것은
+    # "에이전트가 병합을 정했다" 와 "정책 공간 안의 어느 점이든 RT 보다 낫다" 의
+    # 둘 중 무엇으로도 설명되고, 둘을 가르는 것은 같은 공간을 LLM 없이 푼 값이다.
+    # 그래서 RT-Sel 은 보조 arm 이 아니라 RT-Arb 의 해석 조건이다 (DESIGN §12.3).
+    RT-Sel:        RT with a deterministic per-type policy selector over the same space; no agent, no LLM call
 
   # ─── 탐지 층 (detector 축과 다른 개념) ──────────────────────
   # detector 는 "어떤 구성을 실험으로 돌리는가" — arm 하나가 결과 경로 한 칸이 된다.
@@ -254,6 +270,40 @@ axes:
       result. The protocol is retained in full in DESIGN §11 and this value is
       retained here because window_freeze.json already lives at its path.
       Do not write new results under this value without reviving the arm.
+    # ─── 이식이 일어나지 않는 rung — port-hybrid, 2026-10-14 ─────
+    #
+    # v24 의 네 arm(T · RT · RT-Sel · RT-Arb)이 쓰는 값이다. DESIGN §12.
+    #
+    # **이 축에서 "아무 에이전트도 이식하지 않았다" 를 뜻하는 첫 값이다.** 태거는
+    # train fold 에서 학습되고, 규칙 절반은 그 코퍼스의 등록된 R arm 이 이미 쓴
+    # 파일을 **그대로** 읽는다. 새로 저술되는 것이 없으므로 이식 주체가 없고,
+    # 그래도 경로 성분은 넷이 필요하다.
+    #
+    # **기존 저술 arm 의 값을 재사용하지 않는 이유.** results/{corpus}/RT/
+    # sup-human/port-oneshot/ 은 port-oneshot 이 내지 않은 실행을 그 이름 아래
+    # 두게 된다. 이 파일 머리의 원칙 — "설정이 바뀌면 새 ID를 만든다. 기존 ID의
+    # 의미를 바꾸지 않는다" — 이 금지하는 바로 그것이고, 경로만 봐서는 그 셀의
+    # 숫자가 저술 실행의 것인지 합성 실행의 것인지 알 수 없게 된다. 어느 R arm 의
+    # 규칙을 읽었는지는 경로가 아니라 experiments/hybrid_v24/registration.yaml 이
+    # 코퍼스마다 적는다 — 그 선택이 등록 사항이고 경로 성분이 아니기 때문이다.
+    #
+    # **값은 하나다.** detector 축이 이미 T 와 RT 계열을 구분하므로, 태거 단독과
+    # 합성에 각각 porting 값을 두면 축 하나가 다른 축의 구분을 되풀이한다 (이 파일
+    # 머리가 아무것도 새로 말하지 않는 어휘에 대해 하는 지적과 같다). 그래서 이
+    # 값은 구성이 아니라 **rung** 을 이름한다: 이식 단계가 없는 rung.
+    #
+    # 반복하지 않는다 — 아래 porting_rungs_without_termination 에 그 rung 이
+    # 선언되어 있다. 자율성 사다리의 점이 아니다 (DESIGN §4 의 넷은 그대로다):
+    # 사다리는 "이식을 누가 얼마나 자율적으로 하는가" 를 재고, 이 rung 은 이식을
+    # 하지 않는다.
+    port-hybrid: |
+      no agent ports anything. The tagger is trained on the train folds and composed
+      with the rules the corpus's registered R arm already wrote, under a merge policy
+      from the merge_policy vocabulary below. Which R arm supplied those rules is
+      registered per corpus in experiments/hybrid_v24/registration.yaml, not in the
+      path. Which composition is in force is named by `detector`, degenerately for T.
+      Does not iterate. Not a point on the autonomy ladder — the ladder measures how
+      autonomously the porting is done, and this rung does no porting.
 
   # ─── port-human 회차에서 언어모델을 어디에 썼는가 ──────────
   # rule_author.md §8 의 자기보고. human_log.jsonl 의 모든 행에 들어간다.
@@ -438,6 +488,12 @@ termination:
 # rule_author·auditor 는 iteration 0 에 쓰지 않는다 — orchestrate.call_line 이
 # 거부한다. "루프 밖" 이 드라이버를 믿어야 아는 사실이 아니라 커밋된 로그에서
 # 읽히는 사실이 되는 것이 그 규칙의 목적이다.
+# **이 블록은 이식 arm 의 역할만 담는다. 세 번째 에이전트는 여기 없다.**
+# Arbiter(2026-10-14, DESIGN §12.3)는 병합 정책을 정하는 에이전트이고 이식 arm
+# 안에서 돌지 않는다 — 회차가 없으므로 위의 iteration 0 분할에 올라갈 자리가
+# 없고, 넣으면 답할 수 없는 질문에 답을 박는 것이 된다. 어휘는 형제 블록
+# merge_agent_role 에 있다. excluded_types 가 phi_type 축의 부분집합이 아닌
+# 것과 같은 형태이고, 같은 이유로 양쪽 주석이 서로를 가리킨다.
 agent_role:
   rule_author: rules/{lang}.yaml 을 쓰는 에이전트. 모든 porting arm 이 최소 한 번 호출한다
   auditor:     마스킹된 dev 텍스트를 읽고 잔존 PHI 를 의심 표시한다. port-loop 회차 2 이상에서만 호출되고, porting_arms 에서 부재를 선언한 arm 에서는 호출되지 않는다
@@ -879,6 +935,88 @@ layer_families:
   rules:  [regex_checksum, context_cue, gazetteer]
   tagger: [tagger]
 
+# ─── 병합 정책 — (코퍼스, type) 하나가 받는 값 ────────────────
+# DESIGN §12.2 가 사전등록한 정책 공간. RT-sel 과 RT-arb 가 **같은** 공간에서
+# 고르고, 그래서 두 arm 의 차이가 공간이 아니라 고르는 쪽이 된다 (§12.3).
+#
+# **축이 아니다.** 경로에 들어가지 않는다 — 어느 정책이 선택됐는지는 arm 의
+# 산출물에 기록되고, 경로가 가리키는 것은 arm 이다. termination_reason 과 같은
+# 층위이고 같은 이유로 여기 있다: 결과 파일에 들어가는 닫힌 어휘다.
+#
+# **CLAUDE.md 의 "병합 정책은 교체 가능한 전략으로 구현한다" 가 요구하는 어휘다.**
+# 그 조항은 fixed-priority · union · agent-arbiter 가 같은 탐지 결과 위에서
+# 갈리기를 요구하고, 그러려면 "무엇으로 갈렸는가" 가 이름을 가져야 한다.
+#
+# θ 는 정책 이름의 일부가 아니라 별도 필드다. T@0.5 와 T@0.9 를 다른 정책으로
+# 적으면 공간의 크기가 정책 수 × θ 수가 아니라 그 곱으로 **이름이** 늘어나고,
+# "같은 정책을 다른 문턱에서" 라는 비교가 문자열 파싱이 된다. 아래 merge_theta 가
+# 격자이고, R 은 태거 스팬을 쓰지 않으므로 θ 를 갖지 않는다 (null 로 기록한다).
+merge_policy:
+  R:     규칙 스팬만 쓴다. 태거를 무시하므로 θ 가 적용되지 않는다 — 기록에서 theta 는 null 이다
+  T:     신뢰도 θ 이상인 태거 스팬만 쓴다. 규칙을 무시한다
+  UNION: 규칙 스팬과 θ 이상의 태거 스팬을 합집합한다. RT arm 전체가 모든 type 에 UNION@0.5 를 적용한 것이다
+  AGREE: |
+    상대 출처에 같은 type 의 겹치는 스팬이 있는 스팬만 남기고, 겹치면 **양쪽 모두**
+    남긴다. 교집합이 아니다 — 한쪽을 승자로 고르면 경계가 다른 두 예측 중 하나를
+    채점기 대신 이 정책이 고르는 것이 되고, DESIGN §9.3 이 채점기에 대해 금지한 바를
+    병합 정책이 하게 된다. 양쪽을 남기면 채점기의 1:1 배정이 그 선택을 하고,
+    누출률의 예측 합집합은 둘을 같은 합집합으로 덮는다.
+
+# ─── 태거 신뢰도 문턱의 격자 ─────────────────────────────────
+# DESIGN §12.2 사전등록. 정책 × θ 가 (코퍼스, type) 하나의 후보 집합이다.
+#
+# 값이 셋인 이유는 사전등록이 격자를 고정해야 하기 때문이다. 연속 문턱을 dev 에서
+# 최적화하면 선택의 자유도가 type 수 × 실수이고, δ 제약 하나로 그것을 통제한다는
+# 주장은 검증 불가다. 셋은 "낮게 · 중간 · 높게" 를 가르는 최소 격자다.
+#
+# 0.5 가 RT 의 값이다 — RT arm 은 모든 type 에 UNION@0.5 이므로, 격자에 0.5 가
+# 없으면 RT 가 정책 공간 밖의 점이 되고 δ 제약(L_full ≤ L_full(RT) + δ)이
+# 공간 안에서 달성 가능한지 알 수 없게 된다.
+merge_theta: [0.5, 0.7, 0.9]
+
+# ─── 병합을 정하는 에이전트의 역할 ───────────────────────────
+# Arbiter 는 이 프로젝트의 세 번째 LLM 에이전트다 (RuleAuthor · Auditor 에 이어).
+# DESIGN §12.3.
+#
+# **위 agent_role 에 넣지 않는다. 그 블록은 *이식 arm 의* 호출 어휘다.**
+# agent_role 의 다섯 값은 agent_calls.jsonl 한 파일을 공유하고,
+# orchestrate.call_line() 이 그것을 **iteration 0 안/밖으로 분할**해서 검사한다
+# (LOOP_ROLES · OUT_OF_LOOP_ROLES, 그리고 그 분할이 전체를 덮는다는 것을
+# tests/test_agent_role.py 가 단언한다). Arbiter 는 그 분할의 어느 쪽도 아니다 —
+# 이식 arm 안에서 돌지 않고, 회차를 갖지 않고, rules/ 아래 아무것도 쓰지 않는다.
+# 넣으면 두 집합 중 하나에 넣어야 하고, 어느 쪽에 넣어도 "이 역할은 포팅 루프의
+# 몇 회차에 호출되는가" 라는 답할 수 없는 질문에 답을 하나 박는 것이 된다.
+#
+# 그래서 형태는 excluded_types 와 같다: 축의 부분집합이 아니라 **형제 블록**이고,
+# 저쪽 블록의 주석이 이쪽을 가리킨다. check_agent_role() 이 'arbiter' 를 거절하는
+# 것은 결함이 아니라 이 분리가 작동하는 것이다 — Arbiter 는 agent_calls.jsonl 에
+# 쓰지 않고 자기 로그(experiments/hybrid_v24/arbiter_calls.jsonl)에 쓴다.
+#
+# 값이 하나인 블록을 두는 비용은 안다. 그 대가로 얻는 것은, 네 번째 에이전트가
+# 이식 역할인지 아닌지를 추가하는 사람이 **결정해야 한다**는 것이다.
+merge_agent_role:
+  arbiter: |
+    reads dev aggregate numbers only — never corpus text, never a span surface — and
+    emits a merge_policy per canonical type. Three rounds at most per corpus, three
+    independent draws per corpus. Writes experiments/hybrid_v24/arbiter_calls.jsonl,
+    not the porting arms' agent_calls.jsonl, because it is not a porting role.
+
+# ─── 반복 실행 일관성 C 의 세 층 ──────────────────────────────
+# DESIGN §12.5, 가이드라인 Ⅴ장. 세 층이 서로 다른 것을 재므로 한 숫자로 합치지
+# 않는다. 층 이름이 결과 파일에 들어가므로 어휘다.
+#
+# 세 층을 가르는 질문은 "무엇을 고정하고 무엇을 다시 뽑았는가" 다. (a) 는 아무것도
+# 다시 뽑지 않고 같은 것을 다시 적용한다 — 규칙은 1.0 이 기대값이고, 1.0 이 아니면
+# 그것은 구현 결함이거나 MPS 비결정성이다. (b) 는 프롬프트를 고정하고 응답을 다시
+# 뽑는다. (c) 는 학습 시드와 에이전트 draw 를 다시 뽑는다.
+#
+# (a) 가 1.0 이 아닐 수 있다는 것을 미리 적어 두는 이유: 태거의 MPS 비결정성을
+# 발견한 뒤에 "실행 반복" 의 정의를 고치면 그 수치가 선택이 된다.
+consistency_layer:
+  run_repeat:    같은 규칙·같은 가중치·같은 정책을 dev 에 3회 재적용한다. 규칙은 1.0 이 기대값이고 태거는 MPS 비결정성 때문에 아닐 수 있다 — 그대로 보고한다
+  author_repeat: 같은 프롬프트로 규칙 저술을 다시 뽑는다 (MEDDOCAN 회차 1 의 5 추첨, noaudit 반복 3개의 최종 규칙)
+  train_repeat:  학습·조정을 다시 뽑는다 (태거 시드 1~3, Arbiter draw 1~3)
+
 # ─── porting 값 → 어느 rung 의 드라이버가 도는가 ─────────────
 # porting 축에는 rung 하나에 값이 여럿 있다 (port-multi · port-multi-noexample ·
 # port-multi-stripfence). 드라이버는 "이 값이 내 rung 인가" 를 물어야 하는데
@@ -919,6 +1057,11 @@ porting_rungs:
   multi:      [port-multi, port-multi-noexample, port-multi-stripfence]
   selfdesign: [port-selfdesign]
   human:      [port-human]
+  # 2026-10-14. 이식 단계가 없는 rung (DESIGN §12). 사다리의 다섯째 점이 아니다 —
+  # 위 네 rung 의 순서가 자율성이고, 이 rung 은 그 축에 올라가지 않는다. 드라이버도
+  # tools/run_loop.py 가 아니다: 이 rung 을 도는 것은 tools/run_hybrid.py 이고,
+  # 그래서 "어느 드라이버가 도는가" 라는 이 블록의 질문에 자기 답을 갖는다.
+  hybrid:     [port-hybrid]
 
 # ─── 종료 규칙이 적용되지 않는 rung ─────────────────────────
 # 위 termination_reason 의 not_applicable 은 "이 arm 은 반복하지 않으므로 종료
@@ -944,7 +1087,11 @@ porting_rungs:
 # run_sealed_eval.plan_arm 의 아홉 거절을 **전부 통과했다**는 것이다 — 그 run 은
 # 사전등록된 회차 1 검사에서 무효로 판정된 run 이었고, --iteration 1 로 부르면
 # 봉인이 열렸을 것이다.
-porting_rungs_without_termination: [oneshot]
+# 2026-10-14 에 hybrid 가 추가됐다. port-hybrid 는 한 번 조립되고 한 번 채점되므로
+# 종료 규칙의 적용 대상이 아니고, 최종 회차는 1 이다. 위 fail-closed 규정대로
+# 선언하지 않으면 봉인 게이트가 거절하는 쪽으로 틀리므로, §5 의 개봉이 가능해지려면
+# 이 줄에 있어야 한다 — 그리고 그 사실이 이 줄을 등록 커밋에 넣는 이유다.
+porting_rungs_without_termination: [oneshot, hybrid]
 
 # ─── arm 선언: 읽는 프롬프트 판본과 부재하는 에이전트 ───────
 # DESIGN §6.3 의 "An arm may declare which prompt revision it sends" 절이

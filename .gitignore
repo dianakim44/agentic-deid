@@ -96,3 +96,14 @@ Thumbs.db
 ~$*
 .vscode/
 .idea/
+
+# ─── v24 하이브리드 (DESIGN §12, 2026-10-14) ───────────────────
+# 태거 가중치. credentialed 코퍼스(en-deid · ko-surro · es-carmen)의 train fold 로
+# 학습했으므로 공개하지 않는다 — 공통 규칙. *.safetensors 등이 이미 걸리지만
+# 디렉토리를 명시해 두는 이유는 토크나이저 부산물·옵티마이저 상태처럼 확장자가
+# 다른 파일이 같은 자리에 생기기 때문이다.
+experiments/hybrid_v24/weights/
+experiments/hybrid_v24/checkpoints/
+# Arbiter 호출 로그. **/agent_calls.jsonl 과 같은 규율 — 프롬프트·응답·토큰 로그는
+# 저장소 밖 로컬 백업에 둔다. 집계된 비용은 metrics 쪽에 기록된다.
+**/arbiter_calls.jsonl

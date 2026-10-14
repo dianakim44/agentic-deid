@@ -68,6 +68,11 @@
       "why": "Korean comments documenting the identifier vocabulary. The values are experiment identifiers; the prose explains what each axis is for."
     },
     {
+      "path": "experiments/hybrid_v24/registration.yaml",
+      "sniff": "Korean prose",
+      "why": "Korean comments in the v24 pre-registration (DESIGN §12): the tagger's hyperparameters, the merge-policy space and its objective, the Arbiter's loop and budget, the four pre-registered predictions, and the guideline metric definitions. Holds hyperparameters, axis values read from naming.yaml, a prompt-template SHA-256 and the registered rules arm per corpus. No document id, no span, no offset, no corpus text — and no measured result, because this file is committed before the tagger is trained and before the Arbiter is called."
+    },
+    {
       "path": "config/sampling.yaml",
       "sniff": "Korean prose",
       "why": "Korean comments explaining the error-sample parameters and why changing them invalidates a port-human run. Holds four integers and two strings; no span, no offset, no corpus text."

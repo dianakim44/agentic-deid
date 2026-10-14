@@ -1,0 +1,272 @@
+# v24 사전등록 — 학습형 태거(T) · 하이브리드(RT · RT-Sel · RT-Arb) · 가이드라인 지표
+#
+# 2026-10-14. **태거를 한 번도 학습시키기 전, Arbiter 를 한 번도 호출하기 전**에
+# 커밋된다. 근거와 논증은 docs/DESIGN.md §12 에 있고 이 파일은 그 결정의 기계가
+# 읽는 형태다 — 두 곳이 어긋나면 DESIGN.md 가 맞고 이 파일이 틀린 것이다.
+#
+# 어휘는 전부 config/naming.yaml 에서 온다. 이 파일은 어휘를 만들지 않는다
+# (CLAUDE.md). 새 값이 필요했던 것은 네 개이고 전부 같은 커밋에서 naming.yaml 에
+# 들어갔다: detector 의 RT-Sel, porting 의 port-hybrid, 그리고 블록
+# merge_policy · merge_theta · merge_agent_role · consistency_layer.
+
+version: 1
+registered: 2026-10-14
+design_section: "docs/DESIGN.md §12"
+
+# ─── 실험 행렬 ───────────────────────────────────────────────
+# 다섯 arm × 다섯 코퍼스. arm 이름은 detector 축의 값이다 — 지시문의 'RT-sel' ·
+# 'RT-arb' 는 축 값 RT-Sel · RT-Arb 의 비형식 표기이고, 결과 경로와 기록에는
+# 축 값만 쓴다.
+arms:
+  R:      {detector: R,      supervision: sup-free,  porting: per_corpus_rules_arm}
+  T:      {detector: T,      supervision: sup-human, porting: port-hybrid}
+  RT:     {detector: RT,     supervision: sup-human, porting: port-hybrid}
+  RT-Sel: {detector: RT-Sel, supervision: sup-human, porting: port-hybrid}
+  RT-Arb: {detector: RT-Arb, supervision: sup-human, porting: port-hybrid}
+
+corpora: [es-meddocan, de-grascco, es-carmen, en-deid, ko-surro]
+
+# ─── 어느 R arm 의 규칙을 읽는가 ─────────────────────────────
+# DESIGN §12.0. 경로 성분이 아니라 등록 사항이다 — port-hybrid 의 gloss 가
+# 그렇게 적는다. 네 코퍼스는 R arm 이 하나뿐이므로 선택이 아니고, es-meddocan 은
+# 아홉이므로 선택이다.
+#
+# es-meddocan 이 port-loop 인 이유 둘, 그리고 둘째가 결정적이다:
+#   1. fig2 의 primary 이고 그 코퍼스의 headline R 결과다.
+#   2. **test fold 가 이미 열려 있다**
+#      (results/es-meddocan/R/sup-free/port-loop/test/metrics.json).
+#      그래서 es-meddocan 의 R 열이 추가 개봉 없이 채워진다. port-multi 나
+#      port-oneshot-nofence 를 등록했으면 §6.4 가 주지 않는 개봉을 요구하는
+#      숫자가 표에 들어갔을 것이다.
+rules_arm:
+  es-meddocan: port-loop
+  de-grascco:  port-oneshot
+  es-carmen:   port-oneshot
+  en-deid:     port-oneshot
+  ko-surro:    port-oneshot
+
+# ─── 1.1 태거 ────────────────────────────────────────────────
+tagger:
+  model: xlm-roberta-base
+  # 다섯 train fold 를 **합쳐** 하나의 모델. 코퍼스별 모델이 아니다.
+  pooled_train_folds: true
+  labels:
+    scheme: BIO
+    # phi_type 축의 10개. 축에서 읽는다 — 여기 열거하지 않는 이유는 열거하면
+    # 축과 어긋날 수 있는 쌍이 하나 생기기 때문이다.
+    source: "config/naming.yaml axes.phi_type"
+    n_labels: 21          # 10 × (B, I) + O
+    # §9.1 제외 유형은 학습과 평가 양쪽에서 제외한다. 제외 스팬은 positive 도
+    # negative 도 아니다 — 손실에서 마스킹한다(-100).
+    excluded_types_dropped: true
+  window:
+    max_tokens: 512
+    stride: 128
+    # 겹치는 창의 예측은 **토큰별 최대 확률**로 합친다. 스팬을 만든 뒤 합치지
+    # 않는다 — 스팬 수준에서 합치면 창 경계에서 잘린 스팬 둘이 서로 다른 type 일
+    # 때 어느 쪽을 버릴지에 답이 없다.
+    overlap_resolution: per_token_max_probability
+    offsets: character
+  span_confidence: mean_token_probability
+  training:
+    optimizer: AdamW
+    lr: 3.0e-5
+    weight_decay: 0.01
+    batch_size: 16
+    # 측정됨 2026-10-14: batch 16 · seq 512 가 MPS 에서 6.54 GB (64 GB 중).
+    # grad accumulation 은 필요하지 않았고, 필요해지면 실효 16 을 유지한다.
+    grad_accumulation: 1
+    max_epochs: 8
+    warmup_ratio: 0.10
+    lr_schedule: linear_decay
+    device: mps
+  seeds: [1, 2, 3]
+  # 원고의 주 결과는 시드 1. 2·3 은 변동 보고용이고 체크포인트 선택에 쓰지 않는다.
+  primary_seed: 1
+  epoch_selection:
+    # dev fold 다섯 코퍼스 **합산** L_full 이 가장 낮은 epoch. 코퍼스별 argmin
+    # 다섯 개는 존재하지 않는 모델 다섯 개다 (DESIGN §12.1).
+    criterion: summed_dev_L_full
+    split: dev
+    test_used: false
+  provenance:
+    # DESIGN §9.3: rules-family 스팬은 rule_id 를 갖고 tagger 스팬은 갖지 않는다.
+    layer: tagger
+    rule_id: null
+  weights:
+    # credentialed 코퍼스로 학습한 가중치는 공개하지 않는다. 경로는 .gitignore.
+    committed: false
+    path_gitignored: true
+
+# ─── 1.2 병합 정책 공간 ──────────────────────────────────────
+merge:
+  policy_vocabulary: "config/naming.yaml merge_policy"
+  theta_grid: "config/naming.yaml merge_theta"
+  # RT arm = 모든 type 에 UNION@0.5. 그래서 격자에 0.5 가 있어야 하고,
+  # 없으면 아래 제약이 공간 밖의 점을 기준으로 진술된다.
+  rt_baseline: {policy: UNION, theta: 0.5}
+  unit: [corpus, phi_type]
+  objective:
+    maximise: A
+    subject_to: "L_full(policy) <= L_full(RT) + delta"
+    # δ 는 §3 의 것 그대로이고 코퍼스마다 다르다. 두 상수는 naming.yaml 의
+    # termination 블록에서 읽는다 — 이 절을 위한 두 번째 δ 는 같은 fold 에 대한
+    # 두 번째 노이즈 floor 다.
+    delta: "max(termination.delta_floor, termination.delta_spans / n_dev)"
+    delta_source: "config/naming.yaml termination"
+  # dev 에 gold 가 없는 type 은 선택 대상이 아니다. 0 관측 위에서의 선택을
+  # 막는 것이고, 하네스가 Arbiter 를 부르기 **전에** 고정한다.
+  no_gold_type_policy: {policy: UNION, theta: 0.5}
+  sparse_max: 8          # scorer.SPARSE_MAX 와 같은 값. 표의 sparse 플래그 기준.
+
+# ─── 1.3 RT-Sel (결정론적 선택기) ────────────────────────────
+rt_sel:
+  llm_calls: 0
+  source: dev_aggregates
+  # δ 를 type 별 gold 수 비율로 배분한다. 각 type 이 전체 예산을 다 쓰면
+  # 조합이 코퍼스 제약을 넘는다.
+  delta_apportionment: "delta_t = delta * n_t / n"
+  rule: "type 별로 L_full 조건을 만족하는 정책 중 A 최대"
+  tie_break:
+    policy_order: [UNION, R, T, AGREE]
+    theta_order: ascending
+
+# ─── 1.4 RT-Arb (Arbiter 에이전트) ───────────────────────────
+rt_arb:
+  role: arbiter          # merge_agent_role 의 값. agent_role 이 아니다 (DESIGN §12.3).
+  role_vocabulary: "config/naming.yaml merge_agent_role"
+  prompt_template: docs/prompts/arbiter.md
+  # 템플릿은 커밋되고 SHA-256 이 여기 고정된다. 호출 전에 디스크의 해시와
+  # 대조하고, 어긋나면 호출하지 않는다.
+  prompt_sha256: eaa0ded90e1ab9b54bb8b089a1d0854d140867c75bee5424d71b23aefd251147
+  # 이 템플릿은 porting arm 의 창 파일이 아니다 — src/sample.py 의 WINDOW_FILES 에
+  # 넣지 않는다. Arbiter 는 이식 arm 안에서 돌지 않으므로 얼릴 창이 없고,
+  # 불변성은 이 해시가 지킨다.
+  in_window_files: false
+  sees:
+    - per-type aggregate counts and rates
+    - complementarity four cells
+    - non-gold masked character rate
+    - previous round's achieved L_full, A, constraint verdict, per-type deltas
+  never_sees: [corpus text, span surfaces, document identifiers]
+  output_schema: "{type: {policy, theta, rationale}}"
+  loop:
+    max_rounds_per_corpus: 3
+    stop_when:
+      - "constraint satisfied and A did not improve on the previous round"
+      - "round 3 reached"
+    format_error_retries: 1          # 같은 라운드 안에서 1회. 두 번째 실패면 직전 유효 정책.
+    on_second_format_error: use_last_valid_policy
+  final_policy:
+    # 제약을 충족한 라운드 중 dev A 가 최고인 것.
+    select: best_dev_A_among_constraint_satisfying_rounds
+    # 충족한 라운드가 없으면 RT 로 대체하고 **그 사실이 결과다**.
+    fallback: RT
+    fallback_is_reported: true
+  draws: [1, 2, 3]
+  primary_draw: 1        # 2·3 은 일관성 C 의 train_repeat 층에 들어간다.
+  # 원문 차단 가드. 화이트리스트 검사를 통과하지 못하면 호출하지 않는다.
+  text_guard:
+    whitelist: [numbers, the ten phi_type names, fixed template strings]
+    checked_before_call: true
+    checked_on_return: true          # rationale 이 유일한 자유 문자열 필드다.
+    on_failure: do_not_call
+  budget:
+    expected_max_calls: 45           # 5 코퍼스 × 3 라운드 × 3 draw
+    log: experiments/hybrid_v24/arbiter_calls.jsonl
+  deadline: 2026-10-25               # Bedrock 지원 종료 전. 공통 규칙.
+
+# ─── LLM 경로 ────────────────────────────────────────────────
+llm:
+  provider: bedrock
+  model_id: us.anthropic.claude-opus-4-5-20251101-v1:0
+  max_tokens: 32768
+  # 나머지는 기본값. 명시적으로 적는 이유는 "기본값을 썼다" 와 "적지 않았다" 를
+  # 구분하기 위해서다 (model_id_absent 의 'none' 과 같은 논거).
+  other_params: defaults
+  off_repo_backup_required: true
+
+# ─── 1.5 사전등록 예측 ───────────────────────────────────────
+predictions:
+  P5:
+    claim: "다섯 코퍼스 각각에서 test L_full(RT) < min(L_full(R), L_full(T))"
+    direction: stated
+    # 병합이 union 이므로 recall 에서는 by construction 이다. 이것은 누출률에
+    # 대한 주장이고 union 도 fully_covered 회계에서 질 수 있다 (DESIGN §12.4).
+    note: "by-construction on recall; registered as a leak-rate claim"
+  P6:
+    claim: "dev 상보성에서 tagger only 최대 비중은 NAME 또는 ORGANISATION; rules only 최대 비중은 ID · CONTACT · DATE 중 하나"
+    direction: stated
+    scope: non_sparse_types_only
+  P7:
+    claim: "다섯 중 3개 이상에서 test RT-Arb 가 A >= A(RT) 이면서 L_full <= L_full(RT) + delta"
+    direction: stated
+  P8:
+    claim: "RT-Arb 와 RT-Sel 의 test A 차이"
+    direction: none
+    reporting: exploratory
+
+# ─── 1.6 가이드라인 지표 정의 ────────────────────────────────
+# 기준 문서: 「보건의료데이터 상호운용성 지원 R&D」 3내역 AI SW 성능평가
+# 가이드라인(안), 2026.9, Ⅴ장 가명처리 SW 및 붙임 1~3.
+# **문서 파일은 저장소에 넣지 않는다.** 아래 정의가 쓰이는 전부다.
+guideline:
+  reference: "보건의료데이터 상호운용성 지원 R&D 3내역 AI SW 성능평가 가이드라인(안), 2026.9, Ⅴ장 + 붙임 1~3"
+  document_in_repo: false
+  accuracy:
+    matching: one_to_one_greedy      # 기존 채점기. 문자 겹침 최대 + type 일치.
+    exact_span_required: false
+    true_negatives_counted: false
+    A: "TP / (TP + FP + FN)"
+    also: [precision, recall, f1]
+    # A 는 대체 headline 이 아니다. headline 은 누출률과 상보성 분해다
+    # (CLAUDE.md). A 는 §12.2 의 목표 함수가 제약 아래서 최대화하는 값이다.
+    is_headline: false
+    computed_for:
+      - every arm's dev
+      - already-open test cells
+      - test cells opened in step 5
+      - "es-meddocan: baseline, round 1, round 8, noaudit × 3"
+      - "four corpora single-call rule arms"
+    opens_no_test_fold: true
+  consistency:
+    symbol: C
+    definition: "문서마다 모든 실행 쌍의 Jaccard 평균 → 문서 N개에 대해 평균"
+    span_key: [start, end, type]
+    # 두 집합이 모두 비어 있으면 1. PHI 가 없는 문서를 두 실행이 둘 다 비었다고
+    # 하면 그것은 완전한 일치다 (DESIGN §12.5).
+    both_empty_jaccard: 1.0
+    split: dev
+    layer_vocabulary: "config/naming.yaml consistency_layer"
+    layers:
+      run_repeat:
+        repeats: 3
+        fixed: [rules, weights, policy]
+        expectation: "규칙은 1.0. 태거는 MPS 비결정성으로 1.0 이 아닐 수 있고 그대로 보고한다"
+      author_repeat:
+        meddocan_round1_draws: 5
+        noaudit_final_rules: 3
+      train_repeat:
+        tagger_seeds: [1, 2, 3]
+        arbiter_draws: [1, 2, 3]
+    cross_institution: not_applicable   # 기관이 하나다. 계산하지 않는다.
+  rfp_reference_column:
+    # 과제 보고용 참고 열. 이 프로젝트가 방법에 대해 하는 주장이 아니다.
+    stage1_threshold: 0.90
+    applies_to: [accuracy, consistency, recall]
+    render: O/X
+    is_a_project_claim: false
+  phi_type_divergence:
+    # 가이드라인은 "국내 PHI 기준" type 을 전제한다. 우리 10개와 다르면 차이를
+    # 표 옆에 한 줄로 적는다 — 재조정하지 않는다 (어느 코퍼스도 그 type 집합으로
+    # 주석되어 있지 않다).
+    reconciled: false
+    reported_as: one_line_beside_the_table
+
+# ─── 게이트 ──────────────────────────────────────────────────
+mutation_gate:
+  # 공통 규칙: 새 전량 뮤테이션 게이트는 돌리지 않는다. 새 코드에는 일반
+  # 테스트만 붙이고 게이트는 제출 후로 기록한다. CLAUDE.md 의 연기 규약대로
+  # "면제" 가 아니라 "연기" 다.
+  full_run: deferred_until_after_submission
+  new_mutations_added: 0

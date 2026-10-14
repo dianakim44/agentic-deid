@@ -5,7 +5,7 @@ proposing changes to the pipeline, the agents, or the experiment matrix.
 If a decision here turns out to be wrong, change it here first — do not
 work around it in code.
 
-Last updated: 2026-08-07
+Last updated: 2026-10-14
 
 ---
 
@@ -9212,3 +9212,211 @@ fixed in advance. **What it does not:** a claim that either arm ran to the point
 diminishing returns for *its own* cost structure. δ and k were set for one cost structure
 and the arms have two, which is a known limitation of the comparison rather than
 something the protocol repairs.
+
+---
+
+## 12. v24: the learned tagger, the hybrid arms, and the Arbiter — pre-registered 2026-10-14, before any tagger is trained
+
+Everything up to §11 describes one detector family: rules, written by an agent, in three
+layers (`regex_checksum` · `context_cue` · `gazetteer`). The `detector` axis has carried
+`T`, `RT`, `RT-Arb`, `RT-Aud` and `RT-Arb-Aud` since the beginning and no run has filled
+any of them. §7's central prediction — that losing orthographic cues costs the
+`context_cue` layer much more than it costs a learned tagger — is **not testable with an
+empty `tagger` layer**, and §6.4's layer table records `tagger` as 0 in all five arms for
+that reason. This section registers what fills it.
+
+Five arms, compared on the same folds with the same scorer:
+
+| arm | `detector` | what it is |
+|---|---|---|
+| R | `R` | the existing agent-written rules; already run on all five corpora |
+| T | `T` | the tagger alone |
+| RT | `RT` | union of the two, every type at `UNION@0.5` |
+| RT-sel | `RT-Sel` | a deterministic per-type policy selector over the policy space |
+| RT-arb | `RT-Arb` | the Arbiter agent choosing in the same space |
+
+### 12.0 Three axis decisions, and why each is a new value rather than a reuse
+
+**`port-hybrid` — a rung that does no porting.** The four new arms need four path
+components, and nothing is authored when they run: the tagger is trained on the train
+folds, and the rules half is read, byte for byte, from the files the corpus's registered R
+arm already wrote. Reusing that arm's `porting` value would put a run it did not produce
+under its name, which is what naming.yaml's own header forbids ("a changed configuration
+gets a new ID; an existing ID's meaning is not changed"), and would make the cell's number
+unreadable from the path — authoring run or composition run, no way to tell. One value and
+not two: `detector` already separates `T` from the `RT` family, so a second `porting` value
+for the degenerate composition would be one axis repeating another's distinction. The value
+therefore names the **rung** — the rung with no porting step — and `porting_rungs` gives it
+its own entry because it is driven by `tools/run_hybrid.py` and not by `tools/run_loop.py`.
+It is **not a fifth point on the autonomy ladder** (§4): the ladder orders *how
+autonomously the porting is done*, and this rung does none.
+
+**Which R arm supplies the rules is registered, not derived from the path.** Four corpora
+have exactly one R arm (`port-oneshot`). `es-meddocan` has nine, so the choice is a real
+one and it is `port-loop`. Two reasons, and the second is the binding one: `port-loop` is
+fig2's primary arm and the corpus's headline R result, and **its test fold is already
+open** (`results/es-meddocan/R/sup-free/port-loop/test/metrics.json`), so RT-vs-R on
+es-meddocan costs no further opening. Registering `port-multi` or `port-oneshot-nofence`
+instead would have made the R column of the v24 table a number this protocol cannot
+produce without spending an opening §6.4 does not grant.
+
+**`supervision` is `sup-human` for all four new arms, including `ko-surro`'s.** The tagger
+is one model over five train folds, and four of those folds carry the corpora's own human
+annotations. `ko-surro`'s labels are the gold-support-filtered silver reference (§6.5 (v)),
+which is `sup-free` in isolation — but the weights that predict on `ko-surro` saw
+`es-meddocan`'s, `de-grascco`'s, `es-carmen`'s and `en-deid`'s human annotations, so
+labelling that cell `sup-free` would publish an annotation-free result for a detector built
+on annotations. The axis takes the value that over-claims the *supervision* rather than the
+one that over-claims the *finding*. R stays `sup-free` on every corpus, which is what makes
+the project's headline claim still readable: it is a claim about the `R` cells.
+
+A consequence worth stating: R and RT sit in different `supervision` cells, so the v24
+table compares across that axis. That is intended — the cost of the tagger *is* the
+supervision it needs — and it means no v24 result can be reported as evidence that the
+annotation-free pipeline was improved. It is evidence about what annotation buys.
+
+### 12.1 The tagger
+
+One `xlm-roberta-base`, one model over the five train folds pooled. BIO over the ten
+canonical types; §9.1's exclusions are dropped from training and from evaluation alike, so
+an excluded span is neither a positive nor a negative. 512-token windows at stride 128;
+predictions are mapped back to character offsets, and overlapping windows are reconciled
+**per token by maximum probability** before any span is formed. A span's confidence is the
+mean predicted probability of the tokens in it.
+
+AdamW, lr 3e-5, weight decay 0.01, batch 16, at most 8 epochs, 10% warmup, linear decay.
+Seeds 1, 2 and 3; **seed 1 is the manuscript's result** and 2 and 3 exist to report spread.
+The checkpoint is the epoch with the lowest summed dev `L_full` over all five corpora — one
+curve, not five, because one model is being selected and five per-corpus argmins would be
+five models that do not exist. Test is not read for this or for anything else in §12.
+
+Every tagger span carries `layer: "tagger"`, `detector` naming the tagger, and **no
+`rule_id`** — §9.3's rule-attribution block requires a rules-family span to carry one and a
+tagger span not to, and the asymmetry is what keeps per-rule precision attributable.
+
+### 12.2 The policy space, and the objective fixed before any of it is scored
+
+Each (corpus, type) takes one value of naming.yaml's `merge_policy` — `R`, `T`, `UNION`,
+`AGREE` — with a confidence threshold θ from `merge_theta` = {0.5, 0.7, 0.9}. `R` ignores
+the tagger and so has no θ. `AGREE` keeps **both** overlapping spans rather than choosing
+one, because choosing one would make this policy do the thing §9.3 forbids the scorer from
+doing: pick a winner between two differently bounded predictions. Keeping both leaves that
+to the scorer's 1:1 assignment and leaves the leak rate's prediction union unchanged.
+
+RT is the point of the space with `UNION@0.5` everywhere, which is why 0.5 is in the grid:
+without it, the δ constraint below would be stated against a point the space cannot reach.
+
+**The objective, fixed here and not revisited after any number is seen.** Among policy
+combinations satisfying
+
+> `L_full(policy) ≤ L_full(RT) + δ`,  δ = `max(0.005, 26/n_dev)`
+
+choose the one with the highest entity-level accuracy A (§12.5). δ is §3's, unchanged and
+per corpus, read from the same two constants in naming.yaml's `termination` block — a second
+δ for this section would be a second noise floor for the same folds. The constraint is the
+direction that matters: leak rate is the headline (CLAUDE.md) and A is not allowed to be
+bought with leaks. A type with no dev gold is **fixed at `UNION@0.5`**, not optimised; there
+is nothing to select on and selecting anyway would be selecting on zero observations.
+
+### 12.3 Two choosers over one space, and why the deterministic one is the condition for reading the other
+
+RT-sel does it with arithmetic: per type, among policies meeting the constraint, the highest
+A, ties broken `UNION` > `R` > `T` > `AGREE` and then lowest θ. δ is apportioned by each
+type's share of dev gold, δ_t = δ · n_t / n, so that the per-type decisions compose into a
+combination that meets the whole-corpus constraint rather than each spending the full budget.
+No LLM call.
+
+RT-arb does it with the Arbiter, the project's third LLM agent. It sees **dev aggregate
+numbers only** — per (corpus, type): n_t, whether the type is sparse (n ≤ 8), TP/FP/FN per
+candidate policy, L_full, L_rel, A, the four complementarity cells, and the non-gold masked
+character rate — and emits JSON `{type: {policy, theta, rationale}}`. At most three rounds
+per corpus: round 1 gets the table, the harness scores the proposal on dev and returns
+whole-corpus L_full, A, whether the constraint holds, and the per-type deltas. It stops when
+the constraint holds and A did not improve, or at round 3. A malformed response is retried
+**once within the same round**; a second failure falls back to the last valid policy. The
+reported policy is the constraint-satisfying round with the best dev A; if no round satisfies
+it, the arm falls back to RT and **that fact is reported as the result**. Three independent
+draws; draw 1 is the manuscript's, and 2 and 3 feed consistency C.
+
+**The text-blocking guard is structural, not a review step.** The prompt is assembled from
+numbers, the ten type names, and fixed template strings — nothing else — and a whitelist
+test checks that before any call is made. If the check fails the call does not happen. The
+rationale that comes back is checked the same way on the return path, because a one-sentence
+rationale is the one field in the protocol an agent could put a surface into.
+
+**RT-sel is not a nice-to-have.** If RT-arb beats RT, two explanations fit: the agent chose
+well, or any point in this space beats `UNION@0.5` everywhere. Only a deterministic solve of
+the same space separates them, which is why `RT-Sel` is a declared axis value and why P8
+reports the RT-arb − RT-sel difference with no predicted direction.
+
+### 12.4 Pre-registered predictions
+
+| | claim |
+|---|---|
+| P5 | On each of the five corpora, test `L_full(RT) < min(L_full(R), L_full(T))`. |
+| P6 | In the dev complementarity breakdown, the type with the largest `tagger only` share is `NAME` or `ORGANISATION`; the type with the largest `rules only` share is one of `ID`, `CONTACT`, `DATE`. Non-sparse types only. |
+| P7 | On at least 3 of 5 corpora, test RT-arb satisfies both A ≥ A(RT) and `L_full ≤ L_full(RT) + δ`. |
+| P8 | The test A difference between RT-arb and RT-sel is reported exploratorily, with **no predicted direction**. |
+
+P5 is the weakest of the four and is close to true by construction on recall — the merge is
+a union, so RT cannot find fewer spans than either component (CLAUDE.md states this). It is
+a claim about *leak rate*, which a union can still lose on if the extra predictions shift the
+`fully_covered` accounting; it is registered because the by-construction reading is the one a
+reader will apply, and recording that the authors knew it is cheaper than being told.
+
+### 12.5 The guideline metrics
+
+Reference: 「보건의료데이터 상호운용성 지원 R&D」3내역 AI SW 성능평가 가이드라인(안),
+2026.9, Ⅴ장 and 붙임 1–3. The definitions below are the whole of what is used; the document
+itself is not in the repository.
+
+**A, and P/R/F1.** The existing one-to-one greedy matching — maximum character overlap, type
+must agree, exact span boundaries not required, no true negatives — and
+
+> A = TP / (TP + FP + FN)
+
+A is the guideline's accuracy and is **not** an alternative headline. The leak rate and the
+complementarity breakdown stay the headline (CLAUDE.md); A is what the objective in §12.2
+maximises *subject to* the leak-rate constraint, and it is reported because the funded
+project asks for it. It is computed for every arm's dev, for already-open test cells and the
+ones §5 opens, for the existing MEDDOCAN arms (baseline, round 1, round 8, the three noaudit
+repetitions) and for the four single-call rule arms. **No test fold is opened to produce it.**
+
+**Consistency C.** For document d and run r let S_{d,r} be the set of predicted
+(start, end, type). Per document, average the Jaccard similarity over all run pairs; then
+average over documents. **Two empty sets score 1**, not 0 and not undefined: a document with
+no PHI that two runs agree has no PHI is perfect agreement, and the alternative lets corpora
+with many clean documents be punished for the thing the system got right. Three layers, from
+naming.yaml's `consistency_layer`, computed on dev:
+
+| layer | what is re-drawn | note |
+|---|---|---|
+| `run_repeat` | nothing — same rules, weights and policy re-applied to dev 3× | rules expect 1.0; the tagger may not reach it under MPS non-determinism, and the measured value is reported either way |
+| `author_repeat` | the response, prompt fixed — MEDDOCAN round 1 at R=5 draws, the three noaudit finals at R=3 | |
+| `train_repeat` | training and tuning — tagger seeds 1–3, Arbiter draws 1–3 | |
+
+That `run_repeat` may be below 1.0 for the tagger is written down **now**, before it is
+measured, because redefining "the same run" after seeing a number below 1.0 would make that
+number a choice.
+
+Cross-institution consistency is recorded as **not applicable** and not computed: there is
+one institution. The RFP's stage-1 targets (accuracy, consistency and recall each ≥ 0.90) are
+carried as an O/X reference column for the funded report and are **not** a claim this project
+makes about the method — they are a threshold someone else set, on a type set that is not
+ours. Where the guideline's 국내 PHI type set differs from our ten canonical types, the
+difference is stated in one line beside the table rather than reconciled, because reconciling
+it would mean re-scoring against a type set no corpus here is annotated in.
+
+### 12.6 What the seal protocol requires of these arms, and what it may refuse
+
+§5's test openings go through `run_sealed_eval.plan_arm`, whose ten refusals were written for
+authoring arms. Three are load-bearing here and are registered as expected, not as obstacles:
+the arm needs a committed dev `metrics.json`, a `termination` block, and a rung declared in
+`porting_rungs_without_termination` — `hybrid` is declared there in the same commit as this
+section, and without it the gate would fail closed and refuse every v24 opening.
+
+The ninth refusal — *the rule files the dev headline was computed from are still on disk* —
+may not hold for `T`, which has no rule files. **If it refuses, the arm is reported as
+unopened and the refusal is reported as the finding.** It is not worked around: a gate that
+fails for a reason the protocol did not anticipate is information about the protocol, and
+CLAUDE.md's rule is that the test fold is not opened by argument.

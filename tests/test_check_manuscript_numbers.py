@@ -751,24 +751,37 @@ def test_every_declared_figure_is_well_formed_and_names_a_real_primary():
 
 # ─── a declared arm that has not run yet is skipped, not refused ────────────
 
-def test_a_comparison_arm_without_a_record_is_skipped_with_a_note(capsys):
+def test_a_comparison_arm_without_a_record_is_skipped_with_a_note(
+        capsys, monkeypatch):
     """The declaration is committed before the arm runs (DESIGN §6.3).
 
     So requiring the cell to exist would make the registration commit break the
-    figures it registers for. All three of fig2's comparisons are unrun today,
-    which is why this is checked against the committed declaration.
+    figures it registers for.
+
+    The absent arm is **planted**, not read off the committed declaration. This
+    test used to assert that fig2's comparisons were unrun, which held the day it
+    was written and stopped holding the moment B2's repetitions landed — a
+    control that goes red when the experiment it protects makes progress is one
+    nobody keeps, and the second of this family (CLAUDE.md names the first,
+    `test_the_repetitions_base_is_not_caught_by_that_refusal`). Pinning both
+    sides makes the skip observable whatever has run.
     """
     paths = mf.naming()["paths"]
-    _, declared_arms = mf.manuscript_figure_arms("fig2")
-    have = {a.porting for a in mf.dev_arms(paths)}
-    absent = [p for p in declared_arms if p not in have]
-    assert absent, "every comparison has a record; this test has nothing to show"
+    arms = mf.dev_arms(paths)
+    present = next(a for a in arms if a.porting == "port-loop")
+    absent = next(p for p in mf.base.axis("porting")
+                  if p not in {a.porting for a in arms}
+                  and mf.base.porting_repetition_of(p) is None)
+    monkeypatch.setattr(mf, "dev_arms", lambda _paths: [present])
+    declared(monkeypatch, {"fig2": {
+        "primary": "port-multi",
+        "comparison": [absent, "port-loop"],
+    }})
 
     found = mf.comparison_arms(paths, "fig2")
-    assert [a.porting for a in found] == [p for p in declared_arms if p in have]
+    assert [a.porting for a in found] == ["port-loop"]
     noted = capsys.readouterr().err
-    for porting in absent:
-        assert porting in noted and "skipping" in noted
+    assert absent in noted and "skipping" in noted
 
 
 def test_a_comparison_arm_that_has_run_is_returned_in_declared_order(monkeypatch):
