@@ -579,7 +579,64 @@ def read_spans(
             "that cannot be audited — and the round that should have written it either did "
             "not run or did not finish writing."
         )
+    return _read_span_file(path)
 
+
+def read_arm_spans(
+    *, corpus: str, detector: str, supervision: str, porting: str,
+    root: Path | None = None,
+) -> list[PredictedSpan]:
+    """The arm's **published** predictions — `paths.spans`, the un-iterated file.
+
+    `read_spans`' sibling, and the distinction between them is the one that function's
+    docstring insists on. `read_spans` names a *round* and may not be pointed here,
+    because this copy is whichever round ran last (DESIGN §5.5's duplication rule) and a
+    round reader aimed at it answers "which round did I read" with "the most recent one".
+
+    This function does not name a round and does not claim one. It answers "what did this
+    arm publish", which §5.5 makes a well-defined question about this exact path: the
+    arm-scoped file holds the arm's final predictions, for every rung, including the ones
+    that never iterate and so have no `iterN/` directory at all. The four single-call rule
+    arms are in that state — `results/{corpus}/R/sup-free/port-oneshot/spans.jsonl` with
+    nothing beside it — so a reader that could only name a round could not read them.
+
+    Added 2026-10-14 for DESIGN §12: the v24 hybrid arms compose the tagger with the rules
+    a corpus's registered R arm already published, and "already published" is this file.
+    """
+    # Keyword axes rather than a run block, for `iter_spans_path`'s reason: two
+    # interested parties. `run_fold` writes this file from a run block it assembled, and
+    # the v24 driver *reads* it holding four axes and no run block — handing it one to
+    # assemble would make it a second assembler of the record one writer exists to
+    # protect. Validated against the axes here, because a results path built from an
+    # undeclared component mints a cell instead of failing.
+    #
+    # The axis *names* come from `PATH_AXES` rather than being spelled here. Partly
+    # because the tuple is the declaration, and partly for a concrete reason: `detector`
+    # is both an axis name and one of `SPAN_FIELDS`, so a literal `"detector"` in this
+    # function trips `test_the_spans_reader_and_writer_share_one_field_list`, which reads
+    # the module's own string constants to check that no reader spells a row field. The
+    # two namespaces share one word and the test cannot tell which is meant.
+    axes = dict(zip(PATH_AXES, (corpus, detector, supervision, porting)))
+    for name, value in axes.items():
+        if value not in axis(name):
+            raise FoldRunError(
+                f"{value!r} is not a value of the {name} axis in config/naming.yaml. "
+                "A results path assembled from an undeclared axis names a cell of the "
+                "experiment that does not exist."
+            )
+    path = (root or ROOT) / path_template("spans").format(**axes)
+    if not path.exists():
+        raise FoldRunError(
+            f"no published prediction list at {rules_relative(path)}. This is the arm's "
+            "own `paths.spans`, written by `run_fold` when the arm was scored, so an "
+            "absent file means the arm has no scored result to compose with — not that a "
+            "round is missing."
+        )
+    return _read_span_file(path)
+
+
+def _read_span_file(path: Path) -> list[PredictedSpan]:
+    """The row loop, shared by the two readers so the schema is declared once."""
     out = []
     with open(path, encoding="utf-8") as fh:
         for number, line in enumerate(fh, 1):

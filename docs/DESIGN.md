@@ -9294,6 +9294,41 @@ Every tagger span carries `layer: "tagger"`, `detector` naming the tagger, and *
 `rule_id`** — §9.3's rule-attribution block requires a rules-family span to carry one and a
 tagger span not to, and the asymmetry is what keeps per-rule precision attributable.
 
+#### The tokenisation ceiling — measured 2026-10-14, before any seed finished
+
+A token-level tagger can only emit extents that are unions of whole tokens, and gold
+boundaries do not always fall there. XLM-R's sentencepiece puts sentence-final punctuation
+*inside* the last token, so a phone number ending a sentence has a gold extent that stops
+before the period and **no representable prediction equal to it**; the closest is one
+character too long.
+
+Measured over the five dev folds: **7,078 of 7,771 in-scope gold spans (91.08%)** have both
+boundaries on a token boundary.
+
+| corpus | token-aligned |
+|---|---|
+| `en-deid` | 98.89% |
+| `ko-surro` | 97.18% |
+| `de-grascco` | 95.37% |
+| `es-meddocan` | 92.22% |
+| `es-carmen` | **82.37%** |
+
+`es-carmen` is the outlier and is the one authentic-record corpus, which is consistent with
+§5.1's finding that its annotation is the most punctuation-adjacent of the five.
+
+**What this bounds, and what it does not.** It bounds any exact-boundary score, so
+`strict_prf()` on the tagger arms has a ceiling below 1 that is a property of the tokenizer
+rather than of the tagger. It does **not** bound the headline: an over-long prediction still
+`fully_covers` the gold span, so it does not leak, and it still overlaps, so it is still a
+true positive under the relaxed matching §9.3 makes the headline. That asymmetry is the
+reason this is reported as a limitation rather than repaired — the available repair is to
+trim punctuation in the decoder, which is a detection decision taken inside an offset
+routine, and `tests/test_tagger_windows.py` asserts the coverage and the TP directly so the
+argument does not have to be taken on trust.
+
+The number is recorded now, before any seed's result is in view, because a ceiling measured
+after a disappointing exact-match column is a ceiling nobody can distinguish from an excuse.
+
 ### 12.2 The policy space, and the objective fixed before any of it is scored
 
 Each (corpus, type) takes one value of naming.yaml's `merge_policy` — `R`, `T`, `UNION`,

@@ -1600,18 +1600,41 @@ def test_the_spans_reader_and_writer_share_one_field_list():
 
     `write_spans` spells the keys because it is where each field's *value* is decided, so what
     is asserted of it is that the tuple is checked against those keys — by the test below —
-    while `read_spans` reads `SPAN_FIELDS` and holds no literal of its own.
+    while the reader reads `SPAN_FIELDS` and holds no literal of its own.
+
+    **There are two public readers since 2026-10-14 and one row loop.** `read_spans` names a
+    round and `read_arm_spans` names the arm's published file (DESIGN §12), and the row
+    parsing they share lives in `_read_span_file`. So the property asserted here moved with
+    it, and a second property is asserted beside it: both public readers must *delegate*.
+    A reader that grew its own copy of the loop is exactly the two-copies failure this test
+    exists to prevent, and it would now pass a check that only looked at `_read_span_file`.
     """
     import ast
     module = ast.parse(Path(rf.__file__).read_text(encoding="utf-8"))
     by_name = {n.name: n for n in ast.walk(module) if isinstance(n, ast.FunctionDef)}
-    reader = by_name["read_spans"]
-    assert "SPAN_FIELDS" in {n.id for n in ast.walk(reader) if isinstance(n, ast.Name)}
-    literals = {n.value for n in ast.walk(reader)
+
+    loop = by_name["_read_span_file"]
+    assert "SPAN_FIELDS" in {n.id for n in ast.walk(loop) if isinstance(n, ast.Name)}
+    literals = {n.value for n in ast.walk(loop)
                 if isinstance(n, ast.Constant) and isinstance(n.value, str)}
     assert not (literals & set(SPAN_FIELD_NAMES)), (
-        "read_spans spells a field name itself; the nine are SPAN_FIELDS."
+        "_read_span_file spells a field name itself; the nine are SPAN_FIELDS."
     )
+
+    for name in ("read_spans", "read_arm_spans"):
+        reader = by_name[name]
+        called = {n.func.id for n in ast.walk(reader)
+                  if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)}
+        assert "_read_span_file" in called, (
+            f"{name} does not delegate to _read_span_file; a second copy of the row "
+            "loop is how the writer stops publishing a field while a reader starts "
+            "accepting it."
+        )
+        own = {n.value for n in ast.walk(reader)
+               if isinstance(n, ast.Constant) and isinstance(n.value, str)}
+        assert not (own & set(SPAN_FIELD_NAMES)), (
+            f"{name} spells a field name itself; the nine are SPAN_FIELDS."
+        )
 
 
 def test_the_field_list_is_what_the_writer_writes(tmp_path):
