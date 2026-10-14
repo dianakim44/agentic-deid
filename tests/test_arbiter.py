@@ -217,6 +217,119 @@ def test_a_type_with_no_dev_gold_is_absent_from_the_frame():
 
 # ─── the inbound guard, on the rationale ────────────────────────────────────
 
+def test_the_metric_name_A_does_not_trip_the_capitalisation_check():
+    """The defect that cost ten Bedrock calls on 2026-10-14.
+
+    `A` is the quantity the Arbiter is asked to maximise, so nearly every rationale
+    mentions it — and it is a single capital letter that is not a type name, a policy
+    name or a corpus id. The capitalisation check consulted the axes only, so all ten
+    round-1 responses were refused. Every one of them was well-formed bare JSON with
+    zero fence lines: the model complied and the guard did not.
+    """
+    arb.check_rationale("chose T@0.5 because A is higher and the leak rate holds",
+                        phi_type="AGE")
+    for metric in ("A", "TP", "FP", "FN", "L_full", "L_rel"):
+        arb.check_rationale(f"kept UNION since {metric} is unchanged", phi_type="NAME")
+
+
+def test_a_declared_word_may_open_a_second_sentence():
+    """Capitalised for grammar, not for reference. Granted only to declared words."""
+    arb.check_rationale(
+        "kept UNION for the leak rate. Sparse gold makes the rest unreliable",
+        phi_type="AGE")
+    arb.check_rationale("A is higher under T. Both cells are small", phi_type="NAME")
+
+
+def test_capitalisation_is_a_signal_mid_sentence_and_not_at_a_sentence_opening():
+    """The narrowing made after the guard refused `Tagger` at a rationale's start.
+
+    Capitalisation only carries information mid-sentence: at an opening the capital is
+    grammar and says nothing about whether the word is a name. A conditional exemption —
+    only declared words may open a sentence — turns an English vocabulary gap into a
+    refused response, and that cost real Bedrock calls twice on 2026-10-14.
+
+    The residual risk, a surname opening a sentence, is accepted because `check_frame`
+    makes a real leak structurally impossible: the frame's grammar is closed, so corpus
+    text never reaches this agent, and anything name-shaped here is invented rather than
+    copied. It is recorded as undeclared rather than ignored.
+    """
+    # mid-sentence: refused
+    with pytest.raises(arb.ArbiterError, match="capitalised"):
+        arb.check_rationale("the span Perez was missed twice", phi_type="NAME")
+    # sentence opening: allowed, and recorded
+    assert "perez" in arb.check_rationale("Perez was missed twice", phi_type="NAME")
+    assert "tagger" not in arb.check_rationale(
+        "Tagger finds all of them", phi_type="NAME"), "tagger is declared vocabulary"
+
+
+def test_a_long_integer_the_frame_did_not_supply_is_refused_but_a_decimal_is_not():
+    """The other narrowing of 2026-10-14, and the reason for the asymmetry.
+
+    The agent *derives* figures — it rounds, and it subtracts one rate from another — so
+    requiring every decimal to appear verbatim refuses a correct rationale for being
+    arithmetic. A long integer is different: a year, a record number, a postcode and a
+    phone number are all four-or-more-digit integers and none is derivable from a table
+    of rates.
+    """
+    allowed = arb.frame_numbers("type NAME gold 2134 sparse no A 0.004525")
+    # a derived decimal that is not in the frame: allowed
+    arb.check_rationale("the gap is 0.0045 which fits", phi_type="NAME",
+                        allowed_numbers=allowed)
+    # a supplied integer: allowed
+    arb.check_rationale("gold 2134 is large", phi_type="NAME",
+                        allowed_numbers=allowed)
+    # an identifier-shaped integer nobody supplied: refused
+    with pytest.raises(arb.ArbiterError, match="digit integer"):
+        arb.check_rationale("the record 1234567 leaked", phi_type="NAME",
+                            allowed_numbers=allowed)
+    with pytest.raises(arb.ArbiterError, match="digit integer"):
+        arb.check_rationale("seen in 1987 only", phi_type="NAME",
+                            allowed_numbers=allowed)
+
+
+#: Rationales the Arbiter actually returned on 2026-10-14 (draw 1, de-grascco and
+#: en-deid), copied from `experiments/hybrid_v24/dev_arbiter_seed1_draw1.json`.
+#:
+#: A regression fixture of real output, because this guard's two defects were both found
+#: by spending Bedrock calls rather than by a test. These twenty strings are what
+#: on-protocol output looks like, and a future tightening that refuses one of them is a
+#: tightening that would have cost an arm.
+REAL_RATIONALES = [
+    ("AGE", "Sparse type with 5 gold spans; tagger only finds all 5 with T@0.5 "
+            "achieving A 1.000000 and L_full 0.000000 versus UNION@0.5 A 0.833333."),
+    ("CONTACT", "T@0.5 achieves A 1.000000 with L_full 0.000000 versus UNION@0.5 "
+                "A 0.733333; tagger finds all 11 gold spans with zero FP."),
+    ("DATE", "T@0.9 achieves A 0.977578 with L_full 0.009050 versus UNION@0.5 "
+             "A 0.862205 L_full 0.004525; delta 0.063415 accommodates the 0.004525 "
+             "increase."),
+    ("ID", "T@0.7 achieves A 0.727273 with L_full 0.272727 versus UNION@0.5 "
+           "A 0.615385 L_full 0.272727; same leak rate with higher accuracy."),
+    ("LOCATION_AREA", "T@0.9 achieves A 0.862069 with L_full 0.076923 versus "
+                      "UNION@0.5 A 0.135870 L_full 0.076923; same leak rate with far "
+                      "higher accuracy."),
+    ("LOCATION_STREET", "T@0.7 achieves A 1.000000 with L_full 0.111111 versus "
+                        "UNION@0.5 A 0.562500 L_full 0.111111; same leak rate with "
+                        "perfect accuracy."),
+    ("NAME", "T@0.5 achieves A 0.950820 with L_full 0.025862 versus UNION@0.5 "
+             "A 0.703030 L_full 0.025862; same leak rate with much higher accuracy."),
+    ("ORGANISATION", "T@0.9 achieves A 0.750000 with L_full 0.545455 versus "
+                     "UNION@0.5 A 0.476190 L_full 0.545455; same leak rate with "
+                     "higher accuracy."),
+    ("AGE", "Sparse type with 4 gold spans; UNION@0.5 matches baseline and rules "
+            "capture 3 of 4."),
+    ("DATE", "UNION@0.5 yields lowest L_full 0.049505 and A 0.813559; tagger found "
+             "88 spans rules missed."),
+    ("OTHER", "Sparse type with 1 gold span found by neither detector; UNION@0.5 is "
+              "default."),
+]
+
+
+@pytest.mark.parametrize("phi_type, rationale", REAL_RATIONALES)
+def test_real_arbiter_output_passes_the_guard(phi_type, rationale):
+    """None of these may refuse. See `REAL_RATIONALES` for why they are pinned."""
+    arb.check_rationale(rationale, phi_type=phi_type)
+
+
 def test_an_ordinary_rationale_passes():
     """The positive control for the return path."""
     arb.check_rationale(
@@ -309,6 +422,9 @@ def test_a_surname_that_is_an_english_common_word_is_still_caught():
             arb.check_rationale(f"the span {surname} was missed", phi_type="NAME")
         # the same word in lower case is ordinary vocabulary and passes
         arb.check_rationale(f"the {surname.lower()} cell is large", phi_type="NAME")
+        # and capitalised at a sentence opening it passes, because it is declared —
+        # which is exactly what distinguishes it from a surname (test above).
+        arb.check_rationale(f"kept UNION. {surname} values decide it", phi_type="NAME")
 
 
 # ─── the response protocol ──────────────────────────────────────────────────

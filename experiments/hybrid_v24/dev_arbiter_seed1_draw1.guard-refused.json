@@ -1,0 +1,652 @@
+{
+ "es-meddocan": {
+  "rounds": [
+   {
+    "corpus": "es-meddocan",
+    "draw": 1,
+    "round": 1,
+    "attempts": [
+     {
+      "attempt": 1,
+      "envelope": {
+       "response_chars": 1837,
+       "response_sha256": "sha256:73470715b2caf4e186c40fa920cb315b494187099a7559440f4ade0be75b118e",
+       "envelope": "bare",
+       "fence_lines": 0,
+       "parsed_chars": 1837,
+       "parsed_sha256": "sha256:73470715b2caf4e186c40fa920cb315b494187099a7559440f4ade0be75b118e"
+      },
+      "cost": {
+       "llm_calls": 1,
+       "prompt_tokens": 7233,
+       "completion_tokens": 755,
+       "wall_seconds": 11.294
+      },
+      "model": {
+       "model_id": "us.anthropic.claude-opus-4-5-20251101-v1:0",
+       "model_id_reported": "claude-opus-4-5-20251101",
+       "model_id_resolution": "dated"
+      },
+      "error": "the rationale for AGE has a capitalised word at offset 15, length 1, which is not a type name, a policy name or a corpus id. A capitalised word is the strongest single signal of a person, place or institution name. Not quoted."
+     },
+     {
+      "attempt": 2,
+      "envelope": {
+       "response_chars": 1802,
+       "response_sha256": "sha256:1e67e01db6fa40ec0bf9f551816f87ff436bc1ab24419706a52ca464f4bbf3cd",
+       "envelope": "bare",
+       "fence_lines": 0,
+       "parsed_chars": 1802,
+       "parsed_sha256": "sha256:1e67e01db6fa40ec0bf9f551816f87ff436bc1ab24419706a52ca464f4bbf3cd"
+      },
+      "cost": {
+       "llm_calls": 1,
+       "prompt_tokens": 7233,
+       "completion_tokens": 735,
+       "wall_seconds": 12.406
+      },
+      "model": {
+       "model_id": "us.anthropic.claude-opus-4-5-20251101-v1:0",
+       "model_id_reported": "claude-opus-4-5-20251101",
+       "model_id_resolution": "dated"
+      },
+      "error": "the rationale for AGE has a capitalised word at offset 15, length 1, which is not a type name, a policy name or a corpus id. A capitalised word is the strongest single signal of a person, place or institution name. Not quoted."
+     }
+    ],
+    "outcome": "format_failure"
+   }
+  ],
+  "final_policy": {
+   "AGE": {
+    "policy": "UNION",
+    "theta": 0.5
+   },
+   "CONTACT": {
+    "policy": "UNION",
+    "theta": 0.5
+   },
+   "DATE": {
+    "policy": "UNION",
+    "theta": 0.5
+   },
+   "ID": {
+    "policy": "UNION",
+    "theta": 0.5
+   },
+   "LOCATION_AREA": {
+    "policy": "UNION",
+    "theta": 0.5
+   },
+   "LOCATION_STREET": {
+    "policy": "UNION",
+    "theta": 0.5
+   },
+   "NAME": {
+    "policy": "UNION",
+    "theta": 0.5
+   },
+   "ORGANISATION": {
+    "policy": "UNION",
+    "theta": 0.5
+   },
+   "OTHER": {
+    "policy": "UNION",
+    "theta": 0.5
+   },
+   "PROFESSION": {
+    "policy": "UNION",
+    "theta": 0.5
+   }
+  },
+  "fell_back_to_RT": true,
+  "headline": {
+   "L_full": 0.012561857632280167,
+   "L_rel": 0.007803578226113437,
+   "A": 0.6391993122927668,
+   "precision": 0.6430689399555226,
+   "recall": 0.9906737723639132,
+   "f1": 0.7798921186694637,
+   "tp": 5205,
+   "fp": 2889,
+   "fn": 49,
+   "complementarity_full": {
+    "rules_only": 11,
+    "tagger_only": 654,
+    "both": 4522,
+    "joint_only": 1,
+    "neither": 66,
+    "denominator": 5254
+   },
+   "D_full": 0.196,
+   "gold": 5254,
+   "pred": 11303,
+   "nongold_masked_rate": null
+  },
+  "cost": {
+   "llm_calls": 2,
+   "prompt_tokens": 14466,
+   "completion_tokens": 1490,
+   "wall_seconds": 24.0
+  }
+ },
+ "de-grascco": {
+  "rounds": [
+   {
+    "corpus": "de-grascco",
+    "draw": 1,
+    "round": 1,
+    "attempts": [
+     {
+      "attempt": 1,
+      "envelope": {
+       "response_chars": 1284,
+       "response_sha256": "sha256:260e651a1e69a8d83fdfe297ffc5fc2720c4b379d9d627c00101b6c13fe369b4",
+       "envelope": "bare",
+       "fence_lines": 0,
+       "parsed_chars": 1284,
+       "parsed_sha256": "sha256:260e651a1e69a8d83fdfe297ffc5fc2720c4b379d9d627c00101b6c13fe369b4"
+      },
+      "cost": {
+       "llm_calls": 1,
+       "prompt_tokens": 6248,
+       "completion_tokens": 541,
+       "wall_seconds": 9.497
+      },
+      "model": {
+       "model_id": "us.anthropic.claude-opus-4-5-20251101-v1:0",
+       "model_id_reported": "claude-opus-4-5-20251101",
+       "model_id_resolution": "dated"
+      },
+      "error": "the rationale for AGE has a capitalised word at offset 51, length 1, which is not a type name, a policy name or a corpus id. A capitalised word is the strongest single signal of a person, place or institution name. Not quoted."
+     },
+     {
+      "attempt": 2,
+      "envelope": {
+       "response_chars": 1464,
+       "response_sha256": "sha256:a258ec36291033e1915622d19b93151dcd9311411725ec65a1b614cc9a09b7e7",
+       "envelope": "bare",
+       "fence_lines": 0,
+       "parsed_chars": 1464,
+       "parsed_sha256": "sha256:a258ec36291033e1915622d19b93151dcd9311411725ec65a1b614cc9a09b7e7"
+      },
+      "cost": {
+       "llm_calls": 1,
+       "prompt_tokens": 6248,
+       "completion_tokens": 589,
+       "wall_seconds": 10.867
+      },
+      "model": {
+       "model_id": "us.anthropic.claude-opus-4-5-20251101-v1:0",
+       "model_id_reported": "claude-opus-4-5-20251101",
+       "model_id_resolution": "dated"
+      },
+      "error": "the rationale for AGE has a capitalised word at offset 59, length 1, which is not a type name, a policy name or a corpus id. A capitalised word is the strongest single signal of a person, place or institution name. Not quoted."
+     }
+    ],
+    "outcome": "format_failure"
+   }
+  ],
+  "final_policy": {
+   "AGE": {
+    "policy": "UNION",
+    "theta": 0.5
+   },
+   "CONTACT": {
+    "policy": "UNION",
+    "theta": 0.5
+   },
+   "DATE": {
+    "policy": "UNION",
+    "theta": 0.5
+   },
+   "ID": {
+    "policy": "UNION",
+    "theta": 0.5
+   },
+   "LOCATION_AREA": {
+    "policy": "UNION",
+    "theta": 0.5
+   },
+   "LOCATION_STREET": {
+    "policy": "UNION",
+    "theta": 0.5
+   },
+   "NAME": {
+    "policy": "UNION",
+    "theta": 0.5
+   },
+   "ORGANISATION": {
+    "policy": "UNION",
+    "theta": 0.5
+   },
+   "OTHER": {
+    "policy": "UNION",
+    "theta": 0.5
+   },
+   "PROFESSION": {
+    "policy": "UNION",
+    "theta": 0.5
+   }
+  },
+  "fell_back_to_RT": true,
+  "headline": {
+   "L_full": 0.03902439024390244,
+   "L_rel": 0.014634146341463415,
+   "A": 0.597037037037037,
+   "precision": 0.6032934131736527,
+   "recall": 0.9829268292682927,
+   "f1": 0.7476808905380334,
+   "tp": 403,
+   "fp": 265,
+   "fn": 7,
+   "complementarity_full": {
+    "rules_only": 0,
+    "tagger_only": 154,
+    "both": 240,
+    "joint_only": 0,
+    "neither": 16,
+    "denominator": 410
+   },
+   "D_full": 0.631578947368421,
+   "gold": 410,
+   "pred": 996,
+   "nongold_masked_rate": null
+  },
+  "cost": {
+   "llm_calls": 2,
+   "prompt_tokens": 12496,
+   "completion_tokens": 1130,
+   "wall_seconds": 20.4
+  }
+ },
+ "es-carmen": {
+  "rounds": [
+   {
+    "corpus": "es-carmen",
+    "draw": 1,
+    "round": 1,
+    "attempts": [
+     {
+      "attempt": 1,
+      "envelope": {
+       "response_chars": 1567,
+       "response_sha256": "sha256:1584d044db10eced15bee8837a49e71685284f6fc6e1ab5702b26b9b628a6efb",
+       "envelope": "bare",
+       "fence_lines": 0,
+       "parsed_chars": 1567,
+       "parsed_sha256": "sha256:1584d044db10eced15bee8837a49e71685284f6fc6e1ab5702b26b9b628a6efb"
+      },
+      "cost": {
+       "llm_calls": 1,
+       "prompt_tokens": 7216,
+       "completion_tokens": 641,
+       "wall_seconds": 12.592
+      },
+      "model": {
+       "model_id": "us.anthropic.claude-opus-4-5-20251101-v1:0",
+       "model_id_reported": "claude-opus-4-5-20251101",
+       "model_id_resolution": "dated"
+      },
+      "error": "the rationale for AGE has a capitalised word at offset 15, length 1, which is not a type name, a policy name or a corpus id. A capitalised word is the strongest single signal of a person, place or institution name. Not quoted."
+     },
+     {
+      "attempt": 2,
+      "envelope": {
+       "response_chars": 1566,
+       "response_sha256": "sha256:7d3e6ca11061b2728d121872c474fba9e7c5b960b249d042630ef522ce6b0e32",
+       "envelope": "bare",
+       "fence_lines": 0,
+       "parsed_chars": 1566,
+       "parsed_sha256": "sha256:7d3e6ca11061b2728d121872c474fba9e7c5b960b249d042630ef522ce6b0e32"
+      },
+      "cost": {
+       "llm_calls": 1,
+       "prompt_tokens": 7216,
+       "completion_tokens": 646,
+       "wall_seconds": 10.83
+      },
+      "model": {
+       "model_id": "us.anthropic.claude-opus-4-5-20251101-v1:0",
+       "model_id_reported": "claude-opus-4-5-20251101",
+       "model_id_resolution": "dated"
+      },
+      "error": "the rationale for AGE has a capitalised word at offset 15, length 1, which is not a type name, a policy name or a corpus id. A capitalised word is the strongest single signal of a person, place or institution name. Not quoted."
+     }
+    ],
+    "outcome": "format_failure"
+   }
+  ],
+  "final_policy": {
+   "AGE": {
+    "policy": "UNION",
+    "theta": 0.5
+   },
+   "CONTACT": {
+    "policy": "UNION",
+    "theta": 0.5
+   },
+   "DATE": {
+    "policy": "UNION",
+    "theta": 0.5
+   },
+   "ID": {
+    "policy": "UNION",
+    "theta": 0.5
+   },
+   "LOCATION_AREA": {
+    "policy": "UNION",
+    "theta": 0.5
+   },
+   "LOCATION_STREET": {
+    "policy": "UNION",
+    "theta": 0.5
+   },
+   "NAME": {
+    "policy": "UNION",
+    "theta": 0.5
+   },
+   "ORGANISATION": {
+    "policy": "UNION",
+    "theta": 0.5
+   },
+   "OTHER": {
+    "policy": "UNION",
+    "theta": 0.5
+   },
+   "PROFESSION": {
+    "policy": "UNION",
+    "theta": 0.5
+   }
+  },
+  "fell_back_to_RT": true,
+  "headline": {
+   "L_full": 0.03079076277116865,
+   "L_rel": 0.015395381385584325,
+   "A": 0.7384453781512605,
+   "precision": 0.7474747474747475,
+   "recall": 0.9839048285514346,
+   "f1": 0.849546827794562,
+   "tp": 1406,
+   "fp": 475,
+   "fn": 23,
+   "complementarity_full": {
+    "rules_only": 0,
+    "tagger_only": 856,
+    "both": 529,
+    "joint_only": 0,
+    "neither": 44,
+    "denominator": 1429
+   },
+   "D_full": 0.10774410774410774,
+   "gold": 1429,
+   "pred": 2779,
+   "nongold_masked_rate": null
+  },
+  "cost": {
+   "llm_calls": 2,
+   "prompt_tokens": 14432,
+   "completion_tokens": 1287,
+   "wall_seconds": 23.5
+  }
+ },
+ "en-deid": {
+  "rounds": [
+   {
+    "corpus": "en-deid",
+    "draw": 1,
+    "round": 1,
+    "attempts": [
+     {
+      "attempt": 1,
+      "envelope": {
+       "response_chars": 1077,
+       "response_sha256": "sha256:b04f89b97bc7f065c6057339896971819f92900e771ea566d6fd3f1372b4e257",
+       "envelope": "bare",
+       "fence_lines": 0,
+       "parsed_chars": 1077,
+       "parsed_sha256": "sha256:b04f89b97bc7f065c6057339896971819f92900e771ea566d6fd3f1372b4e257"
+      },
+      "cost": {
+       "llm_calls": 1,
+       "prompt_tokens": 5278,
+       "completion_tokens": 404,
+       "wall_seconds": 9.116
+      },
+      "model": {
+       "model_id": "us.anthropic.claude-opus-4-5-20251101-v1:0",
+       "model_id_reported": "claude-opus-4-5-20251101",
+       "model_id_resolution": "dated"
+      },
+      "error": "the rationale for AGE has a capitalised word at offset 58, length 6, which is not a type name, a policy name or a corpus id. A capitalised word is the strongest single signal of a person, place or institution name. Not quoted."
+     },
+     {
+      "attempt": 2,
+      "envelope": {
+       "response_chars": 938,
+       "response_sha256": "sha256:85d468d4c37b8dd70b356072baa52ce7a398f025846fd53469e6b4d7aa6382b4",
+       "envelope": "bare",
+       "fence_lines": 0,
+       "parsed_chars": 938,
+       "parsed_sha256": "sha256:85d468d4c37b8dd70b356072baa52ce7a398f025846fd53469e6b4d7aa6382b4"
+      },
+      "cost": {
+       "llm_calls": 1,
+       "prompt_tokens": 5278,
+       "completion_tokens": 355,
+       "wall_seconds": 7.803
+      },
+      "model": {
+       "model_id": "us.anthropic.claude-opus-4-5-20251101-v1:0",
+       "model_id_reported": "claude-opus-4-5-20251101",
+       "model_id_resolution": "dated"
+      },
+      "error": "the rationale for AGE has a capitalised word at offset 60, length 6, which is not a type name, a policy name or a corpus id. A capitalised word is the strongest single signal of a person, place or institution name. Not quoted."
+     }
+    ],
+    "outcome": "format_failure"
+   }
+  ],
+  "final_policy": {
+   "AGE": {
+    "policy": "UNION",
+    "theta": 0.5
+   },
+   "CONTACT": {
+    "policy": "UNION",
+    "theta": 0.5
+   },
+   "DATE": {
+    "policy": "UNION",
+    "theta": 0.5
+   },
+   "ID": {
+    "policy": "UNION",
+    "theta": 0.5
+   },
+   "LOCATION_AREA": {
+    "policy": "UNION",
+    "theta": 0.5
+   },
+   "LOCATION_STREET": {
+    "policy": "UNION",
+    "theta": 0.5
+   },
+   "NAME": {
+    "policy": "UNION",
+    "theta": 0.5
+   },
+   "ORGANISATION": {
+    "policy": "UNION",
+    "theta": 0.5
+   },
+   "OTHER": {
+    "policy": "UNION",
+    "theta": 0.5
+   },
+   "PROFESSION": {
+    "policy": "UNION",
+    "theta": 0.5
+   }
+  },
+  "fell_back_to_RT": true,
+  "headline": {
+   "L_full": 0.10584958217270195,
+   "L_rel": 0.06685236768802229,
+   "A": 0.5845323741007195,
+   "precision": 0.6226053639846744,
+   "recall": 0.9052924791086351,
+   "f1": 0.7377979568671964,
+   "tp": 325,
+   "fp": 197,
+   "fn": 34,
+   "complementarity_full": {
+    "rules_only": 4,
+    "tagger_only": 247,
+    "both": 70,
+    "joint_only": 0,
+    "neither": 38,
+    "denominator": 359
+   },
+   "D_full": 0.19205298013245034,
+   "gold": 359,
+   "pred": 571,
+   "nongold_masked_rate": null
+  },
+  "cost": {
+   "llm_calls": 2,
+   "prompt_tokens": 10556,
+   "completion_tokens": 759,
+   "wall_seconds": 16.9
+  }
+ },
+ "ko-surro": {
+  "rounds": [
+   {
+    "corpus": "ko-surro",
+    "draw": 1,
+    "round": 1,
+    "attempts": [
+     {
+      "attempt": 1,
+      "envelope": {
+       "response_chars": 785,
+       "response_sha256": "sha256:5ed34b4d2da1ca86ac4a8c549715b35d07632390c1997b49eecaec1d9258835e",
+       "envelope": "bare",
+       "fence_lines": 0,
+       "parsed_chars": 785,
+       "parsed_sha256": "sha256:5ed34b4d2da1ca86ac4a8c549715b35d07632390c1997b49eecaec1d9258835e"
+      },
+      "cost": {
+       "llm_calls": 1,
+       "prompt_tokens": 5279,
+       "completion_tokens": 317,
+       "wall_seconds": 6.732
+      },
+      "model": {
+       "model_id": "us.anthropic.claude-opus-4-5-20251101-v1:0",
+       "model_id_reported": "claude-opus-4-5-20251101",
+       "model_id_resolution": "dated"
+      },
+      "error": "the rationale for CONTACT has a capitalised word at offset 36, length 1, which is not a type name, a policy name or a corpus id. A capitalised word is the strongest single signal of a person, place or institution name. Not quoted."
+     },
+     {
+      "attempt": 2,
+      "envelope": {
+       "response_chars": 818,
+       "response_sha256": "sha256:206c46ef0503e31b7ad9f92c4727f5da0f31a06c2858355dda82508c9653d25a",
+       "envelope": "bare",
+       "fence_lines": 0,
+       "parsed_chars": 818,
+       "parsed_sha256": "sha256:206c46ef0503e31b7ad9f92c4727f5da0f31a06c2858355dda82508c9653d25a"
+      },
+      "cost": {
+       "llm_calls": 1,
+       "prompt_tokens": 5279,
+       "completion_tokens": 343,
+       "wall_seconds": 8.041
+      },
+      "model": {
+       "model_id": "us.anthropic.claude-opus-4-5-20251101-v1:0",
+       "model_id_reported": "claude-opus-4-5-20251101",
+       "model_id_resolution": "dated"
+      },
+      "error": "the rationale for CONTACT has a capitalised word at offset 36, length 1, which is not a type name, a policy name or a corpus id. A capitalised word is the strongest single signal of a person, place or institution name. Not quoted."
+     }
+    ],
+    "outcome": "format_failure"
+   }
+  ],
+  "final_policy": {
+   "AGE": {
+    "policy": "UNION",
+    "theta": 0.5
+   },
+   "CONTACT": {
+    "policy": "UNION",
+    "theta": 0.5
+   },
+   "DATE": {
+    "policy": "UNION",
+    "theta": 0.5
+   },
+   "ID": {
+    "policy": "UNION",
+    "theta": 0.5
+   },
+   "LOCATION_AREA": {
+    "policy": "UNION",
+    "theta": 0.5
+   },
+   "LOCATION_STREET": {
+    "policy": "UNION",
+    "theta": 0.5
+   },
+   "NAME": {
+    "policy": "UNION",
+    "theta": 0.5
+   },
+   "ORGANISATION": {
+    "policy": "UNION",
+    "theta": 0.5
+   },
+   "OTHER": {
+    "policy": "UNION",
+    "theta": 0.5
+   },
+   "PROFESSION": {
+    "policy": "UNION",
+    "theta": 0.5
+   }
+  },
+  "fell_back_to_RT": true,
+  "headline": {
+   "L_full": 0.07836990595611286,
+   "L_rel": 0.04075235109717868,
+   "A": 0.44028776978417267,
+   "precision": 0.44868035190615835,
+   "recall": 0.9592476489028213,
+   "f1": 0.6113886113886113,
+   "tp": 306,
+   "fp": 376,
+   "fn": 13,
+   "complementarity_full": {
+    "rules_only": 0,
+    "tagger_only": 256,
+    "both": 38,
+    "joint_only": 0,
+    "neither": 25,
+    "denominator": 319
+   },
+   "D_full": 0.13513513513513514,
+   "gold": 319,
+   "pred": 720,
+   "nongold_masked_rate": null
+  },
+  "cost": {
+   "llm_calls": 2,
+   "prompt_tokens": 10558,
+   "completion_tokens": 660,
+   "wall_seconds": 14.8
+  }
+ }
+}

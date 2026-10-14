@@ -353,6 +353,11 @@ unsupported useful
 value values volume weak weaker worse worst
 zero
 L_full L_rel A theta TP FP FN
+tagger taggers rules rule union detector detectors type types span spans
+achieve achieves achieved achieving accommodate accommodates
+find finds finding found capture captures captured miss missed misses missing
+yield yields yielded default defaults identical identically versus
+perfect perfectly far wherever whichever
 """.split())
 
 
@@ -395,6 +400,15 @@ def check_rationale(text: str, *, phi_type: str,
          check does not look like a passed one.
       4. **Length.** Over `RATIONALE_MAX_CHARS` is not one sentence.
 
+    Check 3 covers **integer** runs of four or more digits only, and that is a narrowing
+    made on 2026-10-14 after it refused legitimate output. The agent *derives* figures —
+    it rounds, and it subtracts one rate from another — so requiring every decimal to
+    appear verbatim in the frame refuses a correct rationale for being arithmetic. A
+    derived decimal is not a surface. What is a surface is an identifier shape: a year, a
+    record number, a postcode, a phone number are all four-or-more-digit integers, and
+    none of those is derivable from a table of rates. So the rule is: a long integer must
+    have been supplied; a decimal need not be.
+
     **Recorded, not refused** — words outside `RATIONALE_WORDS`. A lower-case ASCII
     English word that is not in the list is almost always a morphological variant of one
     that is, and it cannot be a copied surface because there was nothing to copy from.
@@ -422,30 +436,77 @@ def check_rationale(text: str, *, phi_type: str,
                   | set(corpus_ids()))
     declared = ({w.lower() for w in RATIONALE_WORDS}
                 | {w.lower() for w in axis_words})
+    #: Declared vocabulary that is **legitimately capitalised as written**: the metric
+    #: names. `A` is the guideline's accuracy and is a single capital letter, and
+    #: `L_full`, `L_rel`, `TP`, `FP`, `FN` are the others.
+    #:
+    #: This set is the fix for a defect that cost ten Bedrock calls on 2026-10-14. The
+    #: capitalisation check ran against the axes only, so every rationale that mentioned
+    #: `A` — which is the quantity the agent is being asked to maximise, so nearly all of
+    #: them — was refused as carrying a capitalised non-axis word. All ten responses were
+    #: well-formed bare JSON with zero fence lines; the model complied and the guard did
+    #: not. Recorded here rather than only in the commit message because the next person
+    #: to tighten this check needs to see what tightening it cost.
+    as_written = {w for w in RATIONALE_WORDS if w[0].isupper()}
     undeclared: set[str] = set()
     for match in re.finditer(_WORD, text):
         word = match.group()
-        if (word[0].isupper() and match.start() != 0
-                and word not in axis_words):
+        if word[0].isupper() and not _capital_allowed(
+                word, text, match.start(), axis_words, as_written, declared):
             raise ArbiterError(
                 f"the rationale for {phi_type} has a capitalised word at offset "
                 f"{match.start()}, length {len(word)}, which is not a type name, a "
-                "policy name or a corpus id. A capitalised word is the strongest "
-                "single signal of a person, place or institution name. Not quoted."
+                "policy name, a corpus id, a metric name, or a declared word opening "
+                "a sentence. A capitalised word is the strongest single signal of a "
+                "person, place or institution name. Not quoted."
             )
         if word.lower() not in declared:
             undeclared.add(word.lower())
     if allowed_numbers is not None:
-        for match in re.finditer(r"\d+(?:\.\d+)?", text):
+        # Integers only — a decimal is a derived rate (see the docstring). The negative
+        # lookaround keeps the digits after a decimal point out of scope.
+        for match in re.finditer(r"(?<![\d.])\d{4,}(?![\d.])", text):
             if match.group() not in allowed_numbers:
                 raise ArbiterError(
                     f"the rationale for {phi_type} cites a "
-                    f"{len(match.group())}-character number at offset "
-                    f"{match.start()} that does not appear in the frame this call "
-                    "sent. A figure the agent was not given was not computed from "
-                    "the input — it is invented or copied from elsewhere. Not quoted."
+                    f"{len(match.group())}-digit integer at offset {match.start()} "
+                    "that does not appear in the frame this call sent. A long integer "
+                    "is an identifier shape — a year, a record number, a postcode, a "
+                    "phone number — and none of those is derivable from a table of "
+                    "rates, so one that was not supplied was not computed. Not quoted."
                 )
     return undeclared
+
+
+def _capital_allowed(word: str, text: str, start: int, axis_words: set[str],
+                     as_written: set[str], declared: set[str]) -> bool:
+    """May this capitalised token stand? Three ways in, and the third is conditional.
+
+      1. It is an axis value — a type name, a policy name, a corpus id.
+      2. It is a metric name, capitalised exactly as declared (`A`, `TP`, `L_full`).
+      3. It **opens a sentence**.
+
+    The third is unconditional, and that is a deliberate narrowing made after the guard
+    refused `Tagger` at the start of a rationale on 2026-10-14. **Capitalisation only
+    carries information mid-sentence.** A word at a sentence opening is capitalised by
+    grammar, so its case says nothing about whether it is a name, and a conditional
+    exemption — only declared words may open a sentence — turns an English vocabulary gap
+    into a refused response. That cost real calls twice.
+
+    The residual risk is a surname opening a sentence, and it is accepted for a stated
+    reason: `check_frame` makes a real leak structurally impossible. The frame's grammar
+    is closed, so corpus text cannot reach this agent at all, and anything name-shaped in
+    its rationale is invented rather than copied — which is a quality problem and not a
+    DUA one. The word is still *recorded* as undeclared, so it is visible in the record
+    without being fatal.
+
+    Mid-sentence, the refusal stands: there the capital is a choice the model made, and it
+    is the strongest single signal available.
+    """
+    if word in axis_words or word in as_written:
+        return True
+    before = text[:start].rstrip()
+    return before == "" or before[-1] in ".!?;:"
 
 
 @dataclass(slots=True)

@@ -1,0 +1,1521 @@
+{
+ "es-meddocan": {
+  "rounds": [
+   {
+    "corpus": "es-meddocan",
+    "draw": 3,
+    "round": 1,
+    "attempts": [
+     {
+      "attempt": 1,
+      "envelope": {
+       "response_chars": 1673,
+       "response_sha256": "sha256:b114aec7e473a42a1e7a40cc3672cc3484aa2cf3e1b6a8ca08e1912a637a9282",
+       "envelope": "bare",
+       "fence_lines": 0,
+       "parsed_chars": 1673,
+       "parsed_sha256": "sha256:b114aec7e473a42a1e7a40cc3672cc3484aa2cf3e1b6a8ca08e1912a637a9282"
+      },
+      "cost": {
+       "llm_calls": 1,
+       "prompt_tokens": 7233,
+       "completion_tokens": 704,
+       "wall_seconds": 11.114
+      },
+      "model": {
+       "model_id": "us.anthropic.claude-opus-4-5-20251101-v1:0",
+       "model_id_reported": "claude-opus-4-5-20251101",
+       "model_id_resolution": "dated"
+      }
+     }
+    ],
+    "outcome": "scored",
+    "policies": {
+     "AGE": {
+      "policy": "T",
+      "theta": 0.7
+     },
+     "CONTACT": {
+      "policy": "T",
+      "theta": 0.7
+     },
+     "DATE": {
+      "policy": "T",
+      "theta": 0.7
+     },
+     "ID": {
+      "policy": "T",
+      "theta": 0.9
+     },
+     "LOCATION_AREA": {
+      "policy": "T",
+      "theta": 0.7
+     },
+     "LOCATION_STREET": {
+      "policy": "T",
+      "theta": 0.9
+     },
+     "NAME": {
+      "policy": "T",
+      "theta": 0.9
+     },
+     "ORGANISATION": {
+      "policy": "T",
+      "theta": 0.7
+     },
+     "OTHER": {
+      "policy": "UNION",
+      "theta": 0.5
+     },
+     "PROFESSION": {
+      "policy": "UNION",
+      "theta": 0.5
+     }
+    },
+    "rationales": {
+     "AGE": "T@0.7 achieves A 0.964552 with L_full 0.007678 versus UNION@0.5 L_full 0.005758 and A 0.500967, tagger found 517 of 521 gold spans.",
+     "CONTACT": "T@0.7 achieves A 0.921769 with L_full 0.003676 matching UNION@0.5 L_full while improving from A 0.839009.",
+     "DATE": "T@0.7 achieves A 0.990424 with L_full 0.004144 matching UNION@0.5 L_full while improving from A 0.860880.",
+     "ID": "T@0.9 achieves A 0.911839 with L_full 0.028188 versus UNION@0.5 L_full 0.010738 and A 0.423165, increase of 0.017450 offset by other types.",
+     "LOCATION_AREA": "T@0.7 achieves A 0.981509 with L_full 0.008996 versus UNION@0.5 L_full 0.007496 and A 0.714132.",
+     "LOCATION_STREET": "T@0.9 achieves A 0.972789 with L_full 0.034562 versus UNION@0.5 L_full 0.020737 and A 0.554557, tagger found 420 of 434 gold spans.",
+     "NAME": "T@0.9 achieves A 0.988142 with L_full 0.001000 versus UNION@0.5 L_full 0.000000 and A 0.765697.",
+     "ORGANISATION": "T@0.7 achieves A 0.832599 with L_full 0.126168 versus UNION@0.5 L_full 0.112150 and A 0.792531, tagger found 188 of 214 gold spans.",
+     "OTHER": "Sparse type with 6 gold spans and neither detector found any, defaulting to UNION@0.5 per sparse guidance.",
+     "PROFESSION": "Sparse type with 4 gold spans, UNION@0.5 matches R at L_full 0.500000 and provides baseline coverage."
+    },
+    "rationale_undeclared_words": [
+     "defaulting",
+     "guidance",
+     "improving",
+     "matching",
+     "offset",
+     "provides"
+    ],
+    "achieved": {
+     "tp": 5183,
+     "fp": 147,
+     "fn": 71,
+     "n_gold": 5254,
+     "n_pred": 5330,
+     "L_full": 0.017510468214693566,
+     "L_rel": 0.011800532927293491,
+     "A": 0.9596371042399555,
+     "precision": 0.9724202626641651,
+     "recall": 0.9864864864864865
+    },
+    "constraint_satisfied": true
+   },
+   {
+    "corpus": "es-meddocan",
+    "draw": 3,
+    "round": 2,
+    "attempts": [
+     {
+      "attempt": 1,
+      "envelope": {
+       "response_chars": 1601,
+       "response_sha256": "sha256:c29fddc90fe2477cd74ffca53545f90e2e16149828e6b29b39e8e5aee874284a",
+       "envelope": "bare",
+       "fence_lines": 0,
+       "parsed_chars": 1601,
+       "parsed_sha256": "sha256:c29fddc90fe2477cd74ffca53545f90e2e16149828e6b29b39e8e5aee874284a"
+      },
+      "cost": {
+       "llm_calls": 1,
+       "prompt_tokens": 7371,
+       "completion_tokens": 656,
+       "wall_seconds": 10.583
+      },
+      "model": {
+       "model_id": "us.anthropic.claude-opus-4-5-20251101-v1:0",
+       "model_id_reported": "claude-opus-4-5-20251101",
+       "model_id_resolution": "dated"
+      }
+     }
+    ],
+    "outcome": "scored",
+    "policies": {
+     "AGE": {
+      "policy": "T",
+      "theta": 0.5
+     },
+     "CONTACT": {
+      "policy": "T",
+      "theta": 0.5
+     },
+     "DATE": {
+      "policy": "T",
+      "theta": 0.5
+     },
+     "ID": {
+      "policy": "T",
+      "theta": 0.9
+     },
+     "LOCATION_AREA": {
+      "policy": "T",
+      "theta": 0.5
+     },
+     "LOCATION_STREET": {
+      "policy": "T",
+      "theta": 0.9
+     },
+     "NAME": {
+      "policy": "T",
+      "theta": 0.9
+     },
+     "ORGANISATION": {
+      "policy": "T",
+      "theta": 0.7
+     },
+     "OTHER": {
+      "policy": "UNION",
+      "theta": 0.5
+     },
+     "PROFESSION": {
+      "policy": "UNION",
+      "theta": 0.7
+     }
+    },
+    "rationales": {
+     "AGE": "T@0.5 achieves A 0.964552 with L_full 0.007678 versus UNION@0.5 A 0.500967, tagger finds 77 spans rules miss.",
+     "CONTACT": "T@0.5 achieves A 0.921769 with L_full 0.003676 matching UNION@0.5 leak rate but reducing FP from 51 to 22.",
+     "DATE": "T@0.5 achieves A 0.990424 with L_full 0.004144 matching UNION@0.5 leak rate, tagger finds all 26 spans rules miss.",
+     "ID": "T@0.9 achieves A 0.911839 with L_full 0.028188 versus UNION@0.5 A 0.423165, reducing FP from 999 to 49.",
+     "LOCATION_AREA": "T@0.5 achieves A 0.980074 with L_full 0.008996 versus UNION@0.5 A 0.714132, tagger finds 178 spans rules miss.",
+     "LOCATION_STREET": "T@0.9 achieves A 0.972789 with L_full 0.034562 versus UNION@0.5 A 0.554557, reducing FP from 345 to 7.",
+     "NAME": "T@0.9 achieves A 0.988142 with L_full 0.001000 versus UNION@0.5 A 0.765697, reducing FP from 306 to 12.",
+     "ORGANISATION": "T@0.7 achieves A 0.832599 with L_full 0.126168 versus UNION@0.5 A 0.792531, tagger finds 117 spans rules miss.",
+     "OTHER": "Sparse type with 6 gold spans and neither detector finds any, defaulting to UNION@0.5 per guidance.",
+     "PROFESSION": "Sparse type with 4 gold spans, UNION@0.7 achieves A 0.500000 matching R while maintaining lower theta coverage."
+    },
+    "rationale_undeclared_words": [
+     "all",
+     "defaulting",
+     "guidance",
+     "maintaining",
+     "matching",
+     "reducing"
+    ],
+    "achieved": {
+     "tp": 5184,
+     "fp": 146,
+     "fn": 70,
+     "n_gold": 5254,
+     "n_pred": 5330,
+     "L_full": 0.017510468214693566,
+     "L_rel": 0.01161020175104682,
+     "A": 0.96,
+     "precision": 0.9726078799249531,
+     "recall": 0.9866768176627332
+    },
+    "constraint_satisfied": true
+   },
+   {
+    "corpus": "es-meddocan",
+    "draw": 3,
+    "round": 3,
+    "attempts": [
+     {
+      "attempt": 1,
+      "envelope": {
+       "response_chars": 1824,
+       "response_sha256": "sha256:912673d89ba7acf64da549447bccf6424226021a35752d1e2b78b39a73d84cc7",
+       "envelope": "bare",
+       "fence_lines": 0,
+       "parsed_chars": 1824,
+       "parsed_sha256": "sha256:912673d89ba7acf64da549447bccf6424226021a35752d1e2b78b39a73d84cc7"
+      },
+      "cost": {
+       "llm_calls": 1,
+       "prompt_tokens": 7371,
+       "completion_tokens": 707,
+       "wall_seconds": 13.382
+      },
+      "model": {
+       "model_id": "us.anthropic.claude-opus-4-5-20251101-v1:0",
+       "model_id_reported": "claude-opus-4-5-20251101",
+       "model_id_resolution": "dated"
+      }
+     }
+    ],
+    "outcome": "scored",
+    "policies": {
+     "AGE": {
+      "policy": "T",
+      "theta": 0.5
+     },
+     "CONTACT": {
+      "policy": "T",
+      "theta": 0.5
+     },
+     "DATE": {
+      "policy": "T",
+      "theta": 0.5
+     },
+     "ID": {
+      "policy": "T",
+      "theta": 0.9
+     },
+     "LOCATION_AREA": {
+      "policy": "T",
+      "theta": 0.5
+     },
+     "LOCATION_STREET": {
+      "policy": "T",
+      "theta": 0.9
+     },
+     "NAME": {
+      "policy": "T",
+      "theta": 0.9
+     },
+     "ORGANISATION": {
+      "policy": "T",
+      "theta": 0.7
+     },
+     "OTHER": {
+      "policy": "UNION",
+      "theta": 0.5
+     },
+     "PROFESSION": {
+      "policy": "UNION",
+      "theta": 0.7
+     }
+    },
+    "rationales": {
+     "AGE": "T@0.5 achieves A 0.964552 with L_full 0.007678 versus UNION@0.5 L_full 0.005758 and A 0.500967, gaining 0.463585 accuracy with minimal leak increase.",
+     "CONTACT": "T@0.5 achieves A 0.921769 with L_full 0.003676 matching UNION@0.5 leak rate while improving accuracy from 0.839009.",
+     "DATE": "T@0.5 achieves A 0.990424 with L_full 0.004144 matching UNION@0.5 leak rate while improving accuracy from 0.860880.",
+     "ID": "T@0.9 achieves A 0.911839 with L_full 0.028188 versus UNION@0.5 L_full 0.010738 and A 0.423165, substantial accuracy gain within delta budget.",
+     "LOCATION_AREA": "T@0.5 achieves A 0.980074 with L_full 0.008996 versus UNION@0.5 L_full 0.007496 and A 0.714132, large accuracy gain with small leak increase.",
+     "LOCATION_STREET": "T@0.9 achieves A 0.972789 with L_full 0.034562 versus UNION@0.5 L_full 0.020737 and A 0.554557, best accuracy with acceptable leak increase.",
+     "NAME": "T@0.9 achieves A 0.988142 with L_full 0.001000 versus UNION@0.5 L_full 0.000000 and A 0.765697, highest accuracy with minimal leak.",
+     "ORGANISATION": "T@0.7 achieves A 0.832599 with L_full 0.126168 versus UNION@0.5 L_full 0.112150 and A 0.792531, best accuracy-leak tradeoff.",
+     "OTHER": "Sparse type with 6 gold spans and neither detector finds any, defaulting to UNION@0.5 per sparse guidance.",
+     "PROFESSION": "Sparse type with 4 gold spans where UNION@0.7 achieves A 0.500000 matching R while maintaining lowest feasible L_full 0.500000."
+    },
+    "rationale_undeclared_words": [
+     "acceptable",
+     "accuracy-leak",
+     "defaulting",
+     "feasible",
+     "gaining",
+     "guidance",
+     "improving",
+     "maintaining",
+     "matching"
+    ],
+    "achieved": {
+     "tp": 5184,
+     "fp": 146,
+     "fn": 70,
+     "n_gold": 5254,
+     "n_pred": 5330,
+     "L_full": 0.017510468214693566,
+     "L_rel": 0.01161020175104682,
+     "A": 0.96,
+     "precision": 0.9726078799249531,
+     "recall": 0.9866768176627332
+    },
+    "constraint_satisfied": true
+   }
+  ],
+  "final_policy": {
+   "AGE": {
+    "policy": "T",
+    "theta": 0.5
+   },
+   "CONTACT": {
+    "policy": "T",
+    "theta": 0.5
+   },
+   "DATE": {
+    "policy": "T",
+    "theta": 0.5
+   },
+   "ID": {
+    "policy": "T",
+    "theta": 0.9
+   },
+   "LOCATION_AREA": {
+    "policy": "T",
+    "theta": 0.5
+   },
+   "LOCATION_STREET": {
+    "policy": "T",
+    "theta": 0.9
+   },
+   "NAME": {
+    "policy": "T",
+    "theta": 0.9
+   },
+   "ORGANISATION": {
+    "policy": "T",
+    "theta": 0.7
+   },
+   "OTHER": {
+    "policy": "UNION",
+    "theta": 0.5
+   },
+   "PROFESSION": {
+    "policy": "UNION",
+    "theta": 0.7
+   }
+  },
+  "fell_back_to_RT": false,
+  "headline": {
+   "L_full": 0.017510468214693566,
+   "L_rel": 0.01161020175104682,
+   "A": 0.96,
+   "precision": 0.9726078799249531,
+   "recall": 0.9866768176627332,
+   "f1": 0.979591836734694,
+   "tp": 5184,
+   "fp": 146,
+   "fn": 70,
+   "complementarity_full": {
+    "rules_only": 2,
+    "tagger_only": 5160,
+    "both": 0,
+    "joint_only": 0,
+    "neither": 92,
+    "denominator": 5254
+   },
+   "D_full": 0.268,
+   "gold": 5254,
+   "pred": 5330,
+   "nongold_masked_rate": null
+  },
+  "cost": {
+   "llm_calls": 3,
+   "prompt_tokens": 21975,
+   "completion_tokens": 2067,
+   "wall_seconds": 35.3
+  }
+ },
+ "de-grascco": {
+  "rounds": [
+   {
+    "corpus": "de-grascco",
+    "draw": 3,
+    "round": 1,
+    "attempts": [
+     {
+      "attempt": 1,
+      "envelope": {
+       "response_chars": 1383,
+       "response_sha256": "sha256:80b12e4abe1f4c74b1339667f4560cefc701545a0cbc56c6d8100d5eabe3551e",
+       "envelope": "bare",
+       "fence_lines": 0,
+       "parsed_chars": 1383,
+       "parsed_sha256": "sha256:80b12e4abe1f4c74b1339667f4560cefc701545a0cbc56c6d8100d5eabe3551e"
+      },
+      "cost": {
+       "llm_calls": 1,
+       "prompt_tokens": 6248,
+       "completion_tokens": 607,
+       "wall_seconds": 9.673
+      },
+      "model": {
+       "model_id": "us.anthropic.claude-opus-4-5-20251101-v1:0",
+       "model_id_reported": "claude-opus-4-5-20251101",
+       "model_id_resolution": "dated"
+      }
+     }
+    ],
+    "outcome": "scored",
+    "policies": {
+     "AGE": {
+      "policy": "T",
+      "theta": 0.5
+     },
+     "CONTACT": {
+      "policy": "T",
+      "theta": 0.5
+     },
+     "DATE": {
+      "policy": "T",
+      "theta": 0.9
+     },
+     "ID": {
+      "policy": "T",
+      "theta": 0.7
+     },
+     "LOCATION_AREA": {
+      "policy": "T",
+      "theta": 0.9
+     },
+     "LOCATION_STREET": {
+      "policy": "T",
+      "theta": 0.7
+     },
+     "NAME": {
+      "policy": "T",
+      "theta": 0.5
+     },
+     "ORGANISATION": {
+      "policy": "T",
+      "theta": 0.9
+     }
+    },
+    "rationales": {
+     "AGE": "Sparse type with 5 gold spans where T@0.5 achieves perfect A 1.000000 and L_full 0.000000 versus UNION@0.5 A 0.833333 due to 1 FP from rules.",
+     "CONTACT": "T@0.5 achieves perfect A 1.000000 and L_full 0.000000 versus UNION@0.5 A 0.733333 with 4 FP since tagger finds all 11 gold spans.",
+     "DATE": "T@0.9 achieves A 0.977578 and L_full 0.009050 versus UNION@0.5 A 0.862205 and L_full 0.004525 with only 0.004525 additional leak within delta.",
+     "ID": "T@0.7 achieves A 0.727273 versus UNION@0.5 A 0.615385 with same L_full 0.272727 by removing 2 FP at threshold 0.7.",
+     "LOCATION_AREA": "T@0.9 achieves A 0.862069 versus UNION@0.5 A 0.135870 with same L_full 0.076923 by avoiding 149 rule FP.",
+     "LOCATION_STREET": "T@0.7 achieves A 1.000000 and L_full 0.111111 versus UNION@0.5 A 0.562500 with 7 fewer FP and same L_rel 0.000000.",
+     "NAME": "T@0.5 achieves A 0.950820 and L_full 0.025862 versus UNION@0.5 A 0.703030 with 43 fewer FP and identical leak.",
+     "ORGANISATION": "T@0.9 achieves A 0.750000 versus UNION@0.5 A 0.476190 with same L_full 0.545455 by reducing FP from 10 to 1."
+    },
+    "rationale_undeclared_words": [
+     "additional",
+     "all",
+     "avoiding",
+     "due",
+     "reducing",
+     "removing",
+     "since"
+    ],
+    "achieved": {
+     "tp": 401,
+     "fp": 13,
+     "fn": 9,
+     "n_gold": 410,
+     "n_pred": 414,
+     "L_full": 0.041463414634146344,
+     "L_rel": 0.01951219512195122,
+     "A": 0.9479905437352246,
+     "precision": 0.9685990338164251,
+     "recall": 0.9780487804878049
+    },
+    "constraint_satisfied": true
+   },
+   {
+    "corpus": "de-grascco",
+    "draw": 3,
+    "round": 2,
+    "attempts": [
+     {
+      "attempt": 1,
+      "envelope": {
+       "response_chars": 1269,
+       "response_sha256": "sha256:4b92910f7725453d4a8ca0bad69a16aab1517b7fe87306bf7f86eeb709c6e7ed",
+       "envelope": "bare",
+       "fence_lines": 0,
+       "parsed_chars": 1269,
+       "parsed_sha256": "sha256:4b92910f7725453d4a8ca0bad69a16aab1517b7fe87306bf7f86eeb709c6e7ed"
+      },
+      "cost": {
+       "llm_calls": 1,
+       "prompt_tokens": 6365,
+       "completion_tokens": 571,
+       "wall_seconds": 9.788
+      },
+      "model": {
+       "model_id": "us.anthropic.claude-opus-4-5-20251101-v1:0",
+       "model_id_reported": "claude-opus-4-5-20251101",
+       "model_id_resolution": "dated"
+      }
+     }
+    ],
+    "outcome": "scored",
+    "policies": {
+     "AGE": {
+      "policy": "T",
+      "theta": 0.5
+     },
+     "CONTACT": {
+      "policy": "T",
+      "theta": 0.5
+     },
+     "DATE": {
+      "policy": "T",
+      "theta": 0.9
+     },
+     "ID": {
+      "policy": "T",
+      "theta": 0.7
+     },
+     "LOCATION_AREA": {
+      "policy": "T",
+      "theta": 0.9
+     },
+     "LOCATION_STREET": {
+      "policy": "T",
+      "theta": 0.7
+     },
+     "NAME": {
+      "policy": "T",
+      "theta": 0.5
+     },
+     "ORGANISATION": {
+      "policy": "T",
+      "theta": 0.9
+     }
+    },
+    "rationales": {
+     "AGE": "Sparse type with 5 gold spans where T@0.5 achieves A 1.000000 and L_full 0.000000 versus UNION@0.5 A 0.833333.",
+     "CONTACT": "T@0.5 achieves A 1.000000 with L_full 0.000000 versus UNION@0.5 A 0.733333 as tagger finds all 11 spans perfectly.",
+     "DATE": "T@0.9 achieves A 0.977578 with L_full 0.009050 versus UNION@0.5 A 0.862205 L_full 0.004525 with only 0.004525 leak increase.",
+     "ID": "T@0.7 achieves A 0.727273 with L_full 0.272727 matching UNION@0.7 but eliminating 2 FP from UNION@0.5.",
+     "LOCATION_AREA": "T@0.9 achieves A 0.862069 with L_full 0.076923 versus UNION@0.5 A 0.135870 eliminating 154 FP from rules.",
+     "LOCATION_STREET": "T@0.7 achieves A 1.000000 with L_full 0.111111 versus UNION@0.5 A 0.562500 eliminating 7 FP.",
+     "NAME": "T@0.5 achieves A 0.950820 with L_full 0.025862 versus UNION@0.5 A 0.703030 eliminating 43 FP.",
+     "ORGANISATION": "T@0.9 achieves A 0.750000 with L_full 0.545455 versus UNION@0.5 A 0.476190 L_full 0.545455 eliminating 9 FP."
+    },
+    "rationale_undeclared_words": [
+     "all",
+     "eliminating",
+     "matching"
+    ],
+    "achieved": {
+     "tp": 401,
+     "fp": 13,
+     "fn": 9,
+     "n_gold": 410,
+     "n_pred": 414,
+     "L_full": 0.041463414634146344,
+     "L_rel": 0.01951219512195122,
+     "A": 0.9479905437352246,
+     "precision": 0.9685990338164251,
+     "recall": 0.9780487804878049
+    },
+    "constraint_satisfied": true
+   }
+  ],
+  "final_policy": {
+   "AGE": {
+    "policy": "T",
+    "theta": 0.5
+   },
+   "CONTACT": {
+    "policy": "T",
+    "theta": 0.5
+   },
+   "DATE": {
+    "policy": "T",
+    "theta": 0.9
+   },
+   "ID": {
+    "policy": "T",
+    "theta": 0.7
+   },
+   "LOCATION_AREA": {
+    "policy": "T",
+    "theta": 0.9
+   },
+   "LOCATION_STREET": {
+    "policy": "T",
+    "theta": 0.7
+   },
+   "NAME": {
+    "policy": "T",
+    "theta": 0.5
+   },
+   "ORGANISATION": {
+    "policy": "T",
+    "theta": 0.9
+   },
+   "OTHER": {
+    "policy": "UNION",
+    "theta": 0.5
+   },
+   "PROFESSION": {
+    "policy": "UNION",
+    "theta": 0.5
+   }
+  },
+  "fell_back_to_RT": false,
+  "headline": {
+   "L_full": 0.041463414634146344,
+   "L_rel": 0.01951219512195122,
+   "A": 0.9479905437352246,
+   "precision": 0.9685990338164251,
+   "recall": 0.9780487804878049,
+   "f1": 0.9733009708737864,
+   "tp": 401,
+   "fp": 13,
+   "fn": 9,
+   "complementarity_full": {
+    "rules_only": 0,
+    "tagger_only": 393,
+    "both": 0,
+    "joint_only": 0,
+    "neither": 17,
+    "denominator": 410
+   },
+   "D_full": 0.631578947368421,
+   "gold": 410,
+   "pred": 414,
+   "nongold_masked_rate": null
+  },
+  "cost": {
+   "llm_calls": 2,
+   "prompt_tokens": 12613,
+   "completion_tokens": 1178,
+   "wall_seconds": 19.5
+  }
+ },
+ "es-carmen": {
+  "rounds": [
+   {
+    "corpus": "es-carmen",
+    "draw": 3,
+    "round": 1,
+    "attempts": [
+     {
+      "attempt": 1,
+      "envelope": {
+       "response_chars": 1674,
+       "response_sha256": "sha256:661ac4311547d97520581fdcbe470381f13b0974bdbd5cf2ad301a8a0858435e",
+       "envelope": "bare",
+       "fence_lines": 0,
+       "parsed_chars": 1674,
+       "parsed_sha256": "sha256:661ac4311547d97520581fdcbe470381f13b0974bdbd5cf2ad301a8a0858435e"
+      },
+      "cost": {
+       "llm_calls": 1,
+       "prompt_tokens": 7216,
+       "completion_tokens": 695,
+       "wall_seconds": 11.346
+      },
+      "model": {
+       "model_id": "us.anthropic.claude-opus-4-5-20251101-v1:0",
+       "model_id_reported": "claude-opus-4-5-20251101",
+       "model_id_resolution": "dated"
+      }
+     }
+    ],
+    "outcome": "scored",
+    "policies": {
+     "AGE": {
+      "policy": "T",
+      "theta": 0.5
+     },
+     "CONTACT": {
+      "policy": "UNION",
+      "theta": 0.5
+     },
+     "DATE": {
+      "policy": "T",
+      "theta": 0.7
+     },
+     "ID": {
+      "policy": "T",
+      "theta": 0.9
+     },
+     "LOCATION_AREA": {
+      "policy": "T",
+      "theta": 0.7
+     },
+     "LOCATION_STREET": {
+      "policy": "T",
+      "theta": 0.7
+     },
+     "NAME": {
+      "policy": "T",
+      "theta": 0.5
+     },
+     "ORGANISATION": {
+      "policy": "T",
+      "theta": 0.9
+     },
+     "OTHER": {
+      "policy": "UNION",
+      "theta": 0.5
+     },
+     "PROFESSION": {
+      "policy": "T",
+      "theta": 0.7
+     }
+    },
+    "rationales": {
+     "AGE": "T@0.5 achieves A 0.975460 versus UNION@0.5 A 0.883333 with identical L_full 0.006289 as tagger found all 159 gold spans.",
+     "CONTACT": "Sparse type with 1 gold span so defaulting to UNION@0.5 per sparse guidance.",
+     "DATE": "T@0.7 achieves A 0.984360 versus UNION@0.5 A 0.906475 with L_full 0.017769 only 0.000987 higher as tagger found 630 spans rules missed.",
+     "ID": "T@0.9 achieves A 0.793103 versus UNION@0.5 A 0.414634 with L_full 0.192982 as rules found 0 of 57 gold spans.",
+     "LOCATION_AREA": "T@0.7 achieves A 0.923077 versus UNION@0.5 A 0.695652 with identical L_full 0.058824 as rules found 0 of 51 gold spans.",
+     "LOCATION_STREET": "Sparse type with 6 gold spans but T@0.7 achieves A 1.000000 with L_full 0.000000 versus UNION@0.5 A 0.150000.",
+     "NAME": "T@0.5 achieves A 0.918919 versus UNION@0.5 A 0.365591 with identical L_full 0.028571 avoiding 56 rule false positives.",
+     "ORGANISATION": "T@0.9 achieves A 0.887640 versus UNION@0.5 A 0.311787 with L_full 0.125000 versus 0.102273 as rules found 0 gold spans with 135 FP.",
+     "OTHER": "Sparse type with 7 gold spans so defaulting to UNION@0.5 which achieves A 1.000000 with L_full 0.285714.",
+     "PROFESSION": "T@0.7 achieves A 0.769231 versus UNION@0.5 A 0.714286 with identical L_full 0.416667 as rules found 0 of 12 gold spans."
+    },
+    "rationale_undeclared_words": [
+     "all",
+     "avoiding",
+     "defaulting",
+     "guidance"
+    ],
+    "achieved": {
+     "tp": 1397,
+     "fp": 22,
+     "fn": 32,
+     "n_gold": 1429,
+     "n_pred": 1419,
+     "L_full": 0.0363890832750175,
+     "L_rel": 0.021693491952414275,
+     "A": 0.9627842866988284,
+     "precision": 0.9844961240310077,
+     "recall": 0.9776067179846046
+    },
+    "constraint_satisfied": true
+   },
+   {
+    "corpus": "es-carmen",
+    "draw": 3,
+    "round": 2,
+    "attempts": [
+     {
+      "attempt": 1,
+      "envelope": {
+       "response_chars": 1565,
+       "response_sha256": "sha256:7fc9e746e58a8082e31d34ebc7a2ca2e004f35f6aa732e3308dd3426c736d2a5",
+       "envelope": "bare",
+       "fence_lines": 0,
+       "parsed_chars": 1565,
+       "parsed_sha256": "sha256:7fc9e746e58a8082e31d34ebc7a2ca2e004f35f6aa732e3308dd3426c736d2a5"
+      },
+      "cost": {
+       "llm_calls": 1,
+       "prompt_tokens": 7354,
+       "completion_tokens": 676,
+       "wall_seconds": 12.187
+      },
+      "model": {
+       "model_id": "us.anthropic.claude-opus-4-5-20251101-v1:0",
+       "model_id_reported": "claude-opus-4-5-20251101",
+       "model_id_resolution": "dated"
+      }
+     }
+    ],
+    "outcome": "scored",
+    "policies": {
+     "AGE": {
+      "policy": "T",
+      "theta": 0.9
+     },
+     "CONTACT": {
+      "policy": "T",
+      "theta": 0.5
+     },
+     "DATE": {
+      "policy": "T",
+      "theta": 0.7
+     },
+     "ID": {
+      "policy": "T",
+      "theta": 0.9
+     },
+     "LOCATION_AREA": {
+      "policy": "T",
+      "theta": 0.7
+     },
+     "LOCATION_STREET": {
+      "policy": "T",
+      "theta": 0.7
+     },
+     "NAME": {
+      "policy": "T",
+      "theta": 0.5
+     },
+     "ORGANISATION": {
+      "policy": "T",
+      "theta": 0.9
+     },
+     "OTHER": {
+      "policy": "UNION",
+      "theta": 0.5
+     },
+     "PROFESSION": {
+      "policy": "T",
+      "theta": 0.7
+     }
+    },
+    "rationales": {
+     "AGE": "T@0.9 achieves A 0.981366 with L_full 0.012579 versus UNION@0.5 A 0.883333, tagger finds all 159 gold spans.",
+     "CONTACT": "Sparse type with 1 gold span; T@0.5 achieves A 1.000000 with zero leaks versus UNION@0.5 A 0.333333.",
+     "DATE": "T@0.7 achieves A 0.984360 with L_full 0.017769 versus UNION@0.5 A 0.906475, tagger finds 630 spans rules miss.",
+     "ID": "T@0.9 achieves A 0.793103 with L_full 0.192982 versus UNION@0.5 A 0.414634, rules find 0 of 57 gold spans.",
+     "LOCATION_AREA": "T@0.7 achieves A 0.923077 with L_full 0.058824 versus UNION@0.5 A 0.695652, rules find 0 of 51 gold spans.",
+     "LOCATION_STREET": "Sparse type with 6 gold spans; T@0.7 achieves A 1.000000 with zero leaks versus UNION@0.5 A 0.150000.",
+     "NAME": "T@0.5 achieves A 0.918919 with L_full 0.028571 versus UNION@0.5 A 0.365591, reducing 57 rule FP to 2.",
+     "ORGANISATION": "T@0.9 achieves A 0.887640 with L_full 0.125000 versus UNION@0.5 A 0.311787, rules contribute 135 FP and 0 TP.",
+     "OTHER": "Sparse type with 7 gold spans; UNION@0.5 achieves A 1.000000 preserving baseline safety.",
+     "PROFESSION": "T@0.7 achieves A 0.769231 with L_full 0.416667 versus UNION@0.5 A 0.714286, rules find 0 of 12 gold spans."
+    },
+    "rationale_undeclared_words": [
+     "all",
+     "preserving",
+     "reducing",
+     "safety"
+    ],
+    "achieved": {
+     "tp": 1396,
+     "fp": 18,
+     "fn": 33,
+     "n_gold": 1429,
+     "n_pred": 1414,
+     "L_full": 0.0370888733379986,
+     "L_rel": 0.02239328201539538,
+     "A": 0.9647546648237734,
+     "precision": 0.9872701555869873,
+     "recall": 0.9769069279216235
+    },
+    "constraint_satisfied": true
+   },
+   {
+    "corpus": "es-carmen",
+    "draw": 3,
+    "round": 3,
+    "attempts": [
+     {
+      "attempt": 1,
+      "envelope": {
+       "response_chars": 1505,
+       "response_sha256": "sha256:905b888c819c328e7b734077aa77b804be906dc12e2784497c44f1f1d99ef548",
+       "envelope": "bare",
+       "fence_lines": 0,
+       "parsed_chars": 1505,
+       "parsed_sha256": "sha256:905b888c819c328e7b734077aa77b804be906dc12e2784497c44f1f1d99ef548"
+      },
+      "cost": {
+       "llm_calls": 1,
+       "prompt_tokens": 7354,
+       "completion_tokens": 662,
+       "wall_seconds": 9.594
+      },
+      "model": {
+       "model_id": "us.anthropic.claude-opus-4-5-20251101-v1:0",
+       "model_id_reported": "claude-opus-4-5-20251101",
+       "model_id_resolution": "dated"
+      }
+     }
+    ],
+    "outcome": "scored",
+    "policies": {
+     "AGE": {
+      "policy": "T",
+      "theta": 0.5
+     },
+     "CONTACT": {
+      "policy": "T",
+      "theta": 0.5
+     },
+     "DATE": {
+      "policy": "T",
+      "theta": 0.7
+     },
+     "ID": {
+      "policy": "T",
+      "theta": 0.9
+     },
+     "LOCATION_AREA": {
+      "policy": "T",
+      "theta": 0.7
+     },
+     "LOCATION_STREET": {
+      "policy": "T",
+      "theta": 0.7
+     },
+     "NAME": {
+      "policy": "T",
+      "theta": 0.5
+     },
+     "ORGANISATION": {
+      "policy": "T",
+      "theta": 0.9
+     },
+     "OTHER": {
+      "policy": "UNION",
+      "theta": 0.5
+     },
+     "PROFESSION": {
+      "policy": "T",
+      "theta": 0.7
+     }
+    },
+    "rationales": {
+     "AGE": "T@0.5 achieves A 0.975460 with L_full 0.006289 versus UNION@0.5 A 0.883333 with same L_full.",
+     "CONTACT": "Sparse type with 1 gold span where T@0.5 achieves A 1.000000 versus UNION@0.5 A 0.333333 with same L_full 0.000000.",
+     "DATE": "T@0.7 achieves A 0.984360 versus UNION@0.5 A 0.906475 with comparable L_full 0.017769.",
+     "ID": "T@0.9 achieves A 0.793103 with L_full 0.192982 versus UNION@0.5 A 0.414634 since rules find 0 of 57 gold spans.",
+     "LOCATION_AREA": "T@0.7 achieves A 0.923077 with L_full 0.058824 versus UNION@0.5 A 0.695652 since rules find 0 of 51 gold spans.",
+     "LOCATION_STREET": "Sparse type where T@0.7 achieves A 1.000000 with L_full 0.000000 versus UNION@0.5 A 0.150000.",
+     "NAME": "T@0.5 achieves A 0.918919 with L_full 0.028571 versus UNION@0.5 A 0.365591 with same L_full.",
+     "ORGANISATION": "T@0.9 achieves A 0.887640 with L_full 0.125000 versus UNION@0.5 A 0.311787 with L_full 0.102273.",
+     "OTHER": "Sparse type with 7 gold spans where UNION@0.5 achieves A 1.000000 with L_full 0.285714.",
+     "PROFESSION": "T@0.7 achieves A 0.769231 with L_full 0.416667 versus UNION@0.5 A 0.714286 with same L_full."
+    },
+    "rationale_undeclared_words": [
+     "comparable",
+     "since"
+    ],
+    "achieved": {
+     "tp": 1397,
+     "fp": 20,
+     "fn": 32,
+     "n_gold": 1429,
+     "n_pred": 1417,
+     "L_full": 0.0363890832750175,
+     "L_rel": 0.021693491952414275,
+     "A": 0.9641131815044859,
+     "precision": 0.9858856739590685,
+     "recall": 0.9776067179846046
+    },
+    "constraint_satisfied": true
+   }
+  ],
+  "final_policy": {
+   "AGE": {
+    "policy": "T",
+    "theta": 0.9
+   },
+   "CONTACT": {
+    "policy": "T",
+    "theta": 0.5
+   },
+   "DATE": {
+    "policy": "T",
+    "theta": 0.7
+   },
+   "ID": {
+    "policy": "T",
+    "theta": 0.9
+   },
+   "LOCATION_AREA": {
+    "policy": "T",
+    "theta": 0.7
+   },
+   "LOCATION_STREET": {
+    "policy": "T",
+    "theta": 0.7
+   },
+   "NAME": {
+    "policy": "T",
+    "theta": 0.5
+   },
+   "ORGANISATION": {
+    "policy": "T",
+    "theta": 0.9
+   },
+   "OTHER": {
+    "policy": "UNION",
+    "theta": 0.5
+   },
+   "PROFESSION": {
+    "policy": "T",
+    "theta": 0.7
+   }
+  },
+  "fell_back_to_RT": false,
+  "headline": {
+   "L_full": 0.0370888733379986,
+   "L_rel": 0.02239328201539538,
+   "A": 0.9647546648237734,
+   "precision": 0.9872701555869873,
+   "recall": 0.9769069279216235,
+   "f1": 0.9820612029546254,
+   "tp": 1396,
+   "fp": 18,
+   "fn": 33,
+   "complementarity_full": {
+    "rules_only": 0,
+    "tagger_only": 1376,
+    "both": 0,
+    "joint_only": 0,
+    "neither": 53,
+    "denominator": 1429
+   },
+   "D_full": 0.13131313131313133,
+   "gold": 1429,
+   "pred": 1414,
+   "nongold_masked_rate": null
+  },
+  "cost": {
+   "llm_calls": 3,
+   "prompt_tokens": 21924,
+   "completion_tokens": 2033,
+   "wall_seconds": 33.2
+  }
+ },
+ "en-deid": {
+  "rounds": [
+   {
+    "corpus": "en-deid",
+    "draw": 3,
+    "round": 1,
+    "attempts": [
+     {
+      "attempt": 1,
+      "envelope": {
+       "response_chars": 941,
+       "response_sha256": "sha256:debf2a9f58bb7cf6f25d73a5dfdde8a76fd35f9e431134f357c2e29d75ed2e46",
+       "envelope": "bare",
+       "fence_lines": 0,
+       "parsed_chars": 941,
+       "parsed_sha256": "sha256:debf2a9f58bb7cf6f25d73a5dfdde8a76fd35f9e431134f357c2e29d75ed2e46"
+      },
+      "cost": {
+       "llm_calls": 1,
+       "prompt_tokens": 5278,
+       "completion_tokens": 369,
+       "wall_seconds": 7.241
+      },
+      "model": {
+       "model_id": "us.anthropic.claude-opus-4-5-20251101-v1:0",
+       "model_id_reported": "claude-opus-4-5-20251101",
+       "model_id_resolution": "dated"
+      }
+     }
+    ],
+    "outcome": "scored",
+    "policies": {
+     "AGE": {
+      "policy": "UNION",
+      "theta": 0.5
+     },
+     "CONTACT": {
+      "policy": "T",
+      "theta": 0.7
+     },
+     "DATE": {
+      "policy": "UNION",
+      "theta": 0.5
+     },
+     "LOCATION_AREA": {
+      "policy": "T",
+      "theta": 0.7
+     },
+     "NAME": {
+      "policy": "T",
+      "theta": 0.5
+     },
+     "OTHER": {
+      "policy": "UNION",
+      "theta": 0.5
+     }
+    },
+    "rationales": {
+     "AGE": "Sparse type with 4 gold spans; UNION@0.5 preserves baseline L_full 0.250000 and rules capture 3 of 4 spans.",
+     "CONTACT": "T@0.7 achieves A 0.812500 with L_full 0.076923 matching baseline, improving accuracy over UNION@0.5 A 0.764706.",
+     "DATE": "UNION@0.5 yields lowest L_full 0.049505 with A 0.813559; tagger finds 88 spans rules miss.",
+     "LOCATION_AREA": "T@0.7 achieves A 0.602151 versus UNION@0.5 A 0.575758 at same L_full 0.240000; tagger finds all 55 exclusive spans.",
+     "NAME": "T@0.5 achieves A 0.880682 versus UNION@0.5 A 0.816754 at same L_full 0.072727; tagger finds 100 spans rules miss.",
+     "OTHER": "Sparse type with 1 gold span found by neither detector; UNION@0.5 is baseline default."
+    },
+    "rationale_undeclared_words": [
+     "all",
+     "exclusive",
+     "improving",
+     "matching"
+    ],
+    "achieved": {
+     "tp": 323,
+     "fp": 175,
+     "fn": 36,
+     "n_gold": 359,
+     "n_pred": 498,
+     "L_full": 0.10584958217270195,
+     "L_rel": 0.06685236768802229,
+     "A": 0.6048689138576779,
+     "precision": 0.6485943775100401,
+     "recall": 0.8997214484679665
+    },
+    "constraint_satisfied": true
+   },
+   {
+    "corpus": "en-deid",
+    "draw": 3,
+    "round": 2,
+    "attempts": [
+     {
+      "attempt": 1,
+      "envelope": {
+       "response_chars": 833,
+       "response_sha256": "sha256:16c475256dfd9a96bcccf4fa155c55907ccab1992ac9921d4051b1cd72aa8244",
+       "envelope": "bare",
+       "fence_lines": 0,
+       "parsed_chars": 833,
+       "parsed_sha256": "sha256:16c475256dfd9a96bcccf4fa155c55907ccab1992ac9921d4051b1cd72aa8244"
+      },
+      "cost": {
+       "llm_calls": 1,
+       "prompt_tokens": 5370,
+       "completion_tokens": 340,
+       "wall_seconds": 7.808
+      },
+      "model": {
+       "model_id": "us.anthropic.claude-opus-4-5-20251101-v1:0",
+       "model_id_reported": "claude-opus-4-5-20251101",
+       "model_id_resolution": "dated"
+      }
+     }
+    ],
+    "outcome": "scored",
+    "policies": {
+     "AGE": {
+      "policy": "UNION",
+      "theta": 0.5
+     },
+     "CONTACT": {
+      "policy": "T",
+      "theta": 0.7
+     },
+     "DATE": {
+      "policy": "UNION",
+      "theta": 0.5
+     },
+     "LOCATION_AREA": {
+      "policy": "T",
+      "theta": 0.7
+     },
+     "NAME": {
+      "policy": "T",
+      "theta": 0.5
+     },
+     "OTHER": {
+      "policy": "UNION",
+      "theta": 0.5
+     }
+    },
+    "rationales": {
+     "AGE": "Sparse type with 4 gold spans and tagger finds 0 so UNION at 0.5 retains rules coverage.",
+     "CONTACT": "T at 0.7 achieves A 0.812500 versus UNION at 0.5 A 0.764706 with same L_full 0.076923.",
+     "DATE": "UNION at 0.5 achieves lowest L_full 0.049505 and A 0.813559 covering tagger only 88 spans.",
+     "LOCATION_AREA": "T at 0.7 achieves A 0.602151 versus UNION at 0.5 A 0.575758 with same L_full 0.240000.",
+     "NAME": "T at 0.5 achieves A 0.880682 versus UNION at 0.5 A 0.816754 with same L_full 0.072727.",
+     "OTHER": "Sparse type with 1 gold span and no detector finds it so default UNION at 0.5."
+    },
+    "rationale_undeclared_words": [
+     "covering"
+    ],
+    "achieved": {
+     "tp": 323,
+     "fp": 175,
+     "fn": 36,
+     "n_gold": 359,
+     "n_pred": 498,
+     "L_full": 0.10584958217270195,
+     "L_rel": 0.06685236768802229,
+     "A": 0.6048689138576779,
+     "precision": 0.6485943775100401,
+     "recall": 0.8997214484679665
+    },
+    "constraint_satisfied": true
+   }
+  ],
+  "final_policy": {
+   "AGE": {
+    "policy": "UNION",
+    "theta": 0.5
+   },
+   "CONTACT": {
+    "policy": "T",
+    "theta": 0.7
+   },
+   "DATE": {
+    "policy": "UNION",
+    "theta": 0.5
+   },
+   "ID": {
+    "policy": "UNION",
+    "theta": 0.5
+   },
+   "LOCATION_AREA": {
+    "policy": "T",
+    "theta": 0.7
+   },
+   "LOCATION_STREET": {
+    "policy": "UNION",
+    "theta": 0.5
+   },
+   "NAME": {
+    "policy": "T",
+    "theta": 0.5
+   },
+   "ORGANISATION": {
+    "policy": "UNION",
+    "theta": 0.5
+   },
+   "OTHER": {
+    "policy": "UNION",
+    "theta": 0.5
+   },
+   "PROFESSION": {
+    "policy": "UNION",
+    "theta": 0.5
+   }
+  },
+  "fell_back_to_RT": false,
+  "headline": {
+   "L_full": 0.10584958217270195,
+   "L_rel": 0.06685236768802229,
+   "A": 0.6048689138576779,
+   "precision": 0.6485943775100401,
+   "recall": 0.8997214484679665,
+   "f1": 0.7537922987164528,
+   "tp": 323,
+   "fp": 175,
+   "fn": 36,
+   "complementarity_full": {
+    "rules_only": 4,
+    "tagger_only": 310,
+    "both": 7,
+    "joint_only": 0,
+    "neither": 38,
+    "denominator": 359
+   },
+   "D_full": 0.19205298013245034,
+   "gold": 359,
+   "pred": 505,
+   "nongold_masked_rate": null
+  },
+  "cost": {
+   "llm_calls": 2,
+   "prompt_tokens": 10648,
+   "completion_tokens": 709,
+   "wall_seconds": 15.1
+  }
+ },
+ "ko-surro": {
+  "rounds": [
+   {
+    "corpus": "ko-surro",
+    "draw": 3,
+    "round": 1,
+    "attempts": [
+     {
+      "attempt": 1,
+      "envelope": {
+       "response_chars": 847,
+       "response_sha256": "sha256:a98fa89a42d64809a7d42bb84774ec6845ac6bbd45541dc2cd60fcc5680a2f6c",
+       "envelope": "bare",
+       "fence_lines": 0,
+       "parsed_chars": 847,
+       "parsed_sha256": "sha256:a98fa89a42d64809a7d42bb84774ec6845ac6bbd45541dc2cd60fcc5680a2f6c"
+      },
+      "cost": {
+       "llm_calls": 1,
+       "prompt_tokens": 5279,
+       "completion_tokens": 353,
+       "wall_seconds": 7.422
+      },
+      "model": {
+       "model_id": "us.anthropic.claude-opus-4-5-20251101-v1:0",
+       "model_id_reported": "claude-opus-4-5-20251101",
+       "model_id_resolution": "dated"
+      }
+     }
+    ],
+    "outcome": "scored",
+    "policies": {
+     "AGE": {
+      "policy": "UNION",
+      "theta": 0.5
+     },
+     "CONTACT": {
+      "policy": "T",
+      "theta": 0.5
+     },
+     "DATE": {
+      "policy": "T",
+      "theta": 0.9
+     },
+     "LOCATION_AREA": {
+      "policy": "T",
+      "theta": 0.9
+     },
+     "NAME": {
+      "policy": "T",
+      "theta": 0.9
+     },
+     "ORGANISATION": {
+      "policy": "T",
+      "theta": 0.7
+     }
+    },
+    "rationales": {
+     "AGE": "Sparse type with 3 gold spans; UNION@0.5 is the default per guidance.",
+     "CONTACT": "Tagger finds all 13 gold spans with A 1.000000 and L_full 0.000000; rules find none.",
+     "DATE": "T@0.9 achieves highest A 0.813187 with L_full 0.149425 versus UNION@0.5 L_full 0.103448, delta 0.046 within constraint.",
+     "LOCATION_AREA": "T@0.9 achieves A 0.714286 with same L_full 0.200000 as UNION@0.5 but 183 fewer FP.",
+     "NAME": "T@0.9 achieves A 0.826590 versus UNION@0.5 A 0.671111 with L_full increase 0.038 within delta.",
+     "ORGANISATION": "T@0.7 achieves A 0.959184 with L_full 0.020833 equal to UNION@0.5 and 8 fewer FP."
+    },
+    "rationale_undeclared_words": [
+     "all",
+     "guidance"
+    ],
+    "achieved": {
+     "tp": 290,
+     "fp": 117,
+     "fn": 29,
+     "n_gold": 319,
+     "n_pred": 407,
+     "L_full": 0.109717868338558,
+     "L_rel": 0.09090909090909091,
+     "A": 0.6651376146788991,
+     "precision": 0.7125307125307125,
+     "recall": 0.9090909090909091
+    },
+    "constraint_satisfied": true
+   },
+   {
+    "corpus": "ko-surro",
+    "draw": 3,
+    "round": 2,
+    "attempts": [
+     {
+      "attempt": 1,
+      "envelope": {
+       "response_chars": 890,
+       "response_sha256": "sha256:c33740e8757316f4df78023bbde71dfd20b5aa217b377038fec66b1c1efd2eae",
+       "envelope": "bare",
+       "fence_lines": 0,
+       "parsed_chars": 890,
+       "parsed_sha256": "sha256:c33740e8757316f4df78023bbde71dfd20b5aa217b377038fec66b1c1efd2eae"
+      },
+      "cost": {
+       "llm_calls": 1,
+       "prompt_tokens": 5372,
+       "completion_tokens": 363,
+       "wall_seconds": 7.602
+      },
+      "model": {
+       "model_id": "us.anthropic.claude-opus-4-5-20251101-v1:0",
+       "model_id_reported": "claude-opus-4-5-20251101",
+       "model_id_resolution": "dated"
+      }
+     }
+    ],
+    "outcome": "scored",
+    "policies": {
+     "AGE": {
+      "policy": "UNION",
+      "theta": 0.5
+     },
+     "CONTACT": {
+      "policy": "T",
+      "theta": 0.5
+     },
+     "DATE": {
+      "policy": "T",
+      "theta": 0.9
+     },
+     "LOCATION_AREA": {
+      "policy": "T",
+      "theta": 0.9
+     },
+     "NAME": {
+      "policy": "T",
+      "theta": 0.9
+     },
+     "ORGANISATION": {
+      "policy": "T",
+      "theta": 0.7
+     }
+    },
+    "rationales": {
+     "AGE": "AGE is sparse with only 3 gold spans and neither detector finds them alone so UNION@0.5 is the safe default.",
+     "CONTACT": "Tagger finds all 13 CONTACT spans with zero FP yielding A 1.000000 while rules find none.",
+     "DATE": "T@0.9 achieves highest A 0.813187 with L_full 0.149425 versus UNION@0.5 L_full 0.103448 and A 0.796117.",
+     "LOCATION_AREA": "T@0.9 achieves A 0.714286 with L_full 0.200000 same as UNION@0.5 which has A 0.050000.",
+     "NAME": "T@0.9 achieves A 0.826590 versus UNION@0.5 A 0.671111 with L_full increase from 0.063291 to 0.101266.",
+     "ORGANISATION": "T@0.7 achieves A 0.959184 versus UNION@0.5 A 0.810345 with L_full 0.020833 unchanged."
+    },
+    "rationale_undeclared_words": [
+     "all",
+     "alone",
+     "yielding"
+    ],
+    "achieved": {
+     "tp": 290,
+     "fp": 117,
+     "fn": 29,
+     "n_gold": 319,
+     "n_pred": 407,
+     "L_full": 0.109717868338558,
+     "L_rel": 0.09090909090909091,
+     "A": 0.6651376146788991,
+     "precision": 0.7125307125307125,
+     "recall": 0.9090909090909091
+    },
+    "constraint_satisfied": true
+   }
+  ],
+  "final_policy": {
+   "AGE": {
+    "policy": "UNION",
+    "theta": 0.5
+   },
+   "CONTACT": {
+    "policy": "T",
+    "theta": 0.5
+   },
+   "DATE": {
+    "policy": "T",
+    "theta": 0.9
+   },
+   "ID": {
+    "policy": "UNION",
+    "theta": 0.5
+   },
+   "LOCATION_AREA": {
+    "policy": "T",
+    "theta": 0.9
+   },
+   "LOCATION_STREET": {
+    "policy": "UNION",
+    "theta": 0.5
+   },
+   "NAME": {
+    "policy": "T",
+    "theta": 0.9
+   },
+   "ORGANISATION": {
+    "policy": "T",
+    "theta": 0.7
+   },
+   "OTHER": {
+    "policy": "UNION",
+    "theta": 0.5
+   },
+   "PROFESSION": {
+    "policy": "UNION",
+    "theta": 0.5
+   }
+  },
+  "fell_back_to_RT": false,
+  "headline": {
+   "L_full": 0.109717868338558,
+   "L_rel": 0.09090909090909091,
+   "A": 0.6651376146788991,
+   "precision": 0.7125307125307125,
+   "recall": 0.9090909090909091,
+   "f1": 0.7988980716253443,
+   "tp": 290,
+   "fp": 117,
+   "fn": 29,
+   "complementarity_full": {
+    "rules_only": 0,
+    "tagger_only": 284,
+    "both": 0,
+    "joint_only": 0,
+    "neither": 35,
+    "denominator": 319
+   },
+   "D_full": 0.18243243243243243,
+   "gold": 319,
+   "pred": 407,
+   "nongold_masked_rate": null
+  },
+  "cost": {
+   "llm_calls": 2,
+   "prompt_tokens": 10651,
+   "completion_tokens": 716,
+   "wall_seconds": 15.0
+  }
+ }
+}

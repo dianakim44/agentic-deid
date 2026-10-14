@@ -1,0 +1,905 @@
+{
+ "es-meddocan": {
+  "rounds": [
+   {
+    "corpus": "es-meddocan",
+    "draw": 1,
+    "round": 1,
+    "attempts": [
+     {
+      "attempt": 1,
+      "envelope": {
+       "response_chars": 1689,
+       "response_sha256": "sha256:49cd080f979c86be4138d28cd17ea9e04677183b7bb4e634b661d37937f52dd8",
+       "envelope": "bare",
+       "fence_lines": 0,
+       "parsed_chars": 1689,
+       "parsed_sha256": "sha256:49cd080f979c86be4138d28cd17ea9e04677183b7bb4e634b661d37937f52dd8"
+      },
+      "cost": {
+       "llm_calls": 1,
+       "prompt_tokens": 7233,
+       "completion_tokens": 695,
+       "wall_seconds": 10.804
+      },
+      "model": {
+       "model_id": "us.anthropic.claude-opus-4-5-20251101-v1:0",
+       "model_id_reported": "claude-opus-4-5-20251101",
+       "model_id_resolution": "dated"
+      },
+      "error": "the rationale for AGE cites a 4-character number at offset 104 that does not appear in the frame this call sent. A figure the agent was not given was not computed from the input \u2014 it is invented or copied from elsewhere. Not quoted."
+     },
+     {
+      "attempt": 2,
+      "envelope": {
+       "response_chars": 1823,
+       "response_sha256": "sha256:e7e5e2930946a67ea43e80c6d6c189db5fc6e7ab4b25fe604057a19af4c435ca",
+       "envelope": "bare",
+       "fence_lines": 0,
+       "parsed_chars": 1823,
+       "parsed_sha256": "sha256:e7e5e2930946a67ea43e80c6d6c189db5fc6e7ab4b25fe604057a19af4c435ca"
+      },
+      "cost": {
+       "llm_calls": 1,
+       "prompt_tokens": 7233,
+       "completion_tokens": 728,
+       "wall_seconds": 12.056
+      },
+      "model": {
+       "model_id": "us.anthropic.claude-opus-4-5-20251101-v1:0",
+       "model_id_reported": "claude-opus-4-5-20251101",
+       "model_id_resolution": "dated"
+      },
+      "error": "the rationale for AGE cites a 4-character number at offset 104 that does not appear in the frame this call sent. A figure the agent was not given was not computed from the input \u2014 it is invented or copied from elsewhere. Not quoted."
+     }
+    ],
+    "outcome": "format_failure"
+   }
+  ],
+  "final_policy": {
+   "AGE": {
+    "policy": "UNION",
+    "theta": 0.5
+   },
+   "CONTACT": {
+    "policy": "UNION",
+    "theta": 0.5
+   },
+   "DATE": {
+    "policy": "UNION",
+    "theta": 0.5
+   },
+   "ID": {
+    "policy": "UNION",
+    "theta": 0.5
+   },
+   "LOCATION_AREA": {
+    "policy": "UNION",
+    "theta": 0.5
+   },
+   "LOCATION_STREET": {
+    "policy": "UNION",
+    "theta": 0.5
+   },
+   "NAME": {
+    "policy": "UNION",
+    "theta": 0.5
+   },
+   "ORGANISATION": {
+    "policy": "UNION",
+    "theta": 0.5
+   },
+   "OTHER": {
+    "policy": "UNION",
+    "theta": 0.5
+   },
+   "PROFESSION": {
+    "policy": "UNION",
+    "theta": 0.5
+   }
+  },
+  "fell_back_to_RT": true,
+  "headline": {
+   "L_full": 0.012561857632280167,
+   "L_rel": 0.007803578226113437,
+   "A": 0.6391993122927668,
+   "precision": 0.6430689399555226,
+   "recall": 0.9906737723639132,
+   "f1": 0.7798921186694637,
+   "tp": 5205,
+   "fp": 2889,
+   "fn": 49,
+   "complementarity_full": {
+    "rules_only": 11,
+    "tagger_only": 654,
+    "both": 4522,
+    "joint_only": 1,
+    "neither": 66,
+    "denominator": 5254
+   },
+   "D_full": 0.196,
+   "gold": 5254,
+   "pred": 11303,
+   "nongold_masked_rate": null
+  },
+  "cost": {
+   "llm_calls": 2,
+   "prompt_tokens": 14466,
+   "completion_tokens": 1423,
+   "wall_seconds": 23.2
+  }
+ },
+ "de-grascco": {
+  "rounds": [
+   {
+    "corpus": "de-grascco",
+    "draw": 1,
+    "round": 1,
+    "attempts": [
+     {
+      "attempt": 1,
+      "envelope": {
+       "response_chars": 1405,
+       "response_sha256": "sha256:32b27959db441fefd5febd16115904515466be6fdae7c778ed3ac56813fb715f",
+       "envelope": "bare",
+       "fence_lines": 0,
+       "parsed_chars": 1405,
+       "parsed_sha256": "sha256:32b27959db441fefd5febd16115904515466be6fdae7c778ed3ac56813fb715f"
+      },
+      "cost": {
+       "llm_calls": 1,
+       "prompt_tokens": 6248,
+       "completion_tokens": 612,
+       "wall_seconds": 10.198
+      },
+      "model": {
+       "model_id": "us.anthropic.claude-opus-4-5-20251101-v1:0",
+       "model_id_reported": "claude-opus-4-5-20251101",
+       "model_id_resolution": "dated"
+      },
+      "error": "the rationale for DATE cites a 5-character number at offset 99 that does not appear in the frame this call sent. A figure the agent was not given was not computed from the input \u2014 it is invented or copied from elsewhere. Not quoted."
+     },
+     {
+      "attempt": 2,
+      "envelope": {
+       "response_chars": 1468,
+       "response_sha256": "sha256:1c2c8b655cf0edac5d0bbaa9e47140876fbd9eeb6f484f38e2b48682445ac717",
+       "envelope": "bare",
+       "fence_lines": 0,
+       "parsed_chars": 1468,
+       "parsed_sha256": "sha256:1c2c8b655cf0edac5d0bbaa9e47140876fbd9eeb6f484f38e2b48682445ac717"
+      },
+      "cost": {
+       "llm_calls": 1,
+       "prompt_tokens": 6248,
+       "completion_tokens": 619,
+       "wall_seconds": 9.515
+      },
+      "model": {
+       "model_id": "us.anthropic.claude-opus-4-5-20251101-v1:0",
+       "model_id_reported": "claude-opus-4-5-20251101",
+       "model_id_resolution": "dated"
+      }
+     }
+    ],
+    "outcome": "scored",
+    "policies": {
+     "AGE": {
+      "policy": "T",
+      "theta": 0.5
+     },
+     "CONTACT": {
+      "policy": "T",
+      "theta": 0.5
+     },
+     "DATE": {
+      "policy": "T",
+      "theta": 0.9
+     },
+     "ID": {
+      "policy": "T",
+      "theta": 0.7
+     },
+     "LOCATION_AREA": {
+      "policy": "T",
+      "theta": 0.9
+     },
+     "LOCATION_STREET": {
+      "policy": "T",
+      "theta": 0.7
+     },
+     "NAME": {
+      "policy": "T",
+      "theta": 0.5
+     },
+     "ORGANISATION": {
+      "policy": "T",
+      "theta": 0.9
+     }
+    },
+    "rationales": {
+     "AGE": "Sparse type with 5 gold spans; tagger only finds all 5 with T@0.5 achieving A 1.000000 and L_full 0.000000 versus UNION@0.5 A 0.833333.",
+     "CONTACT": "T@0.5 achieves A 1.000000 with L_full 0.000000 versus UNION@0.5 A 0.733333; tagger finds all 11 gold spans with zero FP.",
+     "DATE": "T@0.9 achieves A 0.977578 with L_full 0.009050 versus UNION@0.5 A 0.862205 L_full 0.004525; delta 0.063415 accommodates the 0.004525 increase.",
+     "ID": "T@0.7 achieves A 0.727273 with L_full 0.272727 versus UNION@0.5 A 0.615385 L_full 0.272727; same leak rate with higher accuracy.",
+     "LOCATION_AREA": "T@0.9 achieves A 0.862069 with L_full 0.076923 versus UNION@0.5 A 0.135870 L_full 0.076923; same leak rate with far higher accuracy.",
+     "LOCATION_STREET": "T@0.7 achieves A 1.000000 with L_full 0.111111 versus UNION@0.5 A 0.562500 L_full 0.111111; same leak rate with perfect accuracy.",
+     "NAME": "T@0.5 achieves A 0.950820 with L_full 0.025862 versus UNION@0.5 A 0.703030 L_full 0.025862; same leak rate with much higher accuracy.",
+     "ORGANISATION": "T@0.9 achieves A 0.750000 with L_full 0.545455 versus UNION@0.5 A 0.476190 L_full 0.545455; same leak rate with higher accuracy."
+    },
+    "rationale_undeclared_words": [
+     "accommodates",
+     "achieves",
+     "achieving",
+     "all",
+     "far",
+     "finds",
+     "perfect",
+     "tagger",
+     "type",
+     "versus"
+    ],
+    "achieved": {
+     "tp": 401,
+     "fp": 13,
+     "fn": 9,
+     "n_gold": 410,
+     "n_pred": 414,
+     "L_full": 0.041463414634146344,
+     "L_rel": 0.01951219512195122,
+     "A": 0.9479905437352246,
+     "precision": 0.9685990338164251,
+     "recall": 0.9780487804878049
+    },
+    "constraint_satisfied": true
+   },
+   {
+    "corpus": "de-grascco",
+    "draw": 1,
+    "round": 2,
+    "attempts": [
+     {
+      "attempt": 1,
+      "envelope": {
+       "response_chars": 1427,
+       "response_sha256": "sha256:068ad4a8f4014780d3ac8d77bde9926f15d371eb38671ce34a74eda714476f2a",
+       "envelope": "bare",
+       "fence_lines": 0,
+       "parsed_chars": 1427,
+       "parsed_sha256": "sha256:068ad4a8f4014780d3ac8d77bde9926f15d371eb38671ce34a74eda714476f2a"
+      },
+      "cost": {
+       "llm_calls": 1,
+       "prompt_tokens": 6365,
+       "completion_tokens": 610,
+       "wall_seconds": 10.236
+      },
+      "model": {
+       "model_id": "us.anthropic.claude-opus-4-5-20251101-v1:0",
+       "model_id_reported": "claude-opus-4-5-20251101",
+       "model_id_resolution": "dated"
+      },
+      "error": "the rationale for DATE cites a 8-character number at offset 113 that does not appear in the frame this call sent. A figure the agent was not given was not computed from the input \u2014 it is invented or copied from elsewhere. Not quoted."
+     },
+     {
+      "attempt": 2,
+      "envelope": {
+       "response_chars": 1354,
+       "response_sha256": "sha256:c9ccf7fcbb585dbbf3ffeb5dda517cb4cd199ff4c742aab3abef8b01671bd816",
+       "envelope": "bare",
+       "fence_lines": 0,
+       "parsed_chars": 1354,
+       "parsed_sha256": "sha256:c9ccf7fcbb585dbbf3ffeb5dda517cb4cd199ff4c742aab3abef8b01671bd816"
+      },
+      "cost": {
+       "llm_calls": 1,
+       "prompt_tokens": 6365,
+       "completion_tokens": 562,
+       "wall_seconds": 8.638
+      },
+      "model": {
+       "model_id": "us.anthropic.claude-opus-4-5-20251101-v1:0",
+       "model_id_reported": "claude-opus-4-5-20251101",
+       "model_id_resolution": "dated"
+      },
+      "error": "the rationale for CONTACT has a capitalised word at offset 0, length 6, which is not a type name, a policy name, a corpus id, a metric name, or a declared word opening a sentence. A capitalised word is the strongest single signal of a person, place or institution name. Not quoted."
+     }
+    ],
+    "outcome": "format_failure"
+   }
+  ],
+  "final_policy": {
+   "AGE": {
+    "policy": "T",
+    "theta": 0.5
+   },
+   "CONTACT": {
+    "policy": "T",
+    "theta": 0.5
+   },
+   "DATE": {
+    "policy": "T",
+    "theta": 0.9
+   },
+   "ID": {
+    "policy": "T",
+    "theta": 0.7
+   },
+   "LOCATION_AREA": {
+    "policy": "T",
+    "theta": 0.9
+   },
+   "LOCATION_STREET": {
+    "policy": "T",
+    "theta": 0.7
+   },
+   "NAME": {
+    "policy": "T",
+    "theta": 0.5
+   },
+   "ORGANISATION": {
+    "policy": "T",
+    "theta": 0.9
+   },
+   "OTHER": {
+    "policy": "UNION",
+    "theta": 0.5
+   },
+   "PROFESSION": {
+    "policy": "UNION",
+    "theta": 0.5
+   }
+  },
+  "fell_back_to_RT": false,
+  "headline": {
+   "L_full": 0.041463414634146344,
+   "L_rel": 0.01951219512195122,
+   "A": 0.9479905437352246,
+   "precision": 0.9685990338164251,
+   "recall": 0.9780487804878049,
+   "f1": 0.9733009708737864,
+   "tp": 401,
+   "fp": 13,
+   "fn": 9,
+   "complementarity_full": {
+    "rules_only": 0,
+    "tagger_only": 393,
+    "both": 0,
+    "joint_only": 0,
+    "neither": 17,
+    "denominator": 410
+   },
+   "D_full": 0.631578947368421,
+   "gold": 410,
+   "pred": 414,
+   "nongold_masked_rate": null
+  },
+  "cost": {
+   "llm_calls": 4,
+   "prompt_tokens": 25226,
+   "completion_tokens": 2403,
+   "wall_seconds": 38.6
+  }
+ },
+ "es-carmen": {
+  "rounds": [
+   {
+    "corpus": "es-carmen",
+    "draw": 1,
+    "round": 1,
+    "attempts": [
+     {
+      "attempt": 1,
+      "envelope": {
+       "response_chars": 1677,
+       "response_sha256": "sha256:9c924a72c1962a3687a44a71bc4dc9a9c2cb305e1b4185148ba6a600a5900da6",
+       "envelope": "bare",
+       "fence_lines": 0,
+       "parsed_chars": 1677,
+       "parsed_sha256": "sha256:9c924a72c1962a3687a44a71bc4dc9a9c2cb305e1b4185148ba6a600a5900da6"
+      },
+      "cost": {
+       "llm_calls": 1,
+       "prompt_tokens": 7216,
+       "completion_tokens": 684,
+       "wall_seconds": 11.443
+      },
+      "model": {
+       "model_id": "us.anthropic.claude-opus-4-5-20251101-v1:0",
+       "model_id_reported": "claude-opus-4-5-20251101",
+       "model_id_resolution": "dated"
+      },
+      "error": "the rationale for DATE cites a 8-character number at offset 80 that does not appear in the frame this call sent. A figure the agent was not given was not computed from the input \u2014 it is invented or copied from elsewhere. Not quoted."
+     },
+     {
+      "attempt": 2,
+      "envelope": {
+       "response_chars": 1665,
+       "response_sha256": "sha256:3d59bfe537edd128330652fe7f2b108f0d3ff6389d94ffb76e8dddd5880759bc",
+       "envelope": "bare",
+       "fence_lines": 0,
+       "parsed_chars": 1665,
+       "parsed_sha256": "sha256:3d59bfe537edd128330652fe7f2b108f0d3ff6389d94ffb76e8dddd5880759bc"
+      },
+      "cost": {
+       "llm_calls": 1,
+       "prompt_tokens": 7216,
+       "completion_tokens": 679,
+       "wall_seconds": 10.589
+      },
+      "model": {
+       "model_id": "us.anthropic.claude-opus-4-5-20251101-v1:0",
+       "model_id_reported": "claude-opus-4-5-20251101",
+       "model_id_resolution": "dated"
+      },
+      "error": "the rationale for DATE cites a 8-character number at offset 80 that does not appear in the frame this call sent. A figure the agent was not given was not computed from the input \u2014 it is invented or copied from elsewhere. Not quoted."
+     }
+    ],
+    "outcome": "format_failure"
+   }
+  ],
+  "final_policy": {
+   "AGE": {
+    "policy": "UNION",
+    "theta": 0.5
+   },
+   "CONTACT": {
+    "policy": "UNION",
+    "theta": 0.5
+   },
+   "DATE": {
+    "policy": "UNION",
+    "theta": 0.5
+   },
+   "ID": {
+    "policy": "UNION",
+    "theta": 0.5
+   },
+   "LOCATION_AREA": {
+    "policy": "UNION",
+    "theta": 0.5
+   },
+   "LOCATION_STREET": {
+    "policy": "UNION",
+    "theta": 0.5
+   },
+   "NAME": {
+    "policy": "UNION",
+    "theta": 0.5
+   },
+   "ORGANISATION": {
+    "policy": "UNION",
+    "theta": 0.5
+   },
+   "OTHER": {
+    "policy": "UNION",
+    "theta": 0.5
+   },
+   "PROFESSION": {
+    "policy": "UNION",
+    "theta": 0.5
+   }
+  },
+  "fell_back_to_RT": true,
+  "headline": {
+   "L_full": 0.03079076277116865,
+   "L_rel": 0.015395381385584325,
+   "A": 0.7384453781512605,
+   "precision": 0.7474747474747475,
+   "recall": 0.9839048285514346,
+   "f1": 0.849546827794562,
+   "tp": 1406,
+   "fp": 475,
+   "fn": 23,
+   "complementarity_full": {
+    "rules_only": 0,
+    "tagger_only": 856,
+    "both": 529,
+    "joint_only": 0,
+    "neither": 44,
+    "denominator": 1429
+   },
+   "D_full": 0.10774410774410774,
+   "gold": 1429,
+   "pred": 2779,
+   "nongold_masked_rate": null
+  },
+  "cost": {
+   "llm_calls": 2,
+   "prompt_tokens": 14432,
+   "completion_tokens": 1363,
+   "wall_seconds": 22.1
+  }
+ },
+ "en-deid": {
+  "rounds": [
+   {
+    "corpus": "en-deid",
+    "draw": 1,
+    "round": 1,
+    "attempts": [
+     {
+      "attempt": 1,
+      "envelope": {
+       "response_chars": 820,
+       "response_sha256": "sha256:b73091eabd14e1f2baada66ebc50f3bb8f36cf3e2f74658fd752eab3efef700d",
+       "envelope": "bare",
+       "fence_lines": 0,
+       "parsed_chars": 820,
+       "parsed_sha256": "sha256:b73091eabd14e1f2baada66ebc50f3bb8f36cf3e2f74658fd752eab3efef700d"
+      },
+      "cost": {
+       "llm_calls": 1,
+       "prompt_tokens": 5278,
+       "completion_tokens": 332,
+       "wall_seconds": 7.021
+      },
+      "model": {
+       "model_id": "us.anthropic.claude-opus-4-5-20251101-v1:0",
+       "model_id_reported": "claude-opus-4-5-20251101",
+       "model_id_resolution": "dated"
+      }
+     }
+    ],
+    "outcome": "scored",
+    "policies": {
+     "AGE": {
+      "policy": "UNION",
+      "theta": 0.5
+     },
+     "CONTACT": {
+      "policy": "T",
+      "theta": 0.7
+     },
+     "DATE": {
+      "policy": "UNION",
+      "theta": 0.5
+     },
+     "LOCATION_AREA": {
+      "policy": "T",
+      "theta": 0.7
+     },
+     "NAME": {
+      "policy": "T",
+      "theta": 0.5
+     },
+     "OTHER": {
+      "policy": "UNION",
+      "theta": 0.5
+     }
+    },
+    "rationales": {
+     "AGE": "Sparse type with 4 gold spans; UNION@0.5 matches baseline and rules capture 3 of 4.",
+     "CONTACT": "T@0.7 achieves A 0.812500 versus UNION@0.5 A 0.764706 with identical L_full 0.076923.",
+     "DATE": "UNION@0.5 yields lowest L_full 0.049505 and A 0.813559; tagger found 88 spans rules missed.",
+     "LOCATION_AREA": "T@0.7 achieves A 0.602151 versus UNION@0.5 A 0.575758 with same L_full 0.240000.",
+     "NAME": "T@0.5 achieves A 0.880682 versus UNION@0.5 A 0.816754 with identical L_full 0.072727.",
+     "OTHER": "Sparse type with 1 gold span found by neither detector; UNION@0.5 is default."
+    },
+    "rationale_undeclared_words": [
+     "achieves",
+     "capture",
+     "default",
+     "found",
+     "rules",
+     "tagger",
+     "type",
+     "versus",
+     "yields"
+    ],
+    "achieved": {
+     "tp": 323,
+     "fp": 175,
+     "fn": 36,
+     "n_gold": 359,
+     "n_pred": 498,
+     "L_full": 0.10584958217270195,
+     "L_rel": 0.06685236768802229,
+     "A": 0.6048689138576779,
+     "precision": 0.6485943775100401,
+     "recall": 0.8997214484679665
+    },
+    "constraint_satisfied": true
+   },
+   {
+    "corpus": "en-deid",
+    "draw": 1,
+    "round": 2,
+    "attempts": [
+     {
+      "attempt": 1,
+      "envelope": {
+       "response_chars": 1033,
+       "response_sha256": "sha256:e1b6ea547992fb2152c13b1ab01354f8245e5978f9dfebeb2881153bb16446eb",
+       "envelope": "bare",
+       "fence_lines": 0,
+       "parsed_chars": 1033,
+       "parsed_sha256": "sha256:e1b6ea547992fb2152c13b1ab01354f8245e5978f9dfebeb2881153bb16446eb"
+      },
+      "cost": {
+       "llm_calls": 1,
+       "prompt_tokens": 5370,
+       "completion_tokens": 381,
+       "wall_seconds": 8.188
+      },
+      "model": {
+       "model_id": "us.anthropic.claude-opus-4-5-20251101-v1:0",
+       "model_id_reported": "claude-opus-4-5-20251101",
+       "model_id_resolution": "dated"
+      }
+     }
+    ],
+    "outcome": "scored",
+    "policies": {
+     "AGE": {
+      "policy": "UNION",
+      "theta": 0.5
+     },
+     "CONTACT": {
+      "policy": "T",
+      "theta": 0.7
+     },
+     "DATE": {
+      "policy": "UNION",
+      "theta": 0.5
+     },
+     "LOCATION_AREA": {
+      "policy": "T",
+      "theta": 0.7
+     },
+     "NAME": {
+      "policy": "T",
+      "theta": 0.5
+     },
+     "OTHER": {
+      "policy": "UNION",
+      "theta": 0.5
+     }
+    },
+    "rationales": {
+     "AGE": "Sparse type with 4 gold spans where rules capture 3 of 4 and tagger finds none, so UNION at 0.5 retains rule coverage.",
+     "CONTACT": "T at 0.7 achieves A 0.812500 versus UNION at 0.5 A 0.764706 with same L_full 0.076923, improving accuracy without increasing leaks.",
+     "DATE": "UNION at 0.5 has lowest L_full 0.049505 and A 0.813559, balancing recall and accuracy for 101 gold spans.",
+     "LOCATION_AREA": "T at 0.7 achieves A 0.602151 versus UNION at 0.5 A 0.575758 with same L_full 0.240000, gaining accuracy without added leaks.",
+     "NAME": "T at 0.5 achieves A 0.880682 versus UNION at 0.5 A 0.816754 with same L_full 0.072727, improving accuracy substantially.",
+     "OTHER": "Sparse type with 1 gold span found by neither detector, all policies yield A 0.000000 so defaulting to UNION at 0.5."
+    },
+    "rationale_undeclared_words": [
+     "achieves",
+     "added",
+     "all",
+     "balancing",
+     "capture",
+     "defaulting",
+     "finds",
+     "found",
+     "gaining",
+     "improving",
+     "increasing",
+     "rule",
+     "rules",
+     "substantially",
+     "tagger",
+     "type",
+     "versus",
+     "yield"
+    ],
+    "achieved": {
+     "tp": 323,
+     "fp": 175,
+     "fn": 36,
+     "n_gold": 359,
+     "n_pred": 498,
+     "L_full": 0.10584958217270195,
+     "L_rel": 0.06685236768802229,
+     "A": 0.6048689138576779,
+     "precision": 0.6485943775100401,
+     "recall": 0.8997214484679665
+    },
+    "constraint_satisfied": true
+   }
+  ],
+  "final_policy": {
+   "AGE": {
+    "policy": "UNION",
+    "theta": 0.5
+   },
+   "CONTACT": {
+    "policy": "T",
+    "theta": 0.7
+   },
+   "DATE": {
+    "policy": "UNION",
+    "theta": 0.5
+   },
+   "ID": {
+    "policy": "UNION",
+    "theta": 0.5
+   },
+   "LOCATION_AREA": {
+    "policy": "T",
+    "theta": 0.7
+   },
+   "LOCATION_STREET": {
+    "policy": "UNION",
+    "theta": 0.5
+   },
+   "NAME": {
+    "policy": "T",
+    "theta": 0.5
+   },
+   "ORGANISATION": {
+    "policy": "UNION",
+    "theta": 0.5
+   },
+   "OTHER": {
+    "policy": "UNION",
+    "theta": 0.5
+   },
+   "PROFESSION": {
+    "policy": "UNION",
+    "theta": 0.5
+   }
+  },
+  "fell_back_to_RT": false,
+  "headline": {
+   "L_full": 0.10584958217270195,
+   "L_rel": 0.06685236768802229,
+   "A": 0.6048689138576779,
+   "precision": 0.6485943775100401,
+   "recall": 0.8997214484679665,
+   "f1": 0.7537922987164528,
+   "tp": 323,
+   "fp": 175,
+   "fn": 36,
+   "complementarity_full": {
+    "rules_only": 4,
+    "tagger_only": 310,
+    "both": 7,
+    "joint_only": 0,
+    "neither": 38,
+    "denominator": 359
+   },
+   "D_full": 0.19205298013245034,
+   "gold": 359,
+   "pred": 505,
+   "nongold_masked_rate": null
+  },
+  "cost": {
+   "llm_calls": 2,
+   "prompt_tokens": 10648,
+   "completion_tokens": 713,
+   "wall_seconds": 15.2
+  }
+ },
+ "ko-surro": {
+  "rounds": [
+   {
+    "corpus": "ko-surro",
+    "draw": 1,
+    "round": 1,
+    "attempts": [
+     {
+      "attempt": 1,
+      "envelope": {
+       "response_chars": 905,
+       "response_sha256": "sha256:e4d2adbf652491f180568d394ea71685b1a342a90c8144290d937b708c2af896",
+       "envelope": "bare",
+       "fence_lines": 0,
+       "parsed_chars": 905,
+       "parsed_sha256": "sha256:e4d2adbf652491f180568d394ea71685b1a342a90c8144290d937b708c2af896"
+      },
+      "cost": {
+       "llm_calls": 1,
+       "prompt_tokens": 5279,
+       "completion_tokens": 393,
+       "wall_seconds": 7.985
+      },
+      "model": {
+       "model_id": "us.anthropic.claude-opus-4-5-20251101-v1:0",
+       "model_id_reported": "claude-opus-4-5-20251101",
+       "model_id_resolution": "dated"
+      },
+      "error": "the rationale for CONTACT has a capitalised word at offset 0, length 6, which is not a type name, a policy name, a corpus id, a metric name, or a declared word opening a sentence. A capitalised word is the strongest single signal of a person, place or institution name. Not quoted."
+     },
+     {
+      "attempt": 2,
+      "envelope": {
+       "response_chars": 850,
+       "response_sha256": "sha256:884cecf7bb2e554ce5a9d38037ecbedb588d46f08b4ce1f77e850d465ab2d0c3",
+       "envelope": "bare",
+       "fence_lines": 0,
+       "parsed_chars": 850,
+       "parsed_sha256": "sha256:884cecf7bb2e554ce5a9d38037ecbedb588d46f08b4ce1f77e850d465ab2d0c3"
+      },
+      "cost": {
+       "llm_calls": 1,
+       "prompt_tokens": 5279,
+       "completion_tokens": 337,
+       "wall_seconds": 7.842
+      },
+      "model": {
+       "model_id": "us.anthropic.claude-opus-4-5-20251101-v1:0",
+       "model_id_reported": "claude-opus-4-5-20251101",
+       "model_id_resolution": "dated"
+      },
+      "error": "the rationale for CONTACT has a capitalised word at offset 0, length 6, which is not a type name, a policy name, a corpus id, a metric name, or a declared word opening a sentence. A capitalised word is the strongest single signal of a person, place or institution name. Not quoted."
+     }
+    ],
+    "outcome": "format_failure"
+   }
+  ],
+  "final_policy": {
+   "AGE": {
+    "policy": "UNION",
+    "theta": 0.5
+   },
+   "CONTACT": {
+    "policy": "UNION",
+    "theta": 0.5
+   },
+   "DATE": {
+    "policy": "UNION",
+    "theta": 0.5
+   },
+   "ID": {
+    "policy": "UNION",
+    "theta": 0.5
+   },
+   "LOCATION_AREA": {
+    "policy": "UNION",
+    "theta": 0.5
+   },
+   "LOCATION_STREET": {
+    "policy": "UNION",
+    "theta": 0.5
+   },
+   "NAME": {
+    "policy": "UNION",
+    "theta": 0.5
+   },
+   "ORGANISATION": {
+    "policy": "UNION",
+    "theta": 0.5
+   },
+   "OTHER": {
+    "policy": "UNION",
+    "theta": 0.5
+   },
+   "PROFESSION": {
+    "policy": "UNION",
+    "theta": 0.5
+   }
+  },
+  "fell_back_to_RT": true,
+  "headline": {
+   "L_full": 0.07836990595611286,
+   "L_rel": 0.04075235109717868,
+   "A": 0.44028776978417267,
+   "precision": 0.44868035190615835,
+   "recall": 0.9592476489028213,
+   "f1": 0.6113886113886113,
+   "tp": 306,
+   "fp": 376,
+   "fn": 13,
+   "complementarity_full": {
+    "rules_only": 0,
+    "tagger_only": 256,
+    "both": 38,
+    "joint_only": 0,
+    "neither": 25,
+    "denominator": 319
+   },
+   "D_full": 0.13513513513513514,
+   "gold": 319,
+   "pred": 720,
+   "nongold_masked_rate": null
+  },
+  "cost": {
+   "llm_calls": 2,
+   "prompt_tokens": 10558,
+   "completion_tokens": 730,
+   "wall_seconds": 15.8
+  }
+ }
+}
