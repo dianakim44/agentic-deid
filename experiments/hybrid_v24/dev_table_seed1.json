@@ -1,0 +1,7092 @@
+{
+ "es-meddocan": {
+  "n_dev_gold": 5254,
+  "delta": 0.005,
+  "table": {
+   "AGE": {
+    "n_gold": 521,
+    "sparse": false,
+    "complementarity": {
+     "rules_only": 1,
+     "tagger_only": 77,
+     "both": 440,
+     "neither": 3
+    },
+    "candidates": {
+     "AGREE@0.5": {
+      "n_gold": 521,
+      "tp": 441,
+      "fp": 501,
+      "fn": 80,
+      "n_pred": 942,
+      "leaked_full": 80,
+      "leaked_rel": 80,
+      "L_full": 0.15355086372360843,
+      "L_rel": 0.15355086372360843,
+      "A": 0.4315068493150685
+     },
+     "AGREE@0.7": {
+      "n_gold": 521,
+      "tp": 441,
+      "fp": 501,
+      "fn": 80,
+      "n_pred": 942,
+      "leaked_full": 80,
+      "leaked_rel": 80,
+      "L_full": 0.15355086372360843,
+      "L_rel": 0.15355086372360843,
+      "A": 0.4315068493150685
+     },
+     "AGREE@0.9": {
+      "n_gold": 521,
+      "tp": 441,
+      "fp": 501,
+      "fn": 80,
+      "n_pred": 942,
+      "leaked_full": 80,
+      "leaked_rel": 80,
+      "L_full": 0.15355086372360843,
+      "L_rel": 0.15355086372360843,
+      "A": 0.4315068493150685
+     },
+     "R": {
+      "n_gold": 521,
+      "tp": 442,
+      "fp": 57,
+      "fn": 79,
+      "n_pred": 499,
+      "leaked_full": 80,
+      "leaked_rel": 79,
+      "L_full": 0.15355086372360843,
+      "L_rel": 0.15163147792706333,
+      "A": 0.7647058823529411
+     },
+     "T@0.5": {
+      "n_gold": 521,
+      "tp": 517,
+      "fp": 15,
+      "fn": 4,
+      "n_pred": 532,
+      "leaked_full": 4,
+      "leaked_rel": 4,
+      "L_full": 0.007677543186180422,
+      "L_rel": 0.007677543186180422,
+      "A": 0.9645522388059702
+     },
+     "T@0.7": {
+      "n_gold": 521,
+      "tp": 517,
+      "fp": 15,
+      "fn": 4,
+      "n_pred": 532,
+      "leaked_full": 4,
+      "leaked_rel": 4,
+      "L_full": 0.007677543186180422,
+      "L_rel": 0.007677543186180422,
+      "A": 0.9645522388059702
+     },
+     "T@0.9": {
+      "n_gold": 521,
+      "tp": 512,
+      "fp": 11,
+      "fn": 9,
+      "n_pred": 523,
+      "leaked_full": 9,
+      "leaked_rel": 9,
+      "L_full": 0.01727447216890595,
+      "L_rel": 0.01727447216890595,
+      "A": 0.9624060150375939
+     },
+     "UNION@0.5": {
+      "n_gold": 521,
+      "tp": 518,
+      "fp": 513,
+      "fn": 3,
+      "n_pred": 1031,
+      "leaked_full": 3,
+      "leaked_rel": 3,
+      "L_full": 0.005758157389635317,
+      "L_rel": 0.005758157389635317,
+      "A": 0.5009671179883946
+     },
+     "UNION@0.7": {
+      "n_gold": 521,
+      "tp": 518,
+      "fp": 513,
+      "fn": 3,
+      "n_pred": 1031,
+      "leaked_full": 3,
+      "leaked_rel": 3,
+      "L_full": 0.005758157389635317,
+      "L_rel": 0.005758157389635317,
+      "A": 0.5009671179883946
+     },
+     "UNION@0.9": {
+      "n_gold": 521,
+      "tp": 513,
+      "fp": 509,
+      "fn": 8,
+      "n_pred": 1022,
+      "leaked_full": 8,
+      "leaked_rel": 8,
+      "L_full": 0.015355086372360844,
+      "L_rel": 0.015355086372360844,
+      "A": 0.4980582524271845
+     }
+    }
+   },
+   "CONTACT": {
+    "n_gold": 272,
+    "sparse": false,
+    "complementarity": {
+     "rules_only": 0,
+     "tagger_only": 6,
+     "both": 265,
+     "neither": 1
+    },
+    "candidates": {
+     "AGREE@0.5": {
+      "n_gold": 272,
+      "tp": 269,
+      "fp": 46,
+      "fn": 3,
+      "n_pred": 315,
+      "leaked_full": 3,
+      "leaked_rel": 3,
+      "L_full": 0.011029411764705883,
+      "L_rel": 0.011029411764705883,
+      "A": 0.8459119496855346
+     },
+     "AGREE@0.7": {
+      "n_gold": 272,
+      "tp": 269,
+      "fp": 46,
+      "fn": 3,
+      "n_pred": 315,
+      "leaked_full": 3,
+      "leaked_rel": 3,
+      "L_full": 0.011029411764705883,
+      "L_rel": 0.011029411764705883,
+      "A": 0.8459119496855346
+     },
+     "AGREE@0.9": {
+      "n_gold": 272,
+      "tp": 268,
+      "fp": 45,
+      "fn": 4,
+      "n_pred": 313,
+      "leaked_full": 4,
+      "leaked_rel": 4,
+      "L_full": 0.014705882352941176,
+      "L_rel": 0.014705882352941176,
+      "A": 0.8454258675078864
+     },
+     "R": {
+      "n_gold": 272,
+      "tp": 268,
+      "fp": 23,
+      "fn": 4,
+      "n_pred": 291,
+      "leaked_full": 7,
+      "leaked_rel": 3,
+      "L_full": 0.025735294117647058,
+      "L_rel": 0.011029411764705883,
+      "A": 0.9084745762711864
+     },
+     "T@0.5": {
+      "n_gold": 272,
+      "tp": 271,
+      "fp": 22,
+      "fn": 1,
+      "n_pred": 293,
+      "leaked_full": 1,
+      "leaked_rel": 1,
+      "L_full": 0.003676470588235294,
+      "L_rel": 0.003676470588235294,
+      "A": 0.9217687074829932
+     },
+     "T@0.7": {
+      "n_gold": 272,
+      "tp": 271,
+      "fp": 22,
+      "fn": 1,
+      "n_pred": 293,
+      "leaked_full": 1,
+      "leaked_rel": 1,
+      "L_full": 0.003676470588235294,
+      "L_rel": 0.003676470588235294,
+      "A": 0.9217687074829932
+     },
+     "T@0.9": {
+      "n_gold": 272,
+      "tp": 270,
+      "fp": 22,
+      "fn": 2,
+      "n_pred": 292,
+      "leaked_full": 2,
+      "leaked_rel": 2,
+      "L_full": 0.007352941176470588,
+      "L_rel": 0.007352941176470588,
+      "A": 0.9183673469387755
+     },
+     "UNION@0.5": {
+      "n_gold": 272,
+      "tp": 271,
+      "fp": 51,
+      "fn": 1,
+      "n_pred": 322,
+      "leaked_full": 1,
+      "leaked_rel": 1,
+      "L_full": 0.003676470588235294,
+      "L_rel": 0.003676470588235294,
+      "A": 0.8390092879256966
+     },
+     "UNION@0.7": {
+      "n_gold": 272,
+      "tp": 271,
+      "fp": 51,
+      "fn": 1,
+      "n_pred": 322,
+      "leaked_full": 1,
+      "leaked_rel": 1,
+      "L_full": 0.003676470588235294,
+      "L_rel": 0.003676470588235294,
+      "A": 0.8390092879256966
+     },
+     "UNION@0.9": {
+      "n_gold": 272,
+      "tp": 271,
+      "fp": 50,
+      "fn": 1,
+      "n_pred": 321,
+      "leaked_full": 2,
+      "leaked_rel": 1,
+      "L_full": 0.007352941176470588,
+      "L_rel": 0.003676470588235294,
+      "A": 0.8416149068322981
+     }
+    }
+   },
+   "DATE": {
+    "n_gold": 724,
+    "sparse": false,
+    "complementarity": {
+     "rules_only": 0,
+     "tagger_only": 26,
+     "both": 695,
+     "neither": 3
+    },
+    "candidates": {
+     "AGREE@0.5": {
+      "n_gold": 724,
+      "tp": 698,
+      "fp": 106,
+      "fn": 26,
+      "n_pred": 804,
+      "leaked_full": 28,
+      "leaked_rel": 26,
+      "L_full": 0.03867403314917127,
+      "L_rel": 0.03591160220994475,
+      "A": 0.8409638554216867
+     },
+     "AGREE@0.7": {
+      "n_gold": 724,
+      "tp": 698,
+      "fp": 106,
+      "fn": 26,
+      "n_pred": 804,
+      "leaked_full": 28,
+      "leaked_rel": 26,
+      "L_full": 0.03867403314917127,
+      "L_rel": 0.03591160220994475,
+      "A": 0.8409638554216867
+     },
+     "AGREE@0.9": {
+      "n_gold": 724,
+      "tp": 695,
+      "fp": 106,
+      "fn": 29,
+      "n_pred": 801,
+      "leaked_full": 31,
+      "leaked_rel": 29,
+      "L_full": 0.04281767955801105,
+      "L_rel": 0.04005524861878453,
+      "A": 0.8373493975903614
+     },
+     "R": {
+      "n_gold": 724,
+      "tp": 697,
+      "fp": 11,
+      "fn": 27,
+      "n_pred": 708,
+      "leaked_full": 29,
+      "leaked_rel": 26,
+      "L_full": 0.04005524861878453,
+      "L_rel": 0.03591160220994475,
+      "A": 0.9482993197278912
+     },
+     "T@0.5": {
+      "n_gold": 724,
+      "tp": 724,
+      "fp": 7,
+      "fn": 0,
+      "n_pred": 731,
+      "leaked_full": 3,
+      "leaked_rel": 0,
+      "L_full": 0.004143646408839779,
+      "L_rel": 0.0,
+      "A": 0.9904240766073872
+     },
+     "T@0.7": {
+      "n_gold": 724,
+      "tp": 724,
+      "fp": 7,
+      "fn": 0,
+      "n_pred": 731,
+      "leaked_full": 3,
+      "leaked_rel": 0,
+      "L_full": 0.004143646408839779,
+      "L_rel": 0.0,
+      "A": 0.9904240766073872
+     },
+     "T@0.9": {
+      "n_gold": 724,
+      "tp": 719,
+      "fp": 7,
+      "fn": 5,
+      "n_pred": 726,
+      "leaked_full": 7,
+      "leaked_rel": 5,
+      "L_full": 0.009668508287292817,
+      "L_rel": 0.006906077348066298,
+      "A": 0.9835841313269493
+     },
+     "UNION@0.5": {
+      "n_gold": 724,
+      "tp": 724,
+      "fp": 117,
+      "fn": 0,
+      "n_pred": 841,
+      "leaked_full": 3,
+      "leaked_rel": 0,
+      "L_full": 0.004143646408839779,
+      "L_rel": 0.0,
+      "A": 0.8608799048751486
+     },
+     "UNION@0.7": {
+      "n_gold": 724,
+      "tp": 724,
+      "fp": 117,
+      "fn": 0,
+      "n_pred": 841,
+      "leaked_full": 3,
+      "leaked_rel": 0,
+      "L_full": 0.004143646408839779,
+      "L_rel": 0.0,
+      "A": 0.8608799048751486
+     },
+     "UNION@0.9": {
+      "n_gold": 724,
+      "tp": 722,
+      "fp": 117,
+      "fn": 2,
+      "n_pred": 839,
+      "leaked_full": 4,
+      "leaked_rel": 2,
+      "L_full": 0.0055248618784530384,
+      "L_rel": 0.0027624309392265192,
+      "A": 0.8585017835909632
+     }
+    }
+   },
+   "ID": {
+    "n_gold": 745,
+    "sparse": false,
+    "complementarity": {
+     "rules_only": 0,
+     "tagger_only": 61,
+     "both": 676,
+     "neither": 8
+    },
+    "candidates": {
+     "AGREE@0.5": {
+      "n_gold": 745,
+      "tp": 677,
+      "fp": 619,
+      "fn": 68,
+      "n_pred": 1296,
+      "leaked_full": 68,
+      "leaked_rel": 68,
+      "L_full": 0.0912751677852349,
+      "L_rel": 0.0912751677852349,
+      "A": 0.4963343108504399
+     },
+     "AGREE@0.7": {
+      "n_gold": 745,
+      "tp": 677,
+      "fp": 619,
+      "fn": 68,
+      "n_pred": 1296,
+      "leaked_full": 68,
+      "leaked_rel": 68,
+      "L_full": 0.0912751677852349,
+      "L_rel": 0.0912751677852349,
+      "A": 0.4963343108504399
+     },
+     "AGREE@0.9": {
+      "n_gold": 745,
+      "tp": 677,
+      "fp": 619,
+      "fn": 68,
+      "n_pred": 1296,
+      "leaked_full": 68,
+      "leaked_rel": 68,
+      "L_full": 0.0912751677852349,
+      "L_rel": 0.0912751677852349,
+      "A": 0.4963343108504399
+     },
+     "R": {
+      "n_gold": 745,
+      "tp": 677,
+      "fp": 3,
+      "fn": 68,
+      "n_pred": 680,
+      "leaked_full": 69,
+      "leaked_rel": 68,
+      "L_full": 0.09261744966442953,
+      "L_rel": 0.0912751677852349,
+      "A": 0.9050802139037433
+     },
+     "T@0.5": {
+      "n_gold": 745,
+      "tp": 738,
+      "fp": 428,
+      "fn": 7,
+      "n_pred": 1166,
+      "leaked_full": 8,
+      "leaked_rel": 7,
+      "L_full": 0.010738255033557046,
+      "L_rel": 0.009395973154362415,
+      "A": 0.629156010230179
+     },
+     "T@0.7": {
+      "n_gold": 745,
+      "tp": 732,
+      "fp": 330,
+      "fn": 13,
+      "n_pred": 1062,
+      "leaked_full": 14,
+      "leaked_rel": 13,
+      "L_full": 0.01879194630872483,
+      "L_rel": 0.0174496644295302,
+      "A": 0.6809302325581396
+     },
+     "T@0.9": {
+      "n_gold": 745,
+      "tp": 724,
+      "fp": 49,
+      "fn": 21,
+      "n_pred": 773,
+      "leaked_full": 21,
+      "leaked_rel": 21,
+      "L_full": 0.028187919463087248,
+      "L_rel": 0.028187919463087248,
+      "A": 0.9118387909319899
+     },
+     "UNION@0.5": {
+      "n_gold": 745,
+      "tp": 738,
+      "fp": 999,
+      "fn": 7,
+      "n_pred": 1737,
+      "leaked_full": 8,
+      "leaked_rel": 7,
+      "L_full": 0.010738255033557046,
+      "L_rel": 0.009395973154362415,
+      "A": 0.4231651376146789
+     },
+     "UNION@0.7": {
+      "n_gold": 745,
+      "tp": 732,
+      "fp": 901,
+      "fn": 13,
+      "n_pred": 1633,
+      "leaked_full": 14,
+      "leaked_rel": 13,
+      "L_full": 0.01879194630872483,
+      "L_rel": 0.0174496644295302,
+      "A": 0.44471445929526127
+     },
+     "UNION@0.9": {
+      "n_gold": 745,
+      "tp": 724,
+      "fp": 620,
+      "fn": 21,
+      "n_pred": 1344,
+      "leaked_full": 21,
+      "leaked_rel": 21,
+      "L_full": 0.028187919463087248,
+      "L_rel": 0.028187919463087248,
+      "A": 0.5304029304029304
+     }
+    }
+   },
+   "LOCATION_AREA": {
+    "n_gold": 1334,
+    "sparse": false,
+    "complementarity": {
+     "rules_only": 2,
+     "tagger_only": 178,
+     "both": 1144,
+     "neither": 10
+    },
+    "candidates": {
+     "AGREE@0.5": {
+      "n_gold": 1334,
+      "tp": 1157,
+      "fp": 470,
+      "fn": 177,
+      "n_pred": 1627,
+      "leaked_full": 177,
+      "leaked_rel": 177,
+      "L_full": 0.13268365817091454,
+      "L_rel": 0.13268365817091454,
+      "A": 0.6413525498891353
+     },
+     "AGREE@0.7": {
+      "n_gold": 1334,
+      "tp": 1157,
+      "fp": 468,
+      "fn": 177,
+      "n_pred": 1625,
+      "leaked_full": 177,
+      "leaked_rel": 177,
+      "L_full": 0.13268365817091454,
+      "L_rel": 0.13268365817091454,
+      "A": 0.6420643729189789
+     },
+     "AGREE@0.9": {
+      "n_gold": 1334,
+      "tp": 1154,
+      "fp": 464,
+      "fn": 180,
+      "n_pred": 1618,
+      "leaked_full": 179,
+      "leaked_rel": 179,
+      "L_full": 0.13418290854572715,
+      "L_rel": 0.13418290854572715,
+      "A": 0.6418242491657397
+     },
+     "R": {
+      "n_gold": 1334,
+      "tp": 1013,
+      "fp": 169,
+      "fn": 321,
+      "n_pred": 1182,
+      "leaked_full": 188,
+      "leaked_rel": 177,
+      "L_full": 0.1409295352323838,
+      "L_rel": 0.13268365817091454,
+      "A": 0.6739853626081171
+     },
+     "T@0.5": {
+      "n_gold": 1334,
+      "tp": 1328,
+      "fp": 21,
+      "fn": 6,
+      "n_pred": 1349,
+      "leaked_full": 12,
+      "leaked_rel": 5,
+      "L_full": 0.008995502248875561,
+      "L_rel": 0.0037481259370314842,
+      "A": 0.9800738007380074
+     },
+     "T@0.7": {
+      "n_gold": 1334,
+      "tp": 1327,
+      "fp": 18,
+      "fn": 7,
+      "n_pred": 1345,
+      "leaked_full": 12,
+      "leaked_rel": 6,
+      "L_full": 0.008995502248875561,
+      "L_rel": 0.004497751124437781,
+      "A": 0.981508875739645
+     },
+     "T@0.9": {
+      "n_gold": 1334,
+      "tp": 1320,
+      "fp": 17,
+      "fn": 14,
+      "n_pred": 1337,
+      "leaked_full": 18,
+      "leaked_rel": 13,
+      "L_full": 0.013493253373313344,
+      "L_rel": 0.009745127436281859,
+      "A": 0.9770540340488527
+     },
+     "UNION@0.5": {
+      "n_gold": 1334,
+      "tp": 1329,
+      "fp": 527,
+      "fn": 5,
+      "n_pred": 1856,
+      "leaked_full": 10,
+      "leaked_rel": 5,
+      "L_full": 0.0074962518740629685,
+      "L_rel": 0.0037481259370314842,
+      "A": 0.7141321869962386
+     },
+     "UNION@0.7": {
+      "n_gold": 1334,
+      "tp": 1328,
+      "fp": 524,
+      "fn": 6,
+      "n_pred": 1852,
+      "leaked_full": 10,
+      "leaked_rel": 6,
+      "L_full": 0.0074962518740629685,
+      "L_rel": 0.004497751124437781,
+      "A": 0.7147470398277718
+     },
+     "UNION@0.9": {
+      "n_gold": 1334,
+      "tp": 1324,
+      "fp": 520,
+      "fn": 10,
+      "n_pred": 1844,
+      "leaked_full": 14,
+      "leaked_rel": 10,
+      "L_full": 0.010494752623688156,
+      "L_rel": 0.0074962518740629685,
+      "A": 0.7141316073354909
+     }
+    }
+   },
+   "LOCATION_STREET": {
+    "n_gold": 434,
+    "sparse": false,
+    "complementarity": {
+     "rules_only": 4,
+     "tagger_only": 115,
+     "both": 305,
+     "neither": 10
+    },
+    "candidates": {
+     "AGREE@0.5": {
+      "n_gold": 434,
+      "tp": 332,
+      "fp": 332,
+      "fn": 102,
+      "n_pred": 664,
+      "leaked_full": 103,
+      "leaked_rel": 102,
+      "L_full": 0.23732718894009217,
+      "L_rel": 0.2350230414746544,
+      "A": 0.43342036553524804
+     },
+     "AGREE@0.7": {
+      "n_gold": 434,
+      "tp": 332,
+      "fp": 332,
+      "fn": 102,
+      "n_pred": 664,
+      "leaked_full": 103,
+      "leaked_rel": 102,
+      "L_full": 0.23732718894009217,
+      "L_rel": 0.2350230414746544,
+      "A": 0.43342036553524804
+     },
+     "AGREE@0.9": {
+      "n_gold": 434,
+      "tp": 332,
+      "fp": 332,
+      "fn": 102,
+      "n_pred": 664,
+      "leaked_full": 103,
+      "leaked_rel": 102,
+      "L_full": 0.23732718894009217,
+      "L_rel": 0.2350230414746544,
+      "A": 0.43342036553524804
+     },
+     "R": {
+      "n_gold": 434,
+      "tp": 332,
+      "fp": 165,
+      "fn": 102,
+      "n_pred": 497,
+      "leaked_full": 125,
+      "leaked_rel": 102,
+      "L_full": 0.2880184331797235,
+      "L_rel": 0.2350230414746544,
+      "A": 0.5542570951585977
+     },
+     "T@0.5": {
+      "n_gold": 434,
+      "tp": 432,
+      "fp": 13,
+      "fn": 2,
+      "n_pred": 445,
+      "leaked_full": 14,
+      "leaked_rel": 1,
+      "L_full": 0.03225806451612903,
+      "L_rel": 0.002304147465437788,
+      "A": 0.9664429530201343
+     },
+     "T@0.7": {
+      "n_gold": 434,
+      "tp": 431,
+      "fp": 11,
+      "fn": 3,
+      "n_pred": 442,
+      "leaked_full": 14,
+      "leaked_rel": 2,
+      "L_full": 0.03225806451612903,
+      "L_rel": 0.004608294930875576,
+      "A": 0.9685393258426966
+     },
+     "T@0.9": {
+      "n_gold": 434,
+      "tp": 429,
+      "fp": 7,
+      "fn": 5,
+      "n_pred": 436,
+      "leaked_full": 15,
+      "leaked_rel": 4,
+      "L_full": 0.03456221198156682,
+      "L_rel": 0.009216589861751152,
+      "A": 0.9727891156462585
+     },
+     "UNION@0.5": {
+      "n_gold": 434,
+      "tp": 432,
+      "fp": 345,
+      "fn": 2,
+      "n_pred": 777,
+      "leaked_full": 9,
+      "leaked_rel": 1,
+      "L_full": 0.020737327188940093,
+      "L_rel": 0.002304147465437788,
+      "A": 0.5545571245186136
+     },
+     "UNION@0.7": {
+      "n_gold": 434,
+      "tp": 431,
+      "fp": 343,
+      "fn": 3,
+      "n_pred": 774,
+      "leaked_full": 9,
+      "leaked_rel": 2,
+      "L_full": 0.020737327188940093,
+      "L_rel": 0.004608294930875576,
+      "A": 0.5546975546975547
+     },
+     "UNION@0.9": {
+      "n_gold": 434,
+      "tp": 429,
+      "fp": 339,
+      "fn": 5,
+      "n_pred": 768,
+      "leaked_full": 10,
+      "leaked_rel": 4,
+      "L_full": 0.02304147465437788,
+      "L_rel": 0.009216589861751152,
+      "A": 0.5549805950840879
+     }
+    }
+   },
+   "NAME": {
+    "n_gold": 1000,
+    "sparse": false,
+    "complementarity": {
+     "rules_only": 1,
+     "tagger_only": 74,
+     "both": 925,
+     "neither": 0
+    },
+    "candidates": {
+     "AGREE@0.5": {
+      "n_gold": 1000,
+      "tp": 971,
+      "fp": 211,
+      "fn": 29,
+      "n_pred": 1182,
+      "leaked_full": 29,
+      "leaked_rel": 29,
+      "L_full": 0.029,
+      "L_rel": 0.029,
+      "A": 0.8018166804293972
+     },
+     "AGREE@0.7": {
+      "n_gold": 1000,
+      "tp": 971,
+      "fp": 211,
+      "fn": 29,
+      "n_pred": 1182,
+      "leaked_full": 29,
+      "leaked_rel": 29,
+      "L_full": 0.029,
+      "L_rel": 0.029,
+      "A": 0.8018166804293972
+     },
+     "AGREE@0.9": {
+      "n_gold": 1000,
+      "tp": 971,
+      "fp": 211,
+      "fn": 29,
+      "n_pred": 1182,
+      "leaked_full": 29,
+      "leaked_rel": 29,
+      "L_full": 0.029,
+      "L_rel": 0.029,
+      "A": 0.8018166804293972
+     },
+     "R": {
+      "n_gold": 1000,
+      "tp": 971,
+      "fp": 30,
+      "fn": 29,
+      "n_pred": 1001,
+      "leaked_full": 74,
+      "leaked_rel": 29,
+      "L_full": 0.074,
+      "L_rel": 0.029,
+      "A": 0.9427184466019417
+     },
+     "T@0.5": {
+      "n_gold": 1000,
+      "tp": 1000,
+      "fp": 73,
+      "fn": 0,
+      "n_pred": 1073,
+      "leaked_full": 1,
+      "leaked_rel": 0,
+      "L_full": 0.001,
+      "L_rel": 0.0,
+      "A": 0.9319664492078286
+     },
+     "T@0.7": {
+      "n_gold": 1000,
+      "tp": 1000,
+      "fp": 41,
+      "fn": 0,
+      "n_pred": 1041,
+      "leaked_full": 1,
+      "leaked_rel": 0,
+      "L_full": 0.001,
+      "L_rel": 0.0,
+      "A": 0.9606147934678194
+     },
+     "T@0.9": {
+      "n_gold": 1000,
+      "tp": 1000,
+      "fp": 12,
+      "fn": 0,
+      "n_pred": 1012,
+      "leaked_full": 1,
+      "leaked_rel": 0,
+      "L_full": 0.001,
+      "L_rel": 0.0,
+      "A": 0.9881422924901185
+     },
+     "UNION@0.5": {
+      "n_gold": 1000,
+      "tp": 1000,
+      "fp": 306,
+      "fn": 0,
+      "n_pred": 1306,
+      "leaked_full": 0,
+      "leaked_rel": 0,
+      "L_full": 0.0,
+      "L_rel": 0.0,
+      "A": 0.7656967840735069
+     },
+     "UNION@0.7": {
+      "n_gold": 1000,
+      "tp": 1000,
+      "fp": 274,
+      "fn": 0,
+      "n_pred": 1274,
+      "leaked_full": 0,
+      "leaked_rel": 0,
+      "L_full": 0.0,
+      "L_rel": 0.0,
+      "A": 0.7849293563579278
+     },
+     "UNION@0.9": {
+      "n_gold": 1000,
+      "tp": 1000,
+      "fp": 245,
+      "fn": 0,
+      "n_pred": 1245,
+      "leaked_full": 0,
+      "leaked_rel": 0,
+      "L_full": 0.0,
+      "L_rel": 0.0,
+      "A": 0.8032128514056225
+     }
+    }
+   },
+   "ORGANISATION": {
+    "n_gold": 214,
+    "sparse": false,
+    "complementarity": {
+     "rules_only": 2,
+     "tagger_only": 117,
+     "both": 71,
+     "neither": 24
+    },
+    "candidates": {
+     "AGREE@0.5": {
+      "n_gold": 214,
+      "tp": 73,
+      "fp": 8,
+      "fn": 141,
+      "n_pred": 81,
+      "leaked_full": 137,
+      "leaked_rel": 135,
+      "L_full": 0.6401869158878505,
+      "L_rel": 0.6308411214953271,
+      "A": 0.32882882882882886
+     },
+     "AGREE@0.7": {
+      "n_gold": 214,
+      "tp": 72,
+      "fp": 6,
+      "fn": 142,
+      "n_pred": 78,
+      "leaked_full": 138,
+      "leaked_rel": 136,
+      "L_full": 0.6448598130841121,
+      "L_rel": 0.6355140186915887,
+      "A": 0.32727272727272727
+     },
+     "AGREE@0.9": {
+      "n_gold": 214,
+      "tp": 71,
+      "fp": 6,
+      "fn": 143,
+      "n_pred": 77,
+      "leaked_full": 139,
+      "leaked_rel": 137,
+      "L_full": 0.6495327102803738,
+      "L_rel": 0.6401869158878505,
+      "A": 0.32272727272727275
+     },
+     "R": {
+      "n_gold": 214,
+      "tp": 73,
+      "fp": 1,
+      "fn": 141,
+      "n_pred": 74,
+      "leaked_full": 141,
+      "leaked_rel": 135,
+      "L_full": 0.6588785046728972,
+      "L_rel": 0.6308411214953271,
+      "A": 0.3395348837209302
+     },
+     "T@0.5": {
+      "n_gold": 214,
+      "tp": 191,
+      "fp": 19,
+      "fn": 23,
+      "n_pred": 210,
+      "leaked_full": 26,
+      "leaked_rel": 16,
+      "L_full": 0.12149532710280374,
+      "L_rel": 0.07476635514018691,
+      "A": 0.8197424892703863
+     },
+     "T@0.7": {
+      "n_gold": 214,
+      "tp": 189,
+      "fp": 13,
+      "fn": 25,
+      "n_pred": 202,
+      "leaked_full": 27,
+      "leaked_rel": 18,
+      "L_full": 0.1261682242990654,
+      "L_rel": 0.08411214953271028,
+      "A": 0.8325991189427313
+     },
+     "T@0.9": {
+      "n_gold": 214,
+      "tp": 183,
+      "fp": 8,
+      "fn": 31,
+      "n_pred": 191,
+      "leaked_full": 32,
+      "leaked_rel": 24,
+      "L_full": 0.14953271028037382,
+      "L_rel": 0.11214953271028037,
+      "A": 0.8243243243243243
+     },
+     "UNION@0.5": {
+      "n_gold": 214,
+      "tp": 191,
+      "fp": 27,
+      "fn": 23,
+      "n_pred": 218,
+      "leaked_full": 24,
+      "leaked_rel": 16,
+      "L_full": 0.11214953271028037,
+      "L_rel": 0.07476635514018691,
+      "A": 0.7925311203319502
+     },
+     "UNION@0.7": {
+      "n_gold": 214,
+      "tp": 190,
+      "fp": 20,
+      "fn": 24,
+      "n_pred": 210,
+      "leaked_full": 25,
+      "leaked_rel": 17,
+      "L_full": 0.11682242990654206,
+      "L_rel": 0.0794392523364486,
+      "A": 0.811965811965812
+     },
+     "UNION@0.9": {
+      "n_gold": 214,
+      "tp": 185,
+      "fp": 15,
+      "fn": 29,
+      "n_pred": 200,
+      "leaked_full": 29,
+      "leaked_rel": 22,
+      "L_full": 0.13551401869158877,
+      "L_rel": 0.102803738317757,
+      "A": 0.8078602620087336
+     }
+    }
+   },
+   "OTHER": {
+    "n_gold": 6,
+    "sparse": true,
+    "complementarity": {
+     "rules_only": 0,
+     "tagger_only": 0,
+     "both": 0,
+     "neither": 6
+    },
+    "candidates": {
+     "AGREE@0.5": {
+      "n_gold": 6,
+      "tp": 0,
+      "fp": 0,
+      "fn": 6,
+      "n_pred": 0,
+      "leaked_full": 6,
+      "leaked_rel": 6,
+      "L_full": 1.0,
+      "L_rel": 1.0,
+      "A": 0.0
+     },
+     "AGREE@0.7": {
+      "n_gold": 6,
+      "tp": 0,
+      "fp": 0,
+      "fn": 6,
+      "n_pred": 0,
+      "leaked_full": 6,
+      "leaked_rel": 6,
+      "L_full": 1.0,
+      "L_rel": 1.0,
+      "A": 0.0
+     },
+     "AGREE@0.9": {
+      "n_gold": 6,
+      "tp": 0,
+      "fp": 0,
+      "fn": 6,
+      "n_pred": 0,
+      "leaked_full": 6,
+      "leaked_rel": 6,
+      "L_full": 1.0,
+      "L_rel": 1.0,
+      "A": 0.0
+     },
+     "R": {
+      "n_gold": 6,
+      "tp": 0,
+      "fp": 0,
+      "fn": 6,
+      "n_pred": 0,
+      "leaked_full": 6,
+      "leaked_rel": 6,
+      "L_full": 1.0,
+      "L_rel": 1.0,
+      "A": 0.0
+     },
+     "T@0.5": {
+      "n_gold": 6,
+      "tp": 0,
+      "fp": 0,
+      "fn": 6,
+      "n_pred": 0,
+      "leaked_full": 6,
+      "leaked_rel": 6,
+      "L_full": 1.0,
+      "L_rel": 1.0,
+      "A": 0.0
+     },
+     "T@0.7": {
+      "n_gold": 6,
+      "tp": 0,
+      "fp": 0,
+      "fn": 6,
+      "n_pred": 0,
+      "leaked_full": 6,
+      "leaked_rel": 6,
+      "L_full": 1.0,
+      "L_rel": 1.0,
+      "A": 0.0
+     },
+     "T@0.9": {
+      "n_gold": 6,
+      "tp": 0,
+      "fp": 0,
+      "fn": 6,
+      "n_pred": 0,
+      "leaked_full": 6,
+      "leaked_rel": 6,
+      "L_full": 1.0,
+      "L_rel": 1.0,
+      "A": 0.0
+     },
+     "UNION@0.5": {
+      "n_gold": 6,
+      "tp": 0,
+      "fp": 0,
+      "fn": 6,
+      "n_pred": 0,
+      "leaked_full": 6,
+      "leaked_rel": 6,
+      "L_full": 1.0,
+      "L_rel": 1.0,
+      "A": 0.0
+     },
+     "UNION@0.7": {
+      "n_gold": 6,
+      "tp": 0,
+      "fp": 0,
+      "fn": 6,
+      "n_pred": 0,
+      "leaked_full": 6,
+      "leaked_rel": 6,
+      "L_full": 1.0,
+      "L_rel": 1.0,
+      "A": 0.0
+     },
+     "UNION@0.9": {
+      "n_gold": 6,
+      "tp": 0,
+      "fp": 0,
+      "fn": 6,
+      "n_pred": 0,
+      "leaked_full": 6,
+      "leaked_rel": 6,
+      "L_full": 1.0,
+      "L_rel": 1.0,
+      "A": 0.0
+     }
+    }
+   },
+   "PROFESSION": {
+    "n_gold": 4,
+    "sparse": true,
+    "complementarity": {
+     "rules_only": 1,
+     "tagger_only": 0,
+     "both": 1,
+     "neither": 2
+    },
+    "candidates": {
+     "AGREE@0.5": {
+      "n_gold": 4,
+      "tp": 1,
+      "fp": 1,
+      "fn": 3,
+      "n_pred": 2,
+      "leaked_full": 3,
+      "leaked_rel": 3,
+      "L_full": 0.75,
+      "L_rel": 0.75,
+      "A": 0.2
+     },
+     "AGREE@0.7": {
+      "n_gold": 4,
+      "tp": 0,
+      "fp": 0,
+      "fn": 4,
+      "n_pred": 0,
+      "leaked_full": 4,
+      "leaked_rel": 4,
+      "L_full": 1.0,
+      "L_rel": 1.0,
+      "A": 0.0
+     },
+     "AGREE@0.9": {
+      "n_gold": 4,
+      "tp": 0,
+      "fp": 0,
+      "fn": 4,
+      "n_pred": 0,
+      "leaked_full": 4,
+      "leaked_rel": 4,
+      "L_full": 1.0,
+      "L_rel": 1.0,
+      "A": 0.0
+     },
+     "R": {
+      "n_gold": 4,
+      "tp": 2,
+      "fp": 0,
+      "fn": 2,
+      "n_pred": 2,
+      "leaked_full": 2,
+      "leaked_rel": 2,
+      "L_full": 0.5,
+      "L_rel": 0.5,
+      "A": 0.5
+     },
+     "T@0.5": {
+      "n_gold": 4,
+      "tp": 1,
+      "fp": 3,
+      "fn": 3,
+      "n_pred": 4,
+      "leaked_full": 3,
+      "leaked_rel": 3,
+      "L_full": 0.75,
+      "L_rel": 0.75,
+      "A": 0.14285714285714285
+     },
+     "T@0.7": {
+      "n_gold": 4,
+      "tp": 0,
+      "fp": 0,
+      "fn": 4,
+      "n_pred": 0,
+      "leaked_full": 4,
+      "leaked_rel": 4,
+      "L_full": 1.0,
+      "L_rel": 1.0,
+      "A": 0.0
+     },
+     "T@0.9": {
+      "n_gold": 4,
+      "tp": 0,
+      "fp": 0,
+      "fn": 4,
+      "n_pred": 0,
+      "leaked_full": 4,
+      "leaked_rel": 4,
+      "L_full": 1.0,
+      "L_rel": 1.0,
+      "A": 0.0
+     },
+     "UNION@0.5": {
+      "n_gold": 4,
+      "tp": 2,
+      "fp": 4,
+      "fn": 2,
+      "n_pred": 6,
+      "leaked_full": 2,
+      "leaked_rel": 2,
+      "L_full": 0.5,
+      "L_rel": 0.5,
+      "A": 0.25
+     },
+     "UNION@0.7": {
+      "n_gold": 4,
+      "tp": 2,
+      "fp": 0,
+      "fn": 2,
+      "n_pred": 2,
+      "leaked_full": 2,
+      "leaked_rel": 2,
+      "L_full": 0.5,
+      "L_rel": 0.5,
+      "A": 0.5
+     },
+     "UNION@0.9": {
+      "n_gold": 4,
+      "tp": 2,
+      "fp": 0,
+      "fn": 2,
+      "n_pred": 2,
+      "leaked_full": 2,
+      "leaked_rel": 2,
+      "L_full": 0.5,
+      "L_rel": 0.5,
+      "A": 0.5
+     }
+    }
+   }
+  },
+  "rt_baseline": {
+   "tp": 5205,
+   "fp": 2889,
+   "fn": 49,
+   "n_gold": 5254,
+   "n_pred": 8094,
+   "L_full": 0.012561857632280167,
+   "L_rel": 0.007803578226113437,
+   "A": 0.6391993122927668,
+   "precision": 0.6430689399555226,
+   "recall": 0.9906737723639132
+  },
+  "rt_sel": {
+   "policies": {
+    "AGE": {
+     "policy": "UNION",
+     "theta": 0.5
+    },
+    "CONTACT": {
+     "policy": "T",
+     "theta": 0.5
+    },
+    "DATE": {
+     "policy": "T",
+     "theta": 0.5
+    },
+    "ID": {
+     "policy": "T",
+     "theta": 0.5
+    },
+    "LOCATION_AREA": {
+     "policy": "UNION",
+     "theta": 0.7
+    },
+    "LOCATION_STREET": {
+     "policy": "UNION",
+     "theta": 0.7
+    },
+    "NAME": {
+     "policy": "UNION",
+     "theta": 0.9
+    },
+    "ORGANISATION": {
+     "policy": "UNION",
+     "theta": 0.5
+    },
+    "OTHER": {
+     "policy": "UNION",
+     "theta": 0.5
+    },
+    "PROFESSION": {
+     "policy": "UNION",
+     "theta": 0.7
+    }
+   },
+   "achieved": {
+    "tp": 5203,
+    "fp": 2109,
+    "fn": 51,
+    "n_gold": 5254,
+    "n_pred": 7312,
+    "L_full": 0.012561857632280167,
+    "L_rel": 0.008184240578606776,
+    "A": 0.7066413146815157,
+    "precision": 0.711570021881838,
+    "recall": 0.9902931100114198
+   },
+   "headline": {
+    "L_full": 0.012561857632280167,
+    "L_rel": 0.008184240578606776,
+    "A": 0.7066413146815157,
+    "precision": 0.711570021881838,
+    "recall": 0.9902931100114198,
+    "f1": 0.8281075919146904,
+    "tp": 5203,
+    "fp": 2109,
+    "fn": 51,
+    "complementarity_full": {
+     "rules_only": 12,
+     "tagger_only": 2290,
+     "both": 2885,
+     "joint_only": 1,
+     "neither": 66,
+     "denominator": 5254
+    },
+    "D_full": 0.196,
+    "gold": 5254,
+    "pred": 9336,
+    "nongold_masked_rate": null
+   }
+  },
+  "constraint_satisfied": true
+ },
+ "de-grascco": {
+  "n_dev_gold": 410,
+  "delta": 0.06341463414634146,
+  "table": {
+   "AGE": {
+    "n_gold": 5,
+    "sparse": true,
+    "complementarity": {
+     "rules_only": 0,
+     "tagger_only": 5,
+     "both": 0,
+     "neither": 0
+    },
+    "candidates": {
+     "AGREE@0.5": {
+      "n_gold": 5,
+      "tp": 0,
+      "fp": 0,
+      "fn": 5,
+      "n_pred": 0,
+      "leaked_full": 5,
+      "leaked_rel": 5,
+      "L_full": 1.0,
+      "L_rel": 1.0,
+      "A": 0.0
+     },
+     "AGREE@0.7": {
+      "n_gold": 5,
+      "tp": 0,
+      "fp": 0,
+      "fn": 5,
+      "n_pred": 0,
+      "leaked_full": 5,
+      "leaked_rel": 5,
+      "L_full": 1.0,
+      "L_rel": 1.0,
+      "A": 0.0
+     },
+     "AGREE@0.9": {
+      "n_gold": 5,
+      "tp": 0,
+      "fp": 0,
+      "fn": 5,
+      "n_pred": 0,
+      "leaked_full": 5,
+      "leaked_rel": 5,
+      "L_full": 1.0,
+      "L_rel": 1.0,
+      "A": 0.0
+     },
+     "R": {
+      "n_gold": 5,
+      "tp": 0,
+      "fp": 1,
+      "fn": 5,
+      "n_pred": 1,
+      "leaked_full": 5,
+      "leaked_rel": 5,
+      "L_full": 1.0,
+      "L_rel": 1.0,
+      "A": 0.0
+     },
+     "T@0.5": {
+      "n_gold": 5,
+      "tp": 5,
+      "fp": 0,
+      "fn": 0,
+      "n_pred": 5,
+      "leaked_full": 0,
+      "leaked_rel": 0,
+      "L_full": 0.0,
+      "L_rel": 0.0,
+      "A": 1.0
+     },
+     "T@0.7": {
+      "n_gold": 5,
+      "tp": 4,
+      "fp": 0,
+      "fn": 1,
+      "n_pred": 4,
+      "leaked_full": 1,
+      "leaked_rel": 1,
+      "L_full": 0.2,
+      "L_rel": 0.2,
+      "A": 0.8
+     },
+     "T@0.9": {
+      "n_gold": 5,
+      "tp": 3,
+      "fp": 0,
+      "fn": 2,
+      "n_pred": 3,
+      "leaked_full": 2,
+      "leaked_rel": 2,
+      "L_full": 0.4,
+      "L_rel": 0.4,
+      "A": 0.6
+     },
+     "UNION@0.5": {
+      "n_gold": 5,
+      "tp": 5,
+      "fp": 1,
+      "fn": 0,
+      "n_pred": 6,
+      "leaked_full": 0,
+      "leaked_rel": 0,
+      "L_full": 0.0,
+      "L_rel": 0.0,
+      "A": 0.8333333333333334
+     },
+     "UNION@0.7": {
+      "n_gold": 5,
+      "tp": 4,
+      "fp": 1,
+      "fn": 1,
+      "n_pred": 5,
+      "leaked_full": 1,
+      "leaked_rel": 1,
+      "L_full": 0.2,
+      "L_rel": 0.2,
+      "A": 0.6666666666666666
+     },
+     "UNION@0.9": {
+      "n_gold": 5,
+      "tp": 3,
+      "fp": 1,
+      "fn": 2,
+      "n_pred": 4,
+      "leaked_full": 2,
+      "leaked_rel": 2,
+      "L_full": 0.4,
+      "L_rel": 0.4,
+      "A": 0.5
+     }
+    }
+   },
+   "CONTACT": {
+    "n_gold": 11,
+    "sparse": false,
+    "complementarity": {
+     "rules_only": 0,
+     "tagger_only": 7,
+     "both": 4,
+     "neither": 0
+    },
+    "candidates": {
+     "AGREE@0.5": {
+      "n_gold": 11,
+      "tp": 4,
+      "fp": 2,
+      "fn": 7,
+      "n_pred": 6,
+      "leaked_full": 7,
+      "leaked_rel": 7,
+      "L_full": 0.6363636363636364,
+      "L_rel": 0.6363636363636364,
+      "A": 0.3076923076923077
+     },
+     "AGREE@0.7": {
+      "n_gold": 11,
+      "tp": 4,
+      "fp": 2,
+      "fn": 7,
+      "n_pred": 6,
+      "leaked_full": 7,
+      "leaked_rel": 7,
+      "L_full": 0.6363636363636364,
+      "L_rel": 0.6363636363636364,
+      "A": 0.3076923076923077
+     },
+     "AGREE@0.9": {
+      "n_gold": 11,
+      "tp": 4,
+      "fp": 2,
+      "fn": 7,
+      "n_pred": 6,
+      "leaked_full": 7,
+      "leaked_rel": 7,
+      "L_full": 0.6363636363636364,
+      "L_rel": 0.6363636363636364,
+      "A": 0.3076923076923077
+     },
+     "R": {
+      "n_gold": 11,
+      "tp": 4,
+      "fp": 3,
+      "fn": 7,
+      "n_pred": 7,
+      "leaked_full": 7,
+      "leaked_rel": 7,
+      "L_full": 0.6363636363636364,
+      "L_rel": 0.6363636363636364,
+      "A": 0.2857142857142857
+     },
+     "T@0.5": {
+      "n_gold": 11,
+      "tp": 11,
+      "fp": 0,
+      "fn": 0,
+      "n_pred": 11,
+      "leaked_full": 0,
+      "leaked_rel": 0,
+      "L_full": 0.0,
+      "L_rel": 0.0,
+      "A": 1.0
+     },
+     "T@0.7": {
+      "n_gold": 11,
+      "tp": 11,
+      "fp": 0,
+      "fn": 0,
+      "n_pred": 11,
+      "leaked_full": 0,
+      "leaked_rel": 0,
+      "L_full": 0.0,
+      "L_rel": 0.0,
+      "A": 1.0
+     },
+     "T@0.9": {
+      "n_gold": 11,
+      "tp": 11,
+      "fp": 0,
+      "fn": 0,
+      "n_pred": 11,
+      "leaked_full": 0,
+      "leaked_rel": 0,
+      "L_full": 0.0,
+      "L_rel": 0.0,
+      "A": 1.0
+     },
+     "UNION@0.5": {
+      "n_gold": 11,
+      "tp": 11,
+      "fp": 4,
+      "fn": 0,
+      "n_pred": 15,
+      "leaked_full": 0,
+      "leaked_rel": 0,
+      "L_full": 0.0,
+      "L_rel": 0.0,
+      "A": 0.7333333333333333
+     },
+     "UNION@0.7": {
+      "n_gold": 11,
+      "tp": 11,
+      "fp": 4,
+      "fn": 0,
+      "n_pred": 15,
+      "leaked_full": 0,
+      "leaked_rel": 0,
+      "L_full": 0.0,
+      "L_rel": 0.0,
+      "A": 0.7333333333333333
+     },
+     "UNION@0.9": {
+      "n_gold": 11,
+      "tp": 11,
+      "fp": 4,
+      "fn": 0,
+      "n_pred": 15,
+      "leaked_full": 0,
+      "leaked_rel": 0,
+      "L_full": 0.0,
+      "L_rel": 0.0,
+      "A": 0.7333333333333333
+     }
+    }
+   },
+   "DATE": {
+    "n_gold": 221,
+    "sparse": false,
+    "complementarity": {
+     "rules_only": 0,
+     "tagger_only": 56,
+     "both": 164,
+     "neither": 1
+    },
+    "candidates": {
+     "AGREE@0.5": {
+      "n_gold": 221,
+      "tp": 171,
+      "fp": 15,
+      "fn": 50,
+      "n_pred": 186,
+      "leaked_full": 50,
+      "leaked_rel": 50,
+      "L_full": 0.22624434389140272,
+      "L_rel": 0.22624434389140272,
+      "A": 0.7245762711864406
+     },
+     "AGREE@0.7": {
+      "n_gold": 221,
+      "tp": 171,
+      "fp": 15,
+      "fn": 50,
+      "n_pred": 186,
+      "leaked_full": 50,
+      "leaked_rel": 50,
+      "L_full": 0.22624434389140272,
+      "L_rel": 0.22624434389140272,
+      "A": 0.7245762711864406
+     },
+     "AGREE@0.9": {
+      "n_gold": 221,
+      "tp": 171,
+      "fp": 15,
+      "fn": 50,
+      "n_pred": 186,
+      "leaked_full": 50,
+      "leaked_rel": 50,
+      "L_full": 0.22624434389140272,
+      "L_rel": 0.22624434389140272,
+      "A": 0.7245762711864406
+     },
+     "R": {
+      "n_gold": 221,
+      "tp": 170,
+      "fp": 11,
+      "fn": 51,
+      "n_pred": 181,
+      "leaked_full": 57,
+      "leaked_rel": 50,
+      "L_full": 0.2579185520361991,
+      "L_rel": 0.22624434389140272,
+      "A": 0.7327586206896551
+     },
+     "T@0.5": {
+      "n_gold": 221,
+      "tp": 219,
+      "fp": 8,
+      "fn": 2,
+      "n_pred": 227,
+      "leaked_full": 1,
+      "leaked_rel": 1,
+      "L_full": 0.004524886877828055,
+      "L_rel": 0.004524886877828055,
+      "A": 0.9563318777292577
+     },
+     "T@0.7": {
+      "n_gold": 221,
+      "tp": 218,
+      "fp": 5,
+      "fn": 3,
+      "n_pred": 223,
+      "leaked_full": 2,
+      "leaked_rel": 2,
+      "L_full": 0.00904977375565611,
+      "L_rel": 0.00904977375565611,
+      "A": 0.9646017699115044
+     },
+     "T@0.9": {
+      "n_gold": 221,
+      "tp": 218,
+      "fp": 2,
+      "fn": 3,
+      "n_pred": 220,
+      "leaked_full": 2,
+      "leaked_rel": 2,
+      "L_full": 0.00904977375565611,
+      "L_rel": 0.00904977375565611,
+      "A": 0.9775784753363229
+     },
+     "UNION@0.5": {
+      "n_gold": 221,
+      "tp": 219,
+      "fp": 33,
+      "fn": 2,
+      "n_pred": 252,
+      "leaked_full": 1,
+      "leaked_rel": 1,
+      "L_full": 0.004524886877828055,
+      "L_rel": 0.004524886877828055,
+      "A": 0.8622047244094488
+     },
+     "UNION@0.7": {
+      "n_gold": 221,
+      "tp": 218,
+      "fp": 30,
+      "fn": 3,
+      "n_pred": 248,
+      "leaked_full": 2,
+      "leaked_rel": 2,
+      "L_full": 0.00904977375565611,
+      "L_rel": 0.00904977375565611,
+      "A": 0.8685258964143426
+     },
+     "UNION@0.9": {
+      "n_gold": 221,
+      "tp": 218,
+      "fp": 27,
+      "fn": 3,
+      "n_pred": 245,
+      "leaked_full": 2,
+      "leaked_rel": 2,
+      "L_full": 0.00904977375565611,
+      "L_rel": 0.00904977375565611,
+      "A": 0.8790322580645161
+     }
+    }
+   },
+   "ID": {
+    "n_gold": 11,
+    "sparse": false,
+    "complementarity": {
+     "rules_only": 0,
+     "tagger_only": 6,
+     "both": 2,
+     "neither": 3
+    },
+    "candidates": {
+     "AGREE@0.5": {
+      "n_gold": 11,
+      "tp": 2,
+      "fp": 0,
+      "fn": 9,
+      "n_pred": 2,
+      "leaked_full": 9,
+      "leaked_rel": 9,
+      "L_full": 0.8181818181818182,
+      "L_rel": 0.8181818181818182,
+      "A": 0.18181818181818182
+     },
+     "AGREE@0.7": {
+      "n_gold": 11,
+      "tp": 2,
+      "fp": 0,
+      "fn": 9,
+      "n_pred": 2,
+      "leaked_full": 9,
+      "leaked_rel": 9,
+      "L_full": 0.8181818181818182,
+      "L_rel": 0.8181818181818182,
+      "A": 0.18181818181818182
+     },
+     "AGREE@0.9": {
+      "n_gold": 11,
+      "tp": 2,
+      "fp": 0,
+      "fn": 9,
+      "n_pred": 2,
+      "leaked_full": 9,
+      "leaked_rel": 9,
+      "L_full": 0.8181818181818182,
+      "L_rel": 0.8181818181818182,
+      "A": 0.18181818181818182
+     },
+     "R": {
+      "n_gold": 11,
+      "tp": 2,
+      "fp": 0,
+      "fn": 9,
+      "n_pred": 2,
+      "leaked_full": 9,
+      "leaked_rel": 9,
+      "L_full": 0.8181818181818182,
+      "L_rel": 0.8181818181818182,
+      "A": 0.18181818181818182
+     },
+     "T@0.5": {
+      "n_gold": 11,
+      "tp": 8,
+      "fp": 2,
+      "fn": 3,
+      "n_pred": 10,
+      "leaked_full": 3,
+      "leaked_rel": 3,
+      "L_full": 0.2727272727272727,
+      "L_rel": 0.2727272727272727,
+      "A": 0.6153846153846154
+     },
+     "T@0.7": {
+      "n_gold": 11,
+      "tp": 8,
+      "fp": 0,
+      "fn": 3,
+      "n_pred": 8,
+      "leaked_full": 3,
+      "leaked_rel": 3,
+      "L_full": 0.2727272727272727,
+      "L_rel": 0.2727272727272727,
+      "A": 0.7272727272727273
+     },
+     "T@0.9": {
+      "n_gold": 11,
+      "tp": 8,
+      "fp": 0,
+      "fn": 3,
+      "n_pred": 8,
+      "leaked_full": 3,
+      "leaked_rel": 3,
+      "L_full": 0.2727272727272727,
+      "L_rel": 0.2727272727272727,
+      "A": 0.7272727272727273
+     },
+     "UNION@0.5": {
+      "n_gold": 11,
+      "tp": 8,
+      "fp": 2,
+      "fn": 3,
+      "n_pred": 10,
+      "leaked_full": 3,
+      "leaked_rel": 3,
+      "L_full": 0.2727272727272727,
+      "L_rel": 0.2727272727272727,
+      "A": 0.6153846153846154
+     },
+     "UNION@0.7": {
+      "n_gold": 11,
+      "tp": 8,
+      "fp": 0,
+      "fn": 3,
+      "n_pred": 8,
+      "leaked_full": 3,
+      "leaked_rel": 3,
+      "L_full": 0.2727272727272727,
+      "L_rel": 0.2727272727272727,
+      "A": 0.7272727272727273
+     },
+     "UNION@0.9": {
+      "n_gold": 11,
+      "tp": 8,
+      "fp": 0,
+      "fn": 3,
+      "n_pred": 8,
+      "leaked_full": 3,
+      "leaked_rel": 3,
+      "L_full": 0.2727272727272727,
+      "L_rel": 0.2727272727272727,
+      "A": 0.7272727272727273
+     }
+    }
+   },
+   "LOCATION_AREA": {
+    "n_gold": 26,
+    "sparse": false,
+    "complementarity": {
+     "rules_only": 0,
+     "tagger_only": 9,
+     "both": 15,
+     "neither": 2
+    },
+    "candidates": {
+     "AGREE@0.5": {
+      "n_gold": 26,
+      "tp": 16,
+      "fp": 7,
+      "fn": 10,
+      "n_pred": 23,
+      "leaked_full": 11,
+      "leaked_rel": 10,
+      "L_full": 0.4230769230769231,
+      "L_rel": 0.38461538461538464,
+      "A": 0.48484848484848486
+     },
+     "AGREE@0.7": {
+      "n_gold": 26,
+      "tp": 16,
+      "fp": 7,
+      "fn": 10,
+      "n_pred": 23,
+      "leaked_full": 11,
+      "leaked_rel": 10,
+      "L_full": 0.4230769230769231,
+      "L_rel": 0.38461538461538464,
+      "A": 0.48484848484848486
+     },
+     "AGREE@0.9": {
+      "n_gold": 26,
+      "tp": 16,
+      "fp": 7,
+      "fn": 10,
+      "n_pred": 23,
+      "leaked_full": 11,
+      "leaked_rel": 10,
+      "L_full": 0.4230769230769231,
+      "L_rel": 0.38461538461538464,
+      "A": 0.48484848484848486
+     },
+     "R": {
+      "n_gold": 26,
+      "tp": 16,
+      "fp": 149,
+      "fn": 10,
+      "n_pred": 165,
+      "leaked_full": 11,
+      "leaked_rel": 10,
+      "L_full": 0.4230769230769231,
+      "L_rel": 0.38461538461538464,
+      "A": 0.09142857142857143
+     },
+     "T@0.5": {
+      "n_gold": 26,
+      "tp": 25,
+      "fp": 4,
+      "fn": 1,
+      "n_pred": 29,
+      "leaked_full": 2,
+      "leaked_rel": 1,
+      "L_full": 0.07692307692307693,
+      "L_rel": 0.038461538461538464,
+      "A": 0.8333333333333334
+     },
+     "T@0.7": {
+      "n_gold": 26,
+      "tp": 25,
+      "fp": 4,
+      "fn": 1,
+      "n_pred": 29,
+      "leaked_full": 2,
+      "leaked_rel": 1,
+      "L_full": 0.07692307692307693,
+      "L_rel": 0.038461538461538464,
+      "A": 0.8333333333333334
+     },
+     "T@0.9": {
+      "n_gold": 26,
+      "tp": 25,
+      "fp": 3,
+      "fn": 1,
+      "n_pred": 28,
+      "leaked_full": 2,
+      "leaked_rel": 1,
+      "L_full": 0.07692307692307693,
+      "L_rel": 0.038461538461538464,
+      "A": 0.8620689655172413
+     },
+     "UNION@0.5": {
+      "n_gold": 26,
+      "tp": 25,
+      "fp": 158,
+      "fn": 1,
+      "n_pred": 183,
+      "leaked_full": 2,
+      "leaked_rel": 1,
+      "L_full": 0.07692307692307693,
+      "L_rel": 0.038461538461538464,
+      "A": 0.1358695652173913
+     },
+     "UNION@0.7": {
+      "n_gold": 26,
+      "tp": 25,
+      "fp": 158,
+      "fn": 1,
+      "n_pred": 183,
+      "leaked_full": 2,
+      "leaked_rel": 1,
+      "L_full": 0.07692307692307693,
+      "L_rel": 0.038461538461538464,
+      "A": 0.1358695652173913
+     },
+     "UNION@0.9": {
+      "n_gold": 26,
+      "tp": 25,
+      "fp": 157,
+      "fn": 1,
+      "n_pred": 182,
+      "leaked_full": 2,
+      "leaked_rel": 1,
+      "L_full": 0.07692307692307693,
+      "L_rel": 0.038461538461538464,
+      "A": 0.1366120218579235
+     }
+    }
+   },
+   "LOCATION_STREET": {
+    "n_gold": 9,
+    "sparse": false,
+    "complementarity": {
+     "rules_only": 0,
+     "tagger_only": 5,
+     "both": 3,
+     "neither": 1
+    },
+    "candidates": {
+     "AGREE@0.5": {
+      "n_gold": 9,
+      "tp": 7,
+      "fp": 7,
+      "fn": 2,
+      "n_pred": 14,
+      "leaked_full": 2,
+      "leaked_rel": 2,
+      "L_full": 0.2222222222222222,
+      "L_rel": 0.2222222222222222,
+      "A": 0.4375
+     },
+     "AGREE@0.7": {
+      "n_gold": 9,
+      "tp": 7,
+      "fp": 7,
+      "fn": 2,
+      "n_pred": 14,
+      "leaked_full": 2,
+      "leaked_rel": 2,
+      "L_full": 0.2222222222222222,
+      "L_rel": 0.2222222222222222,
+      "A": 0.4375
+     },
+     "AGREE@0.9": {
+      "n_gold": 9,
+      "tp": 7,
+      "fp": 7,
+      "fn": 2,
+      "n_pred": 14,
+      "leaked_full": 2,
+      "leaked_rel": 2,
+      "L_full": 0.2222222222222222,
+      "L_rel": 0.2222222222222222,
+      "A": 0.4375
+     },
+     "R": {
+      "n_gold": 9,
+      "tp": 7,
+      "fp": 2,
+      "fn": 2,
+      "n_pred": 9,
+      "leaked_full": 6,
+      "leaked_rel": 2,
+      "L_full": 0.6666666666666666,
+      "L_rel": 0.2222222222222222,
+      "A": 0.6363636363636364
+     },
+     "T@0.5": {
+      "n_gold": 9,
+      "tp": 9,
+      "fp": 0,
+      "fn": 0,
+      "n_pred": 9,
+      "leaked_full": 1,
+      "leaked_rel": 0,
+      "L_full": 0.1111111111111111,
+      "L_rel": 0.0,
+      "A": 1.0
+     },
+     "T@0.7": {
+      "n_gold": 9,
+      "tp": 9,
+      "fp": 0,
+      "fn": 0,
+      "n_pred": 9,
+      "leaked_full": 1,
+      "leaked_rel": 0,
+      "L_full": 0.1111111111111111,
+      "L_rel": 0.0,
+      "A": 1.0
+     },
+     "T@0.9": {
+      "n_gold": 9,
+      "tp": 8,
+      "fp": 0,
+      "fn": 1,
+      "n_pred": 8,
+      "leaked_full": 1,
+      "leaked_rel": 1,
+      "L_full": 0.1111111111111111,
+      "L_rel": 0.1111111111111111,
+      "A": 0.8888888888888888
+     },
+     "UNION@0.5": {
+      "n_gold": 9,
+      "tp": 9,
+      "fp": 7,
+      "fn": 0,
+      "n_pred": 16,
+      "leaked_full": 1,
+      "leaked_rel": 0,
+      "L_full": 0.1111111111111111,
+      "L_rel": 0.0,
+      "A": 0.5625
+     },
+     "UNION@0.7": {
+      "n_gold": 9,
+      "tp": 9,
+      "fp": 7,
+      "fn": 0,
+      "n_pred": 16,
+      "leaked_full": 1,
+      "leaked_rel": 0,
+      "L_full": 0.1111111111111111,
+      "L_rel": 0.0,
+      "A": 0.5625
+     },
+     "UNION@0.9": {
+      "n_gold": 9,
+      "tp": 8,
+      "fp": 7,
+      "fn": 1,
+      "n_pred": 15,
+      "leaked_full": 1,
+      "leaked_rel": 1,
+      "L_full": 0.1111111111111111,
+      "L_rel": 0.1111111111111111,
+      "A": 0.5
+     }
+    }
+   },
+   "NAME": {
+    "n_gold": 116,
+    "sparse": false,
+    "complementarity": {
+     "rules_only": 0,
+     "tagger_only": 61,
+     "both": 52,
+     "neither": 3
+    },
+    "candidates": {
+     "AGREE@0.5": {
+      "n_gold": 116,
+      "tp": 55,
+      "fp": 7,
+      "fn": 61,
+      "n_pred": 62,
+      "leaked_full": 61,
+      "leaked_rel": 61,
+      "L_full": 0.5258620689655172,
+      "L_rel": 0.5258620689655172,
+      "A": 0.44715447154471544
+     },
+     "AGREE@0.7": {
+      "n_gold": 116,
+      "tp": 55,
+      "fp": 7,
+      "fn": 61,
+      "n_pred": 62,
+      "leaked_full": 61,
+      "leaked_rel": 61,
+      "L_full": 0.5258620689655172,
+      "L_rel": 0.5258620689655172,
+      "A": 0.44715447154471544
+     },
+     "AGREE@0.9": {
+      "n_gold": 116,
+      "tp": 55,
+      "fp": 7,
+      "fn": 61,
+      "n_pred": 62,
+      "leaked_full": 61,
+      "leaked_rel": 61,
+      "L_full": 0.5258620689655172,
+      "L_rel": 0.5258620689655172,
+      "A": 0.44715447154471544
+     },
+     "R": {
+      "n_gold": 116,
+      "tp": 55,
+      "fp": 40,
+      "fn": 61,
+      "n_pred": 95,
+      "leaked_full": 64,
+      "leaked_rel": 61,
+      "L_full": 0.5517241379310345,
+      "L_rel": 0.5258620689655172,
+      "A": 0.3525641025641026
+     },
+     "T@0.5": {
+      "n_gold": 116,
+      "tp": 116,
+      "fp": 6,
+      "fn": 0,
+      "n_pred": 122,
+      "leaked_full": 3,
+      "leaked_rel": 0,
+      "L_full": 0.02586206896551724,
+      "L_rel": 0.0,
+      "A": 0.9508196721311475
+     },
+     "T@0.7": {
+      "n_gold": 116,
+      "tp": 116,
+      "fp": 6,
+      "fn": 0,
+      "n_pred": 122,
+      "leaked_full": 3,
+      "leaked_rel": 0,
+      "L_full": 0.02586206896551724,
+      "L_rel": 0.0,
+      "A": 0.9508196721311475
+     },
+     "T@0.9": {
+      "n_gold": 116,
+      "tp": 113,
+      "fp": 4,
+      "fn": 3,
+      "n_pred": 117,
+      "leaked_full": 5,
+      "leaked_rel": 3,
+      "L_full": 0.04310344827586207,
+      "L_rel": 0.02586206896551724,
+      "A": 0.9416666666666667
+     },
+     "UNION@0.5": {
+      "n_gold": 116,
+      "tp": 116,
+      "fp": 49,
+      "fn": 0,
+      "n_pred": 165,
+      "leaked_full": 3,
+      "leaked_rel": 0,
+      "L_full": 0.02586206896551724,
+      "L_rel": 0.0,
+      "A": 0.703030303030303
+     },
+     "UNION@0.7": {
+      "n_gold": 116,
+      "tp": 116,
+      "fp": 49,
+      "fn": 0,
+      "n_pred": 165,
+      "leaked_full": 3,
+      "leaked_rel": 0,
+      "L_full": 0.02586206896551724,
+      "L_rel": 0.0,
+      "A": 0.703030303030303
+     },
+     "UNION@0.9": {
+      "n_gold": 116,
+      "tp": 113,
+      "fp": 47,
+      "fn": 3,
+      "n_pred": 160,
+      "leaked_full": 5,
+      "leaked_rel": 3,
+      "L_full": 0.04310344827586207,
+      "L_rel": 0.02586206896551724,
+      "A": 0.6932515337423313
+     }
+    }
+   },
+   "ORGANISATION": {
+    "n_gold": 11,
+    "sparse": false,
+    "complementarity": {
+     "rules_only": 0,
+     "tagger_only": 5,
+     "both": 0,
+     "neither": 6
+    },
+    "candidates": {
+     "AGREE@0.5": {
+      "n_gold": 11,
+      "tp": 3,
+      "fp": 3,
+      "fn": 8,
+      "n_pred": 6,
+      "leaked_full": 9,
+      "leaked_rel": 8,
+      "L_full": 0.8181818181818182,
+      "L_rel": 0.7272727272727273,
+      "A": 0.21428571428571427
+     },
+     "AGREE@0.7": {
+      "n_gold": 11,
+      "tp": 3,
+      "fp": 3,
+      "fn": 8,
+      "n_pred": 6,
+      "leaked_full": 9,
+      "leaked_rel": 8,
+      "L_full": 0.8181818181818182,
+      "L_rel": 0.7272727272727273,
+      "A": 0.21428571428571427
+     },
+     "AGREE@0.9": {
+      "n_gold": 11,
+      "tp": 3,
+      "fp": 3,
+      "fn": 8,
+      "n_pred": 6,
+      "leaked_full": 9,
+      "leaked_rel": 8,
+      "L_full": 0.8181818181818182,
+      "L_rel": 0.7272727272727273,
+      "A": 0.21428571428571427
+     },
+     "R": {
+      "n_gold": 11,
+      "tp": 4,
+      "fp": 1,
+      "fn": 7,
+      "n_pred": 5,
+      "leaked_full": 11,
+      "leaked_rel": 7,
+      "L_full": 1.0,
+      "L_rel": 0.6363636363636364,
+      "A": 0.3333333333333333
+     },
+     "T@0.5": {
+      "n_gold": 11,
+      "tp": 9,
+      "fp": 6,
+      "fn": 2,
+      "n_pred": 15,
+      "leaked_full": 6,
+      "leaked_rel": 2,
+      "L_full": 0.5454545454545454,
+      "L_rel": 0.18181818181818182,
+      "A": 0.5294117647058824
+     },
+     "T@0.7": {
+      "n_gold": 11,
+      "tp": 9,
+      "fp": 4,
+      "fn": 2,
+      "n_pred": 13,
+      "leaked_full": 6,
+      "leaked_rel": 2,
+      "L_full": 0.5454545454545454,
+      "L_rel": 0.18181818181818182,
+      "A": 0.6
+     },
+     "T@0.9": {
+      "n_gold": 11,
+      "tp": 9,
+      "fp": 1,
+      "fn": 2,
+      "n_pred": 10,
+      "leaked_full": 6,
+      "leaked_rel": 2,
+      "L_full": 0.5454545454545454,
+      "L_rel": 0.18181818181818182,
+      "A": 0.75
+     },
+     "UNION@0.5": {
+      "n_gold": 11,
+      "tp": 10,
+      "fp": 10,
+      "fn": 1,
+      "n_pred": 20,
+      "leaked_full": 6,
+      "leaked_rel": 1,
+      "L_full": 0.5454545454545454,
+      "L_rel": 0.09090909090909091,
+      "A": 0.47619047619047616
+     },
+     "UNION@0.7": {
+      "n_gold": 11,
+      "tp": 10,
+      "fp": 8,
+      "fn": 1,
+      "n_pred": 18,
+      "leaked_full": 6,
+      "leaked_rel": 1,
+      "L_full": 0.5454545454545454,
+      "L_rel": 0.09090909090909091,
+      "A": 0.5263157894736842
+     },
+     "UNION@0.9": {
+      "n_gold": 11,
+      "tp": 10,
+      "fp": 5,
+      "fn": 1,
+      "n_pred": 15,
+      "leaked_full": 6,
+      "leaked_rel": 1,
+      "L_full": 0.5454545454545454,
+      "L_rel": 0.09090909090909091,
+      "A": 0.625
+     }
+    }
+   },
+   "OTHER": {
+    "n_gold": 0,
+    "sparse": false,
+    "complementarity": {
+     "rules_only": 0,
+     "tagger_only": 0,
+     "both": 0,
+     "neither": 0
+    },
+    "candidates": {
+     "AGREE@0.5": {
+      "n_gold": 0,
+      "tp": 0,
+      "fp": 0,
+      "fn": 0,
+      "n_pred": 0,
+      "leaked_full": 0,
+      "leaked_rel": 0,
+      "L_full": null,
+      "L_rel": null,
+      "A": 0.0
+     },
+     "AGREE@0.7": {
+      "n_gold": 0,
+      "tp": 0,
+      "fp": 0,
+      "fn": 0,
+      "n_pred": 0,
+      "leaked_full": 0,
+      "leaked_rel": 0,
+      "L_full": null,
+      "L_rel": null,
+      "A": 0.0
+     },
+     "AGREE@0.9": {
+      "n_gold": 0,
+      "tp": 0,
+      "fp": 0,
+      "fn": 0,
+      "n_pred": 0,
+      "leaked_full": 0,
+      "leaked_rel": 0,
+      "L_full": null,
+      "L_rel": null,
+      "A": 0.0
+     },
+     "R": {
+      "n_gold": 0,
+      "tp": 0,
+      "fp": 0,
+      "fn": 0,
+      "n_pred": 0,
+      "leaked_full": 0,
+      "leaked_rel": 0,
+      "L_full": null,
+      "L_rel": null,
+      "A": 0.0
+     },
+     "T@0.5": {
+      "n_gold": 0,
+      "tp": 0,
+      "fp": 0,
+      "fn": 0,
+      "n_pred": 0,
+      "leaked_full": 0,
+      "leaked_rel": 0,
+      "L_full": null,
+      "L_rel": null,
+      "A": 0.0
+     },
+     "T@0.7": {
+      "n_gold": 0,
+      "tp": 0,
+      "fp": 0,
+      "fn": 0,
+      "n_pred": 0,
+      "leaked_full": 0,
+      "leaked_rel": 0,
+      "L_full": null,
+      "L_rel": null,
+      "A": 0.0
+     },
+     "T@0.9": {
+      "n_gold": 0,
+      "tp": 0,
+      "fp": 0,
+      "fn": 0,
+      "n_pred": 0,
+      "leaked_full": 0,
+      "leaked_rel": 0,
+      "L_full": null,
+      "L_rel": null,
+      "A": 0.0
+     },
+     "UNION@0.5": {
+      "n_gold": 0,
+      "tp": 0,
+      "fp": 0,
+      "fn": 0,
+      "n_pred": 0,
+      "leaked_full": 0,
+      "leaked_rel": 0,
+      "L_full": null,
+      "L_rel": null,
+      "A": 0.0
+     },
+     "UNION@0.7": {
+      "n_gold": 0,
+      "tp": 0,
+      "fp": 0,
+      "fn": 0,
+      "n_pred": 0,
+      "leaked_full": 0,
+      "leaked_rel": 0,
+      "L_full": null,
+      "L_rel": null,
+      "A": 0.0
+     },
+     "UNION@0.9": {
+      "n_gold": 0,
+      "tp": 0,
+      "fp": 0,
+      "fn": 0,
+      "n_pred": 0,
+      "leaked_full": 0,
+      "leaked_rel": 0,
+      "L_full": null,
+      "L_rel": null,
+      "A": 0.0
+     }
+    }
+   },
+   "PROFESSION": {
+    "n_gold": 0,
+    "sparse": false,
+    "complementarity": {
+     "rules_only": 0,
+     "tagger_only": 0,
+     "both": 0,
+     "neither": 0
+    },
+    "candidates": {
+     "AGREE@0.5": {
+      "n_gold": 0,
+      "tp": 0,
+      "fp": 0,
+      "fn": 0,
+      "n_pred": 0,
+      "leaked_full": 0,
+      "leaked_rel": 0,
+      "L_full": null,
+      "L_rel": null,
+      "A": 0.0
+     },
+     "AGREE@0.7": {
+      "n_gold": 0,
+      "tp": 0,
+      "fp": 0,
+      "fn": 0,
+      "n_pred": 0,
+      "leaked_full": 0,
+      "leaked_rel": 0,
+      "L_full": null,
+      "L_rel": null,
+      "A": 0.0
+     },
+     "AGREE@0.9": {
+      "n_gold": 0,
+      "tp": 0,
+      "fp": 0,
+      "fn": 0,
+      "n_pred": 0,
+      "leaked_full": 0,
+      "leaked_rel": 0,
+      "L_full": null,
+      "L_rel": null,
+      "A": 0.0
+     },
+     "R": {
+      "n_gold": 0,
+      "tp": 0,
+      "fp": 0,
+      "fn": 0,
+      "n_pred": 0,
+      "leaked_full": 0,
+      "leaked_rel": 0,
+      "L_full": null,
+      "L_rel": null,
+      "A": 0.0
+     },
+     "T@0.5": {
+      "n_gold": 0,
+      "tp": 0,
+      "fp": 1,
+      "fn": 0,
+      "n_pred": 1,
+      "leaked_full": 0,
+      "leaked_rel": 0,
+      "L_full": null,
+      "L_rel": null,
+      "A": 0.0
+     },
+     "T@0.7": {
+      "n_gold": 0,
+      "tp": 0,
+      "fp": 0,
+      "fn": 0,
+      "n_pred": 0,
+      "leaked_full": 0,
+      "leaked_rel": 0,
+      "L_full": null,
+      "L_rel": null,
+      "A": 0.0
+     },
+     "T@0.9": {
+      "n_gold": 0,
+      "tp": 0,
+      "fp": 0,
+      "fn": 0,
+      "n_pred": 0,
+      "leaked_full": 0,
+      "leaked_rel": 0,
+      "L_full": null,
+      "L_rel": null,
+      "A": 0.0
+     },
+     "UNION@0.5": {
+      "n_gold": 0,
+      "tp": 0,
+      "fp": 1,
+      "fn": 0,
+      "n_pred": 1,
+      "leaked_full": 0,
+      "leaked_rel": 0,
+      "L_full": null,
+      "L_rel": null,
+      "A": 0.0
+     },
+     "UNION@0.7": {
+      "n_gold": 0,
+      "tp": 0,
+      "fp": 0,
+      "fn": 0,
+      "n_pred": 0,
+      "leaked_full": 0,
+      "leaked_rel": 0,
+      "L_full": null,
+      "L_rel": null,
+      "A": 0.0
+     },
+     "UNION@0.9": {
+      "n_gold": 0,
+      "tp": 0,
+      "fp": 0,
+      "fn": 0,
+      "n_pred": 0,
+      "leaked_full": 0,
+      "leaked_rel": 0,
+      "L_full": null,
+      "L_rel": null,
+      "A": 0.0
+     }
+    }
+   }
+  },
+  "rt_baseline": {
+   "tp": 403,
+   "fp": 265,
+   "fn": 7,
+   "n_gold": 410,
+   "n_pred": 668,
+   "L_full": 0.03902439024390244,
+   "L_rel": 0.014634146341463415,
+   "A": 0.597037037037037,
+   "precision": 0.6032934131736527,
+   "recall": 0.9829268292682927
+  },
+  "rt_sel": {
+   "policies": {
+    "AGE": {
+     "policy": "T",
+     "theta": 0.5
+    },
+    "CONTACT": {
+     "policy": "T",
+     "theta": 0.5
+    },
+    "DATE": {
+     "policy": "T",
+     "theta": 0.9
+    },
+    "ID": {
+     "policy": "UNION",
+     "theta": 0.7
+    },
+    "LOCATION_AREA": {
+     "policy": "T",
+     "theta": 0.9
+    },
+    "LOCATION_STREET": {
+     "policy": "T",
+     "theta": 0.5
+    },
+    "NAME": {
+     "policy": "T",
+     "theta": 0.5
+    },
+    "ORGANISATION": {
+     "policy": "T",
+     "theta": 0.9
+    },
+    "OTHER": {
+     "policy": "UNION",
+     "theta": 0.5
+    },
+    "PROFESSION": {
+     "policy": "UNION",
+     "theta": 0.5
+    }
+   },
+   "achieved": {
+    "tp": 401,
+    "fp": 13,
+    "fn": 9,
+    "n_gold": 410,
+    "n_pred": 414,
+    "L_full": 0.041463414634146344,
+    "L_rel": 0.01951219512195122,
+    "A": 0.9479905437352246,
+    "precision": 0.9685990338164251,
+    "recall": 0.9780487804878049
+   },
+   "headline": {
+    "L_full": 0.041463414634146344,
+    "L_rel": 0.01951219512195122,
+    "A": 0.9479905437352246,
+    "precision": 0.9685990338164251,
+    "recall": 0.9780487804878049,
+    "f1": 0.9733009708737864,
+    "tp": 401,
+    "fp": 13,
+    "fn": 9,
+    "complementarity_full": {
+     "rules_only": 0,
+     "tagger_only": 391,
+     "both": 2,
+     "joint_only": 0,
+     "neither": 17,
+     "denominator": 410
+    },
+    "D_full": 0.631578947368421,
+    "gold": 410,
+    "pred": 416,
+    "nongold_masked_rate": null
+   }
+  },
+  "constraint_satisfied": true
+ },
+ "es-carmen": {
+  "n_dev_gold": 1429,
+  "delta": 0.01819454163750875,
+  "table": {
+   "AGE": {
+    "n_gold": 159,
+    "sparse": false,
+    "complementarity": {
+     "rules_only": 0,
+     "tagger_only": 24,
+     "both": 134,
+     "neither": 1
+    },
+    "candidates": {
+     "AGREE@0.5": {
+      "n_gold": 159,
+      "tp": 134,
+      "fp": 2,
+      "fn": 25,
+      "n_pred": 136,
+      "leaked_full": 25,
+      "leaked_rel": 25,
+      "L_full": 0.15723270440251572,
+      "L_rel": 0.15723270440251572,
+      "A": 0.8322981366459627
+     },
+     "AGREE@0.7": {
+      "n_gold": 159,
+      "tp": 134,
+      "fp": 2,
+      "fn": 25,
+      "n_pred": 136,
+      "leaked_full": 25,
+      "leaked_rel": 25,
+      "L_full": 0.15723270440251572,
+      "L_rel": 0.15723270440251572,
+      "A": 0.8322981366459627
+     },
+     "AGREE@0.9": {
+      "n_gold": 159,
+      "tp": 134,
+      "fp": 2,
+      "fn": 25,
+      "n_pred": 136,
+      "leaked_full": 25,
+      "leaked_rel": 25,
+      "L_full": 0.15723270440251572,
+      "L_rel": 0.15723270440251572,
+      "A": 0.8322981366459627
+     },
+     "R": {
+      "n_gold": 159,
+      "tp": 134,
+      "fp": 19,
+      "fn": 25,
+      "n_pred": 153,
+      "leaked_full": 25,
+      "leaked_rel": 25,
+      "L_full": 0.15723270440251572,
+      "L_rel": 0.15723270440251572,
+      "A": 0.7528089887640449
+     },
+     "T@0.5": {
+      "n_gold": 159,
+      "tp": 159,
+      "fp": 4,
+      "fn": 0,
+      "n_pred": 163,
+      "leaked_full": 1,
+      "leaked_rel": 0,
+      "L_full": 0.006289308176100629,
+      "L_rel": 0.0,
+      "A": 0.9754601226993865
+     },
+     "T@0.7": {
+      "n_gold": 159,
+      "tp": 159,
+      "fp": 4,
+      "fn": 0,
+      "n_pred": 163,
+      "leaked_full": 1,
+      "leaked_rel": 0,
+      "L_full": 0.006289308176100629,
+      "L_rel": 0.0,
+      "A": 0.9754601226993865
+     },
+     "T@0.9": {
+      "n_gold": 159,
+      "tp": 158,
+      "fp": 2,
+      "fn": 1,
+      "n_pred": 160,
+      "leaked_full": 2,
+      "leaked_rel": 1,
+      "L_full": 0.012578616352201259,
+      "L_rel": 0.006289308176100629,
+      "A": 0.9813664596273292
+     },
+     "UNION@0.5": {
+      "n_gold": 159,
+      "tp": 159,
+      "fp": 21,
+      "fn": 0,
+      "n_pred": 180,
+      "leaked_full": 1,
+      "leaked_rel": 0,
+      "L_full": 0.006289308176100629,
+      "L_rel": 0.0,
+      "A": 0.8833333333333333
+     },
+     "UNION@0.7": {
+      "n_gold": 159,
+      "tp": 159,
+      "fp": 21,
+      "fn": 0,
+      "n_pred": 180,
+      "leaked_full": 1,
+      "leaked_rel": 0,
+      "L_full": 0.006289308176100629,
+      "L_rel": 0.0,
+      "A": 0.8833333333333333
+     },
+     "UNION@0.9": {
+      "n_gold": 159,
+      "tp": 158,
+      "fp": 19,
+      "fn": 1,
+      "n_pred": 177,
+      "leaked_full": 2,
+      "leaked_rel": 1,
+      "L_full": 0.012578616352201259,
+      "L_rel": 0.006289308176100629,
+      "A": 0.8876404494382022
+     }
+    }
+   },
+   "CONTACT": {
+    "n_gold": 1,
+    "sparse": true,
+    "complementarity": {
+     "rules_only": 0,
+     "tagger_only": 0,
+     "both": 1,
+     "neither": 0
+    },
+    "candidates": {
+     "AGREE@0.5": {
+      "n_gold": 1,
+      "tp": 1,
+      "fp": 1,
+      "fn": 0,
+      "n_pred": 2,
+      "leaked_full": 0,
+      "leaked_rel": 0,
+      "L_full": 0.0,
+      "L_rel": 0.0,
+      "A": 0.5
+     },
+     "AGREE@0.7": {
+      "n_gold": 1,
+      "tp": 1,
+      "fp": 1,
+      "fn": 0,
+      "n_pred": 2,
+      "leaked_full": 0,
+      "leaked_rel": 0,
+      "L_full": 0.0,
+      "L_rel": 0.0,
+      "A": 0.5
+     },
+     "AGREE@0.9": {
+      "n_gold": 1,
+      "tp": 1,
+      "fp": 1,
+      "fn": 0,
+      "n_pred": 2,
+      "leaked_full": 0,
+      "leaked_rel": 0,
+      "L_full": 0.0,
+      "L_rel": 0.0,
+      "A": 0.5
+     },
+     "R": {
+      "n_gold": 1,
+      "tp": 1,
+      "fp": 1,
+      "fn": 0,
+      "n_pred": 2,
+      "leaked_full": 0,
+      "leaked_rel": 0,
+      "L_full": 0.0,
+      "L_rel": 0.0,
+      "A": 0.5
+     },
+     "T@0.5": {
+      "n_gold": 1,
+      "tp": 1,
+      "fp": 0,
+      "fn": 0,
+      "n_pred": 1,
+      "leaked_full": 0,
+      "leaked_rel": 0,
+      "L_full": 0.0,
+      "L_rel": 0.0,
+      "A": 1.0
+     },
+     "T@0.7": {
+      "n_gold": 1,
+      "tp": 1,
+      "fp": 0,
+      "fn": 0,
+      "n_pred": 1,
+      "leaked_full": 0,
+      "leaked_rel": 0,
+      "L_full": 0.0,
+      "L_rel": 0.0,
+      "A": 1.0
+     },
+     "T@0.9": {
+      "n_gold": 1,
+      "tp": 1,
+      "fp": 0,
+      "fn": 0,
+      "n_pred": 1,
+      "leaked_full": 0,
+      "leaked_rel": 0,
+      "L_full": 0.0,
+      "L_rel": 0.0,
+      "A": 1.0
+     },
+     "UNION@0.5": {
+      "n_gold": 1,
+      "tp": 1,
+      "fp": 2,
+      "fn": 0,
+      "n_pred": 3,
+      "leaked_full": 0,
+      "leaked_rel": 0,
+      "L_full": 0.0,
+      "L_rel": 0.0,
+      "A": 0.3333333333333333
+     },
+     "UNION@0.7": {
+      "n_gold": 1,
+      "tp": 1,
+      "fp": 2,
+      "fn": 0,
+      "n_pred": 3,
+      "leaked_full": 0,
+      "leaked_rel": 0,
+      "L_full": 0.0,
+      "L_rel": 0.0,
+      "A": 0.3333333333333333
+     },
+     "UNION@0.9": {
+      "n_gold": 1,
+      "tp": 1,
+      "fp": 2,
+      "fn": 0,
+      "n_pred": 3,
+      "leaked_full": 0,
+      "leaked_rel": 0,
+      "L_full": 0.0,
+      "L_rel": 0.0,
+      "A": 0.3333333333333333
+     }
+    }
+   },
+   "DATE": {
+    "n_gold": 1013,
+    "sparse": false,
+    "complementarity": {
+     "rules_only": 0,
+     "tagger_only": 630,
+     "both": 366,
+     "neither": 17
+    },
+    "candidates": {
+     "AGREE@0.5": {
+      "n_gold": 1013,
+      "tp": 376,
+      "fp": 84,
+      "fn": 637,
+      "n_pred": 460,
+      "leaked_full": 641,
+      "leaked_rel": 637,
+      "L_full": 0.6327739387956565,
+      "L_rel": 0.6288252714708786,
+      "A": 0.34275296262534183
+     },
+     "AGREE@0.7": {
+      "n_gold": 1013,
+      "tp": 376,
+      "fp": 84,
+      "fn": 637,
+      "n_pred": 460,
+      "leaked_full": 641,
+      "leaked_rel": 637,
+      "L_full": 0.6327739387956565,
+      "L_rel": 0.6288252714708786,
+      "A": 0.34275296262534183
+     },
+     "AGREE@0.9": {
+      "n_gold": 1013,
+      "tp": 362,
+      "fp": 76,
+      "fn": 651,
+      "n_pred": 438,
+      "leaked_full": 653,
+      "leaked_rel": 651,
+      "L_full": 0.6446199407699901,
+      "L_rel": 0.6426456071076012,
+      "A": 0.33241505968778695
+     },
+     "R": {
+      "n_gold": 1013,
+      "tp": 376,
+      "fp": 2,
+      "fn": 637,
+      "n_pred": 378,
+      "leaked_full": 647,
+      "leaked_rel": 637,
+      "L_full": 0.6386969397828233,
+      "L_rel": 0.6288252714708786,
+      "A": 0.3704433497536946
+     },
+     "T@0.5": {
+      "n_gold": 1013,
+      "tp": 1008,
+      "fp": 13,
+      "fn": 5,
+      "n_pred": 1021,
+      "leaked_full": 17,
+      "leaked_rel": 4,
+      "L_full": 0.01678183613030602,
+      "L_rel": 0.003948667324777887,
+      "A": 0.9824561403508771
+     },
+     "T@0.7": {
+      "n_gold": 1013,
+      "tp": 1007,
+      "fp": 10,
+      "fn": 6,
+      "n_pred": 1017,
+      "leaked_full": 18,
+      "leaked_rel": 5,
+      "L_full": 0.017769002961500493,
+      "L_rel": 0.004935834155972359,
+      "A": 0.9843597262952102
+     },
+     "T@0.9": {
+      "n_gold": 1013,
+      "tp": 948,
+      "fp": 8,
+      "fn": 65,
+      "n_pred": 956,
+      "leaked_full": 72,
+      "leaked_rel": 65,
+      "L_full": 0.07107601184600197,
+      "L_rel": 0.06416584402764067,
+      "A": 0.9285014691478942
+     },
+     "UNION@0.5": {
+      "n_gold": 1013,
+      "tp": 1008,
+      "fp": 99,
+      "fn": 5,
+      "n_pred": 1107,
+      "leaked_full": 17,
+      "leaked_rel": 4,
+      "L_full": 0.01678183613030602,
+      "L_rel": 0.003948667324777887,
+      "A": 0.9064748201438849
+     },
+     "UNION@0.7": {
+      "n_gold": 1013,
+      "tp": 1007,
+      "fp": 96,
+      "fn": 6,
+      "n_pred": 1103,
+      "leaked_full": 18,
+      "leaked_rel": 5,
+      "L_full": 0.017769002961500493,
+      "L_rel": 0.004935834155972359,
+      "A": 0.9080252479711451
+     },
+     "UNION@0.9": {
+      "n_gold": 1013,
+      "tp": 962,
+      "fp": 86,
+      "fn": 51,
+      "n_pred": 1048,
+      "leaked_full": 62,
+      "leaked_rel": 51,
+      "L_full": 0.06120434353405726,
+      "L_rel": 0.050345508390918066,
+      "A": 0.8753412192902639
+     }
+    }
+   },
+   "ID": {
+    "n_gold": 57,
+    "sparse": false,
+    "complementarity": {
+     "rules_only": 0,
+     "tagger_only": 51,
+     "both": 0,
+     "neither": 6
+    },
+    "candidates": {
+     "AGREE@0.5": {
+      "n_gold": 57,
+      "tp": 0,
+      "fp": 0,
+      "fn": 57,
+      "n_pred": 0,
+      "leaked_full": 57,
+      "leaked_rel": 57,
+      "L_full": 1.0,
+      "L_rel": 1.0,
+      "A": 0.0
+     },
+     "AGREE@0.7": {
+      "n_gold": 57,
+      "tp": 0,
+      "fp": 0,
+      "fn": 57,
+      "n_pred": 0,
+      "leaked_full": 57,
+      "leaked_rel": 57,
+      "L_full": 1.0,
+      "L_rel": 1.0,
+      "A": 0.0
+     },
+     "AGREE@0.9": {
+      "n_gold": 57,
+      "tp": 0,
+      "fp": 0,
+      "fn": 57,
+      "n_pred": 0,
+      "leaked_full": 57,
+      "leaked_rel": 57,
+      "L_full": 1.0,
+      "L_rel": 1.0,
+      "A": 0.0
+     },
+     "R": {
+      "n_gold": 57,
+      "tp": 0,
+      "fp": 0,
+      "fn": 57,
+      "n_pred": 0,
+      "leaked_full": 57,
+      "leaked_rel": 57,
+      "L_full": 1.0,
+      "L_rel": 1.0,
+      "A": 0.0
+     },
+     "T@0.5": {
+      "n_gold": 57,
+      "tp": 51,
+      "fp": 66,
+      "fn": 6,
+      "n_pred": 117,
+      "leaked_full": 6,
+      "leaked_rel": 6,
+      "L_full": 0.10526315789473684,
+      "L_rel": 0.10526315789473684,
+      "A": 0.4146341463414634
+     },
+     "T@0.7": {
+      "n_gold": 57,
+      "tp": 51,
+      "fp": 10,
+      "fn": 6,
+      "n_pred": 61,
+      "leaked_full": 6,
+      "leaked_rel": 6,
+      "L_full": 0.10526315789473684,
+      "L_rel": 0.10526315789473684,
+      "A": 0.7611940298507462
+     },
+     "T@0.9": {
+      "n_gold": 57,
+      "tp": 46,
+      "fp": 1,
+      "fn": 11,
+      "n_pred": 47,
+      "leaked_full": 11,
+      "leaked_rel": 11,
+      "L_full": 0.19298245614035087,
+      "L_rel": 0.19298245614035087,
+      "A": 0.7931034482758621
+     },
+     "UNION@0.5": {
+      "n_gold": 57,
+      "tp": 51,
+      "fp": 66,
+      "fn": 6,
+      "n_pred": 117,
+      "leaked_full": 6,
+      "leaked_rel": 6,
+      "L_full": 0.10526315789473684,
+      "L_rel": 0.10526315789473684,
+      "A": 0.4146341463414634
+     },
+     "UNION@0.7": {
+      "n_gold": 57,
+      "tp": 51,
+      "fp": 10,
+      "fn": 6,
+      "n_pred": 61,
+      "leaked_full": 6,
+      "leaked_rel": 6,
+      "L_full": 0.10526315789473684,
+      "L_rel": 0.10526315789473684,
+      "A": 0.7611940298507462
+     },
+     "UNION@0.9": {
+      "n_gold": 57,
+      "tp": 46,
+      "fp": 1,
+      "fn": 11,
+      "n_pred": 47,
+      "leaked_full": 11,
+      "leaked_rel": 11,
+      "L_full": 0.19298245614035087,
+      "L_rel": 0.19298245614035087,
+      "A": 0.7931034482758621
+     }
+    }
+   },
+   "LOCATION_AREA": {
+    "n_gold": 51,
+    "sparse": false,
+    "complementarity": {
+     "rules_only": 0,
+     "tagger_only": 48,
+     "both": 0,
+     "neither": 3
+    },
+    "candidates": {
+     "AGREE@0.5": {
+      "n_gold": 51,
+      "tp": 0,
+      "fp": 0,
+      "fn": 51,
+      "n_pred": 0,
+      "leaked_full": 51,
+      "leaked_rel": 51,
+      "L_full": 1.0,
+      "L_rel": 1.0,
+      "A": 0.0
+     },
+     "AGREE@0.7": {
+      "n_gold": 51,
+      "tp": 0,
+      "fp": 0,
+      "fn": 51,
+      "n_pred": 0,
+      "leaked_full": 51,
+      "leaked_rel": 51,
+      "L_full": 1.0,
+      "L_rel": 1.0,
+      "A": 0.0
+     },
+     "AGREE@0.9": {
+      "n_gold": 51,
+      "tp": 0,
+      "fp": 0,
+      "fn": 51,
+      "n_pred": 0,
+      "leaked_full": 51,
+      "leaked_rel": 51,
+      "L_full": 1.0,
+      "L_rel": 1.0,
+      "A": 0.0
+     },
+     "R": {
+      "n_gold": 51,
+      "tp": 0,
+      "fp": 16,
+      "fn": 51,
+      "n_pred": 16,
+      "leaked_full": 51,
+      "leaked_rel": 51,
+      "L_full": 1.0,
+      "L_rel": 1.0,
+      "A": 0.0
+     },
+     "T@0.5": {
+      "n_gold": 51,
+      "tp": 48,
+      "fp": 2,
+      "fn": 3,
+      "n_pred": 50,
+      "leaked_full": 3,
+      "leaked_rel": 3,
+      "L_full": 0.058823529411764705,
+      "L_rel": 0.058823529411764705,
+      "A": 0.9056603773584906
+     },
+     "T@0.7": {
+      "n_gold": 51,
+      "tp": 48,
+      "fp": 1,
+      "fn": 3,
+      "n_pred": 49,
+      "leaked_full": 3,
+      "leaked_rel": 3,
+      "L_full": 0.058823529411764705,
+      "L_rel": 0.058823529411764705,
+      "A": 0.9230769230769231
+     },
+     "T@0.9": {
+      "n_gold": 51,
+      "tp": 48,
+      "fp": 1,
+      "fn": 3,
+      "n_pred": 49,
+      "leaked_full": 3,
+      "leaked_rel": 3,
+      "L_full": 0.058823529411764705,
+      "L_rel": 0.058823529411764705,
+      "A": 0.9230769230769231
+     },
+     "UNION@0.5": {
+      "n_gold": 51,
+      "tp": 48,
+      "fp": 18,
+      "fn": 3,
+      "n_pred": 66,
+      "leaked_full": 3,
+      "leaked_rel": 3,
+      "L_full": 0.058823529411764705,
+      "L_rel": 0.058823529411764705,
+      "A": 0.6956521739130435
+     },
+     "UNION@0.7": {
+      "n_gold": 51,
+      "tp": 48,
+      "fp": 17,
+      "fn": 3,
+      "n_pred": 65,
+      "leaked_full": 3,
+      "leaked_rel": 3,
+      "L_full": 0.058823529411764705,
+      "L_rel": 0.058823529411764705,
+      "A": 0.7058823529411765
+     },
+     "UNION@0.9": {
+      "n_gold": 51,
+      "tp": 48,
+      "fp": 17,
+      "fn": 3,
+      "n_pred": 65,
+      "leaked_full": 3,
+      "leaked_rel": 3,
+      "L_full": 0.058823529411764705,
+      "L_rel": 0.058823529411764705,
+      "A": 0.7058823529411765
+     }
+    }
+   },
+   "LOCATION_STREET": {
+    "n_gold": 6,
+    "sparse": true,
+    "complementarity": {
+     "rules_only": 0,
+     "tagger_only": 6,
+     "both": 0,
+     "neither": 0
+    },
+    "candidates": {
+     "AGREE@0.5": {
+      "n_gold": 6,
+      "tp": 0,
+      "fp": 2,
+      "fn": 6,
+      "n_pred": 2,
+      "leaked_full": 6,
+      "leaked_rel": 6,
+      "L_full": 1.0,
+      "L_rel": 1.0,
+      "A": 0.0
+     },
+     "AGREE@0.7": {
+      "n_gold": 6,
+      "tp": 0,
+      "fp": 0,
+      "fn": 6,
+      "n_pred": 0,
+      "leaked_full": 6,
+      "leaked_rel": 6,
+      "L_full": 1.0,
+      "L_rel": 1.0,
+      "A": 0.0
+     },
+     "AGREE@0.9": {
+      "n_gold": 6,
+      "tp": 0,
+      "fp": 0,
+      "fn": 6,
+      "n_pred": 0,
+      "leaked_full": 6,
+      "leaked_rel": 6,
+      "L_full": 1.0,
+      "L_rel": 1.0,
+      "A": 0.0
+     },
+     "R": {
+      "n_gold": 6,
+      "tp": 0,
+      "fp": 33,
+      "fn": 6,
+      "n_pred": 33,
+      "leaked_full": 6,
+      "leaked_rel": 6,
+      "L_full": 1.0,
+      "L_rel": 1.0,
+      "A": 0.0
+     },
+     "T@0.5": {
+      "n_gold": 6,
+      "tp": 6,
+      "fp": 1,
+      "fn": 0,
+      "n_pred": 7,
+      "leaked_full": 0,
+      "leaked_rel": 0,
+      "L_full": 0.0,
+      "L_rel": 0.0,
+      "A": 0.8571428571428571
+     },
+     "T@0.7": {
+      "n_gold": 6,
+      "tp": 6,
+      "fp": 0,
+      "fn": 0,
+      "n_pred": 6,
+      "leaked_full": 0,
+      "leaked_rel": 0,
+      "L_full": 0.0,
+      "L_rel": 0.0,
+      "A": 1.0
+     },
+     "T@0.9": {
+      "n_gold": 6,
+      "tp": 6,
+      "fp": 0,
+      "fn": 0,
+      "n_pred": 6,
+      "leaked_full": 0,
+      "leaked_rel": 0,
+      "L_full": 0.0,
+      "L_rel": 0.0,
+      "A": 1.0
+     },
+     "UNION@0.5": {
+      "n_gold": 6,
+      "tp": 6,
+      "fp": 34,
+      "fn": 0,
+      "n_pred": 40,
+      "leaked_full": 0,
+      "leaked_rel": 0,
+      "L_full": 0.0,
+      "L_rel": 0.0,
+      "A": 0.15
+     },
+     "UNION@0.7": {
+      "n_gold": 6,
+      "tp": 6,
+      "fp": 33,
+      "fn": 0,
+      "n_pred": 39,
+      "leaked_full": 0,
+      "leaked_rel": 0,
+      "L_full": 0.0,
+      "L_rel": 0.0,
+      "A": 0.15384615384615385
+     },
+     "UNION@0.9": {
+      "n_gold": 6,
+      "tp": 6,
+      "fp": 33,
+      "fn": 0,
+      "n_pred": 39,
+      "leaked_full": 0,
+      "leaked_rel": 0,
+      "L_full": 0.0,
+      "L_rel": 0.0,
+      "A": 0.15384615384615385
+     }
+    }
+   },
+   "NAME": {
+    "n_gold": 35,
+    "sparse": false,
+    "complementarity": {
+     "rules_only": 0,
+     "tagger_only": 6,
+     "both": 28,
+     "neither": 1
+    },
+    "candidates": {
+     "AGREE@0.5": {
+      "n_gold": 35,
+      "tp": 28,
+      "fp": 1,
+      "fn": 7,
+      "n_pred": 29,
+      "leaked_full": 7,
+      "leaked_rel": 7,
+      "L_full": 0.2,
+      "L_rel": 0.2,
+      "A": 0.7777777777777778
+     },
+     "AGREE@0.7": {
+      "n_gold": 35,
+      "tp": 28,
+      "fp": 1,
+      "fn": 7,
+      "n_pred": 29,
+      "leaked_full": 7,
+      "leaked_rel": 7,
+      "L_full": 0.2,
+      "L_rel": 0.2,
+      "A": 0.7777777777777778
+     },
+     "AGREE@0.9": {
+      "n_gold": 35,
+      "tp": 28,
+      "fp": 1,
+      "fn": 7,
+      "n_pred": 29,
+      "leaked_full": 7,
+      "leaked_rel": 7,
+      "L_full": 0.2,
+      "L_rel": 0.2,
+      "A": 0.7777777777777778
+     },
+     "R": {
+      "n_gold": 35,
+      "tp": 28,
+      "fp": 57,
+      "fn": 7,
+      "n_pred": 85,
+      "leaked_full": 7,
+      "leaked_rel": 7,
+      "L_full": 0.2,
+      "L_rel": 0.2,
+      "A": 0.30434782608695654
+     },
+     "T@0.5": {
+      "n_gold": 35,
+      "tp": 34,
+      "fp": 2,
+      "fn": 1,
+      "n_pred": 36,
+      "leaked_full": 1,
+      "leaked_rel": 1,
+      "L_full": 0.02857142857142857,
+      "L_rel": 0.02857142857142857,
+      "A": 0.918918918918919
+     },
+     "T@0.7": {
+      "n_gold": 35,
+      "tp": 34,
+      "fp": 2,
+      "fn": 1,
+      "n_pred": 36,
+      "leaked_full": 1,
+      "leaked_rel": 1,
+      "L_full": 0.02857142857142857,
+      "L_rel": 0.02857142857142857,
+      "A": 0.918918918918919
+     },
+     "T@0.9": {
+      "n_gold": 35,
+      "tp": 33,
+      "fp": 2,
+      "fn": 2,
+      "n_pred": 35,
+      "leaked_full": 2,
+      "leaked_rel": 2,
+      "L_full": 0.05714285714285714,
+      "L_rel": 0.05714285714285714,
+      "A": 0.8918918918918919
+     },
+     "UNION@0.5": {
+      "n_gold": 35,
+      "tp": 34,
+      "fp": 58,
+      "fn": 1,
+      "n_pred": 92,
+      "leaked_full": 1,
+      "leaked_rel": 1,
+      "L_full": 0.02857142857142857,
+      "L_rel": 0.02857142857142857,
+      "A": 0.3655913978494624
+     },
+     "UNION@0.7": {
+      "n_gold": 35,
+      "tp": 34,
+      "fp": 58,
+      "fn": 1,
+      "n_pred": 92,
+      "leaked_full": 1,
+      "leaked_rel": 1,
+      "L_full": 0.02857142857142857,
+      "L_rel": 0.02857142857142857,
+      "A": 0.3655913978494624
+     },
+     "UNION@0.9": {
+      "n_gold": 35,
+      "tp": 33,
+      "fp": 58,
+      "fn": 2,
+      "n_pred": 91,
+      "leaked_full": 2,
+      "leaked_rel": 2,
+      "L_full": 0.05714285714285714,
+      "L_rel": 0.05714285714285714,
+      "A": 0.3548387096774194
+     }
+    }
+   },
+   "ORGANISATION": {
+    "n_gold": 88,
+    "sparse": false,
+    "complementarity": {
+     "rules_only": 0,
+     "tagger_only": 79,
+     "both": 0,
+     "neither": 9
+    },
+    "candidates": {
+     "AGREE@0.5": {
+      "n_gold": 88,
+      "tp": 31,
+      "fp": 35,
+      "fn": 57,
+      "n_pred": 66,
+      "leaked_full": 57,
+      "leaked_rel": 57,
+      "L_full": 0.6477272727272727,
+      "L_rel": 0.6477272727272727,
+      "A": 0.25203252032520324
+     },
+     "AGREE@0.7": {
+      "n_gold": 88,
+      "tp": 31,
+      "fp": 35,
+      "fn": 57,
+      "n_pred": 66,
+      "leaked_full": 57,
+      "leaked_rel": 57,
+      "L_full": 0.6477272727272727,
+      "L_rel": 0.6477272727272727,
+      "A": 0.25203252032520324
+     },
+     "AGREE@0.9": {
+      "n_gold": 88,
+      "tp": 30,
+      "fp": 34,
+      "fn": 58,
+      "n_pred": 64,
+      "leaked_full": 58,
+      "leaked_rel": 58,
+      "L_full": 0.6590909090909091,
+      "L_rel": 0.6590909090909091,
+      "A": 0.2459016393442623
+     },
+     "R": {
+      "n_gold": 88,
+      "tp": 31,
+      "fp": 135,
+      "fn": 57,
+      "n_pred": 166,
+      "leaked_full": 88,
+      "leaked_rel": 57,
+      "L_full": 1.0,
+      "L_rel": 0.6477272727272727,
+      "A": 0.13901345291479822
+     },
+     "T@0.5": {
+      "n_gold": 88,
+      "tp": 82,
+      "fp": 9,
+      "fn": 6,
+      "n_pred": 91,
+      "leaked_full": 9,
+      "leaked_rel": 6,
+      "L_full": 0.10227272727272728,
+      "L_rel": 0.06818181818181818,
+      "A": 0.845360824742268
+     },
+     "T@0.7": {
+      "n_gold": 88,
+      "tp": 80,
+      "fp": 4,
+      "fn": 8,
+      "n_pred": 84,
+      "leaked_full": 10,
+      "leaked_rel": 8,
+      "L_full": 0.11363636363636363,
+      "L_rel": 0.09090909090909091,
+      "A": 0.8695652173913043
+     },
+     "T@0.9": {
+      "n_gold": 88,
+      "tp": 79,
+      "fp": 1,
+      "fn": 9,
+      "n_pred": 80,
+      "leaked_full": 11,
+      "leaked_rel": 9,
+      "L_full": 0.125,
+      "L_rel": 0.10227272727272728,
+      "A": 0.8876404494382022
+     },
+     "UNION@0.5": {
+      "n_gold": 88,
+      "tp": 82,
+      "fp": 175,
+      "fn": 6,
+      "n_pred": 257,
+      "leaked_full": 9,
+      "leaked_rel": 6,
+      "L_full": 0.10227272727272728,
+      "L_rel": 0.06818181818181818,
+      "A": 0.311787072243346
+     },
+     "UNION@0.7": {
+      "n_gold": 88,
+      "tp": 80,
+      "fp": 170,
+      "fn": 8,
+      "n_pred": 250,
+      "leaked_full": 10,
+      "leaked_rel": 8,
+      "L_full": 0.11363636363636363,
+      "L_rel": 0.09090909090909091,
+      "A": 0.31007751937984496
+     },
+     "UNION@0.9": {
+      "n_gold": 88,
+      "tp": 80,
+      "fp": 166,
+      "fn": 8,
+      "n_pred": 246,
+      "leaked_full": 11,
+      "leaked_rel": 8,
+      "L_full": 0.125,
+      "L_rel": 0.09090909090909091,
+      "A": 0.31496062992125984
+     }
+    }
+   },
+   "OTHER": {
+    "n_gold": 7,
+    "sparse": true,
+    "complementarity": {
+     "rules_only": 0,
+     "tagger_only": 5,
+     "both": 0,
+     "neither": 2
+    },
+    "candidates": {
+     "AGREE@0.5": {
+      "n_gold": 7,
+      "tp": 0,
+      "fp": 0,
+      "fn": 7,
+      "n_pred": 0,
+      "leaked_full": 7,
+      "leaked_rel": 7,
+      "L_full": 1.0,
+      "L_rel": 1.0,
+      "A": 0.0
+     },
+     "AGREE@0.7": {
+      "n_gold": 7,
+      "tp": 0,
+      "fp": 0,
+      "fn": 7,
+      "n_pred": 0,
+      "leaked_full": 7,
+      "leaked_rel": 7,
+      "L_full": 1.0,
+      "L_rel": 1.0,
+      "A": 0.0
+     },
+     "AGREE@0.9": {
+      "n_gold": 7,
+      "tp": 0,
+      "fp": 0,
+      "fn": 7,
+      "n_pred": 0,
+      "leaked_full": 7,
+      "leaked_rel": 7,
+      "L_full": 1.0,
+      "L_rel": 1.0,
+      "A": 0.0
+     },
+     "R": {
+      "n_gold": 7,
+      "tp": 0,
+      "fp": 0,
+      "fn": 7,
+      "n_pred": 0,
+      "leaked_full": 7,
+      "leaked_rel": 7,
+      "L_full": 1.0,
+      "L_rel": 1.0,
+      "A": 0.0
+     },
+     "T@0.5": {
+      "n_gold": 7,
+      "tp": 7,
+      "fp": 0,
+      "fn": 0,
+      "n_pred": 7,
+      "leaked_full": 2,
+      "leaked_rel": 0,
+      "L_full": 0.2857142857142857,
+      "L_rel": 0.0,
+      "A": 1.0
+     },
+     "T@0.7": {
+      "n_gold": 7,
+      "tp": 6,
+      "fp": 0,
+      "fn": 1,
+      "n_pred": 6,
+      "leaked_full": 2,
+      "leaked_rel": 1,
+      "L_full": 0.2857142857142857,
+      "L_rel": 0.14285714285714285,
+      "A": 0.8571428571428571
+     },
+     "T@0.9": {
+      "n_gold": 7,
+      "tp": 0,
+      "fp": 0,
+      "fn": 7,
+      "n_pred": 0,
+      "leaked_full": 7,
+      "leaked_rel": 7,
+      "L_full": 1.0,
+      "L_rel": 1.0,
+      "A": 0.0
+     },
+     "UNION@0.5": {
+      "n_gold": 7,
+      "tp": 7,
+      "fp": 0,
+      "fn": 0,
+      "n_pred": 7,
+      "leaked_full": 2,
+      "leaked_rel": 0,
+      "L_full": 0.2857142857142857,
+      "L_rel": 0.0,
+      "A": 1.0
+     },
+     "UNION@0.7": {
+      "n_gold": 7,
+      "tp": 6,
+      "fp": 0,
+      "fn": 1,
+      "n_pred": 6,
+      "leaked_full": 2,
+      "leaked_rel": 1,
+      "L_full": 0.2857142857142857,
+      "L_rel": 0.14285714285714285,
+      "A": 0.8571428571428571
+     },
+     "UNION@0.9": {
+      "n_gold": 7,
+      "tp": 0,
+      "fp": 0,
+      "fn": 7,
+      "n_pred": 0,
+      "leaked_full": 7,
+      "leaked_rel": 7,
+      "L_full": 1.0,
+      "L_rel": 1.0,
+      "A": 0.0
+     }
+    }
+   },
+   "PROFESSION": {
+    "n_gold": 12,
+    "sparse": false,
+    "complementarity": {
+     "rules_only": 0,
+     "tagger_only": 7,
+     "both": 0,
+     "neither": 5
+    },
+    "candidates": {
+     "AGREE@0.5": {
+      "n_gold": 12,
+      "tp": 0,
+      "fp": 0,
+      "fn": 12,
+      "n_pred": 0,
+      "leaked_full": 12,
+      "leaked_rel": 12,
+      "L_full": 1.0,
+      "L_rel": 1.0,
+      "A": 0.0
+     },
+     "AGREE@0.7": {
+      "n_gold": 12,
+      "tp": 0,
+      "fp": 0,
+      "fn": 12,
+      "n_pred": 0,
+      "leaked_full": 12,
+      "leaked_rel": 12,
+      "L_full": 1.0,
+      "L_rel": 1.0,
+      "A": 0.0
+     },
+     "AGREE@0.9": {
+      "n_gold": 12,
+      "tp": 0,
+      "fp": 0,
+      "fn": 12,
+      "n_pred": 0,
+      "leaked_full": 12,
+      "leaked_rel": 12,
+      "L_full": 1.0,
+      "L_rel": 1.0,
+      "A": 0.0
+     },
+     "R": {
+      "n_gold": 12,
+      "tp": 0,
+      "fp": 0,
+      "fn": 12,
+      "n_pred": 0,
+      "leaked_full": 12,
+      "leaked_rel": 12,
+      "L_full": 1.0,
+      "L_rel": 1.0,
+      "A": 0.0
+     },
+     "T@0.5": {
+      "n_gold": 12,
+      "tp": 10,
+      "fp": 2,
+      "fn": 2,
+      "n_pred": 12,
+      "leaked_full": 5,
+      "leaked_rel": 2,
+      "L_full": 0.4166666666666667,
+      "L_rel": 0.16666666666666666,
+      "A": 0.7142857142857143
+     },
+     "T@0.7": {
+      "n_gold": 12,
+      "tp": 10,
+      "fp": 1,
+      "fn": 2,
+      "n_pred": 11,
+      "leaked_full": 5,
+      "leaked_rel": 2,
+      "L_full": 0.4166666666666667,
+      "L_rel": 0.16666666666666666,
+      "A": 0.7692307692307693
+     },
+     "T@0.9": {
+      "n_gold": 12,
+      "tp": 4,
+      "fp": 0,
+      "fn": 8,
+      "n_pred": 4,
+      "leaked_full": 8,
+      "leaked_rel": 8,
+      "L_full": 0.6666666666666666,
+      "L_rel": 0.6666666666666666,
+      "A": 0.3333333333333333
+     },
+     "UNION@0.5": {
+      "n_gold": 12,
+      "tp": 10,
+      "fp": 2,
+      "fn": 2,
+      "n_pred": 12,
+      "leaked_full": 5,
+      "leaked_rel": 2,
+      "L_full": 0.4166666666666667,
+      "L_rel": 0.16666666666666666,
+      "A": 0.7142857142857143
+     },
+     "UNION@0.7": {
+      "n_gold": 12,
+      "tp": 10,
+      "fp": 1,
+      "fn": 2,
+      "n_pred": 11,
+      "leaked_full": 5,
+      "leaked_rel": 2,
+      "L_full": 0.4166666666666667,
+      "L_rel": 0.16666666666666666,
+      "A": 0.7692307692307693
+     },
+     "UNION@0.9": {
+      "n_gold": 12,
+      "tp": 4,
+      "fp": 0,
+      "fn": 8,
+      "n_pred": 4,
+      "leaked_full": 8,
+      "leaked_rel": 8,
+      "L_full": 0.6666666666666666,
+      "L_rel": 0.6666666666666666,
+      "A": 0.3333333333333333
+     }
+    }
+   }
+  },
+  "rt_baseline": {
+   "tp": 1406,
+   "fp": 475,
+   "fn": 23,
+   "n_gold": 1429,
+   "n_pred": 1881,
+   "L_full": 0.03079076277116865,
+   "L_rel": 0.015395381385584325,
+   "A": 0.7384453781512605,
+   "precision": 0.7474747474747475,
+   "recall": 0.9839048285514346
+  },
+  "rt_sel": {
+   "policies": {
+    "AGE": {
+     "policy": "T",
+     "theta": 0.5
+    },
+    "CONTACT": {
+     "policy": "T",
+     "theta": 0.5
+    },
+    "DATE": {
+     "policy": "T",
+     "theta": 0.7
+    },
+    "ID": {
+     "policy": "UNION",
+     "theta": 0.7
+    },
+    "LOCATION_AREA": {
+     "policy": "T",
+     "theta": 0.7
+    },
+    "LOCATION_STREET": {
+     "policy": "T",
+     "theta": 0.7
+    },
+    "NAME": {
+     "policy": "T",
+     "theta": 0.5
+    },
+    "ORGANISATION": {
+     "policy": "T",
+     "theta": 0.5
+    },
+    "OTHER": {
+     "policy": "UNION",
+     "theta": 0.5
+    },
+    "PROFESSION": {
+     "policy": "UNION",
+     "theta": 0.7
+    }
+   },
+   "achieved": {
+    "tp": 1405,
+    "fp": 37,
+    "fn": 24,
+    "n_gold": 1429,
+    "n_pred": 1442,
+    "L_full": 0.031490552834149754,
+    "L_rel": 0.01609517144856543,
+    "A": 0.9583901773533424,
+    "precision": 0.9743411927877947,
+    "recall": 0.9832050384884534
+   },
+   "headline": {
+    "L_full": 0.031490552834149754,
+    "L_rel": 0.01609517144856543,
+    "A": 0.9583901773533424,
+    "precision": 0.9743411927877947,
+    "recall": 0.9832050384884534,
+    "f1": 0.978753047718565,
+    "tp": 1405,
+    "fp": 37,
+    "fn": 24,
+    "complementarity_full": {
+     "rules_only": 0,
+     "tagger_only": 1384,
+     "both": 0,
+     "joint_only": 0,
+     "neither": 45,
+     "denominator": 1429
+    },
+    "D_full": 0.1111111111111111,
+    "gold": 1429,
+    "pred": 1442,
+    "nongold_masked_rate": null
+   }
+  },
+  "constraint_satisfied": true
+ },
+ "en-deid": {
+  "n_dev_gold": 359,
+  "delta": 0.07242339832869081,
+  "table": {
+   "AGE": {
+    "n_gold": 4,
+    "sparse": true,
+    "complementarity": {
+     "rules_only": 3,
+     "tagger_only": 0,
+     "both": 0,
+     "neither": 1
+    },
+    "candidates": {
+     "AGREE@0.5": {
+      "n_gold": 4,
+      "tp": 0,
+      "fp": 0,
+      "fn": 4,
+      "n_pred": 0,
+      "leaked_full": 4,
+      "leaked_rel": 4,
+      "L_full": 1.0,
+      "L_rel": 1.0,
+      "A": 0.0
+     },
+     "AGREE@0.7": {
+      "n_gold": 4,
+      "tp": 0,
+      "fp": 0,
+      "fn": 4,
+      "n_pred": 0,
+      "leaked_full": 4,
+      "leaked_rel": 4,
+      "L_full": 1.0,
+      "L_rel": 1.0,
+      "A": 0.0
+     },
+     "AGREE@0.9": {
+      "n_gold": 4,
+      "tp": 0,
+      "fp": 0,
+      "fn": 4,
+      "n_pred": 0,
+      "leaked_full": 4,
+      "leaked_rel": 4,
+      "L_full": 1.0,
+      "L_rel": 1.0,
+      "A": 0.0
+     },
+     "R": {
+      "n_gold": 4,
+      "tp": 3,
+      "fp": 16,
+      "fn": 1,
+      "n_pred": 19,
+      "leaked_full": 1,
+      "leaked_rel": 1,
+      "L_full": 0.25,
+      "L_rel": 0.25,
+      "A": 0.15
+     },
+     "T@0.5": {
+      "n_gold": 4,
+      "tp": 0,
+      "fp": 0,
+      "fn": 4,
+      "n_pred": 0,
+      "leaked_full": 4,
+      "leaked_rel": 4,
+      "L_full": 1.0,
+      "L_rel": 1.0,
+      "A": 0.0
+     },
+     "T@0.7": {
+      "n_gold": 4,
+      "tp": 0,
+      "fp": 0,
+      "fn": 4,
+      "n_pred": 0,
+      "leaked_full": 4,
+      "leaked_rel": 4,
+      "L_full": 1.0,
+      "L_rel": 1.0,
+      "A": 0.0
+     },
+     "T@0.9": {
+      "n_gold": 4,
+      "tp": 0,
+      "fp": 0,
+      "fn": 4,
+      "n_pred": 0,
+      "leaked_full": 4,
+      "leaked_rel": 4,
+      "L_full": 1.0,
+      "L_rel": 1.0,
+      "A": 0.0
+     },
+     "UNION@0.5": {
+      "n_gold": 4,
+      "tp": 3,
+      "fp": 16,
+      "fn": 1,
+      "n_pred": 19,
+      "leaked_full": 1,
+      "leaked_rel": 1,
+      "L_full": 0.25,
+      "L_rel": 0.25,
+      "A": 0.15
+     },
+     "UNION@0.7": {
+      "n_gold": 4,
+      "tp": 3,
+      "fp": 16,
+      "fn": 1,
+      "n_pred": 19,
+      "leaked_full": 1,
+      "leaked_rel": 1,
+      "L_full": 0.25,
+      "L_rel": 0.25,
+      "A": 0.15
+     },
+     "UNION@0.9": {
+      "n_gold": 4,
+      "tp": 3,
+      "fp": 16,
+      "fn": 1,
+      "n_pred": 19,
+      "leaked_full": 1,
+      "leaked_rel": 1,
+      "L_full": 0.25,
+      "L_rel": 0.25,
+      "A": 0.15
+     }
+    }
+   },
+   "CONTACT": {
+    "n_gold": 13,
+    "sparse": false,
+    "complementarity": {
+     "rules_only": 0,
+     "tagger_only": 4,
+     "both": 8,
+     "neither": 1
+    },
+    "candidates": {
+     "AGREE@0.5": {
+      "n_gold": 13,
+      "tp": 9,
+      "fp": 2,
+      "fn": 4,
+      "n_pred": 11,
+      "leaked_full": 5,
+      "leaked_rel": 4,
+      "L_full": 0.38461538461538464,
+      "L_rel": 0.3076923076923077,
+      "A": 0.6
+     },
+     "AGREE@0.7": {
+      "n_gold": 13,
+      "tp": 9,
+      "fp": 2,
+      "fn": 4,
+      "n_pred": 11,
+      "leaked_full": 5,
+      "leaked_rel": 4,
+      "L_full": 0.38461538461538464,
+      "L_rel": 0.3076923076923077,
+      "A": 0.6
+     },
+     "AGREE@0.9": {
+      "n_gold": 13,
+      "tp": 8,
+      "fp": 2,
+      "fn": 5,
+      "n_pred": 10,
+      "leaked_full": 6,
+      "leaked_rel": 5,
+      "L_full": 0.46153846153846156,
+      "L_rel": 0.38461538461538464,
+      "A": 0.5333333333333333
+     },
+     "R": {
+      "n_gold": 13,
+      "tp": 9,
+      "fp": 0,
+      "fn": 4,
+      "n_pred": 9,
+      "leaked_full": 5,
+      "leaked_rel": 4,
+      "L_full": 0.38461538461538464,
+      "L_rel": 0.3076923076923077,
+      "A": 0.6923076923076923
+     },
+     "T@0.5": {
+      "n_gold": 13,
+      "tp": 13,
+      "fp": 4,
+      "fn": 0,
+      "n_pred": 17,
+      "leaked_full": 1,
+      "leaked_rel": 0,
+      "L_full": 0.07692307692307693,
+      "L_rel": 0.0,
+      "A": 0.7647058823529411
+     },
+     "T@0.7": {
+      "n_gold": 13,
+      "tp": 13,
+      "fp": 3,
+      "fn": 0,
+      "n_pred": 16,
+      "leaked_full": 1,
+      "leaked_rel": 0,
+      "L_full": 0.07692307692307693,
+      "L_rel": 0.0,
+      "A": 0.8125
+     },
+     "T@0.9": {
+      "n_gold": 13,
+      "tp": 12,
+      "fp": 3,
+      "fn": 1,
+      "n_pred": 15,
+      "leaked_full": 2,
+      "leaked_rel": 1,
+      "L_full": 0.15384615384615385,
+      "L_rel": 0.07692307692307693,
+      "A": 0.75
+     },
+     "UNION@0.5": {
+      "n_gold": 13,
+      "tp": 13,
+      "fp": 4,
+      "fn": 0,
+      "n_pred": 17,
+      "leaked_full": 1,
+      "leaked_rel": 0,
+      "L_full": 0.07692307692307693,
+      "L_rel": 0.0,
+      "A": 0.7647058823529411
+     },
+     "UNION@0.7": {
+      "n_gold": 13,
+      "tp": 13,
+      "fp": 3,
+      "fn": 0,
+      "n_pred": 16,
+      "leaked_full": 1,
+      "leaked_rel": 0,
+      "L_full": 0.07692307692307693,
+      "L_rel": 0.0,
+      "A": 0.8125
+     },
+     "UNION@0.9": {
+      "n_gold": 13,
+      "tp": 13,
+      "fp": 3,
+      "fn": 0,
+      "n_pred": 16,
+      "leaked_full": 1,
+      "leaked_rel": 0,
+      "L_full": 0.07692307692307693,
+      "L_rel": 0.0,
+      "A": 0.8125
+     }
+    }
+   },
+   "DATE": {
+    "n_gold": 101,
+    "sparse": false,
+    "complementarity": {
+     "rules_only": 1,
+     "tagger_only": 88,
+     "both": 7,
+     "neither": 5
+    },
+    "candidates": {
+     "AGREE@0.5": {
+      "n_gold": 101,
+      "tp": 7,
+      "fp": 1,
+      "fn": 94,
+      "n_pred": 8,
+      "leaked_full": 94,
+      "leaked_rel": 94,
+      "L_full": 0.9306930693069307,
+      "L_rel": 0.9306930693069307,
+      "A": 0.06862745098039216
+     },
+     "AGREE@0.7": {
+      "n_gold": 101,
+      "tp": 7,
+      "fp": 1,
+      "fn": 94,
+      "n_pred": 8,
+      "leaked_full": 94,
+      "leaked_rel": 94,
+      "L_full": 0.9306930693069307,
+      "L_rel": 0.9306930693069307,
+      "A": 0.06862745098039216
+     },
+     "AGREE@0.9": {
+      "n_gold": 101,
+      "tp": 6,
+      "fp": 1,
+      "fn": 95,
+      "n_pred": 7,
+      "leaked_full": 94,
+      "leaked_rel": 94,
+      "L_full": 0.9306930693069307,
+      "L_rel": 0.9306930693069307,
+      "A": 0.058823529411764705
+     },
+     "R": {
+      "n_gold": 101,
+      "tp": 6,
+      "fp": 3,
+      "fn": 95,
+      "n_pred": 9,
+      "leaked_full": 93,
+      "leaked_rel": 93,
+      "L_full": 0.9207920792079208,
+      "L_rel": 0.9207920792079208,
+      "A": 0.057692307692307696
+     },
+     "T@0.5": {
+      "n_gold": 101,
+      "tp": 94,
+      "fp": 13,
+      "fn": 7,
+      "n_pred": 107,
+      "leaked_full": 6,
+      "leaked_rel": 6,
+      "L_full": 0.0594059405940594,
+      "L_rel": 0.0594059405940594,
+      "A": 0.8245614035087719
+     },
+     "T@0.7": {
+      "n_gold": 101,
+      "tp": 93,
+      "fp": 12,
+      "fn": 8,
+      "n_pred": 105,
+      "leaked_full": 7,
+      "leaked_rel": 7,
+      "L_full": 0.06930693069306931,
+      "L_rel": 0.06930693069306931,
+      "A": 0.8230088495575221
+     },
+     "T@0.9": {
+      "n_gold": 101,
+      "tp": 83,
+      "fp": 5,
+      "fn": 18,
+      "n_pred": 88,
+      "leaked_full": 18,
+      "leaked_rel": 18,
+      "L_full": 0.1782178217821782,
+      "L_rel": 0.1782178217821782,
+      "A": 0.7830188679245284
+     },
+     "UNION@0.5": {
+      "n_gold": 101,
+      "tp": 96,
+      "fp": 17,
+      "fn": 5,
+      "n_pred": 113,
+      "leaked_full": 5,
+      "leaked_rel": 5,
+      "L_full": 0.04950495049504951,
+      "L_rel": 0.04950495049504951,
+      "A": 0.8135593220338984
+     },
+     "UNION@0.7": {
+      "n_gold": 101,
+      "tp": 95,
+      "fp": 16,
+      "fn": 6,
+      "n_pred": 111,
+      "leaked_full": 6,
+      "leaked_rel": 6,
+      "L_full": 0.0594059405940594,
+      "L_rel": 0.0594059405940594,
+      "A": 0.811965811965812
+     },
+     "UNION@0.9": {
+      "n_gold": 101,
+      "tp": 85,
+      "fp": 9,
+      "fn": 16,
+      "n_pred": 94,
+      "leaked_full": 15,
+      "leaked_rel": 15,
+      "L_full": 0.1485148514851485,
+      "L_rel": 0.1485148514851485,
+      "A": 0.7727272727272727
+     }
+    }
+   },
+   "ID": {
+    "n_gold": 0,
+    "sparse": false,
+    "complementarity": {
+     "rules_only": 0,
+     "tagger_only": 0,
+     "both": 0,
+     "neither": 0
+    },
+    "candidates": {
+     "AGREE@0.5": {
+      "n_gold": 0,
+      "tp": 0,
+      "fp": 0,
+      "fn": 0,
+      "n_pred": 0,
+      "leaked_full": 0,
+      "leaked_rel": 0,
+      "L_full": null,
+      "L_rel": null,
+      "A": 0.0
+     },
+     "AGREE@0.7": {
+      "n_gold": 0,
+      "tp": 0,
+      "fp": 0,
+      "fn": 0,
+      "n_pred": 0,
+      "leaked_full": 0,
+      "leaked_rel": 0,
+      "L_full": null,
+      "L_rel": null,
+      "A": 0.0
+     },
+     "AGREE@0.9": {
+      "n_gold": 0,
+      "tp": 0,
+      "fp": 0,
+      "fn": 0,
+      "n_pred": 0,
+      "leaked_full": 0,
+      "leaked_rel": 0,
+      "L_full": null,
+      "L_rel": null,
+      "A": 0.0
+     },
+     "R": {
+      "n_gold": 0,
+      "tp": 0,
+      "fp": 0,
+      "fn": 0,
+      "n_pred": 0,
+      "leaked_full": 0,
+      "leaked_rel": 0,
+      "L_full": null,
+      "L_rel": null,
+      "A": 0.0
+     },
+     "T@0.5": {
+      "n_gold": 0,
+      "tp": 0,
+      "fp": 0,
+      "fn": 0,
+      "n_pred": 0,
+      "leaked_full": 0,
+      "leaked_rel": 0,
+      "L_full": null,
+      "L_rel": null,
+      "A": 0.0
+     },
+     "T@0.7": {
+      "n_gold": 0,
+      "tp": 0,
+      "fp": 0,
+      "fn": 0,
+      "n_pred": 0,
+      "leaked_full": 0,
+      "leaked_rel": 0,
+      "L_full": null,
+      "L_rel": null,
+      "A": 0.0
+     },
+     "T@0.9": {
+      "n_gold": 0,
+      "tp": 0,
+      "fp": 0,
+      "fn": 0,
+      "n_pred": 0,
+      "leaked_full": 0,
+      "leaked_rel": 0,
+      "L_full": null,
+      "L_rel": null,
+      "A": 0.0
+     },
+     "UNION@0.5": {
+      "n_gold": 0,
+      "tp": 0,
+      "fp": 0,
+      "fn": 0,
+      "n_pred": 0,
+      "leaked_full": 0,
+      "leaked_rel": 0,
+      "L_full": null,
+      "L_rel": null,
+      "A": 0.0
+     },
+     "UNION@0.7": {
+      "n_gold": 0,
+      "tp": 0,
+      "fp": 0,
+      "fn": 0,
+      "n_pred": 0,
+      "leaked_full": 0,
+      "leaked_rel": 0,
+      "L_full": null,
+      "L_rel": null,
+      "A": 0.0
+     },
+     "UNION@0.9": {
+      "n_gold": 0,
+      "tp": 0,
+      "fp": 0,
+      "fn": 0,
+      "n_pred": 0,
+      "leaked_full": 0,
+      "leaked_rel": 0,
+      "L_full": null,
+      "L_rel": null,
+      "A": 0.0
+     }
+    }
+   },
+   "LOCATION_AREA": {
+    "n_gold": 75,
+    "sparse": false,
+    "complementarity": {
+     "rules_only": 0,
+     "tagger_only": 55,
+     "both": 2,
+     "neither": 18
+    },
+    "candidates": {
+     "AGREE@0.5": {
+      "n_gold": 75,
+      "tp": 2,
+      "fp": 1,
+      "fn": 73,
+      "n_pred": 3,
+      "leaked_full": 73,
+      "leaked_rel": 73,
+      "L_full": 0.9733333333333334,
+      "L_rel": 0.9733333333333334,
+      "A": 0.02631578947368421
+     },
+     "AGREE@0.7": {
+      "n_gold": 75,
+      "tp": 2,
+      "fp": 1,
+      "fn": 73,
+      "n_pred": 3,
+      "leaked_full": 73,
+      "leaked_rel": 73,
+      "L_full": 0.9733333333333334,
+      "L_rel": 0.9733333333333334,
+      "A": 0.02631578947368421
+     },
+     "AGREE@0.9": {
+      "n_gold": 75,
+      "tp": 2,
+      "fp": 1,
+      "fn": 73,
+      "n_pred": 3,
+      "leaked_full": 73,
+      "leaked_rel": 73,
+      "L_full": 0.9733333333333334,
+      "L_rel": 0.9733333333333334,
+      "A": 0.02631578947368421
+     },
+     "R": {
+      "n_gold": 75,
+      "tp": 1,
+      "fp": 5,
+      "fn": 74,
+      "n_pred": 6,
+      "leaked_full": 73,
+      "leaked_rel": 73,
+      "L_full": 0.9733333333333334,
+      "L_rel": 0.9733333333333334,
+      "A": 0.0125
+     },
+     "T@0.5": {
+      "n_gold": 75,
+      "tp": 56,
+      "fp": 19,
+      "fn": 19,
+      "n_pred": 75,
+      "leaked_full": 18,
+      "leaked_rel": 10,
+      "L_full": 0.24,
+      "L_rel": 0.13333333333333333,
+      "A": 0.5957446808510638
+     },
+     "T@0.7": {
+      "n_gold": 75,
+      "tp": 56,
+      "fp": 18,
+      "fn": 19,
+      "n_pred": 74,
+      "leaked_full": 18,
+      "leaked_rel": 10,
+      "L_full": 0.24,
+      "L_rel": 0.13333333333333333,
+      "A": 0.6021505376344086
+     },
+     "T@0.9": {
+      "n_gold": 75,
+      "tp": 48,
+      "fp": 16,
+      "fn": 27,
+      "n_pred": 64,
+      "leaked_full": 27,
+      "leaked_rel": 21,
+      "L_full": 0.36,
+      "L_rel": 0.28,
+      "A": 0.5274725274725275
+     },
+     "UNION@0.5": {
+      "n_gold": 75,
+      "tp": 57,
+      "fp": 24,
+      "fn": 18,
+      "n_pred": 81,
+      "leaked_full": 18,
+      "leaked_rel": 10,
+      "L_full": 0.24,
+      "L_rel": 0.13333333333333333,
+      "A": 0.5757575757575758
+     },
+     "UNION@0.7": {
+      "n_gold": 75,
+      "tp": 57,
+      "fp": 23,
+      "fn": 18,
+      "n_pred": 80,
+      "leaked_full": 18,
+      "leaked_rel": 10,
+      "L_full": 0.24,
+      "L_rel": 0.13333333333333333,
+      "A": 0.5816326530612245
+     },
+     "UNION@0.9": {
+      "n_gold": 75,
+      "tp": 49,
+      "fp": 21,
+      "fn": 26,
+      "n_pred": 70,
+      "leaked_full": 27,
+      "leaked_rel": 21,
+      "L_full": 0.36,
+      "L_rel": 0.28,
+      "A": 0.5104166666666666
+     }
+    }
+   },
+   "LOCATION_STREET": {
+    "n_gold": 0,
+    "sparse": false,
+    "complementarity": {
+     "rules_only": 0,
+     "tagger_only": 0,
+     "both": 0,
+     "neither": 0
+    },
+    "candidates": {
+     "AGREE@0.5": {
+      "n_gold": 0,
+      "tp": 0,
+      "fp": 0,
+      "fn": 0,
+      "n_pred": 0,
+      "leaked_full": 0,
+      "leaked_rel": 0,
+      "L_full": null,
+      "L_rel": null,
+      "A": 0.0
+     },
+     "AGREE@0.7": {
+      "n_gold": 0,
+      "tp": 0,
+      "fp": 0,
+      "fn": 0,
+      "n_pred": 0,
+      "leaked_full": 0,
+      "leaked_rel": 0,
+      "L_full": null,
+      "L_rel": null,
+      "A": 0.0
+     },
+     "AGREE@0.9": {
+      "n_gold": 0,
+      "tp": 0,
+      "fp": 0,
+      "fn": 0,
+      "n_pred": 0,
+      "leaked_full": 0,
+      "leaked_rel": 0,
+      "L_full": null,
+      "L_rel": null,
+      "A": 0.0
+     },
+     "R": {
+      "n_gold": 0,
+      "tp": 0,
+      "fp": 105,
+      "fn": 0,
+      "n_pred": 105,
+      "leaked_full": 0,
+      "leaked_rel": 0,
+      "L_full": null,
+      "L_rel": null,
+      "A": 0.0
+     },
+     "T@0.5": {
+      "n_gold": 0,
+      "tp": 0,
+      "fp": 0,
+      "fn": 0,
+      "n_pred": 0,
+      "leaked_full": 0,
+      "leaked_rel": 0,
+      "L_full": null,
+      "L_rel": null,
+      "A": 0.0
+     },
+     "T@0.7": {
+      "n_gold": 0,
+      "tp": 0,
+      "fp": 0,
+      "fn": 0,
+      "n_pred": 0,
+      "leaked_full": 0,
+      "leaked_rel": 0,
+      "L_full": null,
+      "L_rel": null,
+      "A": 0.0
+     },
+     "T@0.9": {
+      "n_gold": 0,
+      "tp": 0,
+      "fp": 0,
+      "fn": 0,
+      "n_pred": 0,
+      "leaked_full": 0,
+      "leaked_rel": 0,
+      "L_full": null,
+      "L_rel": null,
+      "A": 0.0
+     },
+     "UNION@0.5": {
+      "n_gold": 0,
+      "tp": 0,
+      "fp": 105,
+      "fn": 0,
+      "n_pred": 105,
+      "leaked_full": 0,
+      "leaked_rel": 0,
+      "L_full": null,
+      "L_rel": null,
+      "A": 0.0
+     },
+     "UNION@0.7": {
+      "n_gold": 0,
+      "tp": 0,
+      "fp": 105,
+      "fn": 0,
+      "n_pred": 105,
+      "leaked_full": 0,
+      "leaked_rel": 0,
+      "L_full": null,
+      "L_rel": null,
+      "A": 0.0
+     },
+     "UNION@0.9": {
+      "n_gold": 0,
+      "tp": 0,
+      "fp": 105,
+      "fn": 0,
+      "n_pred": 105,
+      "leaked_full": 0,
+      "leaked_rel": 0,
+      "L_full": null,
+      "L_rel": null,
+      "A": 0.0
+     }
+    }
+   },
+   "NAME": {
+    "n_gold": 165,
+    "sparse": false,
+    "complementarity": {
+     "rules_only": 0,
+     "tagger_only": 100,
+     "both": 53,
+     "neither": 12
+    },
+    "candidates": {
+     "AGREE@0.5": {
+      "n_gold": 165,
+      "tp": 55,
+      "fp": 15,
+      "fn": 110,
+      "n_pred": 70,
+      "leaked_full": 112,
+      "leaked_rel": 110,
+      "L_full": 0.6787878787878788,
+      "L_rel": 0.6666666666666666,
+      "A": 0.3055555555555556
+     },
+     "AGREE@0.7": {
+      "n_gold": 165,
+      "tp": 55,
+      "fp": 13,
+      "fn": 110,
+      "n_pred": 68,
+      "leaked_full": 112,
+      "leaked_rel": 110,
+      "L_full": 0.6787878787878788,
+      "L_rel": 0.6666666666666666,
+      "A": 0.3089887640449438
+     },
+     "AGREE@0.9": {
+      "n_gold": 165,
+      "tp": 53,
+      "fp": 13,
+      "fn": 112,
+      "n_pred": 66,
+      "leaked_full": 114,
+      "leaked_rel": 112,
+      "L_full": 0.6909090909090909,
+      "L_rel": 0.6787878787878788,
+      "A": 0.29775280898876405
+     },
+     "R": {
+      "n_gold": 165,
+      "tp": 48,
+      "fp": 1,
+      "fn": 117,
+      "n_pred": 49,
+      "leaked_full": 112,
+      "leaked_rel": 110,
+      "L_full": 0.6787878787878788,
+      "L_rel": 0.6666666666666666,
+      "A": 0.2891566265060241
+     },
+     "T@0.5": {
+      "n_gold": 165,
+      "tp": 155,
+      "fp": 11,
+      "fn": 10,
+      "n_pred": 166,
+      "leaked_full": 12,
+      "leaked_rel": 7,
+      "L_full": 0.07272727272727272,
+      "L_rel": 0.04242424242424243,
+      "A": 0.8806818181818182
+     },
+     "T@0.7": {
+      "n_gold": 165,
+      "tp": 149,
+      "fp": 10,
+      "fn": 16,
+      "n_pred": 159,
+      "leaked_full": 17,
+      "leaked_rel": 13,
+      "L_full": 0.10303030303030303,
+      "L_rel": 0.07878787878787878,
+      "A": 0.8514285714285714
+     },
+     "T@0.9": {
+      "n_gold": 165,
+      "tp": 140,
+      "fp": 9,
+      "fn": 25,
+      "n_pred": 149,
+      "leaked_full": 27,
+      "leaked_rel": 24,
+      "L_full": 0.16363636363636364,
+      "L_rel": 0.14545454545454545,
+      "A": 0.8045977011494253
+     },
+     "UNION@0.5": {
+      "n_gold": 165,
+      "tp": 156,
+      "fp": 26,
+      "fn": 9,
+      "n_pred": 182,
+      "leaked_full": 12,
+      "leaked_rel": 7,
+      "L_full": 0.07272727272727272,
+      "L_rel": 0.04242424242424243,
+      "A": 0.8167539267015707
+     },
+     "UNION@0.7": {
+      "n_gold": 165,
+      "tp": 152,
+      "fp": 23,
+      "fn": 13,
+      "n_pred": 175,
+      "leaked_full": 15,
+      "leaked_rel": 11,
+      "L_full": 0.09090909090909091,
+      "L_rel": 0.06666666666666667,
+      "A": 0.8085106382978723
+     },
+     "UNION@0.9": {
+      "n_gold": 165,
+      "tp": 143,
+      "fp": 22,
+      "fn": 22,
+      "n_pred": 165,
+      "leaked_full": 23,
+      "leaked_rel": 20,
+      "L_full": 0.1393939393939394,
+      "L_rel": 0.12121212121212122,
+      "A": 0.7647058823529411
+     }
+    }
+   },
+   "ORGANISATION": {
+    "n_gold": 0,
+    "sparse": false,
+    "complementarity": {
+     "rules_only": 0,
+     "tagger_only": 0,
+     "both": 0,
+     "neither": 0
+    },
+    "candidates": {
+     "AGREE@0.5": {
+      "n_gold": 0,
+      "tp": 0,
+      "fp": 0,
+      "fn": 0,
+      "n_pred": 0,
+      "leaked_full": 0,
+      "leaked_rel": 0,
+      "L_full": null,
+      "L_rel": null,
+      "A": 0.0
+     },
+     "AGREE@0.7": {
+      "n_gold": 0,
+      "tp": 0,
+      "fp": 0,
+      "fn": 0,
+      "n_pred": 0,
+      "leaked_full": 0,
+      "leaked_rel": 0,
+      "L_full": null,
+      "L_rel": null,
+      "A": 0.0
+     },
+     "AGREE@0.9": {
+      "n_gold": 0,
+      "tp": 0,
+      "fp": 0,
+      "fn": 0,
+      "n_pred": 0,
+      "leaked_full": 0,
+      "leaked_rel": 0,
+      "L_full": null,
+      "L_rel": null,
+      "A": 0.0
+     },
+     "R": {
+      "n_gold": 0,
+      "tp": 0,
+      "fp": 3,
+      "fn": 0,
+      "n_pred": 3,
+      "leaked_full": 0,
+      "leaked_rel": 0,
+      "L_full": null,
+      "L_rel": null,
+      "A": 0.0
+     },
+     "T@0.5": {
+      "n_gold": 0,
+      "tp": 0,
+      "fp": 2,
+      "fn": 0,
+      "n_pred": 2,
+      "leaked_full": 0,
+      "leaked_rel": 0,
+      "L_full": null,
+      "L_rel": null,
+      "A": 0.0
+     },
+     "T@0.7": {
+      "n_gold": 0,
+      "tp": 0,
+      "fp": 2,
+      "fn": 0,
+      "n_pred": 2,
+      "leaked_full": 0,
+      "leaked_rel": 0,
+      "L_full": null,
+      "L_rel": null,
+      "A": 0.0
+     },
+     "T@0.9": {
+      "n_gold": 0,
+      "tp": 0,
+      "fp": 0,
+      "fn": 0,
+      "n_pred": 0,
+      "leaked_full": 0,
+      "leaked_rel": 0,
+      "L_full": null,
+      "L_rel": null,
+      "A": 0.0
+     },
+     "UNION@0.5": {
+      "n_gold": 0,
+      "tp": 0,
+      "fp": 5,
+      "fn": 0,
+      "n_pred": 5,
+      "leaked_full": 0,
+      "leaked_rel": 0,
+      "L_full": null,
+      "L_rel": null,
+      "A": 0.0
+     },
+     "UNION@0.7": {
+      "n_gold": 0,
+      "tp": 0,
+      "fp": 5,
+      "fn": 0,
+      "n_pred": 5,
+      "leaked_full": 0,
+      "leaked_rel": 0,
+      "L_full": null,
+      "L_rel": null,
+      "A": 0.0
+     },
+     "UNION@0.9": {
+      "n_gold": 0,
+      "tp": 0,
+      "fp": 3,
+      "fn": 0,
+      "n_pred": 3,
+      "leaked_full": 0,
+      "leaked_rel": 0,
+      "L_full": null,
+      "L_rel": null,
+      "A": 0.0
+     }
+    }
+   },
+   "OTHER": {
+    "n_gold": 1,
+    "sparse": true,
+    "complementarity": {
+     "rules_only": 0,
+     "tagger_only": 0,
+     "both": 0,
+     "neither": 1
+    },
+    "candidates": {
+     "AGREE@0.5": {
+      "n_gold": 1,
+      "tp": 0,
+      "fp": 0,
+      "fn": 1,
+      "n_pred": 0,
+      "leaked_full": 1,
+      "leaked_rel": 1,
+      "L_full": 1.0,
+      "L_rel": 1.0,
+      "A": 0.0
+     },
+     "AGREE@0.7": {
+      "n_gold": 1,
+      "tp": 0,
+      "fp": 0,
+      "fn": 1,
+      "n_pred": 0,
+      "leaked_full": 1,
+      "leaked_rel": 1,
+      "L_full": 1.0,
+      "L_rel": 1.0,
+      "A": 0.0
+     },
+     "AGREE@0.9": {
+      "n_gold": 1,
+      "tp": 0,
+      "fp": 0,
+      "fn": 1,
+      "n_pred": 0,
+      "leaked_full": 1,
+      "leaked_rel": 1,
+      "L_full": 1.0,
+      "L_rel": 1.0,
+      "A": 0.0
+     },
+     "R": {
+      "n_gold": 1,
+      "tp": 0,
+      "fp": 0,
+      "fn": 1,
+      "n_pred": 0,
+      "leaked_full": 1,
+      "leaked_rel": 1,
+      "L_full": 1.0,
+      "L_rel": 1.0,
+      "A": 0.0
+     },
+     "T@0.5": {
+      "n_gold": 1,
+      "tp": 0,
+      "fp": 0,
+      "fn": 1,
+      "n_pred": 0,
+      "leaked_full": 1,
+      "leaked_rel": 1,
+      "L_full": 1.0,
+      "L_rel": 1.0,
+      "A": 0.0
+     },
+     "T@0.7": {
+      "n_gold": 1,
+      "tp": 0,
+      "fp": 0,
+      "fn": 1,
+      "n_pred": 0,
+      "leaked_full": 1,
+      "leaked_rel": 1,
+      "L_full": 1.0,
+      "L_rel": 1.0,
+      "A": 0.0
+     },
+     "T@0.9": {
+      "n_gold": 1,
+      "tp": 0,
+      "fp": 0,
+      "fn": 1,
+      "n_pred": 0,
+      "leaked_full": 1,
+      "leaked_rel": 1,
+      "L_full": 1.0,
+      "L_rel": 1.0,
+      "A": 0.0
+     },
+     "UNION@0.5": {
+      "n_gold": 1,
+      "tp": 0,
+      "fp": 0,
+      "fn": 1,
+      "n_pred": 0,
+      "leaked_full": 1,
+      "leaked_rel": 1,
+      "L_full": 1.0,
+      "L_rel": 1.0,
+      "A": 0.0
+     },
+     "UNION@0.7": {
+      "n_gold": 1,
+      "tp": 0,
+      "fp": 0,
+      "fn": 1,
+      "n_pred": 0,
+      "leaked_full": 1,
+      "leaked_rel": 1,
+      "L_full": 1.0,
+      "L_rel": 1.0,
+      "A": 0.0
+     },
+     "UNION@0.9": {
+      "n_gold": 1,
+      "tp": 0,
+      "fp": 0,
+      "fn": 1,
+      "n_pred": 0,
+      "leaked_full": 1,
+      "leaked_rel": 1,
+      "L_full": 1.0,
+      "L_rel": 1.0,
+      "A": 0.0
+     }
+    }
+   },
+   "PROFESSION": {
+    "n_gold": 0,
+    "sparse": false,
+    "complementarity": {
+     "rules_only": 0,
+     "tagger_only": 0,
+     "both": 0,
+     "neither": 0
+    },
+    "candidates": {
+     "AGREE@0.5": {
+      "n_gold": 0,
+      "tp": 0,
+      "fp": 0,
+      "fn": 0,
+      "n_pred": 0,
+      "leaked_full": 0,
+      "leaked_rel": 0,
+      "L_full": null,
+      "L_rel": null,
+      "A": 0.0
+     },
+     "AGREE@0.7": {
+      "n_gold": 0,
+      "tp": 0,
+      "fp": 0,
+      "fn": 0,
+      "n_pred": 0,
+      "leaked_full": 0,
+      "leaked_rel": 0,
+      "L_full": null,
+      "L_rel": null,
+      "A": 0.0
+     },
+     "AGREE@0.9": {
+      "n_gold": 0,
+      "tp": 0,
+      "fp": 0,
+      "fn": 0,
+      "n_pred": 0,
+      "leaked_full": 0,
+      "leaked_rel": 0,
+      "L_full": null,
+      "L_rel": null,
+      "A": 0.0
+     },
+     "R": {
+      "n_gold": 0,
+      "tp": 0,
+      "fp": 0,
+      "fn": 0,
+      "n_pred": 0,
+      "leaked_full": 0,
+      "leaked_rel": 0,
+      "L_full": null,
+      "L_rel": null,
+      "A": 0.0
+     },
+     "T@0.5": {
+      "n_gold": 0,
+      "tp": 0,
+      "fp": 0,
+      "fn": 0,
+      "n_pred": 0,
+      "leaked_full": 0,
+      "leaked_rel": 0,
+      "L_full": null,
+      "L_rel": null,
+      "A": 0.0
+     },
+     "T@0.7": {
+      "n_gold": 0,
+      "tp": 0,
+      "fp": 0,
+      "fn": 0,
+      "n_pred": 0,
+      "leaked_full": 0,
+      "leaked_rel": 0,
+      "L_full": null,
+      "L_rel": null,
+      "A": 0.0
+     },
+     "T@0.9": {
+      "n_gold": 0,
+      "tp": 0,
+      "fp": 0,
+      "fn": 0,
+      "n_pred": 0,
+      "leaked_full": 0,
+      "leaked_rel": 0,
+      "L_full": null,
+      "L_rel": null,
+      "A": 0.0
+     },
+     "UNION@0.5": {
+      "n_gold": 0,
+      "tp": 0,
+      "fp": 0,
+      "fn": 0,
+      "n_pred": 0,
+      "leaked_full": 0,
+      "leaked_rel": 0,
+      "L_full": null,
+      "L_rel": null,
+      "A": 0.0
+     },
+     "UNION@0.7": {
+      "n_gold": 0,
+      "tp": 0,
+      "fp": 0,
+      "fn": 0,
+      "n_pred": 0,
+      "leaked_full": 0,
+      "leaked_rel": 0,
+      "L_full": null,
+      "L_rel": null,
+      "A": 0.0
+     },
+     "UNION@0.9": {
+      "n_gold": 0,
+      "tp": 0,
+      "fp": 0,
+      "fn": 0,
+      "n_pred": 0,
+      "leaked_full": 0,
+      "leaked_rel": 0,
+      "L_full": null,
+      "L_rel": null,
+      "A": 0.0
+     }
+    }
+   }
+  },
+  "rt_baseline": {
+   "tp": 325,
+   "fp": 197,
+   "fn": 34,
+   "n_gold": 359,
+   "n_pred": 522,
+   "L_full": 0.10584958217270195,
+   "L_rel": 0.06685236768802229,
+   "A": 0.5845323741007195,
+   "precision": 0.6226053639846744,
+   "recall": 0.9052924791086351
+  },
+  "rt_sel": {
+   "policies": {
+    "AGE": {
+     "policy": "UNION",
+     "theta": 0.5
+    },
+    "CONTACT": {
+     "policy": "UNION",
+     "theta": 0.7
+    },
+    "DATE": {
+     "policy": "T",
+     "theta": 0.5
+    },
+    "ID": {
+     "policy": "UNION",
+     "theta": 0.5
+    },
+    "LOCATION_AREA": {
+     "policy": "T",
+     "theta": 0.7
+    },
+    "LOCATION_STREET": {
+     "policy": "UNION",
+     "theta": 0.5
+    },
+    "NAME": {
+     "policy": "T",
+     "theta": 0.5
+    },
+    "ORGANISATION": {
+     "policy": "UNION",
+     "theta": 0.5
+    },
+    "OTHER": {
+     "policy": "UNION",
+     "theta": 0.5
+    },
+    "PROFESSION": {
+     "policy": "UNION",
+     "theta": 0.5
+    }
+   },
+   "achieved": {
+    "tp": 321,
+    "fp": 171,
+    "fn": 38,
+    "n_gold": 359,
+    "n_pred": 492,
+    "L_full": 0.10863509749303621,
+    "L_rel": 0.06963788300835655,
+    "A": 0.6056603773584905,
+    "precision": 0.6524390243902439,
+    "recall": 0.8941504178272981
+   },
+   "headline": {
+    "L_full": 0.10863509749303621,
+    "L_rel": 0.06963788300835655,
+    "A": 0.6056603773584905,
+    "precision": 0.6524390243902439,
+    "recall": 0.8941504178272981,
+    "f1": 0.7544065804935369,
+    "tp": 321,
+    "fp": 171,
+    "fn": 38,
+    "complementarity_full": {
+     "rules_only": 3,
+     "tagger_only": 309,
+     "both": 8,
+     "joint_only": 0,
+     "neither": 39,
+     "denominator": 359
+    },
+    "D_full": 0.1986754966887417,
+    "gold": 359,
+    "pred": 501,
+    "nongold_masked_rate": null
+   }
+  },
+  "constraint_satisfied": true
+ },
+ "ko-surro": {
+  "n_dev_gold": 319,
+  "delta": 0.08150470219435736,
+  "table": {
+   "AGE": {
+    "n_gold": 3,
+    "sparse": true,
+    "complementarity": {
+     "rules_only": 0,
+     "tagger_only": 0,
+     "both": 0,
+     "neither": 3
+    },
+    "candidates": {
+     "AGREE@0.5": {
+      "n_gold": 3,
+      "tp": 0,
+      "fp": 0,
+      "fn": 3,
+      "n_pred": 0,
+      "leaked_full": 3,
+      "leaked_rel": 3,
+      "L_full": 1.0,
+      "L_rel": 1.0,
+      "A": 0.0
+     },
+     "AGREE@0.7": {
+      "n_gold": 3,
+      "tp": 0,
+      "fp": 0,
+      "fn": 3,
+      "n_pred": 0,
+      "leaked_full": 3,
+      "leaked_rel": 3,
+      "L_full": 1.0,
+      "L_rel": 1.0,
+      "A": 0.0
+     },
+     "AGREE@0.9": {
+      "n_gold": 3,
+      "tp": 0,
+      "fp": 0,
+      "fn": 3,
+      "n_pred": 0,
+      "leaked_full": 3,
+      "leaked_rel": 3,
+      "L_full": 1.0,
+      "L_rel": 1.0,
+      "A": 0.0
+     },
+     "R": {
+      "n_gold": 3,
+      "tp": 3,
+      "fp": 28,
+      "fn": 0,
+      "n_pred": 31,
+      "leaked_full": 3,
+      "leaked_rel": 0,
+      "L_full": 1.0,
+      "L_rel": 0.0,
+      "A": 0.0967741935483871
+     },
+     "T@0.5": {
+      "n_gold": 3,
+      "tp": 0,
+      "fp": 0,
+      "fn": 3,
+      "n_pred": 0,
+      "leaked_full": 3,
+      "leaked_rel": 3,
+      "L_full": 1.0,
+      "L_rel": 1.0,
+      "A": 0.0
+     },
+     "T@0.7": {
+      "n_gold": 3,
+      "tp": 0,
+      "fp": 0,
+      "fn": 3,
+      "n_pred": 0,
+      "leaked_full": 3,
+      "leaked_rel": 3,
+      "L_full": 1.0,
+      "L_rel": 1.0,
+      "A": 0.0
+     },
+     "T@0.9": {
+      "n_gold": 3,
+      "tp": 0,
+      "fp": 0,
+      "fn": 3,
+      "n_pred": 0,
+      "leaked_full": 3,
+      "leaked_rel": 3,
+      "L_full": 1.0,
+      "L_rel": 1.0,
+      "A": 0.0
+     },
+     "UNION@0.5": {
+      "n_gold": 3,
+      "tp": 3,
+      "fp": 28,
+      "fn": 0,
+      "n_pred": 31,
+      "leaked_full": 3,
+      "leaked_rel": 0,
+      "L_full": 1.0,
+      "L_rel": 0.0,
+      "A": 0.0967741935483871
+     },
+     "UNION@0.7": {
+      "n_gold": 3,
+      "tp": 3,
+      "fp": 28,
+      "fn": 0,
+      "n_pred": 31,
+      "leaked_full": 3,
+      "leaked_rel": 0,
+      "L_full": 1.0,
+      "L_rel": 0.0,
+      "A": 0.0967741935483871
+     },
+     "UNION@0.9": {
+      "n_gold": 3,
+      "tp": 3,
+      "fp": 28,
+      "fn": 0,
+      "n_pred": 31,
+      "leaked_full": 3,
+      "leaked_rel": 0,
+      "L_full": 1.0,
+      "L_rel": 0.0,
+      "A": 0.0967741935483871
+     }
+    }
+   },
+   "CONTACT": {
+    "n_gold": 13,
+    "sparse": false,
+    "complementarity": {
+     "rules_only": 0,
+     "tagger_only": 13,
+     "both": 0,
+     "neither": 0
+    },
+    "candidates": {
+     "AGREE@0.5": {
+      "n_gold": 13,
+      "tp": 0,
+      "fp": 0,
+      "fn": 13,
+      "n_pred": 0,
+      "leaked_full": 13,
+      "leaked_rel": 13,
+      "L_full": 1.0,
+      "L_rel": 1.0,
+      "A": 0.0
+     },
+     "AGREE@0.7": {
+      "n_gold": 13,
+      "tp": 0,
+      "fp": 0,
+      "fn": 13,
+      "n_pred": 0,
+      "leaked_full": 13,
+      "leaked_rel": 13,
+      "L_full": 1.0,
+      "L_rel": 1.0,
+      "A": 0.0
+     },
+     "AGREE@0.9": {
+      "n_gold": 13,
+      "tp": 0,
+      "fp": 0,
+      "fn": 13,
+      "n_pred": 0,
+      "leaked_full": 13,
+      "leaked_rel": 13,
+      "L_full": 1.0,
+      "L_rel": 1.0,
+      "A": 0.0
+     },
+     "R": {
+      "n_gold": 13,
+      "tp": 0,
+      "fp": 0,
+      "fn": 13,
+      "n_pred": 0,
+      "leaked_full": 13,
+      "leaked_rel": 13,
+      "L_full": 1.0,
+      "L_rel": 1.0,
+      "A": 0.0
+     },
+     "T@0.5": {
+      "n_gold": 13,
+      "tp": 13,
+      "fp": 0,
+      "fn": 0,
+      "n_pred": 13,
+      "leaked_full": 0,
+      "leaked_rel": 0,
+      "L_full": 0.0,
+      "L_rel": 0.0,
+      "A": 1.0
+     },
+     "T@0.7": {
+      "n_gold": 13,
+      "tp": 13,
+      "fp": 0,
+      "fn": 0,
+      "n_pred": 13,
+      "leaked_full": 0,
+      "leaked_rel": 0,
+      "L_full": 0.0,
+      "L_rel": 0.0,
+      "A": 1.0
+     },
+     "T@0.9": {
+      "n_gold": 13,
+      "tp": 13,
+      "fp": 0,
+      "fn": 0,
+      "n_pred": 13,
+      "leaked_full": 0,
+      "leaked_rel": 0,
+      "L_full": 0.0,
+      "L_rel": 0.0,
+      "A": 1.0
+     },
+     "UNION@0.5": {
+      "n_gold": 13,
+      "tp": 13,
+      "fp": 0,
+      "fn": 0,
+      "n_pred": 13,
+      "leaked_full": 0,
+      "leaked_rel": 0,
+      "L_full": 0.0,
+      "L_rel": 0.0,
+      "A": 1.0
+     },
+     "UNION@0.7": {
+      "n_gold": 13,
+      "tp": 13,
+      "fp": 0,
+      "fn": 0,
+      "n_pred": 13,
+      "leaked_full": 0,
+      "leaked_rel": 0,
+      "L_full": 0.0,
+      "L_rel": 0.0,
+      "A": 1.0
+     },
+     "UNION@0.9": {
+      "n_gold": 13,
+      "tp": 13,
+      "fp": 0,
+      "fn": 0,
+      "n_pred": 13,
+      "leaked_full": 0,
+      "leaked_rel": 0,
+      "L_full": 0.0,
+      "L_rel": 0.0,
+      "A": 1.0
+     }
+    }
+   },
+   "DATE": {
+    "n_gold": 87,
+    "sparse": false,
+    "complementarity": {
+     "rules_only": 0,
+     "tagger_only": 73,
+     "both": 5,
+     "neither": 9
+    },
+    "candidates": {
+     "AGREE@0.5": {
+      "n_gold": 87,
+      "tp": 5,
+      "fp": 2,
+      "fn": 82,
+      "n_pred": 7,
+      "leaked_full": 82,
+      "leaked_rel": 82,
+      "L_full": 0.9425287356321839,
+      "L_rel": 0.9425287356321839,
+      "A": 0.056179775280898875
+     },
+     "AGREE@0.7": {
+      "n_gold": 87,
+      "tp": 5,
+      "fp": 2,
+      "fn": 82,
+      "n_pred": 7,
+      "leaked_full": 82,
+      "leaked_rel": 82,
+      "L_full": 0.9425287356321839,
+      "L_rel": 0.9425287356321839,
+      "A": 0.056179775280898875
+     },
+     "AGREE@0.9": {
+      "n_gold": 87,
+      "tp": 5,
+      "fp": 1,
+      "fn": 82,
+      "n_pred": 6,
+      "leaked_full": 82,
+      "leaked_rel": 82,
+      "L_full": 0.9425287356321839,
+      "L_rel": 0.9425287356321839,
+      "A": 0.056818181818181816
+     },
+     "R": {
+      "n_gold": 87,
+      "tp": 5,
+      "fp": 1,
+      "fn": 82,
+      "n_pred": 6,
+      "leaked_full": 82,
+      "leaked_rel": 82,
+      "L_full": 0.9425287356321839,
+      "L_rel": 0.9425287356321839,
+      "A": 0.056818181818181816
+     },
+     "T@0.5": {
+      "n_gold": 87,
+      "tp": 82,
+      "fp": 15,
+      "fn": 5,
+      "n_pred": 97,
+      "leaked_full": 9,
+      "leaked_rel": 5,
+      "L_full": 0.10344827586206896,
+      "L_rel": 0.05747126436781609,
+      "A": 0.803921568627451
+     },
+     "T@0.7": {
+      "n_gold": 87,
+      "tp": 78,
+      "fp": 10,
+      "fn": 9,
+      "n_pred": 88,
+      "leaked_full": 10,
+      "leaked_rel": 9,
+      "L_full": 0.11494252873563218,
+      "L_rel": 0.10344827586206896,
+      "A": 0.8041237113402062
+     },
+     "T@0.9": {
+      "n_gold": 87,
+      "tp": 74,
+      "fp": 4,
+      "fn": 13,
+      "n_pred": 78,
+      "leaked_full": 13,
+      "leaked_rel": 13,
+      "L_full": 0.14942528735632185,
+      "L_rel": 0.14942528735632185,
+      "A": 0.8131868131868132
+     },
+     "UNION@0.5": {
+      "n_gold": 87,
+      "tp": 82,
+      "fp": 16,
+      "fn": 5,
+      "n_pred": 98,
+      "leaked_full": 9,
+      "leaked_rel": 5,
+      "L_full": 0.10344827586206896,
+      "L_rel": 0.05747126436781609,
+      "A": 0.7961165048543689
+     },
+     "UNION@0.7": {
+      "n_gold": 87,
+      "tp": 78,
+      "fp": 11,
+      "fn": 9,
+      "n_pred": 89,
+      "leaked_full": 10,
+      "leaked_rel": 9,
+      "L_full": 0.11494252873563218,
+      "L_rel": 0.10344827586206896,
+      "A": 0.7959183673469388
+     },
+     "UNION@0.9": {
+      "n_gold": 87,
+      "tp": 74,
+      "fp": 6,
+      "fn": 13,
+      "n_pred": 80,
+      "leaked_full": 13,
+      "leaked_rel": 13,
+      "L_full": 0.14942528735632185,
+      "L_rel": 0.14942528735632185,
+      "A": 0.7956989247311828
+     }
+    }
+   },
+   "ID": {
+    "n_gold": 0,
+    "sparse": false,
+    "complementarity": {
+     "rules_only": 0,
+     "tagger_only": 0,
+     "both": 0,
+     "neither": 0
+    },
+    "candidates": {
+     "AGREE@0.5": {
+      "n_gold": 0,
+      "tp": 0,
+      "fp": 0,
+      "fn": 0,
+      "n_pred": 0,
+      "leaked_full": 0,
+      "leaked_rel": 0,
+      "L_full": null,
+      "L_rel": null,
+      "A": 0.0
+     },
+     "AGREE@0.7": {
+      "n_gold": 0,
+      "tp": 0,
+      "fp": 0,
+      "fn": 0,
+      "n_pred": 0,
+      "leaked_full": 0,
+      "leaked_rel": 0,
+      "L_full": null,
+      "L_rel": null,
+      "A": 0.0
+     },
+     "AGREE@0.9": {
+      "n_gold": 0,
+      "tp": 0,
+      "fp": 0,
+      "fn": 0,
+      "n_pred": 0,
+      "leaked_full": 0,
+      "leaked_rel": 0,
+      "L_full": null,
+      "L_rel": null,
+      "A": 0.0
+     },
+     "R": {
+      "n_gold": 0,
+      "tp": 0,
+      "fp": 0,
+      "fn": 0,
+      "n_pred": 0,
+      "leaked_full": 0,
+      "leaked_rel": 0,
+      "L_full": null,
+      "L_rel": null,
+      "A": 0.0
+     },
+     "T@0.5": {
+      "n_gold": 0,
+      "tp": 0,
+      "fp": 0,
+      "fn": 0,
+      "n_pred": 0,
+      "leaked_full": 0,
+      "leaked_rel": 0,
+      "L_full": null,
+      "L_rel": null,
+      "A": 0.0
+     },
+     "T@0.7": {
+      "n_gold": 0,
+      "tp": 0,
+      "fp": 0,
+      "fn": 0,
+      "n_pred": 0,
+      "leaked_full": 0,
+      "leaked_rel": 0,
+      "L_full": null,
+      "L_rel": null,
+      "A": 0.0
+     },
+     "T@0.9": {
+      "n_gold": 0,
+      "tp": 0,
+      "fp": 0,
+      "fn": 0,
+      "n_pred": 0,
+      "leaked_full": 0,
+      "leaked_rel": 0,
+      "L_full": null,
+      "L_rel": null,
+      "A": 0.0
+     },
+     "UNION@0.5": {
+      "n_gold": 0,
+      "tp": 0,
+      "fp": 0,
+      "fn": 0,
+      "n_pred": 0,
+      "leaked_full": 0,
+      "leaked_rel": 0,
+      "L_full": null,
+      "L_rel": null,
+      "A": 0.0
+     },
+     "UNION@0.7": {
+      "n_gold": 0,
+      "tp": 0,
+      "fp": 0,
+      "fn": 0,
+      "n_pred": 0,
+      "leaked_full": 0,
+      "leaked_rel": 0,
+      "L_full": null,
+      "L_rel": null,
+      "A": 0.0
+     },
+     "UNION@0.9": {
+      "n_gold": 0,
+      "tp": 0,
+      "fp": 0,
+      "fn": 0,
+      "n_pred": 0,
+      "leaked_full": 0,
+      "leaked_rel": 0,
+      "L_full": null,
+      "L_rel": null,
+      "A": 0.0
+     }
+    }
+   },
+   "LOCATION_AREA": {
+    "n_gold": 10,
+    "sparse": false,
+    "complementarity": {
+     "rules_only": 0,
+     "tagger_only": 8,
+     "both": 0,
+     "neither": 2
+    },
+    "candidates": {
+     "AGREE@0.5": {
+      "n_gold": 10,
+      "tp": 10,
+      "fp": 15,
+      "fn": 0,
+      "n_pred": 25,
+      "leaked_full": 2,
+      "leaked_rel": 0,
+      "L_full": 0.2,
+      "L_rel": 0.0,
+      "A": 0.4
+     },
+     "AGREE@0.7": {
+      "n_gold": 10,
+      "tp": 10,
+      "fp": 15,
+      "fn": 0,
+      "n_pred": 25,
+      "leaked_full": 2,
+      "leaked_rel": 0,
+      "L_full": 0.2,
+      "L_rel": 0.0,
+      "A": 0.4
+     },
+     "AGREE@0.9": {
+      "n_gold": 10,
+      "tp": 10,
+      "fp": 15,
+      "fn": 0,
+      "n_pred": 25,
+      "leaked_full": 2,
+      "leaked_rel": 0,
+      "L_full": 0.2,
+      "L_rel": 0.0,
+      "A": 0.4
+     },
+     "R": {
+      "n_gold": 10,
+      "tp": 10,
+      "fp": 173,
+      "fn": 0,
+      "n_pred": 183,
+      "leaked_full": 10,
+      "leaked_rel": 0,
+      "L_full": 1.0,
+      "L_rel": 0.0,
+      "A": 0.0546448087431694
+     },
+     "T@0.5": {
+      "n_gold": 10,
+      "tp": 10,
+      "fp": 7,
+      "fn": 0,
+      "n_pred": 17,
+      "leaked_full": 2,
+      "leaked_rel": 0,
+      "L_full": 0.2,
+      "L_rel": 0.0,
+      "A": 0.5882352941176471
+     },
+     "T@0.7": {
+      "n_gold": 10,
+      "tp": 10,
+      "fp": 5,
+      "fn": 0,
+      "n_pred": 15,
+      "leaked_full": 2,
+      "leaked_rel": 0,
+      "L_full": 0.2,
+      "L_rel": 0.0,
+      "A": 0.6666666666666666
+     },
+     "T@0.9": {
+      "n_gold": 10,
+      "tp": 10,
+      "fp": 4,
+      "fn": 0,
+      "n_pred": 14,
+      "leaked_full": 2,
+      "leaked_rel": 0,
+      "L_full": 0.2,
+      "L_rel": 0.0,
+      "A": 0.7142857142857143
+     },
+     "UNION@0.5": {
+      "n_gold": 10,
+      "tp": 10,
+      "fp": 190,
+      "fn": 0,
+      "n_pred": 200,
+      "leaked_full": 2,
+      "leaked_rel": 0,
+      "L_full": 0.2,
+      "L_rel": 0.0,
+      "A": 0.05
+     },
+     "UNION@0.7": {
+      "n_gold": 10,
+      "tp": 10,
+      "fp": 188,
+      "fn": 0,
+      "n_pred": 198,
+      "leaked_full": 2,
+      "leaked_rel": 0,
+      "L_full": 0.2,
+      "L_rel": 0.0,
+      "A": 0.050505050505050504
+     },
+     "UNION@0.9": {
+      "n_gold": 10,
+      "tp": 10,
+      "fp": 187,
+      "fn": 0,
+      "n_pred": 197,
+      "leaked_full": 2,
+      "leaked_rel": 0,
+      "L_full": 0.2,
+      "L_rel": 0.0,
+      "A": 0.050761421319796954
+     }
+    }
+   },
+   "LOCATION_STREET": {
+    "n_gold": 0,
+    "sparse": false,
+    "complementarity": {
+     "rules_only": 0,
+     "tagger_only": 0,
+     "both": 0,
+     "neither": 0
+    },
+    "candidates": {
+     "AGREE@0.5": {
+      "n_gold": 0,
+      "tp": 0,
+      "fp": 0,
+      "fn": 0,
+      "n_pred": 0,
+      "leaked_full": 0,
+      "leaked_rel": 0,
+      "L_full": null,
+      "L_rel": null,
+      "A": 0.0
+     },
+     "AGREE@0.7": {
+      "n_gold": 0,
+      "tp": 0,
+      "fp": 0,
+      "fn": 0,
+      "n_pred": 0,
+      "leaked_full": 0,
+      "leaked_rel": 0,
+      "L_full": null,
+      "L_rel": null,
+      "A": 0.0
+     },
+     "AGREE@0.9": {
+      "n_gold": 0,
+      "tp": 0,
+      "fp": 0,
+      "fn": 0,
+      "n_pred": 0,
+      "leaked_full": 0,
+      "leaked_rel": 0,
+      "L_full": null,
+      "L_rel": null,
+      "A": 0.0
+     },
+     "R": {
+      "n_gold": 0,
+      "tp": 0,
+      "fp": 65,
+      "fn": 0,
+      "n_pred": 65,
+      "leaked_full": 0,
+      "leaked_rel": 0,
+      "L_full": null,
+      "L_rel": null,
+      "A": 0.0
+     },
+     "T@0.5": {
+      "n_gold": 0,
+      "tp": 0,
+      "fp": 0,
+      "fn": 0,
+      "n_pred": 0,
+      "leaked_full": 0,
+      "leaked_rel": 0,
+      "L_full": null,
+      "L_rel": null,
+      "A": 0.0
+     },
+     "T@0.7": {
+      "n_gold": 0,
+      "tp": 0,
+      "fp": 0,
+      "fn": 0,
+      "n_pred": 0,
+      "leaked_full": 0,
+      "leaked_rel": 0,
+      "L_full": null,
+      "L_rel": null,
+      "A": 0.0
+     },
+     "T@0.9": {
+      "n_gold": 0,
+      "tp": 0,
+      "fp": 0,
+      "fn": 0,
+      "n_pred": 0,
+      "leaked_full": 0,
+      "leaked_rel": 0,
+      "L_full": null,
+      "L_rel": null,
+      "A": 0.0
+     },
+     "UNION@0.5": {
+      "n_gold": 0,
+      "tp": 0,
+      "fp": 65,
+      "fn": 0,
+      "n_pred": 65,
+      "leaked_full": 0,
+      "leaked_rel": 0,
+      "L_full": null,
+      "L_rel": null,
+      "A": 0.0
+     },
+     "UNION@0.7": {
+      "n_gold": 0,
+      "tp": 0,
+      "fp": 65,
+      "fn": 0,
+      "n_pred": 65,
+      "leaked_full": 0,
+      "leaked_rel": 0,
+      "L_full": null,
+      "L_rel": null,
+      "A": 0.0
+     },
+     "UNION@0.9": {
+      "n_gold": 0,
+      "tp": 0,
+      "fp": 65,
+      "fn": 0,
+      "n_pred": 65,
+      "leaked_full": 0,
+      "leaked_rel": 0,
+      "L_full": null,
+      "L_rel": null,
+      "A": 0.0
+     }
+    }
+   },
+   "NAME": {
+    "n_gold": 158,
+    "sparse": false,
+    "complementarity": {
+     "rules_only": 0,
+     "tagger_only": 148,
+     "both": 0,
+     "neither": 10
+    },
+    "candidates": {
+     "AGREE@0.5": {
+      "n_gold": 158,
+      "tp": 0,
+      "fp": 0,
+      "fn": 158,
+      "n_pred": 0,
+      "leaked_full": 158,
+      "leaked_rel": 158,
+      "L_full": 1.0,
+      "L_rel": 1.0,
+      "A": 0.0
+     },
+     "AGREE@0.7": {
+      "n_gold": 158,
+      "tp": 0,
+      "fp": 0,
+      "fn": 158,
+      "n_pred": 0,
+      "leaked_full": 158,
+      "leaked_rel": 158,
+      "L_full": 1.0,
+      "L_rel": 1.0,
+      "A": 0.0
+     },
+     "AGREE@0.9": {
+      "n_gold": 158,
+      "tp": 0,
+      "fp": 0,
+      "fn": 158,
+      "n_pred": 0,
+      "leaked_full": 158,
+      "leaked_rel": 158,
+      "L_full": 1.0,
+      "L_rel": 1.0,
+      "A": 0.0
+     },
+     "R": {
+      "n_gold": 158,
+      "tp": 0,
+      "fp": 38,
+      "fn": 158,
+      "n_pred": 38,
+      "leaked_full": 158,
+      "leaked_rel": 158,
+      "L_full": 1.0,
+      "L_rel": 1.0,
+      "A": 0.0
+     },
+     "T@0.5": {
+      "n_gold": 158,
+      "tp": 151,
+      "fp": 29,
+      "fn": 7,
+      "n_pred": 180,
+      "leaked_full": 10,
+      "leaked_rel": 7,
+      "L_full": 0.06329113924050633,
+      "L_rel": 0.04430379746835443,
+      "A": 0.8074866310160428
+     },
+     "T@0.7": {
+      "n_gold": 158,
+      "tp": 149,
+      "fp": 24,
+      "fn": 9,
+      "n_pred": 173,
+      "leaked_full": 11,
+      "leaked_rel": 9,
+      "L_full": 0.06962025316455696,
+      "L_rel": 0.056962025316455694,
+      "A": 0.8186813186813187
+     },
+     "T@0.9": {
+      "n_gold": 158,
+      "tp": 143,
+      "fp": 15,
+      "fn": 15,
+      "n_pred": 158,
+      "leaked_full": 16,
+      "leaked_rel": 15,
+      "L_full": 0.10126582278481013,
+      "L_rel": 0.0949367088607595,
+      "A": 0.8265895953757225
+     },
+     "UNION@0.5": {
+      "n_gold": 158,
+      "tp": 151,
+      "fp": 67,
+      "fn": 7,
+      "n_pred": 218,
+      "leaked_full": 10,
+      "leaked_rel": 7,
+      "L_full": 0.06329113924050633,
+      "L_rel": 0.04430379746835443,
+      "A": 0.6711111111111111
+     },
+     "UNION@0.7": {
+      "n_gold": 158,
+      "tp": 149,
+      "fp": 62,
+      "fn": 9,
+      "n_pred": 211,
+      "leaked_full": 11,
+      "leaked_rel": 9,
+      "L_full": 0.06962025316455696,
+      "L_rel": 0.056962025316455694,
+      "A": 0.6772727272727272
+     },
+     "UNION@0.9": {
+      "n_gold": 158,
+      "tp": 143,
+      "fp": 53,
+      "fn": 15,
+      "n_pred": 196,
+      "leaked_full": 16,
+      "leaked_rel": 15,
+      "L_full": 0.10126582278481013,
+      "L_rel": 0.0949367088607595,
+      "A": 0.6777251184834123
+     }
+    }
+   },
+   "ORGANISATION": {
+    "n_gold": 48,
+    "sparse": false,
+    "complementarity": {
+     "rules_only": 0,
+     "tagger_only": 14,
+     "both": 33,
+     "neither": 1
+    },
+    "candidates": {
+     "AGREE@0.5": {
+      "n_gold": 48,
+      "tp": 41,
+      "fp": 8,
+      "fn": 7,
+      "n_pred": 49,
+      "leaked_full": 7,
+      "leaked_rel": 7,
+      "L_full": 0.14583333333333334,
+      "L_rel": 0.14583333333333334,
+      "A": 0.7321428571428571
+     },
+     "AGREE@0.7": {
+      "n_gold": 48,
+      "tp": 41,
+      "fp": 8,
+      "fn": 7,
+      "n_pred": 49,
+      "leaked_full": 7,
+      "leaked_rel": 7,
+      "L_full": 0.14583333333333334,
+      "L_rel": 0.14583333333333334,
+      "A": 0.7321428571428571
+     },
+     "AGREE@0.9": {
+      "n_gold": 48,
+      "tp": 41,
+      "fp": 8,
+      "fn": 7,
+      "n_pred": 49,
+      "leaked_full": 7,
+      "leaked_rel": 7,
+      "L_full": 0.14583333333333334,
+      "L_rel": 0.14583333333333334,
+      "A": 0.7321428571428571
+     },
+     "R": {
+      "n_gold": 48,
+      "tp": 41,
+      "fp": 0,
+      "fn": 7,
+      "n_pred": 41,
+      "leaked_full": 15,
+      "leaked_rel": 7,
+      "L_full": 0.3125,
+      "L_rel": 0.14583333333333334,
+      "A": 0.8541666666666666
+     },
+     "T@0.5": {
+      "n_gold": 48,
+      "tp": 47,
+      "fp": 2,
+      "fn": 1,
+      "n_pred": 49,
+      "leaked_full": 1,
+      "leaked_rel": 1,
+      "L_full": 0.020833333333333332,
+      "L_rel": 0.020833333333333332,
+      "A": 0.94
+     },
+     "T@0.7": {
+      "n_gold": 48,
+      "tp": 47,
+      "fp": 1,
+      "fn": 1,
+      "n_pred": 48,
+      "leaked_full": 1,
+      "leaked_rel": 1,
+      "L_full": 0.020833333333333332,
+      "L_rel": 0.020833333333333332,
+      "A": 0.9591836734693877
+     },
+     "T@0.9": {
+      "n_gold": 48,
+      "tp": 47,
+      "fp": 1,
+      "fn": 1,
+      "n_pred": 48,
+      "leaked_full": 1,
+      "leaked_rel": 1,
+      "L_full": 0.020833333333333332,
+      "L_rel": 0.020833333333333332,
+      "A": 0.9591836734693877
+     },
+     "UNION@0.5": {
+      "n_gold": 48,
+      "tp": 47,
+      "fp": 10,
+      "fn": 1,
+      "n_pred": 57,
+      "leaked_full": 1,
+      "leaked_rel": 1,
+      "L_full": 0.020833333333333332,
+      "L_rel": 0.020833333333333332,
+      "A": 0.8103448275862069
+     },
+     "UNION@0.7": {
+      "n_gold": 48,
+      "tp": 47,
+      "fp": 9,
+      "fn": 1,
+      "n_pred": 56,
+      "leaked_full": 1,
+      "leaked_rel": 1,
+      "L_full": 0.020833333333333332,
+      "L_rel": 0.020833333333333332,
+      "A": 0.8245614035087719
+     },
+     "UNION@0.9": {
+      "n_gold": 48,
+      "tp": 47,
+      "fp": 9,
+      "fn": 1,
+      "n_pred": 56,
+      "leaked_full": 1,
+      "leaked_rel": 1,
+      "L_full": 0.020833333333333332,
+      "L_rel": 0.020833333333333332,
+      "A": 0.8245614035087719
+     }
+    }
+   },
+   "OTHER": {
+    "n_gold": 0,
+    "sparse": false,
+    "complementarity": {
+     "rules_only": 0,
+     "tagger_only": 0,
+     "both": 0,
+     "neither": 0
+    },
+    "candidates": {
+     "AGREE@0.5": {
+      "n_gold": 0,
+      "tp": 0,
+      "fp": 0,
+      "fn": 0,
+      "n_pred": 0,
+      "leaked_full": 0,
+      "leaked_rel": 0,
+      "L_full": null,
+      "L_rel": null,
+      "A": 0.0
+     },
+     "AGREE@0.7": {
+      "n_gold": 0,
+      "tp": 0,
+      "fp": 0,
+      "fn": 0,
+      "n_pred": 0,
+      "leaked_full": 0,
+      "leaked_rel": 0,
+      "L_full": null,
+      "L_rel": null,
+      "A": 0.0
+     },
+     "AGREE@0.9": {
+      "n_gold": 0,
+      "tp": 0,
+      "fp": 0,
+      "fn": 0,
+      "n_pred": 0,
+      "leaked_full": 0,
+      "leaked_rel": 0,
+      "L_full": null,
+      "L_rel": null,
+      "A": 0.0
+     },
+     "R": {
+      "n_gold": 0,
+      "tp": 0,
+      "fp": 0,
+      "fn": 0,
+      "n_pred": 0,
+      "leaked_full": 0,
+      "leaked_rel": 0,
+      "L_full": null,
+      "L_rel": null,
+      "A": 0.0
+     },
+     "T@0.5": {
+      "n_gold": 0,
+      "tp": 0,
+      "fp": 0,
+      "fn": 0,
+      "n_pred": 0,
+      "leaked_full": 0,
+      "leaked_rel": 0,
+      "L_full": null,
+      "L_rel": null,
+      "A": 0.0
+     },
+     "T@0.7": {
+      "n_gold": 0,
+      "tp": 0,
+      "fp": 0,
+      "fn": 0,
+      "n_pred": 0,
+      "leaked_full": 0,
+      "leaked_rel": 0,
+      "L_full": null,
+      "L_rel": null,
+      "A": 0.0
+     },
+     "T@0.9": {
+      "n_gold": 0,
+      "tp": 0,
+      "fp": 0,
+      "fn": 0,
+      "n_pred": 0,
+      "leaked_full": 0,
+      "leaked_rel": 0,
+      "L_full": null,
+      "L_rel": null,
+      "A": 0.0
+     },
+     "UNION@0.5": {
+      "n_gold": 0,
+      "tp": 0,
+      "fp": 0,
+      "fn": 0,
+      "n_pred": 0,
+      "leaked_full": 0,
+      "leaked_rel": 0,
+      "L_full": null,
+      "L_rel": null,
+      "A": 0.0
+     },
+     "UNION@0.7": {
+      "n_gold": 0,
+      "tp": 0,
+      "fp": 0,
+      "fn": 0,
+      "n_pred": 0,
+      "leaked_full": 0,
+      "leaked_rel": 0,
+      "L_full": null,
+      "L_rel": null,
+      "A": 0.0
+     },
+     "UNION@0.9": {
+      "n_gold": 0,
+      "tp": 0,
+      "fp": 0,
+      "fn": 0,
+      "n_pred": 0,
+      "leaked_full": 0,
+      "leaked_rel": 0,
+      "L_full": null,
+      "L_rel": null,
+      "A": 0.0
+     }
+    }
+   },
+   "PROFESSION": {
+    "n_gold": 0,
+    "sparse": false,
+    "complementarity": {
+     "rules_only": 0,
+     "tagger_only": 0,
+     "both": 0,
+     "neither": 0
+    },
+    "candidates": {
+     "AGREE@0.5": {
+      "n_gold": 0,
+      "tp": 0,
+      "fp": 0,
+      "fn": 0,
+      "n_pred": 0,
+      "leaked_full": 0,
+      "leaked_rel": 0,
+      "L_full": null,
+      "L_rel": null,
+      "A": 0.0
+     },
+     "AGREE@0.7": {
+      "n_gold": 0,
+      "tp": 0,
+      "fp": 0,
+      "fn": 0,
+      "n_pred": 0,
+      "leaked_full": 0,
+      "leaked_rel": 0,
+      "L_full": null,
+      "L_rel": null,
+      "A": 0.0
+     },
+     "AGREE@0.9": {
+      "n_gold": 0,
+      "tp": 0,
+      "fp": 0,
+      "fn": 0,
+      "n_pred": 0,
+      "leaked_full": 0,
+      "leaked_rel": 0,
+      "L_full": null,
+      "L_rel": null,
+      "A": 0.0
+     },
+     "R": {
+      "n_gold": 0,
+      "tp": 0,
+      "fp": 0,
+      "fn": 0,
+      "n_pred": 0,
+      "leaked_full": 0,
+      "leaked_rel": 0,
+      "L_full": null,
+      "L_rel": null,
+      "A": 0.0
+     },
+     "T@0.5": {
+      "n_gold": 0,
+      "tp": 0,
+      "fp": 0,
+      "fn": 0,
+      "n_pred": 0,
+      "leaked_full": 0,
+      "leaked_rel": 0,
+      "L_full": null,
+      "L_rel": null,
+      "A": 0.0
+     },
+     "T@0.7": {
+      "n_gold": 0,
+      "tp": 0,
+      "fp": 0,
+      "fn": 0,
+      "n_pred": 0,
+      "leaked_full": 0,
+      "leaked_rel": 0,
+      "L_full": null,
+      "L_rel": null,
+      "A": 0.0
+     },
+     "T@0.9": {
+      "n_gold": 0,
+      "tp": 0,
+      "fp": 0,
+      "fn": 0,
+      "n_pred": 0,
+      "leaked_full": 0,
+      "leaked_rel": 0,
+      "L_full": null,
+      "L_rel": null,
+      "A": 0.0
+     },
+     "UNION@0.5": {
+      "n_gold": 0,
+      "tp": 0,
+      "fp": 0,
+      "fn": 0,
+      "n_pred": 0,
+      "leaked_full": 0,
+      "leaked_rel": 0,
+      "L_full": null,
+      "L_rel": null,
+      "A": 0.0
+     },
+     "UNION@0.7": {
+      "n_gold": 0,
+      "tp": 0,
+      "fp": 0,
+      "fn": 0,
+      "n_pred": 0,
+      "leaked_full": 0,
+      "leaked_rel": 0,
+      "L_full": null,
+      "L_rel": null,
+      "A": 0.0
+     },
+     "UNION@0.9": {
+      "n_gold": 0,
+      "tp": 0,
+      "fp": 0,
+      "fn": 0,
+      "n_pred": 0,
+      "leaked_full": 0,
+      "leaked_rel": 0,
+      "L_full": null,
+      "L_rel": null,
+      "A": 0.0
+     }
+    }
+   }
+  },
+  "rt_baseline": {
+   "tp": 306,
+   "fp": 376,
+   "fn": 13,
+   "n_gold": 319,
+   "n_pred": 682,
+   "L_full": 0.07836990595611286,
+   "L_rel": 0.04075235109717868,
+   "A": 0.44028776978417267,
+   "precision": 0.44868035190615835,
+   "recall": 0.9592476489028213
+  },
+  "rt_sel": {
+   "policies": {
+    "AGE": {
+     "policy": "UNION",
+     "theta": 0.5
+    },
+    "CONTACT": {
+     "policy": "UNION",
+     "theta": 0.5
+    },
+    "DATE": {
+     "policy": "T",
+     "theta": 0.7
+    },
+    "ID": {
+     "policy": "UNION",
+     "theta": 0.5
+    },
+    "LOCATION_AREA": {
+     "policy": "T",
+     "theta": 0.9
+    },
+    "LOCATION_STREET": {
+     "policy": "UNION",
+     "theta": 0.5
+    },
+    "NAME": {
+     "policy": "T",
+     "theta": 0.9
+    },
+    "ORGANISATION": {
+     "policy": "T",
+     "theta": 0.7
+    },
+    "OTHER": {
+     "policy": "UNION",
+     "theta": 0.5
+    },
+    "PROFESSION": {
+     "policy": "UNION",
+     "theta": 0.5
+    }
+   },
+   "achieved": {
+    "tp": 294,
+    "fp": 123,
+    "fn": 25,
+    "n_gold": 319,
+    "n_pred": 417,
+    "L_full": 0.10031347962382445,
+    "L_rel": 0.07836990595611286,
+    "A": 0.665158371040724,
+    "precision": 0.7050359712230215,
+    "recall": 0.9216300940438872
+   },
+   "headline": {
+    "L_full": 0.10031347962382445,
+    "L_rel": 0.07836990595611286,
+    "A": 0.665158371040724,
+    "precision": 0.7050359712230215,
+    "recall": 0.9216300940438872,
+    "f1": 0.7989130434782608,
+    "tp": 294,
+    "fp": 123,
+    "fn": 25,
+    "complementarity_full": {
+     "rules_only": 0,
+     "tagger_only": 287,
+     "both": 0,
+     "joint_only": 0,
+     "neither": 32,
+     "denominator": 319
+    },
+    "D_full": 0.16891891891891891,
+    "gold": 319,
+    "pred": 417,
+    "nongold_masked_rate": null
+   }
+  },
+  "constraint_satisfied": true
+ }
+}

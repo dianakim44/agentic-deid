@@ -244,7 +244,13 @@ def _two_type_corpus() -> tuple[list[Document], dict, dict]:
             tagger_span(40, 45, "NAME", 0.60),  # tagger only, below 0.7
             tagger_span(80, 85, "DATE", 0.95),  # tagger only
             tagger_span(150, 155, "DATE", 0.95),  # false positive
+            # A type the fold has NO gold for, predicted anyway by both halves. This is
+            # what `combine()` dropped until 2026-10-14: no TP, no FN, no leak, and
+            # false positives that belong in A's denominator. On en-deid the real
+            # version of this was 110 of them.
+            tagger_span(170, 175, "LOCATION_STREET", 0.95),
         ]
+        rules[doc_id].append(rule_span(180, 185, "LOCATION_STREET"))
         # the gold at [40,45) NAME is found only by a 0.60 tagger span;
         # nothing covers nothing — every cell is exercised.
     return docs, rules, tagger
@@ -260,7 +266,8 @@ def test_the_table_counts_match_a_full_scorer_run_on_the_same_policy():
     """
     docs, rules, tagger = _two_type_corpus()
     table = sel.build_table(docs, rules, tagger)
-    choices = {"NAME": pol.Choice("UNION", 0.5), "DATE": pol.Choice("R", None)}
+    choices = {**pol.baseline_map(),
+               "NAME": pol.Choice("UNION", 0.5), "DATE": pol.Choice("R", None)}
     summed = sel.combine(table, choices)
 
     merged = {}
@@ -292,7 +299,8 @@ def test_the_table_separability_holds_for_a_mixed_combination():
     table = sel.build_table(docs, rules, tagger)
     for name, date in (("AGREE@0.5", "T@0.5"), ("T@0.9", "UNION@0.9"),
                        ("R", "AGREE@0.5")):
-        choices = {"NAME": _parse(name), "DATE": _parse(date)}
+        choices = {**pol.baseline_map(),
+                   "NAME": _parse(name), "DATE": _parse(date)}
         summed = sel.combine(table, choices)
         merged = {d.doc_id: pol.apply_map(rules[d.doc_id] + tagger[d.doc_id],
                                           choices) for d in docs}
@@ -310,6 +318,47 @@ def _parse(name: str) -> pol.Choice:
         return pol.Choice(name, None)
     policy, theta = name.split("@")
     return pol.Choice(policy, float(theta))
+
+
+def test_a_type_with_no_gold_still_contributes_its_false_positives():
+    """The regression test for the bug the first real-data run found.
+
+    `combine()` skipped types with no dev gold. They contribute no TP, no FN and no
+    leak — and they do contribute false positives, which are in A's denominator and in
+    precision. On `en-deid` the omission dropped 110 FPs and reported A as 0.7287 where
+    `scorer.score()` said 0.5845.
+
+    It was invisible to the original separability test because every type in that
+    fixture either had gold or had no predictions at all, and it is invisible to any
+    comparison between two numbers from this module: §12.2 fixes the no-gold types at
+    the baseline, so their contribution is a constant that cancels in every ranking.
+    Only a comparison against the scorer shows it, which is what this asserts.
+    """
+    docs, rules, tagger = _two_type_corpus()
+    table = sel.build_table(docs, rules, tagger)
+    assert table["LOCATION_STREET"].n_gold == 0
+    assert table["LOCATION_STREET"].candidates["UNION@0.5"].fp > 0, (
+        "the fixture must plant false positives on a type with no gold")
+
+    choices = pol.baseline_map()
+    summed = sel.combine(table, choices)
+    merged = {d.doc_id: pol.apply_map(rules[d.doc_id] + tagger[d.doc_id], choices)
+              for d in docs}
+    pairs, excluded = scorer.from_documents(docs, merged)
+    overall = scorer.score(pairs, excluded_gold=excluded)["modes"][
+        scorer.RELAXED]["overall"]
+    assert summed["fp"] == overall["fp"]
+    assert summed["A"] == pytest.approx(
+        overall["tp"] / (overall["tp"] + overall["fp"] + overall["fn"]))
+
+
+def test_combine_requires_a_choice_for_every_type_including_no_gold_ones():
+    docs, rules, tagger = _two_type_corpus()
+    table = sel.build_table(docs, rules, tagger)
+    partial = {t: c for t, c in pol.baseline_map().items()
+               if t != "LOCATION_STREET"}
+    with pytest.raises(CorpusError, match="LOCATION_STREET"):
+        sel.combine(table, partial)
 
 
 def test_the_complementarity_cells_partition_the_types_gold():

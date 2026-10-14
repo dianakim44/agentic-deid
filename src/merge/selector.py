@@ -202,19 +202,37 @@ def combine(table: dict[str, TypeRow],
     Exact, not approximate — see this module's own note on why. A type absent from
     `choices` is refused for `policy.apply_map`'s reason: the obvious default is the RT
     baseline, and defaulting would make the combination partly RT silently.
+
+    **Every type is summed, including the ones with no dev gold.** That is a correction,
+    made 2026-10-14 after the first real-data run disagreed with `scorer.score()`: this
+    function skipped no-gold types, and on `en-deid` that dropped 110 false positives —
+    105 `LOCATION_STREET` and 5 `ORGANISATION`, both types the fold has no gold for and
+    the detectors predict anyway — which reported A as 0.7287 where the scorer said
+    0.5845.
+
+    A type with no gold contributes no TP, no FN and no leak, so it is tempting to leave
+    out. It contributes **false positives**, and those are in A's denominator and in
+    precision. The effect on the *ranking* of combinations is nil, because §12.2 fixes
+    the no-gold types at the baseline for every combination and their contribution is
+    therefore a constant — which is exactly why this was invisible until a number was
+    compared against the scorer rather than against another number from here.
+
+    `tests/test_merge_policy.py` now plants a no-gold type with false positives, which
+    the original separability test did not: every type in its fixture either had gold or
+    had no predictions at all.
     """
-    missing = sorted(t for t, row in table.items()
-                     if row.n_gold and t not in choices)
+    missing = sorted(set(table) - set(choices))
     if missing:
         raise CorpusError(
-            f"combine() has no choice for type(s) {missing}, which have dev gold. "
-            "Refused rather than defaulted to the RT baseline: a defaulted type would "
-            "make this combination partly RT with nothing recording it."
+            f"combine() has no choice for type(s) {missing}. Every type in the table "
+            "needs one, including types with no dev gold — they emit false positives "
+            "and those are in A's denominator. Refused rather than defaulted to the RT "
+            "baseline: a defaulted type would make this combination partly RT with "
+            "nothing recording it. `select`, `baseline_map` and `fill_absent` all "
+            "return all ten."
         )
     tp = fp = fn = leaked_full = leaked_rel = n_gold = n_pred = 0
     for phi_type, row in table.items():
-        if not row.n_gold:
-            continue
         counts = row.candidates[str(choices[phi_type])]
         tp += counts.tp
         fp += counts.fp

@@ -1,0 +1,31 @@
+{
+ "noaudit_final_rules": {
+  "arms": [
+   "port-loop-noaudit",
+   "port-loop-noaudit-rep2",
+   "port-loop-noaudit-rep3"
+  ],
+  "R": 3,
+  "C": 0.4785175448300675,
+  "runs": 3,
+  "documents": 250,
+  "documents_empty_in_every_run": 0,
+  "identical_in_every_run": 0,
+  "per_document_min": 0.37512512512512514
+ },
+ "meddocan_round1_draws": {
+  "R": 5,
+  "C": null,
+  "not_computable": "probe_call_variance.py wrote each draw to a temporary directory and left no rule files, so the predictions span-level C needs do not exist and cannot be regenerated from a response digest",
+  "on_record_instead": {
+   "measured": "2026-08-21, docs/notes/call-variance.md",
+   "object": "pairwise Jaccard over rule_id sets, not over predicted spans",
+   "pairs": 10,
+   "range": [
+    0.098,
+    0.4286
+   ],
+   "mean": 0.2417
+  }
+ }
+}

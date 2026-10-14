@@ -107,3 +107,6 @@ experiments/hybrid_v24/checkpoints/
 # Arbiter 호출 로그. **/agent_calls.jsonl 과 같은 규율 — 프롬프트·응답·토큰 로그는
 # 저장소 밖 로컬 백업에 둔다. 집계된 비용은 metrics 쪽에 기록된다.
 **/arbiter_calls.jsonl
+# 태거의 dev 예측 캐시. 오프셋·유형만 담고 재생성 가능하므로 커밋하지 않는다 —
+# 발행되는 예측은 results/ 아래 arm 의 spans.jsonl 이다.
+experiments/hybrid_v24/preds/
