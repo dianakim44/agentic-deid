@@ -43,6 +43,7 @@ input to the practice CLAUDE.md forbids. See `config/naming.yaml`'s note on that
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import sys
 import time
@@ -68,6 +69,35 @@ from .scorer import (
 #: and deliberately the same shape as `run_fold.DEFAULT_SPLIT`: the two modules run the
 #: same detection over different folds, and the fold is the one thing that differs.
 SEALED_SPLIT = "test"
+
+#: The one detector for which a declaration of "no rule files" is true, and therefore
+#: the only one it is admissible on. `RT`, `RT-Sel` and `RT-Arb` all compose the rules
+#: half of a hybrid arm; `T` is the tagger alone (DESIGN §12.0).
+#:
+#: The *value* is `base.rules_source_absent()` and is not spelled here — it lands in a
+#: published record, so CLAUDE.md puts it in `config/naming.yaml`. What is spelled here
+#: is the restriction, which is this module's to enforce (DESIGN §12.7).
+
+TAGGER_ONLY_DETECTOR = "T"
+
+#: The rung whose arms compose a tagger with rules (DESIGN §12.0). Branched on by name
+#: through `base.porting_rung`, never by testing the porting string — CLAUDE.md's
+#: prohibition on deriving an axis fact from a value's spelling.
+HYBRID_RUNG = "hybrid"
+
+#: Run-block fields a `port-hybrid` arm must carry, and what each is for.
+#:
+#: `tagger_weights_sha256` is the artefact's identity. It is checked against the file on
+#: disk before a fold is opened, for the reason the pinned-prompt hashes exist: an arm's
+#: identity includes what it ran, and on MPS the seed does not identify the weights
+#: (DESIGN §12.8) — so the hash is the only thing that does.
+#:
+#: `merge_policy` is how the two span sets were composed. Required rather than defaulted
+#: to the RT baseline, because that default is itself one of the arms: a hybrid arm whose
+#: policy had been forgotten would silently be scored as RT and the test number would be
+#: the wrong arm's.
+HYBRID_RUN_FIELDS = ("tagger_weights", "tagger_weights_sha256", "merge_policy",
+                     "tagger_seed", "tagger_epoch", "tagger_commit")
 
 #: Top-level metrics blocks a sealed run copies **verbatim** from the arm's dev record.
 #:
@@ -105,6 +135,37 @@ class SealedEvalError(SealError):
     loader's gate raises the parent, and a caller that distinguished them would be
     deciding that some refusals are less final than others. None of them are.
     """
+
+
+@dataclass(frozen=True)
+class Hybrid:
+    """The tagger half of a `port-hybrid` arm, read from its committed record.
+
+    DESIGN §12.7. Built by `_hybrid` only, which verifies every field before this exists:
+    the weights are on disk, their SHA-256 matches the record, and the merge policy
+    validates against `config/naming.yaml`'s `merge_policy` vocabulary.
+
+    `policy` is held as the validated `Choice` map rather than the raw mapping, so that an
+    undeclared policy name cannot reach the scoring path — the failure would otherwise be
+    a `KeyError` in the middle of a sealed read, which is the worst possible place for it.
+    """
+
+    weights: Path
+    sha256: str
+    policy: dict
+    seed: int
+    epoch: int
+    commit: str
+
+    def record(self) -> dict:
+        """The publishable form. Paths are repo-relative; no weights bytes, no text."""
+        return {
+            "tagger_weights": str(self.weights),
+            "tagger_weights_sha256": self.sha256,
+            "tagger_seed": self.seed,
+            "tagger_epoch": self.epoch,
+            "tagger_commit": self.commit,
+        }
 
 
 @dataclass(frozen=True)
@@ -147,6 +208,13 @@ class ArmPlan:
     #: collection" instead of the value that means "the human's" — the substitution this
     #: whole path exists to prevent has a default as its most likely spelling.
     lexicons: Path | None = None
+    #: The tagger half of a `port-hybrid` arm, or `None` on every other rung. DESIGN §12.7.
+    #:
+    #: `None` is not a fallback: `score_fold` branches on the rung rather than on this
+    #: being set, so a hybrid arm that somehow arrived with `None` raises instead of
+    #: quietly scoring as rules-only — which would publish a test number for the `R`
+    #: detector under a hybrid arm's name.
+    hybrid: Hybrid | None = None
 
     @property
     def arm(self) -> sealed_log.Arm:
@@ -336,13 +404,32 @@ def plan_arm(
         )
 
     sources = run.get("rules_source") or {}
-    if not sources:
+    if sources == base.rules_source_absent():
+        # DESIGN §12.7, amended 2026-10-15 before any hybrid test fold was opened.
+        # The one way to *state* that an arm composes no rule files, admissible on the
+        # one detector for which it is true. `absent` stays refused below on every arm,
+        # including this one: this adds a declaration, not a tolerance.
+        if detector != TAGGER_ONLY_DETECTOR:
+            raise SealedEvalError(
+                f"{rules_relative(dev_file)} declares rules_source "
+                f"{base.rules_source_absent()!r}, which is admissible only on detector "
+                f"{TAGGER_ONLY_DETECTOR!r} and this arm's detector is {detector!r} "
+                "(DESIGN §12.7). That detector composes rule files, so a declaration "
+                "of absence from it is a false record rather than a true record about "
+                "a different kind of arm — and refusal 9 exists to check that the "
+                "files an arm's headline came from are still on disk."
+            )
+        sources = {}
+    elif not sources:
         raise SealedEvalError(
             f"{rules_relative(dev_file)} names no rules_source. That field is which rule "
             "files the arm's headline was computed from (DESIGN §5.3), and it is where "
             "this run's inputs come from — not reconstructed from the axes, because a "
             "reconstruction can agree with the path template while disagreeing with what "
-            "actually ran."
+            f"actually ran. An arm that composes no rule files declares "
+            f"{base.rules_source_absent()!r} (DESIGN §12.7); an absent field is still "
+            "refused, "
+            "because absent and explicitly-absent are different facts."
         )
     rules = {lang: (root or base.ROOT) / rel for lang, rel in sorted(sources.items())}
     missing = sorted(lang for lang, path in rules.items() if not path.exists())
@@ -391,9 +478,85 @@ def plan_arm(
                 "(CLAUDE.md)."
             )
 
+    hybrid = None
+    if base.porting_rung(porting) == HYBRID_RUNG:
+        hybrid = _hybrid(run, dev_file, root)
+
     return ArmPlan(
         corpus=corpus, detector=detector, supervision=supervision, porting=porting,
-        iteration=iteration, rules=rules, dev=dev, lexicons=lexicons,
+        iteration=iteration, rules=rules, dev=dev, lexicons=lexicons, hybrid=hybrid,
+    )
+
+
+def _hybrid(run: Mapping, dev_file: Path, root: Path | None) -> Hybrid:
+    """The tagger half, read off the arm's record and verified. DESIGN §12.7.
+
+    Everything here refuses before the fold is opened, which is the only reason it is in
+    `plan_arm` rather than in `score_fold`: a hash mismatch discovered halfway through a
+    sealed read has already spent the opening.
+
+    Three refusals, each for its own reason:
+
+      1. **A missing field.** All six are required, for `rules_source`'s reason — a field
+         some arms omit is a field that cannot be compared across arms.
+      2. **A weights file that is absent, or whose SHA-256 is not the recorded one.** The
+         same rule the pinned prompts follow: an arm's identity includes the artefact it
+         ran, and on MPS the seed does not identify the weights (DESIGN §12.8), so this
+         hash is the only thing that does. A mismatch means the file was retrained or
+         replaced, and the dev number this test number would be compared against came
+         from the other one.
+      3. **A merge policy that does not validate.** Checked here, through the same
+         `merge_policy` vocabulary the dev run used, so an undeclared policy name cannot
+         reach the scoring path — there it would surface as a `KeyError` in the middle of
+         a sealed read.
+    """
+    from ..merge import policy as merge_policy
+
+    missing = [field for field in HYBRID_RUN_FIELDS if field not in run]
+    if missing:
+        raise SealedEvalError(
+            f"{rules_relative(dev_file)} is a {HYBRID_RUNG!r} arm and its run block "
+            f"names no {missing}. DESIGN §12.7 requires all of "
+            f"{list(HYBRID_RUN_FIELDS)}: the weights hash is the arm's identity (the "
+            "seed is not — §12.8), and the merge policy is how the two span sets were "
+            "composed. The policy is required rather than defaulted to the RT baseline "
+            "because that default is itself one of the arms, so a forgotten policy "
+            "would silently score this arm as RT."
+        )
+    weights = (root or base.ROOT) / run["tagger_weights"]
+    model_file = weights / "model.safetensors"
+    if not model_file.is_file():
+        raise SealedEvalError(
+            f"the tagger weights named by {rules_relative(dev_file)} are not on disk "
+            f"({weights.name}/model.safetensors). The sealed run scores the arm's own "
+            "weights and nothing else; weights are gitignored (trained on credentialed "
+            "corpora), so an absent file is a local artefact that was moved or deleted "
+            "rather than a record that was wrong."
+        )
+    digest = hashlib.sha256(model_file.read_bytes()).hexdigest()
+    if digest != run["tagger_weights_sha256"]:
+        raise SealedEvalError(
+            f"the tagger weights on disk hash to {digest[:16]}… and "
+            f"{rules_relative(dev_file)} records "
+            f"{str(run['tagger_weights_sha256'])[:16]}…. These are different weights. "
+            "Training is not reproducible from the seed on MPS (DESIGN §12.8), so the "
+            "hash is the only identification available and a mismatch means the dev "
+            "number this test number would be compared against came from a different "
+            "model."
+        )
+    try:
+        policy = merge_policy.from_record(run["merge_policy"])
+    except (base.CorpusError, KeyError, TypeError) as exc:
+        raise SealedEvalError(
+            f"{rules_relative(dev_file)}'s merge_policy does not validate against "
+            f"config/naming.yaml: {exc}. Checked before the fold is opened rather than "
+            "at the merge, where an undeclared policy name is a KeyError in the middle "
+            "of a sealed read."
+        ) from None
+    return Hybrid(
+        weights=weights, sha256=run["tagger_weights_sha256"], policy=policy,
+        seed=run["tagger_seed"], epoch=run["tagger_epoch"],
+        commit=run["tagger_commit"],
     )
 
 
@@ -581,6 +744,61 @@ def _verify_frozen_split(loader: base.CorpusLoader, corpus_id: str) -> None:
 # ─── scoring ────────────────────────────────────────────────────────────────
 
 
+def _detect_hybrid(plan: ArmPlan, docs: Sequence[Document]) -> dict:
+    """Rules plus tagger, composed by the arm's recorded merge policy. DESIGN §12.7.
+
+    **The rules half is `detect_fold`, the same call every other arm makes.** Not a
+    reimplementation: this module's rule is that it adds the seal's guarantees and does
+    not add a second answer to "did this rule fire". For `detector: T` there is no rules
+    half at all — `plan.rules` is empty, so the ruleset is skipped entirely rather than
+    loaded and found to contain nothing.
+
+    The tagger half loads the weights the plan verified and runs the same windowing,
+    reconciliation and decoding `src/tagger` uses on dev. The import is local because
+    `torch` and `transformers` are a multi-second import and no rules-only arm should pay
+    it to open a fold.
+
+    Nothing here logs a document, a token string or a span surface. The tagger's own
+    modules hold that rule (`src/tagger/__init__.py`) and this adds no message that
+    could break it.
+    """
+    from ..merge import policy as merge_policy
+    from ..tagger.train import predict as tagger_predict
+
+    if plan.hybrid is None:
+        raise SealedEvalError(
+            f"{plan.corpus} {plan.arm.cell} is on the {HYBRID_RUNG!r} rung and arrived "
+            "with no tagger half. Refused rather than scored as rules-only: that would "
+            "publish a test number computed from the rules alone under a hybrid arm's "
+            "name, and nothing in the record would say so."
+        )
+
+    import torch
+    from transformers import AutoModelForTokenClassification, AutoTokenizer
+
+    rules_by_doc: dict[str, list] = {doc.doc_id: [] for doc in docs}
+    if plan.rules:
+        ruleset = load_for_corpus(plan.corpus, paths=plan.rules,
+                                  lexicons=plan.lexicons)
+        rules_by_doc.update(detect_fold(docs, ruleset, detector=plan.detector))
+
+    device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
+    tokenizer = AutoTokenizer.from_pretrained(plan.hybrid.weights)
+    model = AutoModelForTokenClassification.from_pretrained(
+        plan.hybrid.weights).to(device)
+    tagger_by_doc = tagger_predict(model, tokenizer, list(docs), device,
+                                   detector=plan.detector)
+
+    return {
+        doc.doc_id: merge_policy.apply_map(
+            list(rules_by_doc.get(doc.doc_id, ()))
+            + list(tagger_by_doc.get(doc.doc_id, ())),
+            plan.hybrid.policy,
+        )
+        for doc in docs
+    }
+
+
 def score_fold(
     plan: ArmPlan, docs: Sequence[Document], *, split: str
 ) -> tuple[dict, float]:
@@ -603,13 +821,18 @@ def score_fold(
             f"split file assigns folds (splits/{plan.corpus}.json); an empty fold means "
             "the corpus on disk and the frozen split disagree, and nothing was scored."
         )
-    # `lexicons` from the plan, which read it off the arm's own record and refused every way
-    # it could have gone wrong (`_lexicon_root`). `None` here is not a fallback: a `lexicon:`
-    # rule arriving with it refuses to load, which is what an arm whose lists have vanished
-    # should do.
-    ruleset = load_for_corpus(plan.corpus, paths=plan.rules, lexicons=plan.lexicons)
     started = time.monotonic()
-    predictions = detect_fold(subset, ruleset, detector=plan.detector)
+    if base.porting_rung(plan.porting) == HYBRID_RUNG:
+        # DESIGN §12.7's branch. Additive: the rules-only path below is untouched, and
+        # this one calls the same `detect_fold` for its rules half.
+        predictions = _detect_hybrid(plan, subset)
+    else:
+        # `lexicons` from the plan, which read it off the arm's own record and refused every
+        # way it could have gone wrong (`_lexicon_root`). `None` here is not a fallback: a
+        # `lexicon:` rule arriving with it refuses to load, which is what an arm whose lists
+        # have vanished should do.
+        ruleset = load_for_corpus(plan.corpus, paths=plan.rules, lexicons=plan.lexicons)
+        predictions = detect_fold(subset, ruleset, detector=plan.detector)
     elapsed = time.monotonic() - started
     pairs, excluded = from_documents(subset, predictions)
     # The same derivation `run_fold` makes, over the documents this call was handed — which

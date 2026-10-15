@@ -7,22 +7,70 @@
     "porting": "port-hybrid",
     "split": "dev",
     "model_id": "none",
-    "generated": "2026-10-15T00:23:50Z",
-    "commit": "2cde73dcd918145ac61084a448c3bdb68076fb10",
+    "generated": "2026-10-15T01:55:13Z",
+    "commit": "9f1a9c8376ad7589115ff311d393ea12273cc960",
     "tree": "dirty",
+    "tagger_weights": "experiments/hybrid_v24/weights/seed1",
+    "tagger_weights_sha256": "743f3be33b2c98584ad039ee171464170e6e2551fb4c870e67ccf02d851439d3",
+    "tagger_seed": 1,
+    "tagger_epoch": 5,
+    "tagger_commit": "2542ee955f7bf3be2afdde6515cd1328a481b638",
+    "merge_policy": {
+      "AGE": {
+        "policy": "T",
+        "theta": 0.5
+      },
+      "CONTACT": {
+        "policy": "T",
+        "theta": 0.5
+      },
+      "DATE": {
+        "policy": "T",
+        "theta": 0.5
+      },
+      "ID": {
+        "policy": "T",
+        "theta": 0.5
+      },
+      "LOCATION_AREA": {
+        "policy": "T",
+        "theta": 0.5
+      },
+      "LOCATION_STREET": {
+        "policy": "T",
+        "theta": 0.5
+      },
+      "NAME": {
+        "policy": "T",
+        "theta": 0.5
+      },
+      "ORGANISATION": {
+        "policy": "T",
+        "theta": 0.5
+      },
+      "OTHER": {
+        "policy": "T",
+        "theta": 0.5
+      },
+      "PROFESSION": {
+        "policy": "T",
+        "theta": 0.5
+      }
+    },
+    "rules_source": "none_declared",
     "scorer_version": 1
   },
   "cost": {
     "llm_calls": 0,
     "prompt_tokens": 0,
     "completion_tokens": 0,
-    "wall_seconds": 0.0
+    "wall_seconds": 0.6
   },
   "cost_to_date": {
     "llm_calls": 0,
     "prompt_tokens": 0,
     "completion_tokens": 0,
-    "wall_seconds": 0.0
+    "wall_seconds": 0.6
   },
   "termination": {
     "reason": "not_applicable",
@@ -430,7 +478,142 @@
         "gold": 5
       },
       "by_rule": {},
-      "duplicate_predictions": 0
+      "duplicate_predictions": 0,
+      "by_document_type": {
+        "multi_label": true,
+        "documents": 19,
+        "documents_labelled": 17,
+        "documents_unlabelled": 2,
+        "labels_per_document_mean": 2.0,
+        "labels": {
+          "radiology": {
+            "documents": 13,
+            "documents_with_gold_phi": 13,
+            "gold": 286,
+            "pred": 298,
+            "leaked": 10,
+            "leak_rate": 0.03496503496503497,
+            "tp": 276,
+            "fp": 22,
+            "fn": 10,
+            "precision": 0.9261744966442953,
+            "recall": 0.965034965034965,
+            "f1": 0.9452054794520547
+          },
+          "pathology": {
+            "documents": 3,
+            "documents_with_gold_phi": 3,
+            "gold": 99,
+            "pred": 100,
+            "leaked": 1,
+            "leak_rate": 0.010101010101010102,
+            "tp": 98,
+            "fp": 2,
+            "fn": 1,
+            "precision": 0.98,
+            "recall": 0.98989898989899,
+            "f1": 0.9849246231155778
+          },
+          "outpatient": {
+            "documents": 6,
+            "documents_with_gold_phi": 6,
+            "gold": 156,
+            "pred": 164,
+            "leaked": 5,
+            "leak_rate": 0.03205128205128205,
+            "tp": 151,
+            "fp": 13,
+            "fn": 5,
+            "precision": 0.9207317073170732,
+            "recall": 0.967948717948718,
+            "f1": 0.9437500000000001
+          },
+          "laboratory": {
+            "documents": 7,
+            "documents_with_gold_phi": 7,
+            "gold": 185,
+            "pred": 188,
+            "leaked": 5,
+            "leak_rate": 0.02702702702702703,
+            "tp": 179,
+            "fp": 9,
+            "fn": 6,
+            "precision": 0.9521276595744681,
+            "recall": 0.9675675675675676,
+            "f1": 0.9597855227882037
+          },
+          "progress_note": {
+            "documents": 7,
+            "documents_with_gold_phi": 7,
+            "gold": 171,
+            "pred": 182,
+            "leaked": 11,
+            "leak_rate": 0.06432748538011696,
+            "tp": 160,
+            "fp": 22,
+            "fn": 11,
+            "precision": 0.8791208791208791,
+            "recall": 0.935672514619883,
+            "f1": 0.9065155807365438
+          },
+          "discharge": {
+            "documents": 0,
+            "documents_with_gold_phi": 0,
+            "gold": 0,
+            "pred": 0,
+            "leaked": 0,
+            "leak_rate": null,
+            "tp": 0,
+            "fp": 0,
+            "fn": 0,
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1": 0.0
+          },
+          "tumour_board": {
+            "documents": 2,
+            "documents_with_gold_phi": 2,
+            "gold": 83,
+            "pred": 85,
+            "leaked": 1,
+            "leak_rate": 0.012048192771084338,
+            "tp": 82,
+            "fp": 3,
+            "fn": 1,
+            "precision": 0.9647058823529412,
+            "recall": 0.9879518072289156,
+            "f1": 0.9761904761904762
+          },
+          "operation_report": {
+            "documents": 0,
+            "documents_with_gold_phi": 0,
+            "gold": 0,
+            "pred": 0,
+            "leaked": 0,
+            "leak_rate": null,
+            "tp": 0,
+            "fp": 0,
+            "fn": 0,
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1": 0.0
+          }
+        },
+        "unlabelled": {
+          "documents": 2,
+          "documents_with_gold_phi": 2,
+          "gold": 29,
+          "pred": 31,
+          "leaked": 1,
+          "leak_rate": 0.034482758620689655,
+          "tp": 28,
+          "fp": 3,
+          "fn": 1,
+          "precision": 0.9032258064516129,
+          "recall": 0.9655172413793104,
+          "f1": 0.9333333333333333
+        }
+      }
     },
     "relaxed": {
       "leak": {
@@ -781,7 +964,142 @@
         "gold": 5
       },
       "by_rule": {},
-      "duplicate_predictions": 0
+      "duplicate_predictions": 0,
+      "by_document_type": {
+        "multi_label": true,
+        "documents": 19,
+        "documents_labelled": 17,
+        "documents_unlabelled": 2,
+        "labels_per_document_mean": 2.0,
+        "labels": {
+          "radiology": {
+            "documents": 13,
+            "documents_with_gold_phi": 13,
+            "gold": 286,
+            "pred": 298,
+            "leaked": 6,
+            "leak_rate": 0.02097902097902098,
+            "tp": 280,
+            "fp": 18,
+            "fn": 6,
+            "precision": 0.9395973154362416,
+            "recall": 0.9790209790209791,
+            "f1": 0.958904109589041
+          },
+          "pathology": {
+            "documents": 3,
+            "documents_with_gold_phi": 3,
+            "gold": 99,
+            "pred": 100,
+            "leaked": 1,
+            "leak_rate": 0.010101010101010102,
+            "tp": 98,
+            "fp": 2,
+            "fn": 1,
+            "precision": 0.98,
+            "recall": 0.98989898989899,
+            "f1": 0.9849246231155778
+          },
+          "outpatient": {
+            "documents": 6,
+            "documents_with_gold_phi": 6,
+            "gold": 156,
+            "pred": 164,
+            "leaked": 2,
+            "leak_rate": 0.01282051282051282,
+            "tp": 154,
+            "fp": 10,
+            "fn": 2,
+            "precision": 0.9390243902439024,
+            "recall": 0.9871794871794872,
+            "f1": 0.9625
+          },
+          "laboratory": {
+            "documents": 7,
+            "documents_with_gold_phi": 7,
+            "gold": 185,
+            "pred": 188,
+            "leaked": 4,
+            "leak_rate": 0.021621621621621623,
+            "tp": 180,
+            "fp": 8,
+            "fn": 5,
+            "precision": 0.9574468085106383,
+            "recall": 0.972972972972973,
+            "f1": 0.9651474530831101
+          },
+          "progress_note": {
+            "documents": 7,
+            "documents_with_gold_phi": 7,
+            "gold": 171,
+            "pred": 182,
+            "leaked": 5,
+            "leak_rate": 0.029239766081871343,
+            "tp": 166,
+            "fp": 16,
+            "fn": 5,
+            "precision": 0.9120879120879121,
+            "recall": 0.9707602339181286,
+            "f1": 0.9405099150141643
+          },
+          "discharge": {
+            "documents": 0,
+            "documents_with_gold_phi": 0,
+            "gold": 0,
+            "pred": 0,
+            "leaked": 0,
+            "leak_rate": null,
+            "tp": 0,
+            "fp": 0,
+            "fn": 0,
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1": 0.0
+          },
+          "tumour_board": {
+            "documents": 2,
+            "documents_with_gold_phi": 2,
+            "gold": 83,
+            "pred": 85,
+            "leaked": 0,
+            "leak_rate": 0.0,
+            "tp": 83,
+            "fp": 2,
+            "fn": 0,
+            "precision": 0.9764705882352941,
+            "recall": 1.0,
+            "f1": 0.988095238095238
+          },
+          "operation_report": {
+            "documents": 0,
+            "documents_with_gold_phi": 0,
+            "gold": 0,
+            "pred": 0,
+            "leaked": 0,
+            "leak_rate": null,
+            "tp": 0,
+            "fp": 0,
+            "fn": 0,
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1": 0.0
+          }
+        },
+        "unlabelled": {
+          "documents": 2,
+          "documents_with_gold_phi": 2,
+          "gold": 29,
+          "pred": 31,
+          "leaked": 0,
+          "leak_rate": 0.0,
+          "tp": 29,
+          "fp": 2,
+          "fn": 0,
+          "precision": 0.9354838709677419,
+          "recall": 1.0,
+          "f1": 0.9666666666666666
+        }
+      }
     }
   },
   "false_positive_opportunity": {

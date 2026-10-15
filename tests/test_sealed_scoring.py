@@ -22,10 +22,12 @@ would take for a sealed evaluation that never happened.
 """
 from __future__ import annotations
 
+import hashlib
 import inspect
 import json
 import os
 import sys
+from pathlib import Path
 
 import pytest
 
@@ -35,6 +37,7 @@ sys.path.insert(0, ROOT)
 from src.corpora.base import (  # noqa: E402
     SealError, axis, porting_repetition_of, porting_repetitions,
 )
+from src.corpora import base  # noqa: E402
 from src.eval import run_sealed_eval, sealed_log  # noqa: E402
 from src.eval.run_fold import DEFAULT_SPLIT, run_fold  # noqa: E402
 from src.eval.scorer import (  # noqa: E402
@@ -1022,14 +1025,23 @@ def test_count_runs_still_keys_on_the_corpus_column(temp_log):
     """The `round` column went in at cell 7 so this index did not move.
 
     `+ 1` rather than `== 1`: `temp_log` copies the real log, so an absolute count here
-    asserts that no fold has ever been opened. That became false on 2026-08-28. The
-    zero for the unopened corpus stays absolute, because that is the claim being made —
-    rows are attributed to the corpus in their own column and not to every corpus.
+    asserts that no fold has ever been opened. That became false on 2026-08-28.
+
+    **The other corpus's count is now relative too, for the same reason one step later.**
+    It was an absolute zero on the ground that the zero *was* the claim — rows are
+    attributed to the corpus in their own column and not to every corpus. That reading
+    held only while `de-grascco` had never been opened, and on 2026-10-15 it was opened
+    (v24 §5), so the absolute form went red while the claim it stood for stayed true.
+    Stated relatively, the claim is tested directly: appending a row for one corpus moves
+    that corpus's count and no other's. This is the third time in this repository that a
+    control written as an absolute count went red because the experiment it protects
+    made progress, and the fix is the same each time.
     """
     before = sealed_log.count_runs(CORPUS)
+    other_before = sealed_log.count_runs("de-grascco")
     sealed_log.record_access(CORPUS, arm=ARM, iteration=ROUND, purpose="one")
     assert sealed_log.count_runs(CORPUS) == before + 1
-    assert sealed_log.count_runs("de-grascco") == 0
+    assert sealed_log.count_runs("de-grascco") == other_before
 
 
 def test_the_committed_log_has_nine_columns():
@@ -1135,3 +1147,204 @@ def _write(root, arm_record, *, run, sealed, iteration=None):
     return write_metrics(
         scored, run=run, sealed=sealed, iteration=iteration, root=root, **blocks
     )
+
+
+# ─── DESIGN §12.7: the hybrid rung's two amendments, 2026-10-15 ─────────────
+#
+# Both were found by the §5 preflight refusing to open, and both are additive: the
+# rules-only path above is unchanged and every test above it still passes. What is
+# asserted here is the new branch and, as importantly, that the old one did not move.
+
+HYBRID = {"detector": "T", "supervision": "sup-human", "porting": "port-hybrid"}
+
+
+def _hybrid_record(arm_record, weights_dir, root, **overrides):
+    """A `port-hybrid` dev record: the real arm's blocks with hybrid run fields.
+
+    Built from a real terminated record rather than a hand-written one so that every
+    refusal *above* this section has already been satisfied — otherwise a test here could
+    pass because an earlier refusal fired, which is the "cannot say which guard rejected
+    it" family CLAUDE.md names.
+    """
+    import copy
+    record = copy.deepcopy(arm_record)
+    record["run"].update({
+        **HYBRID,
+        "rules_source": base.rules_source_absent(),
+        # The path is recorded **root-relative** (the planner resolves it against
+        # `root`) and the hash is taken from the **absolute** file. Taking both from the
+        # relative path read the real seed-1 weights out of the repository instead of the
+        # fixture's, so the record carried a hash of a file the test never wrote.
+        "tagger_weights": str(weights_dir.relative_to(root)),
+        "tagger_weights_sha256": hashlib.sha256(
+            (weights_dir / "model.safetensors").read_bytes()).hexdigest(),
+        "tagger_seed": 1,
+        "tagger_epoch": 5,
+        "tagger_commit": "2542ee955f7bf3be2afdde6515cd1328a481b638",
+        "merge_policy": {t: {"policy": "T", "theta": 0.5}
+                         for t in base.canonical_types()},
+    })
+    record["run"].update(overrides.pop("run", {}))
+    record["termination"] = {**record["termination"], "reason": "not_applicable",
+                             "iterations": 1, "converged": False}
+    for key, value in overrides.items():
+        record[key] = value
+    return record
+
+
+@pytest.fixture
+def weights(tmp_path):
+    """A stand-in weights directory. Only its bytes and hash matter to the planner."""
+    directory = tmp_path / "experiments" / "hybrid_v24" / "weights" / "seed1"
+    directory.mkdir(parents=True)
+    (directory / "model.safetensors").write_bytes(b"not a real checkpoint")
+    return directory
+
+
+def test_a_tagger_only_arm_may_declare_that_it_composes_no_rule_files(
+        tmp_path, arm_record, weights):
+    """The amendment's permitted case, so the refusals below are not vacuously green.
+
+    `detector: T` has no rule files because it uses none, and before 2026-10-15 refusal 9
+    could not tell that from a record written incompletely.
+    """
+    record = _hybrid_record(arm_record, weights, tmp_path)
+    _plant(tmp_path, record, **HYBRID)
+    plan = run_sealed_eval.plan_arm(corpus=CORPUS, **HYBRID, iteration=1,
+                                    root=tmp_path)
+    assert plan.rules == {}, "a tagger-only arm plans with no rule files"
+    assert plan.hybrid is not None
+    assert plan.hybrid.seed == 1 and plan.hybrid.epoch == 5
+    assert set(plan.hybrid.policy) == set(base.canonical_types())
+
+
+def test_a_tagger_only_arm_with_no_rules_source_field_is_still_refused(
+        tmp_path, arm_record, weights):
+    """The amendment adds a way to *state* absence, not a tolerance for omission.
+
+    This is the distinction the whole thing turns on, and it is the one `model_id_absent`
+    already draws: absent is refused, explicitly-absent is recorded.
+    """
+    record = _hybrid_record(arm_record, weights, tmp_path)
+    del record["run"]["rules_source"]
+    _plant(tmp_path, record, **HYBRID)
+    with pytest.raises(SealError, match="names no rules_source"):
+        run_sealed_eval.plan_arm(corpus=CORPUS, **HYBRID, iteration=1, root=tmp_path)
+
+
+@pytest.mark.parametrize("detector", ["R", "RT", "RT-Sel", "RT-Arb"])
+def test_only_the_tagger_only_detector_may_declare_no_rule_files(
+        tmp_path, arm_record, weights, detector):
+    """`RT`, `RT-Sel` and `RT-Arb` all compose rule files, so a declaration of absence
+    from one of them is a false record — not a true record about a different kind of arm.
+
+    `R` is in the list because the amendment must not have widened the rules-only path
+    either: the arm that has always been required to name its rules still is.
+    """
+    axes = {**HYBRID, "detector": detector}
+    record = _hybrid_record(arm_record, weights, tmp_path)
+    record["run"]["detector"] = detector
+    _plant(tmp_path, record, **axes)
+    with pytest.raises(SealError, match="admissible only on detector"):
+        run_sealed_eval.plan_arm(corpus=CORPUS, **axes, iteration=1, root=tmp_path)
+
+
+def test_a_weights_hash_that_does_not_match_the_file_is_refused(
+        tmp_path, arm_record, weights):
+    """The arm's identity includes the artefact it ran.
+
+    Training is not reproducible from the seed on MPS (DESIGN §12.8), so this hash is the
+    only identification available — a mismatch means the dev number this test number
+    would be compared against came from a different model.
+    """
+    record = _hybrid_record(arm_record, weights, tmp_path)
+    record["run"]["tagger_weights_sha256"] = "0" * 64
+    _plant(tmp_path, record, **HYBRID)
+    with pytest.raises(SealError, match="These are different weights"):
+        run_sealed_eval.plan_arm(corpus=CORPUS, **HYBRID, iteration=1, root=tmp_path)
+
+
+def test_weights_that_are_not_on_disk_are_refused(tmp_path, arm_record, weights):
+    """Weights are gitignored, so an absent file is a local artefact that moved rather
+    than a record that was wrong — and the message says so."""
+    record = _hybrid_record(arm_record, weights, tmp_path)
+    (weights / "model.safetensors").unlink()
+    _plant(tmp_path, record, **HYBRID)
+    with pytest.raises(SealError, match="not on disk"):
+        run_sealed_eval.plan_arm(corpus=CORPUS, **HYBRID, iteration=1, root=tmp_path)
+
+
+@pytest.mark.parametrize("field", run_sealed_eval.HYBRID_RUN_FIELDS)
+def test_every_hybrid_run_field_is_required(tmp_path, arm_record, weights, field):
+    record = _hybrid_record(arm_record, weights, tmp_path)
+    del record["run"][field]
+    _plant(tmp_path, record, **HYBRID)
+    with pytest.raises(SealError, match="names no"):
+        run_sealed_eval.plan_arm(corpus=CORPUS, **HYBRID, iteration=1, root=tmp_path)
+
+
+def test_a_missing_merge_policy_is_refused_and_not_defaulted_to_the_rt_baseline(
+        tmp_path, arm_record, weights):
+    """The default that suggests itself is `UNION@0.5` everywhere, which **is** the RT
+    arm — so a forgotten policy would silently score this arm as RT and publish the wrong
+    arm's test number. The message has to say that, because the refusal looks
+    over-strict without it."""
+    record = _hybrid_record(arm_record, weights, tmp_path)
+    del record["run"]["merge_policy"]
+    _plant(tmp_path, record, **HYBRID)
+    with pytest.raises(SealError) as exc:
+        run_sealed_eval.plan_arm(corpus=CORPUS, **HYBRID, iteration=1, root=tmp_path)
+    assert "merge_policy" in str(exc.value)
+    assert "RT" in str(exc.value)
+
+
+@pytest.mark.parametrize("policy", [
+    {"NAME": {"policy": "INTERSECT", "theta": 0.5}},
+    {"NAME": {"policy": "R", "theta": 0.5}},
+    {"NAME": {"policy": "T", "theta": 0.8}},
+    {"NOT_A_TYPE": {"policy": "T", "theta": 0.5}},
+])
+def test_a_merge_policy_that_does_not_validate_is_refused_before_the_fold_opens(
+        tmp_path, arm_record, weights, policy):
+    """Checked in `plan_arm`, not at the merge.
+
+    At the merge an undeclared policy name is a `KeyError` in the middle of a sealed
+    read, which has already spent the opening — and §6.4 grants one per arm.
+    """
+    record = _hybrid_record(arm_record, weights, tmp_path)
+    record["run"]["merge_policy"] = policy
+    _plant(tmp_path, record, **HYBRID)
+    with pytest.raises(SealError, match="does not validate"):
+        run_sealed_eval.plan_arm(corpus=CORPUS, **HYBRID, iteration=1, root=tmp_path)
+
+
+def test_a_rules_only_arm_plans_with_no_hybrid_half(plan):
+    """The other side of the branch: the rung decides, and a rules arm is untouched."""
+    assert plan.hybrid is None
+
+
+def test_the_hybrid_scorer_refuses_an_arm_that_arrived_without_its_tagger_half():
+    """`score_fold` branches on the **rung**, not on `hybrid` being set.
+
+    So a hybrid arm that somehow reached scoring with `None` raises instead of quietly
+    scoring as rules-only — which would publish a test number computed from the rules
+    alone under a hybrid arm's name, with nothing in the record saying so.
+    """
+    import dataclasses
+
+    bare = run_sealed_eval.ArmPlan(
+        corpus=CORPUS, **HYBRID, iteration=1, rules={}, dev={}, hybrid=None)
+    assert bare.hybrid is None
+    with pytest.raises(SealError, match="no tagger half"):
+        run_sealed_eval._detect_hybrid(bare, [])
+
+
+def test_the_value_for_no_rule_files_comes_from_naming_and_not_a_literal():
+    """CLAUDE.md: a value that lands in a published record is defined in the config.
+
+    Two modules read it — the driver that writes the record and this gate that checks it —
+    which is exactly the pair a literal would let drift.
+    """
+    assert base.rules_source_absent() == "none_declared"
+    source = Path(run_sealed_eval.__file__).read_text(encoding="utf-8")
+    assert '"none_declared"' not in source and "'none_declared'" not in source

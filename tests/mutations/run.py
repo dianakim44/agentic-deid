@@ -8313,6 +8313,89 @@ MUTATIONS = [
         ),
         min_kills=2,
     ),
+    # ─── DESIGN §12.7's hybrid branch (2026-10-15 amendment) ────────────────
+    # Four guarantees, added with the branch. The branch widened the one gate CLAUDE.md
+    # says voids the experiment if it is wrong, so each of these is a way the widening
+    # could have been wider than it was documented to be — and three of the four make a
+    # *passing* sealed run that scores the wrong thing.
+    Mutation(
+        name="no_rule_files_is_declarable_on_any_detector",
+        path=RUN_SEALED,
+        anchor="        if detector != TAGGER_ONLY_DETECTOR:",
+        replacement="        if False:",
+        breaks=(
+            "The §12.7 amendment loses its one restriction. `rules_source: "
+            "\"none_declared\"` becomes admissible on `R`, `RT`, `RT-Sel` and "
+            "`RT-Arb` — every arm that does compose rule files — so refusal 9 stops "
+            "checking that those files are still on disk for exactly the arms it was "
+            "written for. The amendment was authorised as one value on one detector; "
+            "this is the general 'rules_source may be empty' that was refused.\n"
+            "\n"
+            "Caught by `test_only_the_tagger_only_detector_may_declare_no_rule_files` "
+            "(four detectors, parametrised)."
+        ),
+        min_kills=4,
+    ),
+    Mutation(
+        name="the_tagger_weights_hash_is_not_checked",
+        path=RUN_SEALED,
+        anchor="    if digest != run[\"tagger_weights_sha256\"]:",
+        replacement="    if False:",
+        breaks=(
+            "A sealed run proceeds with whatever weights happen to be at the recorded "
+            "path. Training is not reproducible from the seed on MPS (DESIGN §12.8), so "
+            "the hash is the **only** identification these weights have — without it a "
+            "retrained or replaced file scores the test fold while the dev number it is "
+            "compared against came from a different model, and nothing in either record "
+            "shows it. The weights are gitignored, so no reviewer can check by hand.\n"
+            "\n"
+            "Caught by `test_a_weights_hash_that_does_not_match_the_file_is_refused`."
+        ),
+        min_kills=1,
+    ),
+    Mutation(
+        name="a_hybrid_arm_may_omit_its_merge_policy",
+        path=RUN_SEALED,
+        anchor="    missing = [field for field in HYBRID_RUN_FIELDS if field not in run]",
+        replacement=("    missing = [field for field in HYBRID_RUN_FIELDS\n"
+                     "               if field not in run and field != \"merge_policy\"]"),
+        breaks=(
+            "A hybrid arm with no recorded merge policy is planned instead of refused, "
+            "and `_hybrid` then raises a `KeyError` — or, worse, a future caller "
+            "supplies the obvious default. The obvious default is `UNION@0.5` "
+            "everywhere, which **is** the RT arm, so the failure mode this refusal "
+            "prevents is T, RT-Sel or RT-Arb silently scoring the sealed fold as RT and "
+            "publishing it under its own name.\n"
+            "\n"
+            "Caught by "
+            "`test_a_missing_merge_policy_is_refused_and_not_defaulted_to_the_rt_baseline`"
+            " and by the `merge_policy` case of `test_every_hybrid_run_field_is_required`."
+        ),
+        min_kills=2,
+    ),
+    Mutation(
+        name="a_hybrid_arm_falls_back_to_rules_only_scoring",
+        path=RUN_SEALED,
+        anchor="    if base.porting_rung(plan.porting) == HYBRID_RUNG:",
+        replacement="    if plan.hybrid is not None:",
+        breaks=(
+            "`score_fold` branches on whether the tagger half happens to be set instead "
+            "of on the rung. The two agree whenever `plan_arm` built the plan, which is "
+            "why this looks equivalent — and they diverge for a hand-built or "
+            "partially-constructed plan, where a hybrid arm then takes the rules-only "
+            "path. That publishes a test number computed from the rules alone under a "
+            "hybrid arm's name, with nothing in the record saying so; for `detector: T`, "
+            "which has no rule files at all, it would score an empty detector.\n"
+            "\n"
+            "The guard it removes is the explicit refusal in `_detect_hybrid`, which "
+            "exists so the two conditions cannot silently substitute for each other.\n"
+            "\n"
+            "Caught by "
+            "`test_the_hybrid_scorer_refuses_an_arm_that_arrived_without_its_tagger_half`."
+        ),
+        min_kills=1,
+    ),
+
 ]
 
 COUNT_RE = re.compile(r"(\d+) (passed|failed|error|errors)")

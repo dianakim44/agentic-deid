@@ -365,6 +365,27 @@ axes:
 # 누락은 거부되고, 명시적 부재는 허용된다.
 model_id_absent: none
 
+# ─── rules_source 의 "규칙 파일이 없다" 값 ───────────────────
+# metrics.json 의 run 블록에 들어가는 값. DESIGN §12.7 (2026-10-15 개정).
+#
+# run_sealed_eval.plan_arm 의 아홉째 거절은 rules_source 를 요구한다 — 그 arm 의
+# headline 이 어느 규칙 파일에서 나왔는지이고, 그 파일들이 아직 디스크에 있는지를
+# 검사하는 것이 그 거절의 용도다. detector 가 T 인 arm 은 규칙 파일을 **갖지
+# 않으므로** 그 필드에 적을 것이 없고, 거절은 그것을 "기록이 불완전한 arm" 과
+# 구별할 수 없었다.
+#
+# **빈 매핑이 아니라 문자열인 이유는 model_id_absent 의 'none' 과 같다.** `{}` 는
+# 필드를 잊은 writer 가 내는 값이므로 누락과 구별되지 않는다. 명시적 값은 구별된다 —
+# 누락은 거부되고 명시적 부재는 기록된다.
+#
+# **detector 가 T 인 arm 에서만 허용된다.** RT·RT-Sel·RT-Arb 는 규칙 절반을
+# 합성하므로 거기서의 부재 선언은 다른 종류의 arm 에 대한 참인 기록이 아니라
+# 그 arm 에 대한 거짓 기록이다. 그 제약은 어휘가 아니라
+# src/eval/run_sealed_eval.py 가 지킨다 — 어휘는 값을 주고, 어느 축 값에서
+# 쓸 수 있는지는 거절을 내는 곳이 정한다 (termination_reason 의 'converged' 를
+# 상한 분기에서 못 쓰게 하는 것이 src/termination.py 의 일인 것과 같다).
+rules_source_absent: none_declared
+
 # ─── model_id 가 얼마나 해소되었는가 ────────────────────────
 # 2026-08-08 측정: converse 응답은 구체 모델을 노출하지 않는다. 기본 응답에는 모델
 # 필드가 아예 없고, additionalModelResponseFieldPaths=["/model"] 로 요청하면 나오지만

@@ -389,15 +389,25 @@ def test_rows_are_numbered_consecutively(temp_log):
     Deriving them from `count_runs` keeps the property — each row is the previous plus one —
     and continues onto a non-empty log, which is the case that actually ships. The old
     spelling could only ever have tested numbering from empty.
+
+    **The `de-grascco` line was the same mistake one assertion later, and it was fixed
+    the same way on 2026-10-15.** It read `== 0`, which held only while that corpus had
+    never been opened; v24 §5 opened it and the assertion went red while the property it
+    stood for — a row counts for the corpus in its own column and for no other — stayed
+    true. Relative on both sides now, so no opening of any corpus can make it fail
+    without an actual attribution bug. The identical absolute form existed in
+    `tests/test_sealed_scoring.py` and was corrected in the same commit; two copies is
+    why this note names both.
     """
     rows = sealed_log.count_runs()          # every corpus: the number is the log's, not a corpus's
     mine = sealed_log.count_runs(CORPUS)     # this corpus only: what `count_runs` is for
+    other = sealed_log.count_runs("de-grascco")
     first = sealed_log.record_access(CORPUS, arm=ARM, iteration=ROUND, purpose="first run")
     second = sealed_log.record_access(CORPUS, arm=ARM, iteration=ROUND, purpose="second run")
     assert first.split("|")[1].strip() == str(rows + 1)
     assert second.split("|")[1].strip() == str(rows + 2)
     assert sealed_log.count_runs(CORPUS) == mine + 2
-    assert sealed_log.count_runs("de-grascco") == 0
+    assert sealed_log.count_runs("de-grascco") == other
 
 
 def test_an_existing_row_is_never_overwritten(temp_log):

@@ -723,6 +723,36 @@ def porting_repetition_set(porting: str) -> tuple[str, ...]:
     return (base, *(value for _, value in repeats))
 
 
+def rules_source_absent() -> str:
+    """The `rules_source` value an arm that composes no rule files records.
+
+    DESIGN §12.7, 2026-10-15. `model_id_absent`'s sibling and for the identical reason:
+    the value lands in a published `metrics.json`, so it is defined in the config and no
+    module spells it as a literal — and two modules do read it, the driver that writes
+    the record and the sealed gate that checks it.
+
+    A string rather than `{}` for the same reason `model_id_absent` is a string rather
+    than `None`. An empty mapping is what a writer that forgot the field produces, so it
+    cannot be told apart from the omission `plan_arm`'s ninth refusal exists to catch.
+    An explicit value can: absent is refused, explicitly-absent is recorded.
+
+    **Which arms may use it is not this accessor's business.** It is admissible only on
+    `detector: T`, and that restriction lives where the refusal is raised
+    (`src/eval/run_sealed_eval.py`) — the same division as `termination_reason`, where
+    the vocabulary supplies `converged` and `src/termination.py` decides which branch
+    may write it.
+    """
+    value = naming().get("rules_source_absent")
+    if not isinstance(value, str) or not value:
+        raise CorpusError(
+            "config/naming.yaml has no `rules_source_absent` string. It is what an arm "
+            "that composes no rule files records in metrics.json's run block (DESIGN "
+            "§12.7), and it lives in the config so that neither the driver that writes "
+            "it nor the sealed gate that checks it spells it as a literal."
+        )
+    return value
+
+
 def model_id_absent() -> str:
     """The `model_id` value an arm that called no language model records.
 

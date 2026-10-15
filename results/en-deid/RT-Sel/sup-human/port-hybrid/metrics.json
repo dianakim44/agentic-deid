@@ -7,8 +7,8 @@
     "porting": "port-hybrid",
     "split": "dev",
     "model_id": "none",
-    "generated": "2026-10-15T00:23:57Z",
-    "commit": "2cde73dcd918145ac61084a448c3bdb68076fb10",
+    "generated": "2026-10-15T01:55:26Z",
+    "commit": "9f1a9c8376ad7589115ff311d393ea12273cc960",
     "tree": "dirty",
     "rules_source": {
       "en": "results/en-deid/R/sup-free/port-oneshot/rules/iter1/en.yaml"
@@ -48,6 +48,11 @@
       "en:street_address_number",
       "en:zip_code_us"
     ],
+    "tagger_weights": "experiments/hybrid_v24/weights/seed1",
+    "tagger_weights_sha256": "743f3be33b2c98584ad039ee171464170e6e2551fb4c870e67ccf02d851439d3",
+    "tagger_seed": 1,
+    "tagger_epoch": 5,
+    "tagger_commit": "2542ee955f7bf3be2afdde6515cd1328a481b638",
     "merge_policy": {
       "AGE": {
         "policy": "UNION",

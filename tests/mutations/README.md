@@ -1879,6 +1879,25 @@ it can explain rather than toward an opening it cannot withdraw.
 | `nothing_iterates_so_round_one_is_always_final` | `porting_iterates()` returns `False` instead of reading the declaration | the refusal is still there to read, with its message and its `port-oneshot`-direction test, and no input can reach it. This is the direction a hurried fix takes: the accessor raises on a malformed block, and a `return False` to get past that raise looks like a default and behaves like an unsealing | **2** |
 | `a_rung_misspelt_in_the_declaration_is_accepted` | the unknown-rung validation becomes `if False:` | a typo (`oneshoot`, or a `porting` value where a rung name belongs) leaves the block syntactically fine and semantically empty. Every rung then iterates — the *safe* direction, which is the problem: nothing fails until someone opens a `port-oneshot` arm's seal, once per arm, after the dev number is published, and the message blames the record for a defect in another file | **2** |
 
+#### The hybrid branch — DESIGN §12.7's amendment, 2026-10-15
+
+Four mutations, added with the branch that lets `run_sealed_eval` score a `port-hybrid`
+arm. The amendment widened the one gate CLAUDE.md says voids the experiment if it is
+wrong, so each of these is a way the widening could have been wider than it was
+documented to be — and three of the four leave a sealed run that **passes** while scoring
+the wrong thing, which is the shape of failure this gate exists for.
+
+Counts here are from the targeted probe of 2026-10-15, not from a full run; the full gate
+is deferred until after submission (the v24 instruction), and these four are part of the
+deferred total.
+
+| mutation | changes | breaks | tests that catch it |
+|---|---|---|---|
+| `no_rule_files_is_declarable_on_any_detector` | the detector restriction becomes `if False:` | the amendment loses its one restriction. `rules_source: "none_declared"` becomes admissible on `R`, `RT`, `RT-Sel` and `RT-Arb` — every arm that *does* compose rule files — so refusal 9 stops checking that those files are still on disk for exactly the arms it was written for. What was authorised was one value on one detector; this is the general "rules_source may be empty" that was refused | **4** |
+| `the_tagger_weights_hash_is_not_checked` | the hash comparison becomes `if False:` | a sealed run proceeds with whatever weights sit at the recorded path. Training is not reproducible from the seed on MPS (DESIGN §12.8), so the hash is the *only* identification these weights have — without it a retrained file scores the test fold while the dev number it is compared against came from a different model, and the weights are gitignored so no reviewer can check by hand | **1** |
+| `a_hybrid_arm_may_omit_its_merge_policy` | `merge_policy` is dropped from the required-field check | a hybrid arm with no recorded policy is planned instead of refused. The default that suggests itself is `UNION@0.5` everywhere, which **is** the RT arm, so the failure this refusal prevents is T, RT-Sel or RT-Arb silently scoring the sealed fold as RT and publishing it under its own name | **2** |
+| `a_hybrid_arm_falls_back_to_rules_only_scoring` | `score_fold` branches on `plan.hybrid is not None` instead of on the rung | the two agree whenever `plan_arm` built the plan, which is why the edit looks equivalent. They diverge for a hand-built plan, where a hybrid arm then takes the rules-only path — publishing a test number computed from the rules alone under a hybrid arm's name, and for `detector: T`, which has no rule files at all, scoring an empty detector | **1** |
+
 **The positive control is the whole argument for the declaration**, and the two sealed-scoring
 tests differ in the `porting` value and in nothing else: both plant
 `not_applicable(CORPUS).record()`, one on `port-loop` and one on `port-oneshot`. A refusal

@@ -30,6 +30,7 @@ surface and no document text is written or printed, and the cached prediction fi
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import sys
 import time
@@ -43,6 +44,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from src.corpora import base                                      # noqa: E402
+from src.corpora import doctype                                   # noqa: E402
 from src.eval import guideline, scorer, sealed_log                # noqa: E402
 from src.eval.run_fold import read_arm_spans                      # noqa: E402
 from src.merge import arbiter as arb                              # noqa: E402
@@ -185,7 +187,20 @@ def score_policy(docs, rules_by_doc, tagger_by_doc, policies) -> tuple[dict, dic
             + list(tagger_by_doc.get(doc.doc_id, ())),
             policies)
     pairs, excluded = scorer.from_documents(docs, merged)
-    scored = scorer.score(pairs, excluded_gold=excluded)
+    # `document_types` is passed for the same reason `run_fold` and
+    # `run_sealed_eval.score_fold` pass it: on a corpus with cues it adds a
+    # `by_document_type` block to each mode (schema 10), and omitting it writes a record
+    # that is *incomplete* rather than one that records an absence.
+    #
+    # Found by the §5 preflight. Without it, `--verify-dev` reported `modes` differing on
+    # all four de-grascco hybrid arms and on none of the other sixteen — de-grascco is
+    # the only one of the five corpora whose documents carry type labels (19 of 19), so
+    # it was the only corpus where the omission was visible at all. Four cells disagreeing
+    # and sixteen agreeing is what a corpus-shaped defect looks like.
+    document_types = doctype.label_documents(
+        docs[0].corpus_id if docs else "", docs)
+    scored = scorer.score(pairs, excluded_gold=excluded,
+                          document_types=document_types)
     scored["non_phi_masking"] = scorer.non_phi_masking(
         pairs, {d.doc_id: len(d.text) for d in docs})
     return scored, merged
@@ -218,6 +233,49 @@ def write_arm(corpus: str, detector: str, scored: dict, *, model_id: str,
         scored, run=run, cost=cost,
         termination=not_applicable(corpus).record(),
     )
+
+
+#: The commit whose `src/tagger/` trained every seed. Verified unchanged since:
+#: `git diff --stat 2542ee9 HEAD -- src/tagger/` is empty, so these are the bytes that
+#: ran. Recorded because the seed does not identify the model (DESIGN §12.8) and the code
+#: that produced it is the other half of what does.
+TAGGER_COMMIT = "2542ee955f7bf3be2afdde6515cd1328a481b638"
+
+
+def weights_dir(seed: int) -> Path:
+    return OUT / "weights" / f"seed{seed}"
+
+
+def weights_sha256(seed: int) -> str:
+    """SHA-256 of `model.safetensors` — the arm's identity. DESIGN §12.7, §12.8.
+
+    The weights file alone and not the directory: the tokenizer files beside it come from
+    the published checkpoint and are identical across seeds, so including them would make
+    three different models share a prefix of their identity for no gain.
+    """
+    path = weights_dir(seed) / "model.safetensors"
+    if not path.is_file():
+        raise SystemExit(f"no weights at {path.relative_to(ROOT)}")
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def hybrid_fields(seed: int, policies: dict) -> dict:
+    """The six run-block fields `run_sealed_eval` requires of a `port-hybrid` arm.
+
+    Assembled here because this driver is what ran the arm, and read by `plan_arm` before
+    any fold is opened. `tagger_epoch` comes from the training record rather than being
+    restated, so the number in the arm's record is the one the selection actually wrote.
+    """
+    record = json.loads(
+        (OUT / f"tagger_seed{seed}.json").read_text(encoding="utf-8"))
+    return {
+        "tagger_weights": str(weights_dir(seed).relative_to(ROOT)),
+        "tagger_weights_sha256": weights_sha256(seed),
+        "tagger_seed": seed,
+        "tagger_epoch": record["selected_epoch"],
+        "tagger_commit": TAGGER_COMMIT,
+        "merge_policy": pol.as_record(policies),
+    }
 
 
 def zero_cost(seconds: float) -> dict:
@@ -278,9 +336,13 @@ def cmd_score_dev(args) -> int:
             scored, _ = score_policy(docs, rules_by_doc, tagger_by_doc, policies)
             row[detector] = headline(scored)
             if args.write:
-                # T composes with no rule files, so it inherits none. That is the
-                # arm plan_arm refuses (DESIGN §12.6), by design.
-                extra = None if detector == "T" else rules_fields(corpus)
+                # T composes with no rule files and declares that explicitly
+                # (DESIGN §12.7's `none_declared`); the others inherit the R arm's.
+                extra = {**hybrid_fields(args.seed, policies)}
+                if detector == "T":
+                    extra["rules_source"] = base.rules_source_absent()
+                else:
+                    extra.update(rules_fields(corpus))
                 write_arm(corpus, detector, scored, model_id=absent,
                           cost=zero_cost(time.time() - started), extra=extra)
             print(f"{corpus:12s} {detector:3s} L_full {row[detector]['L_full']:.4f} "
@@ -340,7 +402,7 @@ def cmd_table(args) -> int:
             write_arm(corpus, "RT-Sel", scored, model_id=absent,
                       cost=zero_cost(time.time() - started),
                       extra={**rules_fields(corpus),
-                             "merge_policy": pol.as_record(chosen)})
+                             **hybrid_fields(args.seed, chosen)})
         out[corpus] = {
             "n_dev_gold": n_dev,
             "delta": delta,
@@ -466,7 +528,7 @@ def cmd_arbiter(args) -> int:
         if args.write and args.draw == reg["rt_arb"]["primary_draw"]:
             write_arm(corpus, "RT-Arb", scored, model_id=model_id, cost=cost,
                       extra={**rules_fields(corpus),
-                             "merge_policy": pol.as_record(final)})
+                             **hybrid_fields(args.seed, final)})
         out[corpus] = {
             "rounds": rounds,
             "final_policy": pol.as_record(final),
