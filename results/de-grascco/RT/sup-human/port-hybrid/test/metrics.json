@@ -1,0 +1,1453 @@
+{
+  "schema_version": 10,
+  "run": {
+    "corpus": "de-grascco",
+    "detector": "RT",
+    "supervision": "sup-human",
+    "porting": "port-hybrid",
+    "split": "test",
+    "model_id": "none",
+    "generated": "2026-10-15T02:38:50Z",
+    "commit": "cecb73f54676fc2dbdcb45f25d02b317cd24afd0",
+    "tree": "clean",
+    "tagger_weights": "experiments/hybrid_v24/weights/seed1",
+    "tagger_weights_sha256": "743f3be33b2c98584ad039ee171464170e6e2551fb4c870e67ccf02d851439d3",
+    "tagger_seed": 1,
+    "tagger_epoch": 5,
+    "tagger_commit": "2542ee955f7bf3be2afdde6515cd1328a481b638",
+    "merge_policy": {
+      "AGE": {
+        "policy": "UNION",
+        "theta": 0.5
+      },
+      "CONTACT": {
+        "policy": "UNION",
+        "theta": 0.5
+      },
+      "DATE": {
+        "policy": "UNION",
+        "theta": 0.5
+      },
+      "ID": {
+        "policy": "UNION",
+        "theta": 0.5
+      },
+      "LOCATION_AREA": {
+        "policy": "UNION",
+        "theta": 0.5
+      },
+      "LOCATION_STREET": {
+        "policy": "UNION",
+        "theta": 0.5
+      },
+      "NAME": {
+        "policy": "UNION",
+        "theta": 0.5
+      },
+      "ORGANISATION": {
+        "policy": "UNION",
+        "theta": 0.5
+      },
+      "OTHER": {
+        "policy": "UNION",
+        "theta": 0.5
+      },
+      "PROFESSION": {
+        "policy": "UNION",
+        "theta": 0.5
+      }
+    },
+    "rules_source": {
+      "de": "results/de-grascco/R/sup-free/port-oneshot/rules/iter1/de.yaml"
+    },
+    "rules_version": {
+      "de": 1
+    },
+    "rules": [
+      "de:age_jahre_cue",
+      "de:age_pattern",
+      "de:aktenzeichen_id",
+      "de:alter_cue",
+      "de:aus_cue_location",
+      "de:beruf_profession",
+      "de:date_vom_cue",
+      "de:dr_prefix_name",
+      "de:email_pattern",
+      "de:fallnummer_id",
+      "de:geboren_am_date",
+      "de:german_date_dot",
+      "de:german_date_slash",
+      "de:herr_frau_prefix_name",
+      "de:iso_date",
+      "de:kollege_cue_name",
+      "de:krankenhaus_org",
+      "de:patient_label_name",
+      "de:patientennummer_id",
+      "de:phone_pattern",
+      "de:plz_city",
+      "de:plz_standalone",
+      "de:station_org",
+      "de:strasse_address",
+      "de:street_pattern",
+      "de:telefon_contact",
+      "de:versicherungsnummer_id"
+    ],
+    "scorer_version": 1,
+    "document_type_cues": {
+      "source": "config/document_types.yaml",
+      "version": 1
+    }
+  },
+  "cost": {
+    "llm_calls": 0,
+    "prompt_tokens": 0,
+    "completion_tokens": 0,
+    "wall_seconds": 0.6
+  },
+  "cost_to_date": {
+    "llm_calls": 0,
+    "prompt_tokens": 0,
+    "completion_tokens": 0,
+    "wall_seconds": 0.6
+  },
+  "termination": {
+    "reason": "not_applicable",
+    "converged": false,
+    "iterations": 1,
+    "delta": 0.06341463414634146,
+    "delta_spans": 26,
+    "delta_floor": 0.005,
+    "k": 2,
+    "ceiling": 8,
+    "n_dev": 410,
+    "improvements": []
+  },
+  "headline_mode": {
+    "leak_rate": "fully_covered",
+    "leak_rate_lower_bound": "relaxed",
+    "precision": "relaxed",
+    "recall": "relaxed",
+    "f1": "relaxed"
+  },
+  "counts": {
+    "documents": {
+      "total": 12,
+      "with_gold_phi": 12,
+      "without_gold_phi": 0
+    },
+    "gold": {
+      "in_scope": 282,
+      "excluded": 32,
+      "excluded_share": 0.10191082802547771
+    },
+    "pred": 619
+  },
+  "headline": {
+    "leak_rate": {
+      "value": 0.05673758865248227,
+      "mode": "fully_covered"
+    },
+    "leak_rate_lower_bound": {
+      "value": 0.02127659574468085,
+      "mode": "relaxed"
+    },
+    "precision": {
+      "value": 0.6075388026607539,
+      "mode": "relaxed"
+    },
+    "recall": {
+      "value": 0.9716312056737588,
+      "mode": "relaxed"
+    },
+    "f1": {
+      "value": 0.747612551159618,
+      "mode": "relaxed"
+    }
+  },
+  "modes": {
+    "fully_covered": {
+      "leak": {
+        "leaked": 16,
+        "denominator": 282,
+        "rate": 0.05673758865248227
+      },
+      "overall": {
+        "tp": 264,
+        "fp": 187,
+        "fn": 18,
+        "precision": 0.5853658536585366,
+        "recall": 0.9361702127659575,
+        "f1": 0.7203274215552523
+      },
+      "macro": {
+        "precision": 0.5976548430761913,
+        "recall": 0.8684163164583972,
+        "f1": 0.6882795518809344,
+        "leak_rate": 0.12893416084532394,
+        "n_types": 9
+      },
+      "by_type": {
+        "AGE": {
+          "gold": 5,
+          "tp": 3,
+          "fp": 2,
+          "fn": 2,
+          "precision": 0.6,
+          "recall": 0.6,
+          "f1": 0.6,
+          "leaked": 2,
+          "leak_rate": 0.4,
+          "sparse": true
+        },
+        "CONTACT": {
+          "gold": 7,
+          "tp": 7,
+          "fp": 6,
+          "fn": 0,
+          "precision": 0.5384615384615384,
+          "recall": 1.0,
+          "f1": 0.7000000000000001,
+          "leaked": 0,
+          "leak_rate": 0.0,
+          "sparse": true
+        },
+        "DATE": {
+          "gold": 145,
+          "tp": 143,
+          "fp": 25,
+          "fn": 2,
+          "precision": 0.8511904761904762,
+          "recall": 0.9862068965517241,
+          "f1": 0.913738019169329,
+          "leaked": 1,
+          "leak_rate": 0.006896551724137931,
+          "sparse": false
+        },
+        "ID": {
+          "gold": 8,
+          "tp": 7,
+          "fp": 3,
+          "fn": 1,
+          "precision": 0.7,
+          "recall": 0.875,
+          "f1": 0.7777777777777777,
+          "leaked": 1,
+          "leak_rate": 0.125,
+          "sparse": true
+        },
+        "LOCATION_AREA": {
+          "gold": 35,
+          "tp": 31,
+          "fp": 93,
+          "fn": 4,
+          "precision": 0.25,
+          "recall": 0.8857142857142857,
+          "f1": 0.38993710691823896,
+          "leaked": 4,
+          "leak_rate": 0.11428571428571428,
+          "sparse": false
+        },
+        "LOCATION_STREET": {
+          "gold": 14,
+          "tp": 13,
+          "fp": 12,
+          "fn": 1,
+          "precision": 0.52,
+          "recall": 0.9285714285714286,
+          "f1": 0.6666666666666666,
+          "leaked": 1,
+          "leak_rate": 0.07142857142857142,
+          "sparse": false
+        },
+        "NAME": {
+          "gold": 59,
+          "tp": 54,
+          "fp": 35,
+          "fn": 5,
+          "precision": 0.6067415730337079,
+          "recall": 0.9152542372881356,
+          "f1": 0.7297297297297298,
+          "leaked": 4,
+          "leak_rate": 0.06779661016949153,
+          "sparse": false
+        },
+        "ORGANISATION": {
+          "gold": 8,
+          "tp": 5,
+          "fp": 11,
+          "fn": 3,
+          "precision": 0.3125,
+          "recall": 0.625,
+          "f1": 0.4166666666666667,
+          "leaked": 3,
+          "leak_rate": 0.375,
+          "sparse": true
+        },
+        "PROFESSION": {
+          "gold": 1,
+          "tp": 1,
+          "fp": 0,
+          "fn": 0,
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1": 1.0,
+          "leaked": 0,
+          "leak_rate": 0.0,
+          "sparse": true
+        }
+      },
+      "by_document": {
+        "with_leak": 7,
+        "denominator": 12,
+        "rate": 0.5833333333333334
+      },
+      "assignment_slack": 2,
+      "complementarity": {
+        "families": {
+          "rules_only": 2,
+          "tagger_only": 121,
+          "both": 143,
+          "joint_only": 0,
+          "neither": 16,
+          "denominator": 282
+        },
+        "layers": {
+          "covered": {
+            "context_cue": 80,
+            "gazetteer": 0,
+            "regex_checksum": 112,
+            "tagger": 264
+          },
+          "sets": {
+            "": 16,
+            "context_cue": 2,
+            "context_cue|regex_checksum|tagger": 47,
+            "context_cue|tagger": 31,
+            "regex_checksum|tagger": 65,
+            "tagger": 121
+          },
+          "covered_by_union_only": 0
+        },
+        "by_type": {
+          "AGE": {
+            "families": {
+              "rules_only": 0,
+              "tagger_only": 3,
+              "both": 0,
+              "joint_only": 0,
+              "neither": 2,
+              "denominator": 5
+            },
+            "layers": {
+              "covered": {
+                "context_cue": 0,
+                "gazetteer": 0,
+                "regex_checksum": 0,
+                "tagger": 3
+              },
+              "sets": {
+                "": 2,
+                "tagger": 3
+              },
+              "covered_by_union_only": 0
+            }
+          },
+          "CONTACT": {
+            "families": {
+              "rules_only": 0,
+              "tagger_only": 2,
+              "both": 5,
+              "joint_only": 0,
+              "neither": 0,
+              "denominator": 7
+            },
+            "layers": {
+              "covered": {
+                "context_cue": 4,
+                "gazetteer": 0,
+                "regex_checksum": 5,
+                "tagger": 7
+              },
+              "sets": {
+                "context_cue|regex_checksum|tagger": 4,
+                "regex_checksum|tagger": 1,
+                "tagger": 2
+              },
+              "covered_by_union_only": 0
+            }
+          },
+          "DATE": {
+            "families": {
+              "rules_only": 1,
+              "tagger_only": 48,
+              "both": 95,
+              "joint_only": 0,
+              "neither": 1,
+              "denominator": 145
+            },
+            "layers": {
+              "covered": {
+                "context_cue": 53,
+                "gazetteer": 0,
+                "regex_checksum": 86,
+                "tagger": 143
+              },
+              "sets": {
+                "": 1,
+                "context_cue": 1,
+                "context_cue|regex_checksum|tagger": 43,
+                "context_cue|tagger": 9,
+                "regex_checksum|tagger": 43,
+                "tagger": 48
+              },
+              "covered_by_union_only": 0
+            }
+          },
+          "ID": {
+            "families": {
+              "rules_only": 1,
+              "tagger_only": 5,
+              "both": 1,
+              "joint_only": 0,
+              "neither": 1,
+              "denominator": 8
+            },
+            "layers": {
+              "covered": {
+                "context_cue": 2,
+                "gazetteer": 0,
+                "regex_checksum": 0,
+                "tagger": 6
+              },
+              "sets": {
+                "": 1,
+                "context_cue": 1,
+                "context_cue|tagger": 1,
+                "tagger": 5
+              },
+              "covered_by_union_only": 0
+            }
+          },
+          "LOCATION_AREA": {
+            "families": {
+              "rules_only": 0,
+              "tagger_only": 16,
+              "both": 15,
+              "joint_only": 0,
+              "neither": 4,
+              "denominator": 35
+            },
+            "layers": {
+              "covered": {
+                "context_cue": 0,
+                "gazetteer": 0,
+                "regex_checksum": 15,
+                "tagger": 31
+              },
+              "sets": {
+                "": 4,
+                "regex_checksum|tagger": 15,
+                "tagger": 16
+              },
+              "covered_by_union_only": 0
+            }
+          },
+          "LOCATION_STREET": {
+            "families": {
+              "rules_only": 0,
+              "tagger_only": 7,
+              "both": 6,
+              "joint_only": 0,
+              "neither": 1,
+              "denominator": 14
+            },
+            "layers": {
+              "covered": {
+                "context_cue": 0,
+                "gazetteer": 0,
+                "regex_checksum": 6,
+                "tagger": 13
+              },
+              "sets": {
+                "": 1,
+                "regex_checksum|tagger": 6,
+                "tagger": 7
+              },
+              "covered_by_union_only": 0
+            }
+          },
+          "NAME": {
+            "families": {
+              "rules_only": 0,
+              "tagger_only": 34,
+              "both": 21,
+              "joint_only": 0,
+              "neither": 4,
+              "denominator": 59
+            },
+            "layers": {
+              "covered": {
+                "context_cue": 21,
+                "gazetteer": 0,
+                "regex_checksum": 0,
+                "tagger": 55
+              },
+              "sets": {
+                "": 4,
+                "context_cue|tagger": 21,
+                "tagger": 34
+              },
+              "covered_by_union_only": 0
+            }
+          },
+          "ORGANISATION": {
+            "families": {
+              "rules_only": 0,
+              "tagger_only": 5,
+              "both": 0,
+              "joint_only": 0,
+              "neither": 3,
+              "denominator": 8
+            },
+            "layers": {
+              "covered": {
+                "context_cue": 0,
+                "gazetteer": 0,
+                "regex_checksum": 0,
+                "tagger": 5
+              },
+              "sets": {
+                "": 3,
+                "tagger": 5
+              },
+              "covered_by_union_only": 0
+            }
+          },
+          "PROFESSION": {
+            "families": {
+              "rules_only": 0,
+              "tagger_only": 1,
+              "both": 0,
+              "joint_only": 0,
+              "neither": 0,
+              "denominator": 1
+            },
+            "layers": {
+              "covered": {
+                "context_cue": 0,
+                "gazetteer": 0,
+                "regex_checksum": 0,
+                "tagger": 1
+              },
+              "sets": {
+                "tagger": 1
+              },
+              "covered_by_union_only": 0
+            }
+          }
+        }
+      },
+      "sparse": {
+        "types": [
+          "AGE",
+          "CONTACT",
+          "ID",
+          "ORGANISATION",
+          "PROFESSION"
+        ],
+        "gold": 29
+      },
+      "by_rule": {
+        "de:age_pattern": {
+          "layer": "regex_checksum",
+          "fires": 1,
+          "tp": 0,
+          "fp": 1
+        },
+        "de:aus_cue_location": {
+          "layer": "context_cue",
+          "fires": 75,
+          "tp": 0,
+          "fp": 75
+        },
+        "de:date_vom_cue": {
+          "layer": "context_cue",
+          "fires": 56,
+          "tp": 44,
+          "fp": 12
+        },
+        "de:dr_prefix_name": {
+          "layer": "context_cue",
+          "fires": 19,
+          "tp": 4,
+          "fp": 15
+        },
+        "de:fallnummer_id": {
+          "layer": "context_cue",
+          "fires": 2,
+          "tp": 2,
+          "fp": 0
+        },
+        "de:geboren_am_date": {
+          "layer": "context_cue",
+          "fires": 7,
+          "tp": 6,
+          "fp": 1
+        },
+        "de:german_date_dot": {
+          "layer": "regex_checksum",
+          "fires": 67,
+          "tp": 62,
+          "fp": 5
+        },
+        "de:german_date_slash": {
+          "layer": "regex_checksum",
+          "fires": 19,
+          "tp": 19,
+          "fp": 0
+        },
+        "de:herr_frau_prefix_name": {
+          "layer": "context_cue",
+          "fires": 21,
+          "tp": 12,
+          "fp": 9
+        },
+        "de:kollege_cue_name": {
+          "layer": "context_cue",
+          "fires": 1,
+          "tp": 0,
+          "fp": 1
+        },
+        "de:krankenhaus_org": {
+          "layer": "context_cue",
+          "fires": 4,
+          "tp": 0,
+          "fp": 4
+        },
+        "de:phone_pattern": {
+          "layer": "regex_checksum",
+          "fires": 10,
+          "tp": 5,
+          "fp": 5
+        },
+        "de:plz_city": {
+          "layer": "regex_checksum",
+          "fires": 9,
+          "tp": 7,
+          "fp": 2
+        },
+        "de:plz_standalone": {
+          "layer": "regex_checksum",
+          "fires": 13,
+          "tp": 7,
+          "fp": 6
+        },
+        "de:station_org": {
+          "layer": "context_cue",
+          "fires": 2,
+          "tp": 0,
+          "fp": 2
+        },
+        "de:strasse_address": {
+          "layer": "context_cue",
+          "fires": 8,
+          "tp": 0,
+          "fp": 8
+        },
+        "de:street_pattern": {
+          "layer": "regex_checksum",
+          "fires": 8,
+          "tp": 6,
+          "fp": 2
+        },
+        "de:telefon_contact": {
+          "layer": "context_cue",
+          "fires": 4,
+          "tp": 4,
+          "fp": 0
+        }
+      },
+      "duplicate_predictions": 168,
+      "by_document_type": {
+        "multi_label": true,
+        "documents": 12,
+        "documents_labelled": 11,
+        "documents_unlabelled": 1,
+        "labels_per_document_mean": 1.583,
+        "labels": {
+          "radiology": {
+            "documents": 5,
+            "documents_with_gold_phi": 5,
+            "gold": 141,
+            "pred": 303,
+            "leaked": 4,
+            "leak_rate": 0.028368794326241134,
+            "tp": 136,
+            "fp": 69,
+            "fn": 5,
+            "precision": 0.6634146341463415,
+            "recall": 0.9645390070921985,
+            "f1": 0.7861271676300579
+          },
+          "pathology": {
+            "documents": 2,
+            "documents_with_gold_phi": 2,
+            "gold": 58,
+            "pred": 136,
+            "leaked": 3,
+            "leak_rate": 0.05172413793103448,
+            "tp": 55,
+            "fp": 36,
+            "fn": 3,
+            "precision": 0.6043956043956044,
+            "recall": 0.9482758620689655,
+            "f1": 0.7382550335570469
+          },
+          "outpatient": {
+            "documents": 4,
+            "documents_with_gold_phi": 4,
+            "gold": 101,
+            "pred": 246,
+            "leaked": 12,
+            "leak_rate": 0.1188118811881188,
+            "tp": 89,
+            "fp": 97,
+            "fn": 12,
+            "precision": 0.478494623655914,
+            "recall": 0.8811881188118812,
+            "f1": 0.6202090592334496
+          },
+          "laboratory": {
+            "documents": 3,
+            "documents_with_gold_phi": 3,
+            "gold": 113,
+            "pred": 216,
+            "leaked": 4,
+            "leak_rate": 0.035398230088495575,
+            "tp": 108,
+            "fp": 43,
+            "fn": 5,
+            "precision": 0.7152317880794702,
+            "recall": 0.9557522123893806,
+            "f1": 0.8181818181818182
+          },
+          "progress_note": {
+            "documents": 4,
+            "documents_with_gold_phi": 4,
+            "gold": 106,
+            "pred": 208,
+            "leaked": 1,
+            "leak_rate": 0.009433962264150943,
+            "tp": 103,
+            "fp": 46,
+            "fn": 3,
+            "precision": 0.6912751677852349,
+            "recall": 0.9716981132075472,
+            "f1": 0.807843137254902
+          },
+          "discharge": {
+            "documents": 0,
+            "documents_with_gold_phi": 0,
+            "gold": 0,
+            "pred": 0,
+            "leaked": 0,
+            "leak_rate": null,
+            "tp": 0,
+            "fp": 0,
+            "fn": 0,
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1": 0.0
+          },
+          "tumour_board": {
+            "documents": 1,
+            "documents_with_gold_phi": 1,
+            "gold": 35,
+            "pred": 85,
+            "leaked": 1,
+            "leak_rate": 0.02857142857142857,
+            "tp": 34,
+            "fp": 22,
+            "fn": 1,
+            "precision": 0.6071428571428571,
+            "recall": 0.9714285714285714,
+            "f1": 0.7472527472527473
+          },
+          "operation_report": {
+            "documents": 0,
+            "documents_with_gold_phi": 0,
+            "gold": 0,
+            "pred": 0,
+            "leaked": 0,
+            "leak_rate": null,
+            "tp": 0,
+            "fp": 0,
+            "fn": 0,
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1": 0.0
+          }
+        },
+        "unlabelled": {
+          "documents": 1,
+          "documents_with_gold_phi": 1,
+          "gold": 11,
+          "pred": 32,
+          "leaked": 0,
+          "leak_rate": 0.0,
+          "tp": 11,
+          "fp": 13,
+          "fn": 0,
+          "precision": 0.4583333333333333,
+          "recall": 1.0,
+          "f1": 0.6285714285714286
+        }
+      }
+    },
+    "relaxed": {
+      "leak": {
+        "leaked": 6,
+        "denominator": 282,
+        "rate": 0.02127659574468085
+      },
+      "overall": {
+        "tp": 274,
+        "fp": 177,
+        "fn": 8,
+        "precision": 0.6075388026607539,
+        "recall": 0.9716312056737588,
+        "f1": 0.747612551159618
+      },
+      "macro": {
+        "precision": 0.6444092073405231,
+        "recall": 0.93911803178314,
+        "f1": 0.7427280260533219,
+        "leak_rate": 0.05823244552058112,
+        "n_types": 9
+      },
+      "by_type": {
+        "AGE": {
+          "gold": 5,
+          "tp": 4,
+          "fp": 1,
+          "fn": 1,
+          "precision": 0.8,
+          "recall": 0.8,
+          "f1": 0.8000000000000002,
+          "leaked": 1,
+          "leak_rate": 0.2,
+          "sparse": true
+        },
+        "CONTACT": {
+          "gold": 7,
+          "tp": 7,
+          "fp": 6,
+          "fn": 0,
+          "precision": 0.5384615384615384,
+          "recall": 1.0,
+          "f1": 0.7000000000000001,
+          "leaked": 0,
+          "leak_rate": 0.0,
+          "sparse": true
+        },
+        "DATE": {
+          "gold": 145,
+          "tp": 144,
+          "fp": 24,
+          "fn": 1,
+          "precision": 0.8571428571428571,
+          "recall": 0.993103448275862,
+          "f1": 0.9201277955271565,
+          "leaked": 0,
+          "leak_rate": 0.0,
+          "sparse": false
+        },
+        "ID": {
+          "gold": 8,
+          "tp": 7,
+          "fp": 3,
+          "fn": 1,
+          "precision": 0.7,
+          "recall": 0.875,
+          "f1": 0.7777777777777777,
+          "leaked": 1,
+          "leak_rate": 0.125,
+          "sparse": true
+        },
+        "LOCATION_AREA": {
+          "gold": 35,
+          "tp": 33,
+          "fp": 91,
+          "fn": 2,
+          "precision": 0.2661290322580645,
+          "recall": 0.9428571428571428,
+          "f1": 0.4150943396226415,
+          "leaked": 2,
+          "leak_rate": 0.05714285714285714,
+          "sparse": false
+        },
+        "LOCATION_STREET": {
+          "gold": 14,
+          "tp": 14,
+          "fp": 11,
+          "fn": 0,
+          "precision": 0.56,
+          "recall": 1.0,
+          "f1": 0.717948717948718,
+          "leaked": 0,
+          "leak_rate": 0.0,
+          "sparse": false
+        },
+        "NAME": {
+          "gold": 59,
+          "tp": 57,
+          "fp": 32,
+          "fn": 2,
+          "precision": 0.6404494382022472,
+          "recall": 0.9661016949152542,
+          "f1": 0.7702702702702703,
+          "leaked": 1,
+          "leak_rate": 0.01694915254237288,
+          "sparse": false
+        },
+        "ORGANISATION": {
+          "gold": 8,
+          "tp": 7,
+          "fp": 9,
+          "fn": 1,
+          "precision": 0.4375,
+          "recall": 0.875,
+          "f1": 0.5833333333333334,
+          "leaked": 1,
+          "leak_rate": 0.125,
+          "sparse": true
+        },
+        "PROFESSION": {
+          "gold": 1,
+          "tp": 1,
+          "fp": 0,
+          "fn": 0,
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1": 1.0,
+          "leaked": 0,
+          "leak_rate": 0.0,
+          "sparse": true
+        }
+      },
+      "by_document": {
+        "with_leak": 4,
+        "denominator": 12,
+        "rate": 0.3333333333333333
+      },
+      "assignment_slack": 2,
+      "complementarity": {
+        "families": {
+          "rules_only": 1,
+          "tagger_only": 122,
+          "both": 153,
+          "joint_only": 0,
+          "neither": 6,
+          "denominator": 282
+        },
+        "layers": {
+          "covered": {
+            "context_cue": 95,
+            "gazetteer": 0,
+            "regex_checksum": 114,
+            "tagger": 275
+          },
+          "sets": {
+            "": 6,
+            "context_cue": 1,
+            "context_cue|regex_checksum|tagger": 55,
+            "context_cue|tagger": 39,
+            "regex_checksum|tagger": 59,
+            "tagger": 122
+          },
+          "covered_by_union_only": 0
+        },
+        "by_type": {
+          "AGE": {
+            "families": {
+              "rules_only": 0,
+              "tagger_only": 4,
+              "both": 0,
+              "joint_only": 0,
+              "neither": 1,
+              "denominator": 5
+            },
+            "layers": {
+              "covered": {
+                "context_cue": 0,
+                "gazetteer": 0,
+                "regex_checksum": 0,
+                "tagger": 4
+              },
+              "sets": {
+                "": 1,
+                "tagger": 4
+              },
+              "covered_by_union_only": 0
+            }
+          },
+          "CONTACT": {
+            "families": {
+              "rules_only": 0,
+              "tagger_only": 2,
+              "both": 5,
+              "joint_only": 0,
+              "neither": 0,
+              "denominator": 7
+            },
+            "layers": {
+              "covered": {
+                "context_cue": 4,
+                "gazetteer": 0,
+                "regex_checksum": 5,
+                "tagger": 7
+              },
+              "sets": {
+                "context_cue|regex_checksum|tagger": 4,
+                "regex_checksum|tagger": 1,
+                "tagger": 2
+              },
+              "covered_by_union_only": 0
+            }
+          },
+          "DATE": {
+            "families": {
+              "rules_only": 1,
+              "tagger_only": 48,
+              "both": 96,
+              "joint_only": 0,
+              "neither": 0,
+              "denominator": 145
+            },
+            "layers": {
+              "covered": {
+                "context_cue": 54,
+                "gazetteer": 0,
+                "regex_checksum": 86,
+                "tagger": 144
+              },
+              "sets": {
+                "context_cue": 1,
+                "context_cue|regex_checksum|tagger": 43,
+                "context_cue|tagger": 10,
+                "regex_checksum|tagger": 43,
+                "tagger": 48
+              },
+              "covered_by_union_only": 0
+            }
+          },
+          "ID": {
+            "families": {
+              "rules_only": 0,
+              "tagger_only": 5,
+              "both": 2,
+              "joint_only": 0,
+              "neither": 1,
+              "denominator": 8
+            },
+            "layers": {
+              "covered": {
+                "context_cue": 2,
+                "gazetteer": 0,
+                "regex_checksum": 0,
+                "tagger": 7
+              },
+              "sets": {
+                "": 1,
+                "context_cue|tagger": 2,
+                "tagger": 5
+              },
+              "covered_by_union_only": 0
+            }
+          },
+          "LOCATION_AREA": {
+            "families": {
+              "rules_only": 0,
+              "tagger_only": 17,
+              "both": 16,
+              "joint_only": 0,
+              "neither": 2,
+              "denominator": 35
+            },
+            "layers": {
+              "covered": {
+                "context_cue": 3,
+                "gazetteer": 0,
+                "regex_checksum": 15,
+                "tagger": 33
+              },
+              "sets": {
+                "": 2,
+                "context_cue|regex_checksum|tagger": 2,
+                "context_cue|tagger": 1,
+                "regex_checksum|tagger": 13,
+                "tagger": 17
+              },
+              "covered_by_union_only": 0
+            }
+          },
+          "LOCATION_STREET": {
+            "families": {
+              "rules_only": 0,
+              "tagger_only": 4,
+              "both": 10,
+              "joint_only": 0,
+              "neither": 0,
+              "denominator": 14
+            },
+            "layers": {
+              "covered": {
+                "context_cue": 8,
+                "gazetteer": 0,
+                "regex_checksum": 8,
+                "tagger": 14
+              },
+              "sets": {
+                "context_cue|regex_checksum|tagger": 6,
+                "context_cue|tagger": 2,
+                "regex_checksum|tagger": 2,
+                "tagger": 4
+              },
+              "covered_by_union_only": 0
+            }
+          },
+          "NAME": {
+            "families": {
+              "rules_only": 0,
+              "tagger_only": 36,
+              "both": 22,
+              "joint_only": 0,
+              "neither": 1,
+              "denominator": 59
+            },
+            "layers": {
+              "covered": {
+                "context_cue": 22,
+                "gazetteer": 0,
+                "regex_checksum": 0,
+                "tagger": 58
+              },
+              "sets": {
+                "": 1,
+                "context_cue|tagger": 22,
+                "tagger": 36
+              },
+              "covered_by_union_only": 0
+            }
+          },
+          "ORGANISATION": {
+            "families": {
+              "rules_only": 0,
+              "tagger_only": 5,
+              "both": 2,
+              "joint_only": 0,
+              "neither": 1,
+              "denominator": 8
+            },
+            "layers": {
+              "covered": {
+                "context_cue": 2,
+                "gazetteer": 0,
+                "regex_checksum": 0,
+                "tagger": 7
+              },
+              "sets": {
+                "": 1,
+                "context_cue|tagger": 2,
+                "tagger": 5
+              },
+              "covered_by_union_only": 0
+            }
+          },
+          "PROFESSION": {
+            "families": {
+              "rules_only": 0,
+              "tagger_only": 1,
+              "both": 0,
+              "joint_only": 0,
+              "neither": 0,
+              "denominator": 1
+            },
+            "layers": {
+              "covered": {
+                "context_cue": 0,
+                "gazetteer": 0,
+                "regex_checksum": 0,
+                "tagger": 1
+              },
+              "sets": {
+                "tagger": 1
+              },
+              "covered_by_union_only": 0
+            }
+          }
+        }
+      },
+      "sparse": {
+        "types": [
+          "AGE",
+          "CONTACT",
+          "ID",
+          "ORGANISATION",
+          "PROFESSION"
+        ],
+        "gold": 29
+      },
+      "by_rule": {
+        "de:age_pattern": {
+          "layer": "regex_checksum",
+          "fires": 1,
+          "tp": 0,
+          "fp": 1
+        },
+        "de:aus_cue_location": {
+          "layer": "context_cue",
+          "fires": 75,
+          "tp": 0,
+          "fp": 75
+        },
+        "de:date_vom_cue": {
+          "layer": "context_cue",
+          "fires": 56,
+          "tp": 44,
+          "fp": 12
+        },
+        "de:dr_prefix_name": {
+          "layer": "context_cue",
+          "fires": 19,
+          "tp": 4,
+          "fp": 15
+        },
+        "de:fallnummer_id": {
+          "layer": "context_cue",
+          "fires": 2,
+          "tp": 2,
+          "fp": 0
+        },
+        "de:geboren_am_date": {
+          "layer": "context_cue",
+          "fires": 7,
+          "tp": 6,
+          "fp": 1
+        },
+        "de:german_date_dot": {
+          "layer": "regex_checksum",
+          "fires": 67,
+          "tp": 62,
+          "fp": 5
+        },
+        "de:german_date_slash": {
+          "layer": "regex_checksum",
+          "fires": 19,
+          "tp": 19,
+          "fp": 0
+        },
+        "de:herr_frau_prefix_name": {
+          "layer": "context_cue",
+          "fires": 21,
+          "tp": 12,
+          "fp": 9
+        },
+        "de:kollege_cue_name": {
+          "layer": "context_cue",
+          "fires": 1,
+          "tp": 0,
+          "fp": 1
+        },
+        "de:krankenhaus_org": {
+          "layer": "context_cue",
+          "fires": 4,
+          "tp": 0,
+          "fp": 4
+        },
+        "de:phone_pattern": {
+          "layer": "regex_checksum",
+          "fires": 10,
+          "tp": 5,
+          "fp": 5
+        },
+        "de:plz_city": {
+          "layer": "regex_checksum",
+          "fires": 9,
+          "tp": 7,
+          "fp": 2
+        },
+        "de:plz_standalone": {
+          "layer": "regex_checksum",
+          "fires": 13,
+          "tp": 7,
+          "fp": 6
+        },
+        "de:station_org": {
+          "layer": "context_cue",
+          "fires": 2,
+          "tp": 0,
+          "fp": 2
+        },
+        "de:strasse_address": {
+          "layer": "context_cue",
+          "fires": 8,
+          "tp": 0,
+          "fp": 8
+        },
+        "de:street_pattern": {
+          "layer": "regex_checksum",
+          "fires": 8,
+          "tp": 6,
+          "fp": 2
+        },
+        "de:telefon_contact": {
+          "layer": "context_cue",
+          "fires": 4,
+          "tp": 4,
+          "fp": 0
+        }
+      },
+      "duplicate_predictions": 168,
+      "by_document_type": {
+        "multi_label": true,
+        "documents": 12,
+        "documents_labelled": 11,
+        "documents_unlabelled": 1,
+        "labels_per_document_mean": 1.583,
+        "labels": {
+          "radiology": {
+            "documents": 5,
+            "documents_with_gold_phi": 5,
+            "gold": 141,
+            "pred": 303,
+            "leaked": 0,
+            "leak_rate": 0.0,
+            "tp": 140,
+            "fp": 65,
+            "fn": 1,
+            "precision": 0.6829268292682927,
+            "recall": 0.9929078014184397,
+            "f1": 0.8092485549132948
+          },
+          "pathology": {
+            "documents": 2,
+            "documents_with_gold_phi": 2,
+            "gold": 58,
+            "pred": 136,
+            "leaked": 0,
+            "leak_rate": 0.0,
+            "tp": 58,
+            "fp": 33,
+            "fn": 0,
+            "precision": 0.6373626373626373,
+            "recall": 1.0,
+            "f1": 0.7785234899328859
+          },
+          "outpatient": {
+            "documents": 4,
+            "documents_with_gold_phi": 4,
+            "gold": 101,
+            "pred": 246,
+            "leaked": 5,
+            "leak_rate": 0.04950495049504951,
+            "tp": 96,
+            "fp": 90,
+            "fn": 5,
+            "precision": 0.5161290322580645,
+            "recall": 0.9504950495049505,
+            "f1": 0.6689895470383276
+          },
+          "laboratory": {
+            "documents": 3,
+            "documents_with_gold_phi": 3,
+            "gold": 113,
+            "pred": 216,
+            "leaked": 1,
+            "leak_rate": 0.008849557522123894,
+            "tp": 111,
+            "fp": 40,
+            "fn": 2,
+            "precision": 0.7350993377483444,
+            "recall": 0.9823008849557522,
+            "f1": 0.8409090909090909
+          },
+          "progress_note": {
+            "documents": 4,
+            "documents_with_gold_phi": 4,
+            "gold": 106,
+            "pred": 208,
+            "leaked": 0,
+            "leak_rate": 0.0,
+            "tp": 104,
+            "fp": 45,
+            "fn": 2,
+            "precision": 0.697986577181208,
+            "recall": 0.9811320754716981,
+            "f1": 0.8156862745098038
+          },
+          "discharge": {
+            "documents": 0,
+            "documents_with_gold_phi": 0,
+            "gold": 0,
+            "pred": 0,
+            "leaked": 0,
+            "leak_rate": null,
+            "tp": 0,
+            "fp": 0,
+            "fn": 0,
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1": 0.0
+          },
+          "tumour_board": {
+            "documents": 1,
+            "documents_with_gold_phi": 1,
+            "gold": 35,
+            "pred": 85,
+            "leaked": 0,
+            "leak_rate": 0.0,
+            "tp": 35,
+            "fp": 21,
+            "fn": 0,
+            "precision": 0.625,
+            "recall": 1.0,
+            "f1": 0.7692307692307693
+          },
+          "operation_report": {
+            "documents": 0,
+            "documents_with_gold_phi": 0,
+            "gold": 0,
+            "pred": 0,
+            "leaked": 0,
+            "leak_rate": null,
+            "tp": 0,
+            "fp": 0,
+            "fn": 0,
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1": 0.0
+          }
+        },
+        "unlabelled": {
+          "documents": 1,
+          "documents_with_gold_phi": 1,
+          "gold": 11,
+          "pred": 32,
+          "leaked": 0,
+          "leak_rate": 0.0,
+          "tp": 11,
+          "fp": 13,
+          "fn": 0,
+          "precision": 0.4583333333333333,
+          "recall": 1.0,
+          "f1": 0.6285714285714286
+        }
+      }
+    }
+  },
+  "false_positive_opportunity": {
+    "documents_without_gold_phi": 0,
+    "predictions_in_those_documents": 0
+  }
+}
