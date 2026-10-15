@@ -1,0 +1,132 @@
+{
+ "es-meddocan": {
+  "R": {
+   "C": 1.0,
+   "runs": 3,
+   "documents": 250,
+   "documents_empty_in_every_run": 0,
+   "identical_in_every_run": 250,
+   "per_document_min": 1.0
+  },
+  "T": {
+   "C": 1.0,
+   "runs": 3,
+   "documents": 250,
+   "documents_empty_in_every_run": 0,
+   "identical_in_every_run": 250,
+   "per_document_min": 1.0
+  },
+  "RT": {
+   "C": 1.0,
+   "runs": 3,
+   "documents": 250,
+   "documents_empty_in_every_run": 0,
+   "identical_in_every_run": 250,
+   "per_document_min": 1.0
+  }
+ },
+ "de-grascco": {
+  "R": {
+   "C": 1.0,
+   "runs": 3,
+   "documents": 19,
+   "documents_empty_in_every_run": 0,
+   "identical_in_every_run": 19,
+   "per_document_min": 1.0
+  },
+  "T": {
+   "C": 1.0,
+   "runs": 3,
+   "documents": 19,
+   "documents_empty_in_every_run": 0,
+   "identical_in_every_run": 19,
+   "per_document_min": 1.0
+  },
+  "RT": {
+   "C": 1.0,
+   "runs": 3,
+   "documents": 19,
+   "documents_empty_in_every_run": 0,
+   "identical_in_every_run": 19,
+   "per_document_min": 1.0
+  }
+ },
+ "es-carmen": {
+  "R": {
+   "C": 1.0,
+   "runs": 3,
+   "documents": 400,
+   "documents_empty_in_every_run": 123,
+   "identical_in_every_run": 400,
+   "per_document_min": 1.0
+  },
+  "T": {
+   "C": 1.0,
+   "runs": 3,
+   "documents": 400,
+   "documents_empty_in_every_run": 104,
+   "identical_in_every_run": 400,
+   "per_document_min": 1.0
+  },
+  "RT": {
+   "C": 1.0,
+   "runs": 3,
+   "documents": 400,
+   "documents_empty_in_every_run": 86,
+   "identical_in_every_run": 400,
+   "per_document_min": 1.0
+  }
+ },
+ "en-deid": {
+  "R": {
+   "C": 1.0,
+   "runs": 3,
+   "documents": 485,
+   "documents_empty_in_every_run": 361,
+   "identical_in_every_run": 485,
+   "per_document_min": 1.0
+  },
+  "T": {
+   "C": 1.0,
+   "runs": 3,
+   "documents": 485,
+   "documents_empty_in_every_run": 330,
+   "identical_in_every_run": 485,
+   "per_document_min": 1.0
+  },
+  "RT": {
+   "C": 1.0,
+   "runs": 3,
+   "documents": 485,
+   "documents_empty_in_every_run": 285,
+   "identical_in_every_run": 485,
+   "per_document_min": 1.0
+  }
+ },
+ "ko-surro": {
+  "R": {
+   "C": 1.0,
+   "runs": 3,
+   "documents": 485,
+   "documents_empty_in_every_run": 285,
+   "identical_in_every_run": 485,
+   "per_document_min": 1.0
+  },
+  "T": {
+   "C": 1.0,
+   "runs": 3,
+   "documents": 485,
+   "documents_empty_in_every_run": 326,
+   "identical_in_every_run": 485,
+   "per_document_min": 1.0
+  },
+  "RT": {
+   "C": 1.0,
+   "runs": 3,
+   "documents": 485,
+   "documents_empty_in_every_run": 217,
+   "identical_in_every_run": 485,
+   "per_document_min": 1.0
+  }
+ }
+}
