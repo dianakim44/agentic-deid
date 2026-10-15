@@ -68,6 +68,7 @@ records what happens to a run that fails *after* the row exists.
 | 22 | 2026-10-15T02:56:51Z | 6d20cfb48de5f6007cccd5c126a627ef0db94fa0 | clean | es-meddocan | test | T/sup-human/port-hybrid | 1 | v24 §5: sole pre-registered opening of the tagger-only arm on es-meddocan (DESIGN §12). rules_source none_declared per the §12.7 amendment; dev reproduction verified byte-identical before opening. |
 | 23 | 2026-10-15T02:57:14Z | 940b3ff7881afa16b598e2823e48da7a72b34a33 | clean | de-grascco | test | T/sup-human/port-hybrid | 1 | v24 §5: sole pre-registered opening of the tagger-only arm on de-grascco (DESIGN §12). rules_source none_declared per the §12.7 amendment; dev reproduction verified byte-identical before opening. |
 | 24 | 2026-10-15T02:57:21Z | bae1342b6afec94c3644f389f2f0e00510e782bd | clean | es-carmen | test | T/sup-human/port-hybrid | 1 | v24 §5: sole pre-registered opening of the tagger-only arm on es-carmen (DESIGN §12). rules_source none_declared per the §12.7 amendment; dev reproduction verified byte-identical before opening. |
+| 25 | 2026-10-15T02:58:06Z | e262ce8dfe152f6a7cb8fa5b86b8ee5540633a7f | clean | en-deid | test | T/sup-human/port-hybrid | 1 | v24 §5: sole pre-registered opening of the tagger-only arm on en-deid (DESIGN §12). rules_source none_declared per the §12.7 amendment; dev reproduction verified byte-identical before opening. |
 
 `tree` is `clean` or `dirty`. A dirty tree means the commit hash does not describe
 the code that ran, so the row is honest only if it says so.
