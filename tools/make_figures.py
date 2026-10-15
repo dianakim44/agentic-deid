@@ -486,7 +486,22 @@ class Loop:
 
 
 def dev_arms(paths: dict) -> list[Arm]:
-    return [a for a in discover(paths, "metrics") if a.split == "dev"]
+    """Every dev arm **on the autonomy ladder** (DESIGN §4, `base.porting_ladder`).
+
+    The ladder filter was added 2026-10-14, when the v24 hybrid rung put four more dev
+    cells under every corpus (`T`, `RT`, `RT-Sel`, `RT-Arb` on `port-hybrid`). These
+    figures are about how autonomously the *porting* was done, and that rung does none —
+    so the arms belong in the v24 tables and not on this axis.
+
+    **Filtered here rather than in each caller.** Every function below reads its arms
+    through this one, and an off-ladder arm reaching any of them is the same category
+    error; a filter per caller would be four places for a fifth caller to forget. The
+    specific failure it prevents: `single_call_arms()` groups non-iterating arms by
+    corpus and `one()` refuses a corpus with two, so before this filter every corpus had
+    five and 25 tests in `tests/test_check_manuscript_numbers.py` failed.
+    """
+    return [a for a in discover(paths, "metrics")
+            if a.split == "dev" and base.porting_on_ladder(a.porting)]
 
 
 def manuscript_figure_arms(figure: str) -> tuple[str, list[str]]:

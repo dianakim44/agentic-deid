@@ -1087,6 +1087,29 @@ porting_rungs:
 # run_sealed_eval.plan_arm 의 아홉 거절을 **전부 통과했다**는 것이다 — 그 run 은
 # 사전등록된 회차 1 검사에서 무효로 판정된 run 이었고, --iteration 1 로 부르면
 # 봉인이 열렸을 것이다.
+# ─── 자율성 사다리의 rung ────────────────────────────────────
+# DESIGN §4 의 사다리다. 순서가 곧 자율성이고, 원고의 porting 그림들이 그리는
+# 대상이 이 넷이다.
+#
+# **2026-10-14 에 선언이 됐다. 그 전까지는 porting 축 주석의 산문이었고,
+# `tools/make_figures.py` 는 "반복하지 않는 rung" 을 사다리의 대리로 쓰고 있었다.**
+# hybrid 가 추가되자 그 대리가 깨졌다: 코퍼스마다 "단일 호출 arm" 이 다섯이 되어
+# (R 하나 + T·RT·RT-Sel·RT-Arb) `one()` 이 거절하고
+# tests/test_check_manuscript_numbers.py 25건이 빨개졌다. 열셋째 이동이
+# `termination.iterations` 에 대해 증명한 것과 **같은 종류의 결함**이고, 같은
+# 해법이다 — 그림이 보는 축을 선언으로 만든다.
+#
+# human 과 hybrid 는 사다리에 없다. human 은 철회된 arm 이고(porting 축 주석),
+# hybrid 는 이식을 하지 않으므로 "얼마나 자율적으로 이식했는가" 라는 축에
+# 올라갈 자리가 없다(DESIGN §12.0). 둘 다 rung 으로는 존재하므로
+# porting_rungs 의 분할은 그대로 전체를 덮는다 — 이 블록은 그 분할의
+# **부분집합**이고 분할이 아니다.
+#
+# 합집합이 porting_rungs 와 같기를 요구하지 않는다. 요구하면 사다리 밖 rung 을
+# 둘 수 없게 되고, 그것이 이 블록이 존재하는 이유다. 검사하는 것은 "여기 적힌
+# 것이 전부 porting_rungs 의 rung 인가" 뿐이다.
+porting_ladder: [oneshot, loop, multi, selfdesign]
+
 # 2026-10-14 에 hybrid 가 추가됐다. port-hybrid 는 한 번 조립되고 한 번 채점되므로
 # 종료 규칙의 적용 대상이 아니고, 최종 회차는 1 이다. 위 fail-closed 규정대로
 # 선언하지 않으면 봉인 게이트가 거절하는 쪽으로 틀리므로, §5 의 개봉이 가능해지려면

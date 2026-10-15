@@ -86,6 +86,7 @@ from make_figures import (  # noqa: E402  (same directory, shared loaders)
     Loop,
     call_log_total,
     check_display_names,
+    dev_arms,
     discover,
     label_lines,
     load_json,
@@ -349,7 +350,12 @@ class Subject:
 
 def subject() -> Subject:
     paths = naming()["paths"]
-    dev = [a for a in discover(paths, "metrics") if a.split == "dev"]
+    # `make_figures.dev_arms`, not a second copy of the same comprehension. This was
+    # `[a for a in discover(paths, "metrics") if a.split == "dev"]` until 2026-10-14,
+    # and the ladder filter added there (DESIGN §4, `base.porting_ladder`) silently did
+    # not apply here — so this function still saw the four v24 hybrid cells and `one()`
+    # went on refusing. One discovery, one filter.
+    dev = dev_arms(paths)
     # The arm is DECLARED, not read off `termination.iterations`. See
     # `make_figures.manuscript_subject_arm`: the derived form found two arms the
     # moment an ablation reached the same ceiling, and round 1 of an iterating

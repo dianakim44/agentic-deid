@@ -1010,18 +1010,29 @@ def test_an_absent_block_is_refused_rather_than_defaulted(monkeypatch):
         base.porting_rungs()
 
 
-def test_every_rung_but_the_oneshot_one_iterates_and_the_default_is_the_safe_one():
+def test_a_rung_iterates_exactly_when_it_is_not_declared_non_iterating():
     """`porting_iterates()` over the committed axis, and the fail-closed default.
 
     The question it answers is the one `termination.not_applicable` cannot: that block is
     byte-identical on a non-iterating arm and on round 1 of an iterating one, so the seal
     gate reads the rung. A rung absent from `porting_rungs_without_termination` is treated
     as iterating, which makes `run_sealed_eval` refuse rather than open — the direction a
-    rule whose violation voids the experiment has to fail in."""
-    from src.corpora.base import axis, porting_iterates, porting_rung
+    rule whose violation voids the experiment has to fail in.
 
+    **Read against the declaration, not against the literal `oneshot`.** Until 2026-10-14
+    this asserted `porting_iterates(v) is (porting_rung(v) != "oneshot")`, which was true
+    while `oneshot` was the only declared non-iterating rung and became false the moment
+    `hybrid` was declared (DESIGN §12). The assertion is the same one either way — the
+    accessor agrees with the block — and writing the block's one member into the test was
+    what made it a test of a count rather than of the rule.
+    """
+    from src.corpora.base import (axis, naming, porting_iterates, porting_rung)
+
+    declared = set(naming()["porting_rungs_without_termination"])
+    assert "oneshot" in declared and "hybrid" in declared, (
+        "both declared non-iterating rungs should be in the block (DESIGN §12)")
     for value in sorted(axis("porting")):
-        assert porting_iterates(value) is (porting_rung(value) != "oneshot"), value
+        assert porting_iterates(value) is (porting_rung(value) not in declared), value
 
 
 def test_the_absent_without_termination_block_is_refused(monkeypatch):
@@ -1097,3 +1108,83 @@ def test_no_driver_compares_a_porting_value_against_a_literal():
                 "and asked through multi.drives(); a comparison here was right for one of "
                 "this rung's three values and silently wrong for the other two."
             )
+
+
+# ─── the autonomy ladder is declared, not derived — 2026-10-14 ──────────────
+
+def test_the_ladder_is_the_four_rungs_design_four_orders():
+    """DESIGN §4's ladder, written out rather than compared to the config.
+
+    `human` and `hybrid` are rungs and are **not** on it: the first is retired and the
+    second does no porting, so neither belongs on an axis that orders how autonomously
+    the porting was done.
+    """
+    from src.corpora.base import porting_ladder, porting_rungs
+
+    assert porting_ladder() == ("oneshot", "loop", "multi", "selfdesign")
+    off = set(porting_rungs()) - set(porting_ladder())
+    assert off == {"human", "hybrid"}
+
+
+def test_the_ladder_is_a_subset_and_deliberately_not_a_partition():
+    """Requiring the union to cover the axis would make an off-ladder rung impossible,
+    which is the thing this block exists to express."""
+    from src.corpora.base import porting_ladder, porting_rungs
+
+    assert set(porting_ladder()) < set(porting_rungs())
+
+
+def test_whether_a_porting_value_is_on_the_ladder_is_read_from_the_declaration():
+    from src.corpora.base import axis, porting_on_ladder, porting_rung, porting_ladder
+
+    for value in sorted(axis("porting")):
+        assert porting_on_ladder(value) is (porting_rung(value) in porting_ladder())
+    assert porting_on_ladder("port-loop")
+    assert not porting_on_ladder("port-hybrid")
+    assert not porting_on_ladder("port-human")
+
+
+def test_the_ladder_is_not_the_set_of_rungs_that_iterate():
+    """The proxy that broke, pinned so it cannot come back.
+
+    `tools/make_figures.py` used "the rung that does not iterate" as a stand-in for the
+    ladder. It held while `oneshot` was the only non-iterating rung; declaring `hybrid`
+    made every corpus show five single-call dev arms instead of one, `one()` refused, and
+    25 tests went red. The two sets are now provably different, which is what makes the
+    stand-in unavailable rather than merely discouraged.
+    """
+    from src.corpora.base import axis, porting_iterates, porting_on_ladder
+
+    iterating = {v for v in axis("porting") if porting_iterates(v)}
+    on_ladder = {v for v in axis("porting") if porting_on_ladder(v)}
+    assert iterating != on_ladder
+    # port-oneshot is on the ladder and does not iterate; port-hybrid is neither.
+    assert porting_on_ladder("port-oneshot") and not porting_iterates("port-oneshot")
+    assert not porting_on_ladder("port-hybrid") and not porting_iterates("port-hybrid")
+
+
+def test_an_absent_ladder_block_is_refused(monkeypatch):
+    """No default, for `porting_rungs()`' reason: a literal here is a second declaration."""
+    from src.corpora import base
+
+    real = {k: v for k, v in base.naming().items() if k != "porting_ladder"}
+    _with_naming(monkeypatch, real)
+    with pytest.raises(CorpusError, match="no `porting_ladder` list"):
+        base.porting_ladder()
+
+
+@pytest.mark.parametrize("declared, match", [
+    (["oneshoot"], r"not rungs of porting_rungs"),
+    (["port-oneshot"], r"not rungs of porting_rungs"),
+    (["oneshot", "oneshot"], r"names a rung twice"),
+    ("oneshot", r"no `porting_ladder` list"),
+    ([], r"no `porting_ladder` list"),
+])
+def test_a_malformed_ladder_block_is_refused(monkeypatch, declared, match):
+    """A misspelt rung here drops every arm on it from the figures, silently."""
+    from src.corpora import base
+
+    real = {**base.naming(), "porting_ladder": declared}
+    _with_naming(monkeypatch, real)
+    with pytest.raises(CorpusError, match=match):
+        base.porting_ladder()

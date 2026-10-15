@@ -7,12 +7,46 @@
     "porting": "port-hybrid",
     "split": "dev",
     "model_id": "none",
-    "generated": "2026-10-14T10:14:53Z",
-    "commit": "2542ee955f7bf3be2afdde6515cd1328a481b638",
+    "generated": "2026-10-15T00:23:58Z",
+    "commit": "2cde73dcd918145ac61084a448c3bdb68076fb10",
     "tree": "dirty",
     "rules_source": {
       "ko": "results/ko-surro/R/sup-free/port-oneshot/rules/iter1/ko.yaml"
     },
+    "rules_version": {
+      "ko": 1
+    },
+    "rules": [
+      "ko:age_years_korean",
+      "ko:age_years_slash",
+      "ko:city_district_gu",
+      "ko:clinic_suffix_pattern",
+      "ko:date_dash_format",
+      "ko:date_dot_format",
+      "ko:date_korean_full",
+      "ko:date_korean_month_day",
+      "ko:date_slash_format",
+      "ko:doctor_prefix_cue",
+      "ko:email_address",
+      "ko:hospital_suffix_pattern",
+      "ko:insurance_number_cue",
+      "ko:medical_center_suffix",
+      "ko:medical_record_number",
+      "ko:mobile_number",
+      "ko:nurse_prefix_cue",
+      "ko:patient_name_cue",
+      "ko:phone_number_dash",
+      "ko:phone_number_nodash",
+      "ko:postal_code",
+      "ko:profession_cue",
+      "ko:professor_prefix_cue",
+      "ko:referring_doctor_cue",
+      "ko:resident_registration_number",
+      "ko:street_address_dong",
+      "ko:street_address_gil",
+      "ko:street_address_ro",
+      "ko:university_hospital_pattern"
+    ],
     "merge_policy": {
       "AGE": {
         "policy": "UNION",

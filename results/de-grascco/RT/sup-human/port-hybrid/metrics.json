@@ -7,12 +7,44 @@
     "porting": "port-hybrid",
     "split": "dev",
     "model_id": "none",
-    "generated": "2026-10-14T10:14:45Z",
-    "commit": "2542ee955f7bf3be2afdde6515cd1328a481b638",
+    "generated": "2026-10-15T00:23:50Z",
+    "commit": "2cde73dcd918145ac61084a448c3bdb68076fb10",
     "tree": "dirty",
     "rules_source": {
       "de": "results/de-grascco/R/sup-free/port-oneshot/rules/iter1/de.yaml"
     },
+    "rules_version": {
+      "de": 1
+    },
+    "rules": [
+      "de:age_jahre_cue",
+      "de:age_pattern",
+      "de:aktenzeichen_id",
+      "de:alter_cue",
+      "de:aus_cue_location",
+      "de:beruf_profession",
+      "de:date_vom_cue",
+      "de:dr_prefix_name",
+      "de:email_pattern",
+      "de:fallnummer_id",
+      "de:geboren_am_date",
+      "de:german_date_dot",
+      "de:german_date_slash",
+      "de:herr_frau_prefix_name",
+      "de:iso_date",
+      "de:kollege_cue_name",
+      "de:krankenhaus_org",
+      "de:patient_label_name",
+      "de:patientennummer_id",
+      "de:phone_pattern",
+      "de:plz_city",
+      "de:plz_standalone",
+      "de:station_org",
+      "de:strasse_address",
+      "de:street_pattern",
+      "de:telefon_contact",
+      "de:versicherungsnummer_id"
+    ],
     "scorer_version": 1
   },
   "cost": {

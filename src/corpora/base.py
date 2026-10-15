@@ -280,6 +280,62 @@ def porting_rungs() -> dict[str, tuple[str, ...]]:
     return {r: tuple(m) for r, m in rungs.items()}
 
 
+def porting_ladder() -> tuple[str, ...]:
+    """The autonomy ladder's rungs, in order. DESIGN §4, declared 2026-10-14.
+
+    **A subset of `porting_rungs()`, deliberately not a partition of it.** `human` is a
+    retired arm and `hybrid` does no porting, so neither belongs on an axis that orders
+    *how autonomously the porting was done* — and requiring the union to cover the axis
+    would make an off-ladder rung impossible to declare, which is this block's whole
+    purpose.
+
+    It exists because `tools/make_figures.py` was using "the rung that does not iterate"
+    as a proxy for the ladder. That proxy held while `oneshot` was the only non-iterating
+    rung and broke the moment `hybrid` was declared: every corpus acquired five
+    non-iterating dev arms instead of one (`R` plus the four v24 cells), `one()` refused,
+    and 25 tests in `tests/test_check_manuscript_numbers.py` went red. That is the same
+    defect the 2026-10-12 move proved for `termination.iterations` — a figure inferring
+    which rung an arm is on from the shape of its record — so it gets the same fix: the
+    axis the figures read is declared rather than derived.
+
+    Order is the declaration's order and it is load-bearing: it is the autonomy ordering
+    DESIGN §4 asserts, so a figure may plot it along an axis.
+    """
+    value = naming().get("porting_ladder")
+    if not isinstance(value, list) or not value:
+        raise CorpusError(
+            "config/naming.yaml has no `porting_ladder` list. It is DESIGN §4's autonomy "
+            "ladder and the axis the manuscript's porting figures are drawn along; "
+            "deriving it from which rungs iterate is the proxy that broke when a second "
+            "non-iterating rung was declared."
+        )
+    rungs = porting_rungs()
+    unknown = sorted(set(value) - set(rungs))
+    if unknown:
+        raise CorpusError(
+            f"porting_ladder names {unknown}, which are not rungs of porting_rungs "
+            f"(have: {sorted(rungs)}). A ladder rung that is not a rung is a leftover "
+            "from a rename, and it would silently drop every arm on it from the figures."
+        )
+    if len(set(value)) != len(value):
+        raise CorpusError(
+            "config/naming.yaml `porting_ladder` names a rung twice. The order is the "
+            "autonomy ordering DESIGN §4 asserts, and a repeated rung has two positions "
+            "in it."
+        )
+    return tuple(value)
+
+
+def porting_on_ladder(porting: str) -> bool:
+    """Is this `porting` value's rung on the autonomy ladder?
+
+    The question `make_figures` asks. Declared, never derived from the value's spelling
+    or from whether it iterates — `porting_ladder`'s docstring carries both prohibitions
+    and what the second one cost.
+    """
+    return porting_rung(porting) in porting_ladder()
+
+
 def porting_rung(porting: str) -> str:
     """Which rung a `porting` value runs on. Raises for an undeclared value.
 

@@ -226,32 +226,41 @@ def zero_cost(seconds: float) -> dict:
             "wall_seconds": round(seconds, 1)}
 
 
-def rules_source(corpus: str) -> dict[str, str]:
-    """The rule files this arm's rules half came from, by language.
+#: The three rules fields a hybrid arm inherits from the R arm it composes with.
+#:
+#: `rules_source` and `rules_version` are what `plan_arm` reads — refusal 9 requires the
+#: first and checks the files are still on disk. `rules` is the rule-id list, and it is
+#: here because `ArmPlan.__str__` reads it with `[...]` rather than `.get(...)`: the
+#: `--verify-dev` preflight crashed with `KeyError: 'rules'` on the first hybrid arm it
+#: was pointed at, which is how this was found.
+RULES_FIELDS = ("rules_source", "rules_version", "rules")
 
-    Named in the run block because `run_sealed_eval.plan_arm` refuses an arm that does
-    not name them, and because the claim "these are the R arm's own committed rules,
-    unmodified" should be checkable from the record rather than taken from a commit
-    message. The paths are the registered R arm's own, which is what `port-hybrid`'s
-    gloss says the rules half is.
+
+def rules_fields(corpus: str) -> dict:
+    """The registered R arm's three rules fields, **copied** from its own record.
+
+    Copied rather than recomputed, and that is the whole decision. The rules half of a
+    hybrid arm is the R arm's committed rule files read byte for byte (`port-hybrid`'s
+    gloss), so the honest value of these fields is that arm's value — and deriving them
+    here would create a second computation of the same fact, which `plan_arm`'s own
+    round-record check exists to catch between two files that should agree.
+
+    It also means the claim "these are that arm's rules, unmodified" is checkable from
+    the record: the two run blocks carry identical values, and `plan_arm` verifies the
+    files those values name are still on disk.
     """
     arm = rules_arm(corpus)
-    final = _final_round(corpus, arm)
-    out = {}
-    for lang in base.rule_langs(corpus):
-        path = base.round_path(
-            "armrules", iteration=final, artefact="rules",
-            error=SystemExit, corpus=corpus, detector="R",
-            supervision="sup-free", porting=arm, lang=lang)
-        out[lang] = str(path.relative_to(ROOT))
-    return out
-
-
-def _final_round(corpus: str, porting: str) -> int:
     record = json.loads((ROOT / scorer.path_template("metrics").format(
-        corpus=corpus, detector="R", supervision="sup-free", porting=porting)
+        corpus=corpus, detector="R", supervision="sup-free", porting=arm)
     ).read_text(encoding="utf-8"))
-    return record["termination"]["iterations"]
+    missing = [f for f in RULES_FIELDS if f not in record["run"]]
+    if missing:
+        raise SystemExit(
+            f"{corpus}'s registered R arm {arm!r} names no {missing} in its run block, "
+            "so a hybrid arm composed with it has nothing to inherit. That arm's record "
+            "predates the field."
+        )
+    return {field: record["run"][field] for field in RULES_FIELDS}
 
 
 # ─── score-dev: T and RT ────────────────────────────────────────────────────
@@ -269,8 +278,9 @@ def cmd_score_dev(args) -> int:
             scored, _ = score_policy(docs, rules_by_doc, tagger_by_doc, policies)
             row[detector] = headline(scored)
             if args.write:
-                extra = ({"rules_source": rules_source(corpus)}
-                         if detector != "T" else None)
+                # T composes with no rule files, so it inherits none. That is the
+                # arm plan_arm refuses (DESIGN §12.6), by design.
+                extra = None if detector == "T" else rules_fields(corpus)
                 write_arm(corpus, detector, scored, model_id=absent,
                           cost=zero_cost(time.time() - started), extra=extra)
             print(f"{corpus:12s} {detector:3s} L_full {row[detector]['L_full']:.4f} "
@@ -329,7 +339,7 @@ def cmd_table(args) -> int:
         if args.write:
             write_arm(corpus, "RT-Sel", scored, model_id=absent,
                       cost=zero_cost(time.time() - started),
-                      extra={"rules_source": rules_source(corpus),
+                      extra={**rules_fields(corpus),
                              "merge_policy": pol.as_record(chosen)})
         out[corpus] = {
             "n_dev_gold": n_dev,
@@ -455,7 +465,7 @@ def cmd_arbiter(args) -> int:
                                      + time.time() - started, 1)
         if args.write and args.draw == reg["rt_arb"]["primary_draw"]:
             write_arm(corpus, "RT-Arb", scored, model_id=model_id, cost=cost,
-                      extra={"rules_source": rules_source(corpus),
+                      extra={**rules_fields(corpus),
                              "merge_policy": pol.as_record(final)})
         out[corpus] = {
             "rounds": rounds,
