@@ -58,6 +58,7 @@ records what happens to a run that fails *after* the row exists.
 | 12 | 2026-10-15T02:38:57Z | db8e8ad1a574a0a367cac7bbab45c206b087c095 | clean | de-grascco | test | RT-Arb/sup-human/port-hybrid | 1 | v24 §5: sole pre-registered opening of the RT-Arb arm on de-grascco (DESIGN §12, registration.yaml). Scored through the §12.7 hybrid branch; dev reproduction verified byte-identical before opening. |
 | 13 | 2026-10-15T02:39:05Z | 6e0cdcd33de485759ccfe4224cfd182f3641f551 | clean | es-carmen | test | RT/sup-human/port-hybrid | 1 | v24 §5: sole pre-registered opening of the RT arm on es-carmen (DESIGN §12, registration.yaml). Scored through the §12.7 hybrid branch; dev reproduction verified byte-identical before opening. |
 | 14 | 2026-10-15T02:39:52Z | 2c350f74050390ff18e5cf01c7dfe4addb5331ef | clean | es-carmen | test | RT-Sel/sup-human/port-hybrid | 1 | v24 §5: sole pre-registered opening of the RT-Sel arm on es-carmen (DESIGN §12, registration.yaml). Scored through the §12.7 hybrid branch; dev reproduction verified byte-identical before opening. |
+| 15 | 2026-10-15T02:40:37Z | 58a5746e248db2d98a3f4798d9cbbd78d9d1d770 | clean | es-carmen | test | RT-Arb/sup-human/port-hybrid | 1 | v24 §5: sole pre-registered opening of the RT-Arb arm on es-carmen (DESIGN §12, registration.yaml). Scored through the §12.7 hybrid branch; dev reproduction verified byte-identical before opening. |
 
 `tree` is `clean` or `dirty`. A dirty tree means the commit hash does not describe
 the code that ran, so the row is honest only if it says so.
