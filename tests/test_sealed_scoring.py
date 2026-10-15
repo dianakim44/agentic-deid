@@ -1348,3 +1348,23 @@ def test_the_value_for_no_rule_files_comes_from_naming_and_not_a_literal():
     assert base.rules_source_absent() == "none_declared"
     source = Path(run_sealed_eval.__file__).read_text(encoding="utf-8")
     assert '"none_declared"' not in source and "'none_declared'" not in source
+
+
+def test_a_tagger_only_arms_plan_summary_does_not_raise(tmp_path, arm_record, weights):
+    """`describe()` read `dev["run"]["rules"]` directly and raised on a `T` arm.
+
+    Found on the first `T` opening attempt (2026-10-15). It happens in `main()`'s plan
+    printout, *before* `load_sealed`, so no fold was read and no log row was appended —
+    the opening was not spent. But the summary line is the one place a plan's shape
+    reaches a terminal, and an arm that legitimately has none of something should print
+    zero rather than abort the run.
+    """
+    record = _hybrid_record(arm_record, weights, tmp_path)
+    record["run"].pop("rules", None)
+    _plant(tmp_path, record, **HYBRID)
+    plan = run_sealed_eval.plan_arm(corpus=CORPUS, **HYBRID, iteration=1,
+                                    root=tmp_path)
+    line = plan.describe()
+    assert "0 rules" in line
+    assert "tagger seed 1 epoch 5" in line
+    assert "T/sup-human/port-hybrid" in line

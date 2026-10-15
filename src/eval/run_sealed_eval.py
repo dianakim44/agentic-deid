@@ -237,11 +237,19 @@ class ArmPlan:
         terminal, a shell history and a CI log — the three places CLAUDE.md says
         corpus content must not reach and the screener cannot follow it to.
         """
+        # `.get("rules") or []` rather than `["rules"]`. A tagger-only arm has no rule-id
+        # list because it has no rules, and this line raised `KeyError: 'rules'` on the
+        # first `T` opening attempt (2026-10-15) — in `main()`'s plan printout, before
+        # `load_sealed`, so nothing was read and no log row was appended. The summary line
+        # is the one place a plan's shape reaches a terminal, and an arm that legitimately
+        # has none of something should print zero rather than abort the opening.
         return (
             f"{self.corpus} {self.arm.cell} round {self.iteration}: "
             f"{len(self.rules)} rule file(s), "
-            f"{len(self.dev['run']['rules'])} rules, "
-            f"dev leak rate "
+            f"{len(self.dev['run'].get('rules') or [])} rules, "
+            + (f"tagger seed {self.hybrid.seed} epoch {self.hybrid.epoch}, "
+               if self.hybrid is not None else "")
+            + f"dev leak rate "
             f"{_pct(self.dev['headline']['leak_rate']['value'])}"
         )
 
