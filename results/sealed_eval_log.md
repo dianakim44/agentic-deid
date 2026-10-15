@@ -66,6 +66,7 @@ records what happens to a run that fails *after* the row exists.
 | 20 | 2026-10-15T02:45:31Z | 8c7d1a964862a9bc5f09aaebf87d5759ceadb112 | clean | ko-surro | test | RT-Sel/sup-human/port-hybrid | 1 | v24 §5: sole pre-registered opening of the RT-Sel arm on ko-surro (DESIGN §12, registration.yaml). Scored through the §12.7 hybrid branch; dev reproduction verified byte-identical before opening. |
 | 21 | 2026-10-15T02:46:31Z | f45f23e4b0b08d3ccc69d57900a42043eed963ec | clean | ko-surro | test | RT-Arb/sup-human/port-hybrid | 1 | v24 §5: sole pre-registered opening of the RT-Arb arm on ko-surro (DESIGN §12, registration.yaml). Scored through the §12.7 hybrid branch; dev reproduction verified byte-identical before opening. |
 | 22 | 2026-10-15T02:56:51Z | 6d20cfb48de5f6007cccd5c126a627ef0db94fa0 | clean | es-meddocan | test | T/sup-human/port-hybrid | 1 | v24 §5: sole pre-registered opening of the tagger-only arm on es-meddocan (DESIGN §12). rules_source none_declared per the §12.7 amendment; dev reproduction verified byte-identical before opening. |
+| 23 | 2026-10-15T02:57:14Z | 940b3ff7881afa16b598e2823e48da7a72b34a33 | clean | de-grascco | test | T/sup-human/port-hybrid | 1 | v24 §5: sole pre-registered opening of the tagger-only arm on de-grascco (DESIGN §12). rules_source none_declared per the §12.7 amendment; dev reproduction verified byte-identical before opening. |
 
 `tree` is `clean` or `dirty`. A dirty tree means the commit hash does not describe
 the code that ran, so the row is honest only if it says so.
