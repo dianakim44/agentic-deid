@@ -9455,3 +9455,99 @@ may not hold for `T`, which has no rule files. **If it refuses, the arm is repor
 unopened and the refusal is reported as the finding.** It is not worked around: a gate that
 fails for a reason the protocol did not anticipate is information about the protocol, and
 CLAUDE.md's rule is that the test fold is not opened by argument.
+
+### 12.7 Protocol amendment — two blocks found at preflight, amended 2026-10-15
+
+**Amended before any `T`, `RT`, `RT-Sel` or `RT-Arb` test fold had been opened.** At the
+time of this amendment `results/sealed_eval_log.md` held six rows — the two `es-meddocan`
+`R` openings of 2026-08-28 and 2026-10-12, and the four single-call `R` openings of
+2026-10-15 — and **not one row names `port-hybrid`**. No v24 test number existed, so
+nothing in this amendment could have been chosen with one in view. That is the condition
+§6.4 cares about and the log is the evidence for it.
+
+The §5 preflight (`docs/notes/sealed-eval-preflight.md`) stopped the openings at step 4 for
+two separate reasons, and §12.6 had anticipated only the first.
+
+#### Block 1 — refusal 9 has no way to say "this arm uses no rule files"
+
+`plan_arm` requires `run["rules_source"]` and refuses an arm that names none. `T` names
+none because it *has* none, and the refusal cannot tell that from an arm whose record was
+written incompletely. This is the distinction `model_id_absent` already exists for
+elsewhere in this project: absent is refused, explicitly-absent is recorded.
+
+**The amendment is one value, `none_declared`, admissible on one axis value.**
+
+  - `rules_source: "none_declared"` is accepted **only** when `detector` is `T`.
+  - On `R`, `RT`, `RT-Sel` and `RT-Arb` it is refused exactly as before — those arms do
+    compose rule files, so a declaration of absence from one of them is a false record
+    rather than a true one about a different kind of arm.
+  - A **missing** field is refused exactly as before, on every arm including `T`. The
+    amendment adds a way to *state* absence; it does not make absence tolerable.
+  - No other refusal and no other code path is touched.
+
+The narrowness is the point. A general "rules_source may be empty" would have let any arm
+skip the check that its rules are still on disk, which is refusal 9's whole function.
+
+#### Block 2 — the sealed scorer was built for rules-only arms
+
+The larger block, and §12.6 did not anticipate it. `score_fold()` loads a `RuleSet` from
+the plan's rule files and calls `detect_fold`. There is no tagger in it and no merge
+policy, so it cannot reproduce a hybrid arm's predictions at all — which is why
+`--verify-dev` failed on all fifteen committed hybrid arms, comparing the rules' output to
+a hybrid record. This blocked all twenty hybrid openings and not just `T`'s five.
+
+**The amendment adds a branch for hybrid arms and changes none of the rules-only path.**
+On a `port-hybrid` arm, `score_fold` additionally loads the tagger weights the arm's record
+names, runs inference over the same documents, and applies the arm's recorded
+`merge_policy` to compose the two span sets. The rules half is produced by the same
+`detect_fold` call every other arm uses.
+
+Three properties are preserved deliberately, because they are what make the sealed gate
+worth having:
+
+  1. **One scoring implementation for both folds.** The hybrid branch runs identically on
+     dev and on test, so `--verify-dev` means for a hybrid arm exactly what it means for a
+     rules arm: a dev rehearsal that reproduces the committed record, through the code the
+     sealed run will use.
+  2. **The sealed score is reproducible.** Measured 2026-10-15, before the amendment was
+     written: tagger inference is deterministic on MPS — three repeat runs over
+     `de-grascco` dev produced byte-identical span sets, C(`run_repeat`) = 1.000000. Had
+     inference been non-deterministic this amendment would not have been sound, because a
+     sealed number that cannot be recomputed cannot be verified and cannot be defended.
+  3. **The weights are named in the record, not assumed.** The run block carries the
+     weights' SHA-256, the seed, the selected epoch and the commit whose `src/tagger/`
+     trained them. A mismatch between the recorded hash and the file on disk is a refusal,
+     for the reason the pinned-prompt hashes exist: an arm's identity includes the artefact
+     it ran.
+
+**What this does not repair.** Training is *not* reproducible from the seed on MPS (§12.8),
+so the weights file is the reproducible artefact and the seed is not. The weights are not
+distributable — they were trained on three credentialed corpora — so the record names an
+artefact a reader cannot obtain, and its hash is the only check available to them. That is
+a real limitation of these four arms' test numbers and it is stated rather than solved.
+
+### 12.8 Training is not reproducible from the seed; inference is — measured 2026-10-15
+
+A seed 3 training run was interrupted and restarted from scratch with the same seed and the
+same code. Epoch 1 reported an **identical** train loss of 0.3844 and a **different**
+summed dev `L_full`: 0.5621 in the first run, 0.6068 in the second. Inference is
+deterministic (three repeat runs, byte-identical, C = 1.000000), so the divergence is in
+the backward pass — MPS does not guarantee a deterministic reduction order.
+
+Consequences, stated rather than investigated:
+
+  - **The reproducible artefact is the weights file identified by its SHA-256, not the
+    seed.** Every result in §12 names the weights it used.
+  - The interrupted run's log and per-epoch dev values are **kept** as the evidence for
+    this finding and are **not used** for any reported number. The reported seed 3 is the
+    restarted run.
+  - Seeds 1 and 2 would also diverge if re-run. They were not re-run to check: the
+    finding does not need a third demonstration and the check would cost three hours.
+  - The seed-to-seed range this section reports therefore **includes** this
+    non-determinism. It is not a clean variance-over-initialisation figure.
+  - §12.5 hedged that `run_repeat` might fall below 1.0 for the tagger because of MPS. It
+    does not; the non-determinism is one stage earlier than that hedge predicted, and the
+    hedge is left in place as written rather than corrected after the fact.
+
+The cause is not investigated — no trial of deterministic-algorithm flags, no CPU
+retraining. It is recorded as a limitation.
