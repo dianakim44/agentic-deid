@@ -48,6 +48,7 @@ records what happens to a run that fails *after* the row exists.
 | 2 | 2026-10-12T04:08:40Z | aa2ce344c33a17a6646908ddb80a4c8c9f8a11db | clean | es-meddocan | test | R/sup-free/port-loop-noaudit | 8 | pre-registered single test evaluation of the Auditor-ablation arm at its ceiling round (B1a; docs/notes/arm-port-loop-noaudit-es.md §9) |
 | 3 | 2026-10-15T00:52:09Z | 68e3e3a3e80dc436ce9b555de6d358ff1b0c27d6 | clean | de-grascco | test | R/sup-free/port-oneshot | 1 | v24 §5: sole pre-registered opening of the single-call rule arm on de-grascco, for the R column of the five-arm comparison (DESIGN §12, experiments/hybrid_v24/registration.yaml). MEDDOCAN R is already open and is not reopened. |
 | 4 | 2026-10-15T00:52:25Z | c46ce9f4d3ffdf11531df51bc012ab52bb6ddd7e | clean | es-carmen | test | R/sup-free/port-oneshot | 1 | v24 §5: sole pre-registered opening of the single-call rule arm on es-carmen, for the R column of the five-arm comparison (DESIGN §12, experiments/hybrid_v24/registration.yaml). MEDDOCAN R is already open and is not reopened. |
+| 5 | 2026-10-15T00:52:26Z | 363f8191d81b2a6954fe91a87ef04f9dada201ac | clean | en-deid | test | R/sup-free/port-oneshot | 1 | v24 §5: sole pre-registered opening of the single-call rule arm on en-deid, for the R column of the five-arm comparison (DESIGN §12, experiments/hybrid_v24/registration.yaml). MEDDOCAN R is already open and is not reopened. |
 
 `tree` is `clean` or `dirty`. A dirty tree means the commit hash does not describe
 the code that ran, so the row is honest only if it says so.
