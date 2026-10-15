@@ -143,6 +143,31 @@ def build(tokenizer, split: str,
     return WindowSet(items), docs_by_corpus
 
 
+def release_cache() -> None:
+    """Return MPS's cached blocks to the allocator. Measured 2026-10-15.
+
+    **Why this is here and not a tidiness habit.** Inference batches are padded to
+    `max(len(w.input_ids))` over each chunk of windows, so a sweep over a corpus asks for
+    a great many distinct tensor shapes; MPS's caching allocator keeps a block per shape
+    and never returns it, so the process grows by roughly the dev folds' worth of shapes
+    on every epoch. v24's own curve shows it — seed 1's epochs ran 589, 492, 503, 510,
+    510, 600, 827, 1169 seconds for identical work, a 2.4× creep by epoch 8 — and it was
+    read then as warm-up noise.
+
+    v24b made it unmissable. The first LOCO run (holdout `es-meddocan`, killed) took 497 s
+    for epoch 1 and **1594 s** for epoch 2 on a *smaller* pool than v24's; the process was
+    at 21.7 GB RSS and climbing 430 MB/min, with 18 of the machine's 20 GB of swap in use.
+    Killing it returned the swap to 3.9 GB, which is what identifies the holder.
+
+    No hyperparameter and no numeric is touched: this frees cached blocks, not live
+    tensors, so it changes how much memory the run needs and not what it computes.
+    DESIGN §13.1's "identical to §12.1 in every hyperparameter" is unaffected, and the
+    weights are identified by their hash in any case (§12.8).
+    """
+    if torch.backends.mps.is_available():
+        torch.mps.empty_cache()
+
+
 @torch.no_grad()
 def predict(model, tokenizer, docs: list, device, *, batch_size: int = 16,
             detector: str) -> dict[str, list]:
@@ -169,6 +194,10 @@ def predict(model, tokenizer, docs: list, device, *, batch_size: int = 16,
                 probs.append(row[:len(w.input_ids)])
         tokens = win.reconcile(wins, probs)
         out[doc.doc_id] = win.decode_spans(tokens, doc.text, detector=detector)
+    # Once per sweep and not once per document: the blocks accumulate across documents
+    # because each one's windows have their own widths, and a call inside the loop would
+    # pay the allocator's cost on every document to reclaim what the next one asks for.
+    release_cache()
     return out
 
 
@@ -283,11 +312,18 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"[{tag}] epoch {epoch} step {step}/{len(loader)} "
                       f"loss {total / step:.4f}", flush=True)
         train_loss = total / len(loader)
+        # Between the two phases: training ran at one shape and dev scoring is about to
+        # ask for many, so the blocks held here are the ones least likely to be reused.
+        release_cache()
         dev = score_dev(model, tokenizer, dev_docs, device, detector=args.detector)
         row = {
             "epoch": epoch,
             "train_loss": train_loss,
             "train_seconds": round(time.time() - epoch_started, 1),
+            # Recorded per epoch so the creep this release exists to stop is visible in
+            # the curve rather than only in a killed run's log.
+            "mps_driver_gb": (round(torch.mps.driver_allocated_memory() / 2**30, 2)
+                              if torch.backends.mps.is_available() else None),
             **dev,
         }
         curve.append(row)
