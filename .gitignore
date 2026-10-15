@@ -110,3 +110,14 @@ experiments/hybrid_v24/checkpoints/
 # 태거의 dev 예측 캐시. 오프셋·유형만 담고 재생성 가능하므로 커밋하지 않는다 —
 # 발행되는 예측은 results/ 아래 arm 의 spans.jsonl 이다.
 experiments/hybrid_v24/preds/
+
+# ─── v24b LOCO (DESIGN §13, 2026-10-15) ────────────────────────
+# leave-one-corpus-out 가중치 다섯 개. v24 와 같은 이유로 공개하지 않는다 —
+# 다섯 모델 각각이 credentialed 코퍼스의 train fold 를 보았다(holdout 이
+# 어느 것이든 나머지 넷 중 최소 둘이 credentialed 다). 저장소 밖 백업은
+# ~/agentic-deid-archive/v24b/ 이고 그 경로는 registration.yaml 에 적혀 있다.
+experiments/loco_v24b/weights/
+experiments/loco_v24b/checkpoints/
+# LOCO 태거의 dev 예측 캐시. v24 의 preds/ 와 같은 규율 — 오프셋·유형만 담고
+# 재생성 가능하므로 커밋하지 않는다.
+experiments/loco_v24b/preds/

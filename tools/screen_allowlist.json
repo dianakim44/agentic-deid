@@ -73,6 +73,11 @@
       "why": "Korean comments in the v24 pre-registration (DESIGN §12): the tagger's hyperparameters, the merge-policy space and its objective, the Arbiter's loop and budget, the four pre-registered predictions, and the guideline metric definitions. Holds hyperparameters, axis values read from naming.yaml, a prompt-template SHA-256 and the registered rules arm per corpus. No document id, no span, no offset, no corpus text — and no measured result, because this file is committed before the tagger is trained and before the Arbiter is called."
     },
     {
+      "path": "experiments/loco_v24b/registration.yaml",
+      "sniff": "Korean prose",
+      "why": "Korean comments in the v24b pre-registration (DESIGN §13): the leave-one-corpus-out scheme, the one changed factor against v24's hyperparameters, the epoch-selection fields that make `sup-transfer` true, the fixed RT merge point, the three pre-registered predictions and the ten openings. Holds hyperparameters, axis values read from naming.yaml and the registered rules arm per corpus — the same per-corpus choice v24 registered, so the two files agree by being compared rather than by being copied. No document id, no span, no offset, no corpus text, and no measured result: it is committed before any LOCO model is trained."
+    },
+    {
       "path": "config/sampling.yaml",
       "sniff": "Korean prose",
       "why": "Korean comments explaining the error-sample parameters and why changing them invalidates a port-human run. Holds four integers and two strings; no span, no offset, no corpus text."

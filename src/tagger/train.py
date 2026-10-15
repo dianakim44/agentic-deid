@@ -1,10 +1,19 @@
-"""Train the tagger, and select the epoch. DESIGN §12.1.
+"""Train the tagger, and select the epoch. DESIGN §12.1, §13.1.
 
     python3 -m src.tagger.train --seed 1
+    python3 -m src.tagger.train --seed 1 --holdout de-grascco     # v24b, DESIGN §13
 
 One `xlm-roberta-base` over the five train folds pooled. After every epoch the model is
 scored on all five dev folds and the **summed** `L_full` is recorded; the checkpoint kept
 is the epoch that minimises it. Test is never read, here or anywhere in §12.
+
+**`--holdout` is v24b's one changed factor (DESIGN §13.1).** With it, the named corpus's
+train fold is dropped from the pool *and* its dev fold is dropped from the epoch-selection
+curve, so neither its labels nor its leak rate can reach the model or the checkpoint
+choice. Every hyperparameter is the one above. The two exclusions are deliberately one
+flag: a LOCO model whose epoch was chosen on the held-out corpus's dev fold is an
+in-domain model with extra steps, and that is the mistake a second flag would make
+available.
 
 **Why summed and not pooled.** `es-meddocan` holds 5,254 of the 7,771 in-scope dev spans,
 so a pooled leak rate is 68% one corpus and the epoch would effectively be selected on it
@@ -43,6 +52,24 @@ CORPORA = ["es-meddocan", "de-grascco", "es-carmen", "en-deid", "ko-surro"]
 #: Weights and per-epoch curves. Gitignored (.gitignore, v24 block): the weights saw the
 #: train folds of three credentialed corpora and are not publishable.
 OUT = Path("experiments/hybrid_v24")
+
+#: v24b's own directory (DESIGN §13). Separate from v24's rather than a subdirectory of
+#: it: the two are different pre-registrations with different arms, and a LOCO weights
+#: file sitting under `hybrid_v24/weights/` would be one `ls` away from being read as a
+#: seed of the in-domain model, which `run_hybrid.py` names by seed alone.
+LOCO_OUT = Path("experiments/loco_v24b")
+
+
+def _tree_state() -> tuple[str | None, str]:
+    """`(commit, "clean"|"dirty")` for the training record.
+
+    Imported locally from the one implementation rather than shelling out again: the
+    sealed log's row and this record then answer the question the same way, which is the
+    property that lets a reader check that an arm's weights and its log row describe one
+    commit. `src.eval.sealed_log` imports no torch, so this costs nothing.
+    """
+    from ..eval.sealed_log import tree_state
+    return tree_state()
 
 
 def set_seed(seed: int) -> None:
@@ -95,15 +122,19 @@ def collate(rows: list[dict]) -> dict:
     return out
 
 
-def build(tokenizer, split: str) -> tuple[WindowSet, dict[str, list]]:
-    """Window and label one split across the five corpora.
+def build(tokenizer, split: str,
+          corpora: list[str] | None = None) -> tuple[WindowSet, dict[str, list]]:
+    """Window and label one split across the corpora named (all five by default).
 
     Returns the dataset and `{corpus: [Document]}` — the documents come back because dev
     scoring needs them per corpus, and re-loading would read the corpora twice.
+
+    `corpora` is the whole of what `--holdout` changes: the pool and the dev curve are
+    both built from this list, so one argument decides both and they cannot drift apart.
     """
     items: list[tuple[win.Window, list[int]]] = []
     docs_by_corpus: dict[str, list] = {}
-    for corpus in CORPORA:
+    for corpus in (CORPORA if corpora is None else corpora):
         docs = [d for d in base.load(corpus) if d.split == split]
         docs_by_corpus[corpus] = docs
         for doc in docs:
@@ -174,6 +205,12 @@ def _accuracy(overall: dict) -> float:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="train the v24 tagger (DESIGN §12.1)")
     parser.add_argument("--seed", type=int, required=True, choices=(1, 2, 3))
+    parser.add_argument(
+        "--holdout", choices=tuple(CORPORA), default=None,
+        help="train leave-one-corpus-out (DESIGN §13): drop this corpus's train fold "
+             "from the pool and its dev fold from the epoch-selection curve. Without "
+             "it, the v24 in-domain model over all five.",
+    )
     parser.add_argument("--epochs", type=int, default=8)
     parser.add_argument("--batch-size", type=int, default=16)
     parser.add_argument("--lr", type=float, default=3e-5)
@@ -189,12 +226,29 @@ def main(argv: list[str] | None = None) -> int:
     device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
     set_seed(args.seed)
 
+    # The one list `--holdout` changes, and both calls below read it.
+    used = [c for c in CORPORA if c != args.holdout]
+    tag = f"seed {args.seed}" if args.holdout is None else f"loco {args.holdout}"
+    out_dir = OUT if args.holdout is None else LOCO_OUT
+    weights_name = (f"seed{args.seed}" if args.holdout is None
+                    else f"loco-{args.holdout}")
+    record_name = (f"tagger_seed{args.seed}.json" if args.holdout is None
+                   else f"tagger_loco_{args.holdout}.json")
+
     tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
-    print(f"[seed {args.seed}] windowing train and dev", flush=True)
-    train_set, _ = build(tokenizer, "train")
-    _, dev_docs = build(tokenizer, "dev")
-    print(f"[seed {args.seed}] train windows {len(train_set)}  "
+    print(f"[{tag}] windowing train and dev over {len(used)} corpora", flush=True)
+    train_set, _ = build(tokenizer, "train", used)
+    _, dev_docs = build(tokenizer, "dev", used)
+    print(f"[{tag}] train windows {len(train_set)}  "
           f"dev docs {sum(len(d) for d in dev_docs.values())}", flush=True)
+    if args.holdout is not None and args.holdout in dev_docs:
+        # Cannot happen through `used`, and asserted anyway: this is the one property of
+        # the run that makes `sup-transfer` true, and it is cheaper to check than to
+        # argue about afterwards.
+        raise SystemExit(
+            f"the held-out corpus {args.holdout!r} is in the dev curve, so the epoch "
+            "would be selected on labels DESIGN §13.1 says are not read."
+        )
 
     model = AutoModelForTokenClassification.from_pretrained(
         MODEL_NAME, num_labels=n_labels()).to(device)
@@ -206,7 +260,7 @@ def main(argv: list[str] | None = None) -> int:
     schedule = get_linear_schedule_with_warmup(
         optimiser, int(args.warmup_ratio * steps), steps)
 
-    weights = OUT / "weights" / f"seed{args.seed}"
+    weights = out_dir / "weights" / weights_name
     weights.mkdir(parents=True, exist_ok=True)
     curve: list[dict] = []
     best = {"epoch": None, "summed_L_full": None}
@@ -226,7 +280,7 @@ def main(argv: list[str] | None = None) -> int:
             schedule.step()
             total += loss.item()
             if step % 100 == 0:
-                print(f"[seed {args.seed}] epoch {epoch} step {step}/{len(loader)} "
+                print(f"[{tag}] epoch {epoch} step {step}/{len(loader)} "
                       f"loss {total / step:.4f}", flush=True)
         train_loss = total / len(loader)
         dev = score_dev(model, tokenizer, dev_docs, device, detector=args.detector)
@@ -237,7 +291,7 @@ def main(argv: list[str] | None = None) -> int:
             **dev,
         }
         curve.append(row)
-        print(f"[seed {args.seed}] epoch {epoch} loss {train_loss:.4f} "
+        print(f"[{tag}] epoch {epoch} loss {train_loss:.4f} "
               f"summed_L_full {dev['summed_L_full']:.4f} "
               f"({row['train_seconds']:.0f}s)", flush=True)
         for corpus, value in dev["per_corpus"].items():
@@ -248,9 +302,10 @@ def main(argv: list[str] | None = None) -> int:
             best = {"epoch": epoch, "summed_L_full": dev["summed_L_full"]}
             model.save_pretrained(weights)
             tokenizer.save_pretrained(weights)
-            print(f"[seed {args.seed}] epoch {epoch} is the new best; saved",
+            print(f"[{tag}] epoch {epoch} is the new best; saved",
                   flush=True)
 
+    commit, tree = _tree_state()
     record = {
         "seed": args.seed,
         "model": MODEL_NAME,
@@ -262,6 +317,19 @@ def main(argv: list[str] | None = None) -> int:
         "selected_summed_L_full": best["summed_L_full"],
         "selection_criterion": "summed_dev_L_full",
         "test_used": False,
+        # v24b's three fields (DESIGN §13.1). `holdout` is `None` for the in-domain
+        # model, which is a stated absence and not a missing field: the LOCO records and
+        # the v24 records are read by the same driver and a key only one of them carries
+        # is a key that cannot be compared across them.
+        "holdout": args.holdout,
+        "train_corpora": used,
+        "selection_corpora": used,
+        "holdout_dev_used": False,
+        # The other half of what identifies the weights: DESIGN §12.8 says the seed does
+        # not, so the code that produced them is recorded beside their hash. `tree` is
+        # `dirty` when the commit does not describe what ran.
+        "commit": commit,
+        "tree": tree,
         "total_seconds": round(time.time() - started, 1),
         "hyperparameters": {
             "lr": args.lr, "weight_decay": args.weight_decay,
@@ -272,9 +340,10 @@ def main(argv: list[str] | None = None) -> int:
     }
     # The curve is committable: it is epochs, losses, rates and counts, with no
     # document id, span or surface in it. The weights beside it are not.
-    out = OUT / f"tagger_seed{args.seed}.json"
+    out = out_dir / record_name
+    out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(record, indent=1) + "\n", encoding="utf-8")
-    print(f"[seed {args.seed}] selected epoch {best['epoch']} "
+    print(f"[{tag}] selected epoch {best['epoch']} "
           f"(summed L_full {best['summed_L_full']:.4f}) in "
           f"{record['total_seconds'] / 3600:.2f} h -> {out}", flush=True)
     return 0

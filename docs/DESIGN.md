@@ -9551,3 +9551,159 @@ Consequences, stated rather than investigated:
 
 The cause is not investigated — no trial of deterministic-algorithm flags, no CPU
 retraining. It is recorded as a limitation.
+
+## 13. v24b: the leave-one-corpus-out tagger — pre-registered 2026-10-15, before any LOCO model is trained
+
+§12's tagger is **in-domain**: one model over the five train folds pooled, so every corpus
+it predicts on contributed labelled training data. That is the right design for §12's
+question — what annotation buys — and it answers nothing about the question this project
+started from. The headline claim is about porting a pipeline to a language nobody has
+annotated (§1), and in that setting there is no target-corpus train fold to pool. §12's `T`
+column therefore cannot be read as "what a learned tagger is worth on a new corpus"; it is
+"what a learned tagger is worth on a corpus it was trained on".
+
+This section registers the arm that separates the two. For each corpus `c`, one
+`xlm-roberta-base` is trained on the **other four** train folds and predicts on `c`.
+Five models, one per held-out corpus.
+
+### 13.0 Two axis decisions
+
+**`sup-transfer` is a new `supervision` value and it names the tagger's training.**
+Definition: *training that used none of the target corpus's labels.* The value is about the
+learned half, because that is the half leave-one-corpus-out changes — the rules half of a
+hybrid arm keeps whatever provenance its own R arm has, and that provenance is already
+recorded in the arm's `rules_source`, `rules_version` and the R arm's own `supervision`.
+Scoping the value this way is what makes the one caveat in §13.3 statable rather than
+hidden: on `es-meddocan` the registered R arm is `port-loop`, whose round 8 rules were
+written with dev-gold feedback, so that corpus's `RT-loco` cell is not label-free about the
+target even though its tagger is. The alternative — one value meaning "no target labels
+anywhere in the arm" — would have been false for one of the ten cells and would have had to
+be repaired by inventing a second value for that cell alone.
+
+**No new `detector` value, and the arm labels are informal.** `T-loco` is
+`T`/`sup-transfer`/`port-hybrid` and `RT-loco` is `RT`/`sup-transfer`/`port-hybrid`. §12.0
+refused a second `porting` value for the degenerate composition because `detector` already
+separated `T` from the `RT` family; the same argument applies here with the axes swapped.
+What differs between `T` and `T-loco` is which labels trained the weights, which is the
+`supervision` axis's subject, so a `T-loco` detector value would be one axis repeating
+another's distinction. The informal labels are read the way §12's registration reads
+`RT-sel` — a short name for a coordinate, never a path component.
+
+The rung stays `port-hybrid`: nothing is authored, the tagger is trained and the rules half
+is read byte for byte from the registered R arm's files. That is what that value names.
+
+### 13.1 The models
+
+Identical to §12.1 in every hyperparameter — AdamW, lr 3e-5, weight decay 0.01, batch 16,
+at most 8 epochs, 10% warmup, linear decay, 512-token windows at stride 128, BIO over the
+ten canonical types, §9.1's exclusions masked out of the loss. One factor changes and it is
+which train folds are pooled.
+
+**Seed 1 only.** §12.8 established that training is not reproducible from the seed on MPS,
+so seeds 2 and 3 in §12 measure that non-determinism and not variance over initialisation.
+Running three seeds × five holdouts would measure the same already-measured thing at five
+times the cost, and §12's manuscript result is seed 1 — matching it keeps the in-domain
+versus LOCO comparison a one-factor comparison. The weights file identified by its SHA-256
+is the reproducible artefact, here as there.
+
+**Epoch selection uses the four training corpora's dev folds and not the held-out one.**
+The checkpoint kept is the epoch minimising the **summed** dev `L_full` over the four
+corpora whose train folds the model saw, for §12.1's reason (summing weights each corpus
+equally where pooling would weight `es-meddocan`'s 5,254 dev spans). The held-out corpus's
+dev labels are read **nowhere** in training or selection, and the training record states
+that as a field rather than leaving it to be inferred: a LOCO model whose epoch was chosen
+on the held-out corpus's dev fold is an in-domain model with extra steps.
+
+Test is not read for this or for anything else in training (§6.1).
+
+### 13.2 No selector and no Arbiter
+
+RT-sel and RT-arb both read the target corpus's **dev aggregate table** — per-type gold
+counts, TP/FP/FN per candidate policy, the complementarity cells (§12.2–12.3). Those are
+target-corpus labels. Running either chooser here would make `sup-transfer` false of the
+arm that carries it, so neither is run and `RT-loco` is fixed at `UNION@0.5` on every type
+— the RT baseline, which needs no dev observation to state.
+
+A consequence, and it is the honest one: §12's finding that a per-type policy beats
+`UNION@0.5` on three corpora is **not available** in the transfer setting, because the
+information that finding was bought with is exactly what is absent. §13.4's P10 is the
+weaker question that can be asked without it.
+
+### 13.3 What the R column is, and the one caveat
+
+`R` is **not re-run and no test fold is opened for it**: the five R test cells are already
+open and published (`results/{corpus}/R/sup-free/{arm}/test/metrics.json`), and the
+registered rules arm per corpus is §12's (`port-oneshot` for four, `port-loop` for
+`es-meddocan`). Reusing them is what keeps this section's openings to ten.
+
+**The caveat is `es-meddocan`'s and it is stated in the table rather than repaired.** That
+corpus's registered R arm is `port-loop`, and the arm iterated against dev with the
+Auditor's feedback to round 8 — so its rules saw `es-meddocan` dev gold. Every number in
+the `R` and `RT-loco` columns for that corpus therefore has a rules half that is not
+label-free about the target, while the other four corpora's rules halves came from a single
+call with no dev feedback. The table carries the note on the row; nothing is averaged across
+the five in a way that would hide it.
+
+### 13.4 Pre-registered predictions
+
+| | claim | direction |
+|---|---|---|
+| P9 | On each of the five corpora, the dev complementarity `rules only` share is **larger** under LOCO than under §12's in-domain tagger. | stated |
+| P10 | On at least 3 of 5 corpora, test `L_full(RT-loco) < L_full(T-loco)`. | stated |
+| P11 | The test `L_full` difference between `T-loco` and `R`. | **none** |
+
+P9 is a claim about the *shape* of the two detectors' overlap rather than about either
+one's quality: a weaker tagger leaves more gold spans that only the rules found, and
+`rules only` is the cell that counts them. It is the prediction most likely to be true for
+an uninteresting reason, and it is registered because the uninteresting reason is itself
+the mechanism §7 cares about.
+
+P10 is §12's P5 asked where it is not nearly by construction. On recall a union still
+cannot lose, but `L_full` is a `fully_covered` accounting and the in-domain result gives
+little guidance: on dev, `UNION@0.5` tied or beat `T@0.5` on leak rate for all five corpora
+in §12, with a far stronger tagger than this one.
+
+P11 has **no predicted direction** and that is the registration's substance. It is the
+question the project's own claim turns on — a tagger that never saw the target's labels
+against rules an agent wrote for it without annotations — and either answer is a result.
+Predicting it would make the answer a thing the authors had an opinion about.
+
+### 13.5 Openings, and what they cost
+
+Ten: two arms × five corpora, `--iteration 1`, through `src/eval/run_sealed_eval.py` and
+§12.7's hybrid branch. §6.4 grants one opening per *reported* arm, and these are ten cells
+no row of `results/sealed_eval_log.md` names. The §5 preflight
+(`docs/notes/sealed-eval-preflight.md`) is worked for each, `--verify-dev` must agree
+first, and a refusal is reported as the finding and not worked around (§12.6's rule, which
+this section inherits without amendment).
+
+After them `sealed_eval_log.md` holds 36 rows. That number is the honest denominator for
+"how many times was the test fold consulted" and it is reported in the manuscript as such.
+
+### 13.6 What these numbers cannot support
+
+  - **The weights are not distributable** (§12.7): three of the four pooled folds in every
+    model are credentialed corpora. The SHA-256 in each record is the only check a reader
+    has, and that is a real limitation rather than a formality.
+  - **One seed.** No spread is reported, and §12.8 means a re-run would differ.
+  - **"Leave one corpus out" is not "leave one language out", and the five cells differ in
+    how out-of-domain they are.** This is the finding most likely to be misread, so it is
+    tabulated before any model is trained:
+
+| held out | a same-language corpus remains in training | a same-document corpus remains in training |
+|---|---|---|
+| `es-meddocan` | yes (`es-carmen`) | no |
+| `es-carmen` | yes (`es-meddocan`) | no |
+| `en-deid` | no | yes (`ko-surro`, §6.5) |
+| `ko-surro` | no | yes (`en-deid`, §6.5) |
+| `de-grascco` | **no** | **no** |
+
+`de-grascco` is the only cell where the held-out corpus has neither relative in training,
+so it is the closest thing here to a genuine new-language result and the five cells are not
+exchangeable. The `en-deid` × `ko-surro` pair is **not a fold violation**: §6.5's decision B
+derives `ko-surro`'s fold assignment from `splits/en-deid.json` by source note
+(`tools/derive_aligned_split.py`), so the held-out corpus's dev and test documents
+correspond to the *other* corpus's dev and test documents and never to its train fold. What
+the pair is instead is a transfer setting with the same underlying notes on both sides,
+which flatters those two cells for a reason that has nothing to do with multilingual
+transfer.

@@ -98,6 +98,21 @@ axes:
   supervision:
     sup-free:      labels recovered from placeholder positions, no manual annotation
     sup-human:     labels from the corpus's own human annotations
+    # 2026-10-15, v24b 등록 (DESIGN §13). leave-one-corpus-out 태거의 값이다.
+    #
+    # **이 값은 학습에 대한 진술이고 arm 전체에 대한 진술이 아니다.** LOCO 가
+    # 바꾸는 것은 학습된 절반뿐이고, 하이브리드 arm 의 규칙 절반은 그 arm 이
+    # 읽는 R arm 의 출처를 그대로 가진다 — 그 출처는 rules_source ·
+    # rules_version 과 R arm 자신의 supervision 에 이미 기록되어 있다.
+    # 그래서 es-meddocan 의 RT-loco 는 태거가 그 코퍼스의 라벨을 안 썼으면서
+    # 규칙 절반은 dev gold 피드백으로 쓰인 round 8 이라는 사실을 **말할 수 있다**
+    # (DESIGN §13.3). "arm 안의 어디에도 대상 라벨이 없다" 는 뜻으로 정의하면
+    # 열 셀 중 하나에서 거짓이 되고, 그 한 셀을 위해 두 번째 값을 만들어야 한다.
+    sup-transfer:  |
+      training that used none of the target corpus's labels — the tagger was trained on
+      the other four corpora's train folds and its epoch chosen on their dev folds
+      (DESIGN §13.1). Names the learned half only; the rules half carries its own R
+      arm's provenance.
 
   # ─── 이식(porting) 주체 ────────────────────────────────────
   # porting = 고정된 파이프라인이 요구하는 언어별 인스턴스
