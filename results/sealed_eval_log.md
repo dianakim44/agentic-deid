@@ -55,6 +55,7 @@ records what happens to a run that fails *after* the row exists.
 | 9 | 2026-10-15T02:38:21Z | f1620f0ec20aad8fafa429940beb91bfe5323544 | clean | es-meddocan | test | RT-Arb/sup-human/port-hybrid | 1 | v24 §5: sole pre-registered opening of the RT-Arb arm on es-meddocan (DESIGN §12, registration.yaml). Scored through the §12.7 hybrid branch; dev reproduction verified byte-identical before opening. |
 | 10 | 2026-10-15T02:38:45Z | cecb73f54676fc2dbdcb45f25d02b317cd24afd0 | clean | de-grascco | test | RT/sup-human/port-hybrid | 1 | v24 §5: sole pre-registered opening of the RT arm on de-grascco (DESIGN §12, registration.yaml). Scored through the §12.7 hybrid branch; dev reproduction verified byte-identical before opening. |
 | 11 | 2026-10-15T02:38:51Z | 485c5e7d0e9ed7bee03ec5a9d77c9df6339409ab | clean | de-grascco | test | RT-Sel/sup-human/port-hybrid | 1 | v24 §5: sole pre-registered opening of the RT-Sel arm on de-grascco (DESIGN §12, registration.yaml). Scored through the §12.7 hybrid branch; dev reproduction verified byte-identical before opening. |
+| 12 | 2026-10-15T02:38:57Z | db8e8ad1a574a0a367cac7bbab45c206b087c095 | clean | de-grascco | test | RT-Arb/sup-human/port-hybrid | 1 | v24 §5: sole pre-registered opening of the RT-Arb arm on de-grascco (DESIGN §12, registration.yaml). Scored through the §12.7 hybrid branch; dev reproduction verified byte-identical before opening. |
 
 `tree` is `clean` or `dirty`. A dirty tree means the commit hash does not describe
 the code that ran, so the row is honest only if it says so.
