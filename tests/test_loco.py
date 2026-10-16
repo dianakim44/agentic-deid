@@ -229,3 +229,64 @@ def test_a_record_that_does_not_state_holdout_dev_used_is_refused(tmp_path,
     with pytest.raises(SystemExit) as raised:
         run_loco.training_record("en-deid")
     assert "holdout_dev_used" in str(raised.value)
+
+
+# ─── the child-process dev scoring (DESIGN §13.6) ───────────────────────────
+
+
+def test_a_training_run_still_needs_a_seed():
+    """`--seed` was relaxed for the `--score-only` child; training must still carry it.
+
+    The relaxation is the risk: an unseeded training run would be unrecorded, and
+    argparse stopped being the thing that prevents it.
+    """
+    with pytest.raises(SystemExit) as raised:
+        train.main(["--holdout", "de-grascco"])
+    assert "--seed is required" in str(raised.value)
+
+
+def test_the_child_half_needs_no_seed():
+    """The other side of it: `--score-only` parses without one.
+
+    Driven to the point of loading weights and no further — the path under test is the
+    argument handling, and scoring a real model here would cost three minutes.
+    """
+    with pytest.raises(Exception) as raised:
+        train.main(["--score-only", "/nonexistent/weights",
+                    "--score-corpora", "de-grascco"])
+    assert "--seed is required" not in str(raised.value)
+
+
+def test_the_holdout_assertion_reads_the_training_list():
+    """It must not be checkable only on `dev_docs`, which one path leaves empty.
+
+    The first form asserted `args.holdout not in dev_docs`, and under
+    `--dev-in-subprocess` the parent builds no `dev_docs` at all — so the one check that
+    makes `sup-transfer` true would have passed vacuously on the path all five reported
+    models are trained with.
+    """
+    import inspect
+
+    source = inspect.getsource(train.main)
+    assert "args.holdout in used" in source
+    assert "args.holdout in dev_docs" not in source
+
+
+def test_the_verification_against_a_completed_model_is_recorded():
+    """The switch's evidence is a committed file, not a sentence in a commit message."""
+    path = os.path.join(ROOT, "experiments", "loco_v24b",
+                        "child_scoring_verified.json")
+    with open(path, encoding="utf-8") as fh:
+        record = json.load(fh)
+    assert record["identical"] is True
+    assert record["values_compared"] == 36
+    assert len(record["corpora"]) == 5
+    # The completed model it was verified against, and the number that ties it to the
+    # published record rather than to itself.
+    assert "hybrid_v24/weights/seed1" in record["weights"]
+    with open(os.path.join(ROOT, "experiments", "hybrid_v24",
+                           "tagger_seed1.json"), encoding="utf-8") as fh:
+        published = json.load(fh)
+    selected = [row for row in published["curve"]
+                if row["epoch"] == published["selected_epoch"]][0]
+    assert record["values"]["summed_L_full"] == selected["summed_L_full"]

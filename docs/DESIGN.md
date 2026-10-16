@@ -9686,6 +9686,31 @@ After them `sealed_eval_log.md` holds 36 rows. That number is the honest denomin
     model are credentialed corpora. The SHA-256 in each record is the only check a reader
     has, and that is a real limitation rather than a formality.
   - **One seed.** No spread is reported, and §12.8 means a re-run would differ.
+  - **The training loop leaks memory across epochs and the cause is not investigated.**
+    Recorded as a limitation, 2026-10-15. The per-epoch dev sweeps grow the process
+    without bound — visible in v24's own curve (seed 1's eight epochs ran 589, 492, 503,
+    510, 510, 600, 827, 1169 s for identical work) and fatal in v24b's first attempt,
+    where holdout `es-meddocan` ran 492, 424, 1003, 980, 2407, 6177 s and then died in
+    epoch 7's backward pass with `MPS backend out of memory` (21.5 GB on MPS, 66 GB
+    elsewhere). `release_cache()` slowed it and did not stop it. **No diagnosis was
+    attempted**; the training path was changed to score each epoch's dev folds in a
+    child process (`--dev-in-subprocess`), which bounds the leak to one epoch because a
+    process that exits returns everything. The five reported models are all trained that
+    way.
+
+    The switch is value-preserving and that was established before it trained anything,
+    on a *completed* model — v24's seed 1, the only completed model available, since no
+    LOCO model had finished. `tools/verify_child_scoring.py` scored its weights through
+    both paths over all five dev folds: **all 36 values identical under exact equality**,
+    and they reproduce the committed `tagger_seed1.json` curve at the selected epoch
+    (summed dev `L_full` 0.2770466876758822). Exact rather than approximate is the right
+    bar because §12.7 measured inference as deterministic on MPS.
+
+    What this costs the reader: v24's in-domain models were trained on the leaking path
+    and v24b's are not, so the two sets of weights were produced by code that differs in
+    one respect. It does not differ in any hyperparameter, in the data, or in any
+    computed number — the verification above is the evidence — but it is a difference and
+    it is stated rather than left for someone to find in the commit log.
   - **"Leave one corpus out" is not "leave one language out", and the five cells differ in
     how out-of-domain they are.** This is the finding most likely to be misread, so it is
     tabulated before any model is trained:
