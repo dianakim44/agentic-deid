@@ -267,6 +267,23 @@ def score_dev(model, tokenizer, docs_by_corpus: dict[str, list], device,
 #: 1.1 GB files whose only reader has already exited.
 SCRATCH = "epoch_scratch"
 
+#: How often `release_cache()` is called inside the training loop. Measured 2026-10-16.
+#:
+#: Moving the dev sweeps into a child process (above) bounded the leak on that side and
+#: left it on this one: with the child path in place, holdout `es-meddocan` still ran
+#: 498, 503, **1268** s, and the *parent* was at 20.6 GB RSS with 53 GB of the machine's
+#: memory wired at epoch 3. Killing it returned wired to 2.3 GB, which identifies the
+#: holder as the training loop rather than the scoring.
+#:
+#: `shuffle=True` with per-batch padding means the loop asks for a different padded width
+#: almost every step, so the allocator's block set grows across an epoch. Releasing on an
+#: interval keeps it bounded. 50 is ~6 calls per epoch here — often enough to hold the
+#: pool down, rare enough that the re-allocation it forces is not the loop's cost.
+#:
+#: The cause is **not** investigated; this is the same mitigation as `release_cache`'s
+#: other two call sites, applied to the phase they left out (DESIGN §13.6).
+RELEASE_EVERY = 50
+
 
 def score_dev_in_child(weights: Path, corpora: list[str], *,
                        detector: str) -> dict:
@@ -447,6 +464,8 @@ def main(argv: list[str] | None = None) -> int:
             optimiser.step()
             schedule.step()
             total += loss.item()
+            if step % RELEASE_EVERY == 0:
+                release_cache()
             if step % 100 == 0:
                 print(f"[{tag}] epoch {epoch} step {step}/{len(loader)} "
                       f"loss {total / step:.4f}", flush=True)
