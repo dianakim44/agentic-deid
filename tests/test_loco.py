@@ -483,3 +483,28 @@ def test_both_paths_run_the_same_epoch_function():
     # And the per-epoch orchestrator must not have a loop of its own.
     orchestrator = inspect.getsource(train._orchestrate_epochs)
     assert "loss.backward()" not in orchestrator
+
+
+def test_the_weights_reach_the_device_before_the_optimiser_is_built():
+    """The ordering the first per-epoch run got wrong, pinned.
+
+    `AdamW.load_state_dict` casts each saved state tensor to the device of the parameter
+    it belongs to. Build the optimiser over CPU parameters, restore into it, and then
+    move the model — and `exp_avg` stays on the CPU while the parameters leave, so the
+    first optimiser step of the resumed epoch fails with `Expected all tensors to be on
+    the same device`. **Epoch 1 cannot catch it**: its optimiser state is empty, so the
+    run reached epoch 2 before failing.
+
+    Checked on the source because the failure needs a device the CI machine may not have,
+    and what went wrong is an order of statements rather than a value.
+    """
+    import inspect
+
+    source = inspect.getsource(train._train_epoch_child)
+    to_device = source.index("model = model.to(device)")
+    build_optimiser = source.index("optimiser = torch.optim.AdamW")
+    load_optimiser = source.index('optimiser.load_state_dict(state["optimiser"])')
+    assert to_device < build_optimiser < load_optimiser, (
+        "the model must reach the device before the optimiser is built and before its "
+        "state is restored"
+    )

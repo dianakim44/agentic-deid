@@ -502,14 +502,17 @@ def _train_epoch_child(args) -> int:
 
     model = AutoModelForTokenClassification.from_pretrained(
         MODEL_NAME, num_labels=n_labels())
-    optimiser = torch.optim.AdamW(model.parameters(), lr=args.lr,
-                                  weight_decay=args.weight_decay)
-    schedule = get_linear_schedule_with_warmup(
-        optimiser, int(args.warmup_ratio * total_steps), total_steps)
 
-    if epoch == 1:
-        global_step = 0
-    else:
+    # **The weights move to the device before the optimiser is built, and that ordering
+    # is load-bearing.** `AdamW.load_state_dict` casts each saved state tensor to the
+    # device of the parameter it belongs to, so an optimiser constructed over CPU
+    # parameters takes `exp_avg` onto the CPU — and a later `model.to(device)` moves the
+    # parameters out from under it, leaving `exp_avg.lerp_(grad, …)` with one operand on
+    # each device. Epoch 1 cannot see this (its optimiser state is empty), so the first
+    # per-epoch run reached epoch 2 before failing with
+    # `Expected all tensors to be on the same device`.
+    state = None
+    if epoch > 1:
         state = load_epoch_state(state_path)
         if state["epoch"] != epoch - 1:
             raise SystemExit(
@@ -518,12 +521,24 @@ def _train_epoch_child(args) -> int:
                 "schedule and the data order from the wrong point."
             )
         model.load_state_dict(state["model"])
+    model = model.to(device)
+
+    optimiser = torch.optim.AdamW(model.parameters(), lr=args.lr,
+                                  weight_decay=args.weight_decay)
+    schedule = get_linear_schedule_with_warmup(
+        optimiser, int(args.warmup_ratio * total_steps), total_steps)
+
+    if state is None:
+        global_step = 0
+    else:
         optimiser.load_state_dict(state["optimiser"])
         schedule.load_state_dict(state["schedule"])
         global_step = state["global_step"]
         set_rng_state(state["rng"])
+        # Released once: `state` holds a whole model and optimiser on the CPU and is not
+        # read again, and the epoch below is about to ask for the device's memory.
+        state = None
 
-    model = model.to(device)
     lr_on_entry = schedule.get_last_lr()[0]
 
     # The order is drawn after the generators are in place, so it is the order a
