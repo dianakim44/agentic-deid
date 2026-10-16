@@ -9686,31 +9686,51 @@ After them `sealed_eval_log.md` holds 36 rows. That number is the honest denomin
     model are credentialed corpora. The SHA-256 in each record is the only check a reader
     has, and that is a real limitation rather than a formality.
   - **One seed.** No spread is reported, and §12.8 means a re-run would differ.
-  - **The training loop leaks memory across epochs and the cause is not investigated.**
-    Recorded as a limitation, 2026-10-15. The per-epoch dev sweeps grow the process
-    without bound — visible in v24's own curve (seed 1's eight epochs ran 589, 492, 503,
-    510, 510, 600, 827, 1169 s for identical work) and fatal in v24b's first attempt,
-    where holdout `es-meddocan` ran 492, 424, 1003, 980, 2407, 6177 s and then died in
-    epoch 7's backward pass with `MPS backend out of memory` (21.5 GB on MPS, 66 GB
-    elsewhere). `release_cache()` slowed it and did not stop it. **No diagnosis was
-    attempted**; the training path was changed to score each epoch's dev folds in a
-    child process (`--dev-in-subprocess`), which bounds the leak to one epoch because a
-    process that exits returns everything. The five reported models are all trained that
-    way.
+  - **The training process leaks memory across epochs and the cause is not
+    investigated.** Recorded as a limitation, 2026-10-15/16. It is visible in v24's own
+    curve — seed 1's eight epochs ran 589, 492, 503, 510, 510, 600, 827, 1169 s for
+    identical work — and it was fatal for v24b, whose pool is *smaller*. Four attempts on
+    holdout `es-meddocan`, each with one more mitigation than the last, are kept in
+    `experiments/loco_v24b/abandoned_runs.json` with their per-epoch dev values; **none
+    of their numbers is used for any result** and their checkpoints were deleted:
 
-    The switch is value-preserving and that was established before it trained anything,
-    on a *completed* model — v24's seed 1, the only completed model available, since no
-    LOCO model had finished. `tools/verify_child_scoring.py` scored its weights through
-    both paths over all five dev folds: **all 36 values identical under exact equality**,
-    and they reproduce the committed `tagger_seed1.json` curve at the selected epoch
-    (summed dev `L_full` 0.2770466876758822). Exact rather than approximate is the right
-    bar because §12.7 measured inference as deterministic on MPS.
+    | mitigation in place | epoch seconds | how it ended |
+    |---|---|---|
+    | none | 497, 1594 | killed |
+    | `release_cache()` once per epoch | 492, 424, 1003, 980, 2407, 6177 | **`MPS backend out of memory`** in epoch 7's backward pass (21.5 GB on MPS, 66 GB other) |
+    | + dev scoring in a child process | 498, 503, 1268 | killed |
+    | + `release_cache()` every 50 steps | 559, 500, 492, 1393, 1775, 4607 | killed |
 
-    What this costs the reader: v24's in-domain models were trained on the leaking path
-    and v24b's are not, so the two sets of weights were produced by code that differs in
-    one respect. It does not differ in any hyperparameter, in the data, or in any
-    computed number — the verification above is the evidence — but it is a difference and
-    it is stated rather than left for someone to find in the commit log.
+    Each mitigation delayed the divergence by about one epoch and none stopped it. The
+    reported models are therefore trained with **`--per-epoch-child`**: one process per
+    epoch, with weights, optimiser, schedule, step counter and every random generator
+    handed over on disk. That bounds the leak without knowing what leaks, because a
+    process that exits returns everything. `run_epoch` is the epoch body and both paths
+    call it, so what differs between a single-process run and a per-epoch run is where
+    the process boundary falls.
+
+    **Value equality across that boundary is not checkable and is not claimed.** §12.8
+    established that training is not reproducible from the seed on MPS, so two runs of
+    the same epochs differ in their weights whether or not a boundary falls between them;
+    a test asserting equal losses would be asserting the absence of something this
+    project has already measured as present. What *is* checked is everything the boundary
+    carries that is decided on the CPU and therefore deterministic — the epoch's data
+    order (a SHA-256 of the permutation `RandomSampler` draws from the CPU generator) and
+    the schedule's learning rate and step counter at the moment of restore — against an
+    uninterrupted run of the same length. `tests/test_loco.py` holds that comparison.
+
+    Separately, the earlier `--dev-in-subprocess` step *was* shown value-preserving
+    before it trained anything, on v24's completed seed 1: all 36 dev values identical
+    under exact equality across the two scoring paths, reproducing the committed
+    `tagger_seed1.json` curve at the selected epoch (summed dev `L_full`
+    0.2770466876758822). That check was available there because inference is
+    deterministic (§12.7) while training is not.
+
+    What this costs the reader: v24's in-domain models were trained in one process and
+    v24b's are trained one epoch per process. No hyperparameter, no datum and no computed
+    quantity differs, and the per-epoch curves are recorded for both — but the process
+    boundary is a difference, and it is stated here rather than left to be found in the
+    commit log.
   - **"Leave one corpus out" is not "leave one language out", and the five cells differ in
     how out-of-domain they are.** This is the finding most likely to be misread, so it is
     tabulated before any model is trained:

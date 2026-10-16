@@ -1,0 +1,91 @@
+===== holdout es-meddocan started 08:42:06Z
+    sys.exit(main())
+    from transformers import (AutoModelForTokenClassification, AutoTokenizer,
+    module = self._get_module(self._class_to_module[name])
+    return importlib.import_module("." + module_name, self.__name__)
+    return _bootstrap._gcd_import(name[level:], package, level)
+    from .auto_factory import (
+    from ...generation import GenerationMixin
+    module = self._get_module(self._class_to_module[name])
+    return importlib.import_module("." + module_name, self.__name__)
+    return _bootstrap._gcd_import(name[level:], package, level)
+    from .candidate_generator import (
+    from sklearn.metrics import roc_curve
+    from .base import clone  # noqa: E402
+    from .utils._estimator_html_repr import _HTMLDocumentationLinkMixin, estimator_html_repr
+    from ._chunking import gen_batches, gen_even_slices
+    from ._param_validation import Interval, validate_params
+    from .validation import _is_arraylike_not_scalar
+    from ..utils._array_api import _asarray_with_order, _is_numpy_namespace, get_namespace
+    from .fixes import parse_version
+    import pandas as pd
+    from pandas.compat import (
+    from pandas.compat.pyarrow import (
+    import pyarrow as pa
+    import pyarrow.lib as _lib
+    sys.exit(main())
+    from transformers import (AutoModelForTokenClassification, AutoTokenizer,
+    module = self._get_module(self._class_to_module[name])
+    return importlib.import_module("." + module_name, self.__name__)
+    return _bootstrap._gcd_import(name[level:], package, level)
+    from .auto_factory import (
+    from ...generation import GenerationMixin
+    module = self._get_module(self._class_to_module[name])
+    return importlib.import_module("." + module_name, self.__name__)
+    return _bootstrap._gcd_import(name[level:], package, level)
+    from .candidate_generator import (
+    from sklearn.metrics import roc_curve
+    from .base import clone  # noqa: E402
+    from .utils._estimator_html_repr import _HTMLDocumentationLinkMixin, estimator_html_repr
+    from ._chunking import gen_batches, gen_even_slices
+    from ._param_validation import Interval, validate_params
+    from .validation import _is_arraylike_not_scalar
+    from ..utils._array_api import _asarray_with_order, _is_numpy_namespace, get_namespace
+    from .fixes import parse_version
+    import pandas as pd
+    from pandas.core.api import (
+    from pandas.core.dtypes.dtypes import (
+    from pandas._libs import (
+    import pyarrow.lib as _lib
+[loco es-meddocan] windowing train and dev over 4 corpora
+[loco es-meddocan] train windows 5089  dev docs 1389
+[loco es-meddocan] epoch 1 loss 0.4248 summed_L_full 0.8914 (492s)
+    de-grascco   L_full 0.1732  A 0.6802  R 0.8561
+    es-carmen    L_full 0.1078  A 0.8117  R 0.9139
+    en-deid      L_full 0.3816  A 0.4834  R 0.5682
+    ko-surro     L_full 0.2288  A 0.6505  R 0.7994
+[loco es-meddocan] epoch 1 is the new best; saved
+[loco es-meddocan] epoch 2 loss 0.0096 summed_L_full 0.3129 (424s)
+    de-grascco   L_full 0.0634  A 0.8864  R 0.9707
+    es-carmen    L_full 0.0399  A 0.8957  R 0.9734
+    en-deid      L_full 0.1281  A 0.6847  R 0.8106
+    ko-surro     L_full 0.0815  A 0.7363  R 0.9279
+[loco es-meddocan] epoch 2 is the new best; saved
+[loco es-meddocan] epoch 3 loss 0.0040 summed_L_full 0.2990 (1003s)
+    de-grascco   L_full 0.0512  A 0.8982  R 0.9683
+    es-carmen    L_full 0.0315  A 0.9487  R 0.9832
+    en-deid      L_full 0.1253  A 0.7562  R 0.8552
+    ko-surro     L_full 0.0909  A 0.7831  R 0.9279
+[loco es-meddocan] epoch 3 is the new best; saved
+[loco es-meddocan] epoch 4 loss 0.0023 summed_L_full 0.3021 (980s)
+    de-grascco   L_full 0.0439  A 0.9259  R 0.9756
+    es-carmen    L_full 0.0273  A 0.9501  R 0.9860
+    en-deid      L_full 0.1337  A 0.7635  R 0.8635
+    ko-surro     L_full 0.0972  A 0.8116  R 0.9185
+[loco es-meddocan] epoch 5 loss 0.0017 summed_L_full 0.2714 (2407s)
+    de-grascco   L_full 0.0390  A 0.9070  R 0.9756
+    es-carmen    L_full 0.0301  A 0.9573  R 0.9881
+    en-deid      L_full 0.1114  A 0.7590  R 0.8774
+    ko-surro     L_full 0.0909  A 0.7900  R 0.9436
+[loco es-meddocan] epoch 5 is the new best; saved
+[loco es-meddocan] epoch 6 loss 0.0011 summed_L_full 0.3008 (6177s)
+    de-grascco   L_full 0.0463  A 0.9172  R 0.9732
+    es-carmen    L_full 0.0406  A 0.9625  R 0.9881
+    en-deid      L_full 0.1198  A 0.7836  R 0.8774
+    ko-surro     L_full 0.0940  A 0.8343  R 0.9310
+    sys.exit(main())
+    loss.backward()
+    torch.autograd.backward(
+    return Variable._execution_engine.run_backward(  # Calls into the C++ engine to run the backward pass
+RuntimeError: MPS backend out of memory (MPS allocated: 21.51 GB, other allocations: 66.00 GB, max allowed: 88.13 GB). Tried to allocate 732.43 MB on private pool. Use PYTORCH_MPS_HIGH_WATERMARK_RATIO=0.0 to disable upper limit for memory allocations (may cause system failure).
+FAILED on es-meddocan

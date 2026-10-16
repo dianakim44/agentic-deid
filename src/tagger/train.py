@@ -31,6 +31,7 @@ print is a sample.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import random
@@ -285,6 +286,119 @@ SCRATCH = "epoch_scratch"
 RELEASE_EVERY = 50
 
 
+#: The handover file. One per model, replaced in place every epoch, so the previous
+#: epoch's checkpoint is the only one on disk at any moment and it is gone as soon as the
+#: next one lands (`save_epoch_state` replaces atomically).
+STATE_FILE = "epoch_state.pt"
+
+
+def rng_state() -> dict:
+    """Every random source the next epoch's data order and dropout depend on.
+
+    The CPU generator is the one that matters for the shuffle: `RandomSampler` with
+    `generator=None` draws its seed from it at each `__iter__`, so restoring it restores
+    the order. Python's and NumPy's are carried because `set_seed` seeds them and a future
+    change could start consuming them; MPS's is carried because dropout runs there.
+    """
+    out = {
+        "python": random.getstate(),
+        "numpy": np.random.get_state(),
+        "torch_cpu": torch.get_rng_state(),
+    }
+    if torch.backends.mps.is_available():
+        out["torch_mps"] = torch.mps.get_rng_state()
+    return out
+
+
+def set_rng_state(state: dict) -> None:
+    """The inverse. A missing key is refused rather than skipped."""
+    random.setstate(state["python"])
+    np.random.set_state(state["numpy"])
+    torch.set_rng_state(state["torch_cpu"])
+    if torch.backends.mps.is_available():
+        if "torch_mps" not in state:
+            raise SystemExit(
+                "the handover state carries no MPS generator state and this machine has "
+                "MPS. Refused rather than left at whatever the fresh process seeded: "
+                "dropout would then differ across the boundary in a way nothing records."
+            )
+        torch.mps.set_rng_state(state["torch_mps"])
+
+
+def shuffle_order(sampler) -> list[int]:
+    """One epoch's data order, materialised.
+
+    **Materialised rather than left inside the DataLoader, and that is what makes the
+    process boundary checkable.** `DataLoader(shuffle=True)` builds exactly this sampler
+    with `generator=None` and iterates it once per epoch; calling `iter` here consumes the
+    global CPU generator in the same way and yields the same permutation, so passing the
+    list back as `sampler=` reproduces the order `shuffle=True` would have used. The gain
+    is that the order now has a digest, and a resumed run can be shown to have taken the
+    same one.
+    """
+    return list(iter(sampler))
+
+
+def order_digest(order: list[int]) -> str:
+    """SHA-256 of an epoch's data order. Indices only — no document and no surface."""
+    return hashlib.sha256(",".join(str(i) for i in order).encode()).hexdigest()
+
+
+def save_epoch_state(path: Path, **state) -> None:
+    """Write the handover, replacing the previous epoch's file atomically.
+
+    `replace` rather than write-in-place: a crash midway through a 3 GB write would
+    otherwise leave a truncated file where the only copy of the run's state used to be.
+    And it is what keeps exactly one checkpoint on disk.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    writing = path.with_suffix(".writing")
+    torch.save(state, writing)
+    writing.replace(path)
+
+
+def load_epoch_state(path: Path) -> dict:
+    if not path.is_file():
+        raise SystemExit(
+            f"no handover state at {path}. Epoch 1 creates it and every later epoch "
+            "replaces it; its absence means the previous epoch's process did not finish."
+        )
+    # `weights_only=False`: the payload carries optimiser and generator state, not just
+    # tensors. The file is written by this module one second earlier in the same run.
+    return torch.load(path, map_location="cpu", weights_only=False)
+
+
+def run_epoch(model, loader, optimiser, schedule, device, *, tag: str,
+              epoch: int) -> tuple[float, int]:
+    """One epoch of training. Returns `(mean train loss, steps taken)`.
+
+    **Both paths call this, and that is the point.** The in-process loop and the
+    per-epoch child run the same function over the same data order with the same
+    optimiser and schedule state, so the difference between them is where the process
+    boundary falls and nothing else. A manuscript sentence to that effect is checkable
+    here rather than taken on trust.
+    """
+    model.train()
+    total = 0.0
+    steps = 0
+    for step, batch in enumerate(loader, 1):
+        batch = {k: v.to(device) for k, v in batch.items()}
+        optimiser.zero_grad(set_to_none=True)
+        loss = model(**batch).loss
+        loss.backward()
+        torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+        optimiser.step()
+        schedule.step()
+        total += loss.item()
+        steps = step
+        if step % RELEASE_EVERY == 0:
+            release_cache()
+        if step % 100 == 0:
+            print(f"[{tag}] epoch {epoch} step {step}/{len(loader)} "
+                  f"loss {total / step:.4f}", file=sys.stderr, flush=True)
+    return total / steps, steps
+
+
 def score_dev_in_child(weights: Path, corpora: list[str], *,
                        detector: str) -> dict:
     """Run `score_dev` in a child process and read back its JSON.
@@ -347,6 +461,150 @@ def _score_only(args) -> int:
     return 0
 
 
+def _train_epoch_child(args) -> int:
+    """One epoch in its own process: restore, train, score, hand over, print JSON.
+
+    DESIGN §13.6. The process exits when the epoch does, so whatever the training loop
+    and the dev sweeps accumulated goes back to the system — which is the only bound
+    available that does not require knowing what accumulates.
+
+    What crosses the boundary is listed in `save_epoch_state`'s call below and is the
+    whole of the run's state: weights, optimiser, schedule, the global step, and every
+    random generator. The data order is a consequence of the CPU generator rather than a
+    thing carried separately, and `tests/test_loco.py` checks that the order and the
+    schedule survive the boundary unchanged.
+
+    Nothing but the JSON result goes to stdout; progress goes to stderr, which the parent
+    inherits.
+    """
+    from transformers import (AutoModelForTokenClassification, AutoTokenizer,
+                              get_linear_schedule_with_warmup)
+    from torch.utils.data import RandomSampler
+
+    device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
+    used = [c for c in CORPORA if c != args.holdout]
+    tag = f"loco {args.holdout}" if args.holdout else f"seed {args.seed}"
+    state_path = Path(args.state)
+    epoch = args.train_epoch
+    epoch_started = time.time()
+
+    if epoch == 1:
+        # Seeded at the same point in the sequence a single-process run seeds: before the
+        # corpora are windowed (which draws nothing) and before the model is built (which
+        # draws for the classifier head). Later epochs restore the generators instead —
+        # re-seeding at epoch 5 would reset the data order to epoch 1's.
+        set_seed(args.seed)
+
+    tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
+    train_set, _ = build(tokenizer, "train", used)
+    loader_steps = (len(train_set) + args.batch_size - 1) // args.batch_size
+    total_steps = loader_steps * args.epochs
+
+    model = AutoModelForTokenClassification.from_pretrained(
+        MODEL_NAME, num_labels=n_labels())
+    optimiser = torch.optim.AdamW(model.parameters(), lr=args.lr,
+                                  weight_decay=args.weight_decay)
+    schedule = get_linear_schedule_with_warmup(
+        optimiser, int(args.warmup_ratio * total_steps), total_steps)
+
+    if epoch == 1:
+        global_step = 0
+    else:
+        state = load_epoch_state(state_path)
+        if state["epoch"] != epoch - 1:
+            raise SystemExit(
+                f"the handover state is epoch {state['epoch']}'s and this is epoch "
+                f"{epoch}. Refused: training from a state two epochs back would run the "
+                "schedule and the data order from the wrong point."
+            )
+        model.load_state_dict(state["model"])
+        optimiser.load_state_dict(state["optimiser"])
+        schedule.load_state_dict(state["schedule"])
+        global_step = state["global_step"]
+        set_rng_state(state["rng"])
+
+    model = model.to(device)
+    lr_on_entry = schedule.get_last_lr()[0]
+
+    # The order is drawn after the generators are in place, so it is the order a
+    # single-process run would have drawn at this point.
+    sampler = RandomSampler(train_set)
+    order = shuffle_order(sampler)
+    digest = order_digest(order)
+    loader = DataLoader(train_set, batch_size=args.batch_size, sampler=order,
+                        collate_fn=collate, drop_last=False)
+
+    train_loss, steps = run_epoch(model, loader, optimiser, schedule, device,
+                                  tag=tag, epoch=epoch)
+    global_step += steps
+    release_cache()
+
+    scratch = Path(args.scratch)
+    model.save_pretrained(scratch)
+    tokenizer.save_pretrained(scratch)
+    release_cache()
+
+    _, dev_docs = build(tokenizer, "dev", used)
+    dev = score_dev(model, tokenizer, dev_docs, device, detector=args.detector)
+
+    save_epoch_state(
+        state_path,
+        epoch=epoch,
+        model={k: v.cpu() for k, v in model.state_dict().items()},
+        optimiser=optimiser.state_dict(),
+        schedule=schedule.state_dict(),
+        global_step=global_step,
+        rng=rng_state(),
+    )
+
+    print(json.dumps({
+        "epoch": epoch,
+        "train_loss": train_loss,
+        "train_seconds": round(time.time() - epoch_started, 1),
+        "train_windows": len(train_set),
+        "steps": steps,
+        "global_step": global_step,
+        "lr_on_entry": lr_on_entry,
+        "lr_on_exit": schedule.get_last_lr()[0],
+        "shuffle_digest": digest,
+        "scored_in_child": True,
+        "trained_in_child": True,
+        "mps_driver_gb": (round(torch.mps.driver_allocated_memory() / 2**30, 2)
+                          if torch.backends.mps.is_available() else None),
+        "memory": memory_snapshot(),
+        **dev,
+    }))
+    return 0
+
+
+def run_epoch_in_child(args, epoch: int, *, state_path: Path,
+                       scratch: Path) -> dict:
+    """Spawn one epoch and read its row back. The parent holds no torch state at all."""
+    proc = subprocess.run(
+        [sys.executable, "-m", "src.tagger.train",
+         "--train-epoch", str(epoch), "--state", str(state_path),
+         "--scratch", str(scratch), "--seed", str(args.seed),
+         "--epochs", str(args.epochs), "--batch-size", str(args.batch_size),
+         "--lr", str(args.lr), "--weight-decay", str(args.weight_decay),
+         "--warmup-ratio", str(args.warmup_ratio), "--detector", args.detector]
+        + (["--holdout", args.holdout] if args.holdout else []),
+        stdout=subprocess.PIPE, text=True,
+    )
+    if proc.returncode != 0:
+        raise SystemExit(
+            f"epoch {epoch}'s process exited {proc.returncode}. Its progress and "
+            "traceback are above, on stderr."
+        )
+    try:
+        return json.loads(proc.stdout)
+    except ValueError as exc:
+        raise SystemExit(
+            f"epoch {epoch}'s process wrote {len(proc.stdout)} bytes of stdout that are "
+            f"not JSON ({exc.__class__.__name__}). Its stdout is the row this run "
+            "records, so a print() on that stream breaks the handover."
+        ) from None
+
+
 def _accuracy(overall: dict) -> float:
     """A = TP / (TP + FP + FN), the guideline's accuracy (DESIGN §12.5)."""
     denominator = overall["tp"] + overall["fp"] + overall["fn"]
@@ -379,6 +637,22 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--score-corpora", nargs="*", default=tuple(CORPORA),
                         help="internal: which dev folds --score-only reads.")
+    parser.add_argument(
+        "--per-epoch-child", action="store_true",
+        help="run each epoch in its own process (DESIGN §13.6). The parent holds no "
+             "torch state; weights, optimiser, schedule, step counter and every random "
+             "generator are handed over on disk. Bounds the leak that --dev-in-"
+             "subprocess left in the training loop.",
+    )
+    parser.add_argument(
+        "--train-epoch", type=int, default=None, metavar="N",
+        help="internal: the child half of --per-epoch-child. Trains epoch N from "
+             "--state, scores dev, writes the next state, prints one JSON row.",
+    )
+    parser.add_argument("--state", default=None,
+                        help="internal: the handover file --train-epoch reads and writes.")
+    parser.add_argument("--scratch", default=None,
+                        help="internal: where --train-epoch saves this epoch's weights.")
     parser.add_argument("--epochs", type=int, default=8)
     parser.add_argument("--batch-size", type=int, default=16)
     parser.add_argument("--lr", type=float, default=3e-5)
@@ -395,12 +669,15 @@ def main(argv: list[str] | None = None) -> int:
         # The child half. Before `set_seed` and before any output, because this branch
         # trains nothing and its stdout is a parsed channel.
         return _score_only(args)
+    if args.train_epoch is not None:
+        if not args.state or not args.scratch:
+            raise SystemExit("--train-epoch needs --state and --scratch")
+        return _train_epoch_child(args)
     if args.seed is None:
         raise SystemExit(
             "--seed is required to train. It is optional only for the --score-only "
             "child, which trains nothing."
         )
-    device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
     set_seed(args.seed)
 
     # The one list `--holdout` changes, and both calls below read it.
@@ -413,6 +690,23 @@ def main(argv: list[str] | None = None) -> int:
                    else f"tagger_loco_{args.holdout}.json")
 
     memory_before = _memory_line("before", tag)
+    started = time.time()
+
+    if args.per_epoch_child:
+        # The parent of a per-epoch run holds nothing: no model, no optimiser, no
+        # windows. Everything below this branch is the in-process path, and the two meet
+        # again at `record`, which is the same shape either way.
+        curve, best, train_windows = _orchestrate_epochs(
+            args, tag=tag, out_dir=out_dir, weights_name=weights_name)
+        memory_after = _memory_line("after", tag)
+        return _write_record(
+            args, curve=curve, best=best, train_windows=train_windows, used=used,
+            tag=tag, out_dir=out_dir, record_name=record_name, started=started,
+            memory_before=memory_before, memory_after=memory_after,
+            device="per-epoch child",
+        )
+
+    device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
     tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
     print(f"[{tag}] windowing train over {len(used)} corpora", flush=True)
     train_set, _ = build(tokenizer, "train", used)
@@ -435,11 +729,16 @@ def main(argv: list[str] | None = None) -> int:
             "epoch would be selected on labels DESIGN §13.1 says are not read."
         )
 
+    from torch.utils.data import RandomSampler
+
     model = AutoModelForTokenClassification.from_pretrained(
         MODEL_NAME, num_labels=n_labels()).to(device)
-    loader = DataLoader(train_set, batch_size=args.batch_size, shuffle=True,
-                        collate_fn=collate, drop_last=False)
-    steps = len(loader) * args.epochs
+    # The sampler `shuffle=True` would have built, held explicitly so that each epoch's
+    # order can be materialised and hashed. Same permutation, same draw from the same
+    # generator — see `shuffle_order` — and it is what makes the per-epoch-child path
+    # comparable to this one rather than merely similar.
+    sampler = RandomSampler(train_set)
+    steps = ((len(train_set) + args.batch_size - 1) // args.batch_size) * args.epochs
     optimiser = torch.optim.AdamW(model.parameters(), lr=args.lr,
                                   weight_decay=args.weight_decay)
     schedule = get_linear_schedule_with_warmup(
@@ -449,27 +748,14 @@ def main(argv: list[str] | None = None) -> int:
     weights.mkdir(parents=True, exist_ok=True)
     curve: list[dict] = []
     best = {"epoch": None, "summed_L_full": None}
-    started = time.time()
 
     for epoch in range(1, args.epochs + 1):
-        model.train()
         epoch_started = time.time()
-        total = 0.0
-        for step, batch in enumerate(loader, 1):
-            batch = {k: v.to(device) for k, v in batch.items()}
-            optimiser.zero_grad(set_to_none=True)
-            loss = model(**batch).loss
-            loss.backward()
-            torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
-            optimiser.step()
-            schedule.step()
-            total += loss.item()
-            if step % RELEASE_EVERY == 0:
-                release_cache()
-            if step % 100 == 0:
-                print(f"[{tag}] epoch {epoch} step {step}/{len(loader)} "
-                      f"loss {total / step:.4f}", flush=True)
-        train_loss = total / len(loader)
+        order = shuffle_order(sampler)
+        loader = DataLoader(train_set, batch_size=args.batch_size, sampler=order,
+                            collate_fn=collate, drop_last=False)
+        train_loss, _ = run_epoch(model, loader, optimiser, schedule, device,
+                                  tag=tag, epoch=epoch)
         # Between the two phases: training ran at one shape and dev scoring is about to
         # ask for many, so the blocks held here are the ones least likely to be reused.
         release_cache()
@@ -496,6 +782,8 @@ def main(argv: list[str] | None = None) -> int:
             "mps_driver_gb": (round(torch.mps.driver_allocated_memory() / 2**30, 2)
                               if torch.backends.mps.is_available() else None),
             "scored_in_child": bool(args.dev_in_subprocess),
+            "trained_in_child": False,
+            "shuffle_digest": order_digest(order),
             **dev,
         }
         curve.append(row)
@@ -523,14 +811,81 @@ def main(argv: list[str] | None = None) -> int:
         shutil.rmtree(out_dir / "weights" / f"{weights_name}.{SCRATCH}",
                       ignore_errors=True)
     memory_after = _memory_line("after", tag)
+    return _write_record(
+        args, curve=curve, best=best, train_windows=len(train_set), used=used,
+        tag=tag, out_dir=out_dir, record_name=record_name, started=started,
+        memory_before=memory_before, memory_after=memory_after,
+        device=str(device),
+    )
+
+
+def _orchestrate_epochs(args, *, tag: str, out_dir: Path,
+                        weights_name: str) -> tuple[list[dict], dict, int]:
+    """Run `--epochs` epochs, each in its own process. DESIGN §13.6.
+
+    The parent's whole job: spawn, read the row, decide whether the epoch is the best so
+    far, and promote its weights if so. It imports no model and allocates nothing on MPS,
+    so the growth that killed the single-process runs has nowhere to accumulate.
+
+    **Disk is held to one checkpoint.** The handover file is replaced in place every epoch
+    (`save_epoch_state`), the scratch weights directory is overwritten every epoch, and
+    both are deleted when the run ends — so what survives is the selected epoch's weights
+    and nothing else.
+    """
+    weights = out_dir / "weights" / weights_name
+    weights.mkdir(parents=True, exist_ok=True)
+    state_path = out_dir / "weights" / f"{weights_name}.{STATE_FILE}"
+    scratch = out_dir / "weights" / f"{weights_name}.{SCRATCH}"
+    curve: list[dict] = []
+    best = {"epoch": None, "summed_L_full": None}
+    train_windows = 0
+
+    for epoch in range(1, args.epochs + 1):
+        row = run_epoch_in_child(args, epoch, state_path=state_path,
+                                 scratch=scratch)
+        if row["epoch"] != epoch:
+            raise SystemExit(
+                f"epoch {epoch}'s process reported epoch {row['epoch']}. The row is "
+                "what the curve records, so a mismatch means the curve would name the "
+                "wrong epoch as selected."
+            )
+        train_windows = row["train_windows"]
+        curve.append(row)
+        print(f"[{tag}] epoch {epoch} loss {row['train_loss']:.4f} "
+              f"summed_L_full {row['summed_L_full']:.4f} "
+              f"({row['train_seconds']:.0f}s)  order {row['shuffle_digest'][:12]}…",
+              flush=True)
+        for corpus, value in row["per_corpus"].items():
+            print(f"    {corpus:12s} L_full {value['L_full']:.4f}  "
+                  f"A {value['A']:.4f}  R {value['recall']:.4f}", flush=True)
+        if (best["summed_L_full"] is None
+                or row["summed_L_full"] < best["summed_L_full"]):
+            best = {"epoch": epoch, "summed_L_full": row["summed_L_full"]}
+            # The bytes the child scored, promoted rather than re-serialised.
+            shutil.rmtree(weights, ignore_errors=True)
+            shutil.copytree(scratch, weights)
+            print(f"[{tag}] epoch {epoch} is the new best; saved", flush=True)
+
+    # Only the selected epoch's weights survive (item 4 of the 2026-10-16 instruction).
+    shutil.rmtree(scratch, ignore_errors=True)
+    state_path.unlink(missing_ok=True)
+    state_path.with_suffix(".writing").unlink(missing_ok=True)
+    return curve, best, train_windows
+
+
+def _write_record(args, *, curve: list[dict], best: dict, train_windows: int,
+                  used: list[str], tag: str, out_dir: Path, record_name: str,
+                  started: float, memory_before: dict, memory_after: dict,
+                  device: str) -> int:
+    """The run's record. One writer for both paths, so the two are comparable."""
     commit, tree = _tree_state()
     record = {
         "seed": args.seed,
         "model": MODEL_NAME,
-        "device": str(device),
+        "device": device,
         "n_labels": n_labels(),
         "epochs_run": args.epochs,
-        "train_windows": len(train_set),
+        "train_windows": train_windows,
         "selected_epoch": best["epoch"],
         "selected_summed_L_full": best["summed_L_full"],
         "selection_criterion": "summed_dev_L_full",
@@ -545,7 +900,14 @@ def main(argv: list[str] | None = None) -> int:
         "holdout_dev_used": False,
         # How the dev folds were scored, and what the run cost in memory. Both are in
         # the record because the first v24b attempt died of the second (DESIGN §13.6).
-        "dev_scored_in_subprocess": bool(args.dev_in_subprocess),
+        #
+        # `training_isolation` is the field the per-model method table is built from, and
+        # it is a stated value on both paths rather than something a reader infers from
+        # the presence of another key.
+        "dev_scored_in_subprocess": bool(args.dev_in_subprocess
+                                         or args.per_epoch_child),
+        "training_isolation": ("per_epoch_child" if args.per_epoch_child
+                              else "single_process"),
         "memory_before": memory_before,
         "memory_after": memory_after,
         # The other half of what identifies the weights: DESIGN §12.8 says the seed does

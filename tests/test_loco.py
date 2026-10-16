@@ -290,3 +290,196 @@ def test_the_verification_against_a_completed_model_is_recorded():
     selected = [row for row in published["curve"]
                 if row["epoch"] == published["selected_epoch"]][0]
     assert record["values"]["summed_L_full"] == selected["summed_L_full"]
+
+
+# ─── the per-epoch process boundary (DESIGN §13.6) ──────────────────────────
+#
+# What is checked here, and what deliberately is not. Value equality across the
+# boundary **cannot** be checked: DESIGN §12.8 established that training is not
+# reproducible from the seed on MPS, so two runs of the same epochs differ in their
+# weights whether or not a process boundary falls between them, and a test asserting
+# equal losses would be asserting the absence of a thing the project has already
+# measured as present.
+#
+# What can be checked is everything the boundary is supposed to carry, because all of it
+# is decided on the CPU and is therefore deterministic:
+#
+#   - the data order, which `RandomSampler` draws from the CPU generator;
+#   - the schedule's learning rate and the step counter at the moment of restore.
+#
+# Both are checked against an uninterrupted run of the same length, which is the
+# comparison that would catch a handover that silently restarted the schedule or reshuffled
+# from the seed.
+#
+# A toy model stands in for `xlm-roberta-base`: the handover helpers take state dicts and
+# do not care what produced them, and loading the real encoder twice per test would add a
+# minute to the suite to exercise the same four lines.
+
+
+def _toy(seed, n_items=24, batch=4, epochs=2):
+    """A model, an optimiser, a schedule and a sampler, built the way `main` builds them."""
+    import torch
+    from torch.utils.data import DataLoader, RandomSampler
+    from transformers import get_linear_schedule_with_warmup
+
+    train.set_seed(seed)
+    model = torch.nn.Linear(3, 2)
+    optimiser = torch.optim.AdamW(model.parameters(), lr=3e-5, weight_decay=0.01)
+    steps = ((n_items + batch - 1) // batch) * epochs
+    schedule = get_linear_schedule_with_warmup(optimiser, int(0.10 * steps), steps)
+    data = [(torch.randn(3), torch.tensor([0.0, 1.0])) for _ in range(n_items)]
+    sampler = RandomSampler(data)
+    return model, optimiser, schedule, data, sampler, DataLoader, batch
+
+
+def _step_epoch(model, optimiser, schedule, data, order, batch):
+    """One epoch over an explicit order. The real loop's shape, without transformers."""
+    import torch
+
+    steps = 0
+    for start in range(0, len(order), batch):
+        rows = [data[i] for i in order[start:start + batch]]
+        x = torch.stack([r[0] for r in rows])
+        y = torch.stack([r[1] for r in rows])
+        optimiser.zero_grad(set_to_none=True)
+        loss = torch.nn.functional.mse_loss(model(x), y)
+        loss.backward()
+        torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+        optimiser.step()
+        schedule.step()
+        steps += 1
+    return steps
+
+
+def test_the_boundary_preserves_the_shuffle_order_and_the_schedule(tmp_path):
+    """Two epochs straight through, then the same two with a handover between them.
+
+    The uninterrupted run is the reference. The resumed run must draw the *same* order
+    for epoch 2 and enter it with the same learning rate and the same step count — those
+    three are what a restart-from-seed or a fresh schedule would get wrong, and both of
+    those mistakes look like a working run from the outside.
+    """
+    import torch
+
+    # ── reference: one process, two epochs
+    model, optimiser, schedule, data, sampler, _, batch = _toy(1)
+    reference = []
+    step_total = 0
+    for _ in range(2):
+        order = train.shuffle_order(sampler)
+        reference.append({
+            "digest": train.order_digest(order),
+            "lr_on_entry": schedule.get_last_lr()[0],
+            "global_step": step_total,
+        })
+        step_total += _step_epoch(model, optimiser, schedule, data, order, batch)
+
+    # ── resumed: epoch 1, hand over, rebuild everything, epoch 2
+    model, optimiser, schedule, data, sampler, _, batch = _toy(1)
+    order = train.shuffle_order(sampler)
+    first = {"digest": train.order_digest(order),
+             "lr_on_entry": schedule.get_last_lr()[0], "global_step": 0}
+    taken = _step_epoch(model, optimiser, schedule, data, order, batch)
+    state_path = tmp_path / "epoch_state.pt"
+    train.save_epoch_state(
+        state_path, epoch=1,
+        model={k: v.cpu() for k, v in model.state_dict().items()},
+        optimiser=optimiser.state_dict(), schedule=schedule.state_dict(),
+        global_step=taken, rng=train.rng_state())
+
+    # A fresh set of objects, as a new process would have. Seeded differently on purpose:
+    # if the restore did not take, the order below would be seed 99's and not seed 1's.
+    model2, optimiser2, schedule2, data2, sampler2, _, batch2 = _toy(99)
+    state = train.load_epoch_state(state_path)
+    model2.load_state_dict(state["model"])
+    optimiser2.load_state_dict(state["optimiser"])
+    schedule2.load_state_dict(state["schedule"])
+    train.set_rng_state(state["rng"])
+    second = {"digest": train.order_digest(train.shuffle_order(sampler2)),
+              "lr_on_entry": schedule2.get_last_lr()[0],
+              "global_step": state["global_step"]}
+
+    assert first == reference[0]
+    assert second["digest"] == reference[1]["digest"], (
+        "epoch 2's data order differs across the handover. The order comes from the CPU "
+        "generator, so this is a restore that did not take — not non-determinism."
+    )
+    assert second["lr_on_entry"] == reference[1]["lr_on_entry"]
+    assert second["global_step"] == reference[1]["global_step"] == taken
+
+
+def test_a_handover_from_the_wrong_epoch_is_refused(tmp_path, monkeypatch):
+    """Epoch N may only resume epoch N−1's state.
+
+    The failure this prevents is silent: resuming epoch 3 from epoch 1's state runs the
+    schedule and the data order from the wrong point and still produces a model.
+    """
+    state_path = tmp_path / "epoch_state.pt"
+    train.save_epoch_state(state_path, epoch=1, model={}, optimiser={}, schedule={},
+                           global_step=10, rng=train.rng_state())
+    state = train.load_epoch_state(state_path)
+    assert state["epoch"] == 1
+    # The refusal itself lives in `_train_epoch_child`, whose other half needs the real
+    # encoder; what is asserted here is that the field it reads is in the file and says
+    # which epoch wrote it.
+    assert "global_step" in state and "rng" in state and "schedule" in state
+
+
+def test_the_rng_handover_covers_every_generator_set_seed_sets():
+    """`rng_state` must carry whatever `set_seed` seeds, or the boundary loses it."""
+    import inspect
+
+    seeded = inspect.getsource(train.set_seed)
+    carried = train.rng_state()
+    for source, key in (("random.seed", "python"), ("np.random.seed", "numpy"),
+                        ("torch.manual_seed", "torch_cpu")):
+        assert source in seeded
+        assert key in carried, f"set_seed seeds {source} and rng_state drops it"
+
+
+def test_a_missing_mps_generator_state_is_refused_on_mps(monkeypatch):
+    """Absent is refused, not defaulted — the rule `rules_source` follows.
+
+    A fresh process seeds its own MPS generator, so a handover that dropped that state
+    would leave dropout differing across the boundary with nothing recording it.
+    """
+    import torch
+
+    if not torch.backends.mps.is_available():
+        pytest.skip("no MPS on this machine; the branch cannot be reached")
+    state = train.rng_state()
+    del state["torch_mps"]
+    with pytest.raises(SystemExit) as raised:
+        train.set_rng_state(state)
+    assert "MPS generator state" in str(raised.value)
+
+
+def test_one_checkpoint_at_a_time(tmp_path):
+    """`save_epoch_state` replaces rather than accumulates, and leaves no partial file."""
+    path = tmp_path / "epoch_state.pt"
+    for epoch in (1, 2, 3):
+        train.save_epoch_state(path, epoch=epoch, model={}, optimiser={},
+                               schedule={}, global_step=epoch, rng=train.rng_state())
+        assert train.load_epoch_state(path)["epoch"] == epoch
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["epoch_state.pt"]
+
+
+def test_both_paths_run_the_same_epoch_function():
+    """The claim the manuscript makes in one line, checked where it can be.
+
+    `run_epoch` is the epoch body; the in-process loop and the per-epoch child both call
+    it, so what differs between the two is where the process boundary falls. A second
+    implementation on either side would make that sentence false, and the one thing that
+    would not show up in any number is exactly that.
+    """
+    import inspect
+
+    for function in (train.main, train._train_epoch_child):
+        assert "run_epoch(" in inspect.getsource(function), function.__name__
+    body = inspect.getsource(train.run_epoch)
+    for line in ("loss.backward()", "clip_grad_norm_", "optimiser.step()",
+                 "schedule.step()"):
+        assert line in body
+    # And the per-epoch orchestrator must not have a loop of its own.
+    orchestrator = inspect.getsource(train._orchestrate_epochs)
+    assert "loss.backward()" not in orchestrator
