@@ -1,0 +1,229 @@
+{
+ "what_this_is": "Which model was trained by which method, and the one difference between them. Asked for on 2026-10-16 after three training methods had been tried; the point is that a reader can state it in one line rather than reconstruct it from commits.",
+ "one_line_for_the_manuscript": "All five LOCO models were trained by the same procedure \u2014 identical hyperparameters, identical data order mechanism, one shared epoch implementation \u2014 with one process per epoch; only the process boundary differs from v24's in-domain models, which ran all eight epochs in one process.",
+ "why_a_process_boundary_at_all": "DESIGN \u00a713.6: an unbounded memory leak, not diagnosed.",
+ "what_is_not_claimed": "Value equality across the boundary. DESIGN \u00a712.8 established that training is not reproducible from the seed on MPS, so two runs of the same epochs differ in their weights whether or not a boundary falls between them. What is checked instead, in tests/test_loco.py against an uninterrupted run: the per-epoch shuffle digest and the schedule's lr and step counter at the moment of restore \u2014 both CPU-decided and therefore deterministic.",
+ "tree_dirty_note": "Four of the five records read tree=dirty. The cause is the run's own outputs: each model writes an untracked tagger_loco_{corpus}.json, so every model after the first saw the previous ones' records. All five records name the same commit (05104c6b388bb5aa0cf5231f6d96908b4982e9eb) and `git diff HEAD` over tracked files was empty for the whole run, so no source byte changed between them.",
+ "models": [
+  {
+   "holdout": "es-meddocan",
+   "training_isolation": "per_epoch_child",
+   "dev_scored_in_subprocess": true,
+   "seed": 1,
+   "selected_epoch": 6,
+   "selected_summed_dev_L_full": 0.2449466349822531,
+   "epoch_seconds": [
+    507.5,
+    502.1,
+    511.0,
+    502.6,
+    503.7,
+    503.0,
+    505.4,
+    504.2
+   ],
+   "shuffle_digests": [
+    "3ecd0f53582ea3fa34e9f28adfa8749e8749426b9c031069110905b1643e449a",
+    "323490393efef43164088899727c8dc5b5530acd602e8e75b49d231a25547acb",
+    "64fa74673e15d718cc985a257fcf64fda9b59b7fbb419ba30760360c78f1c46e",
+    "96ce1d730706462e9c379056c86a52f5d398515779d287b6474544a27bdd97ed",
+    "b3f3dfb2685fce4e06f85ecf559afbf2ddc98b92e89d3b77af33d7be2307ae8b",
+    "3289aadbc4a704581f8fafe6a68d54593304226d0e7cd3906590f016b8392c87",
+    "40c7f86751f1fc6d896524fb796cf9478e5a72632d7ace1ccf8c14de6c8c3474",
+    "651e13a5dae82bdce0f4a69bb3d1bac66f5872e96c214c26cfdb53ae43297a99"
+   ],
+   "train_corpora": [
+    "de-grascco",
+    "es-carmen",
+    "en-deid",
+    "ko-surro"
+   ],
+   "holdout_dev_used": false,
+   "train_windows": 5089,
+   "total_hours": 1.14,
+   "commit": "05104c6b388bb5aa0cf5231f6d96908b4982e9eb",
+   "tree": "clean",
+   "weights": "experiments/loco_v24b/weights/loco-es-meddocan",
+   "weights_sha256": "cd24337d81e1f6886178ecf0d7e7bd420837446aee4fa1defde28c93a4b0ce1c",
+   "weights_bytes": 1109900868,
+   "off_repo_backup": "~/agentic-deid-archive/v24b/weights/loco-es-meddocan",
+   "backup_verified_by_hash": true
+  },
+  {
+   "holdout": "de-grascco",
+   "training_isolation": "per_epoch_child",
+   "dev_scored_in_subprocess": true,
+   "seed": 1,
+   "selected_epoch": 6,
+   "selected_summed_dev_L_full": 0.22689005497227543,
+   "epoch_seconds": [
+    579.6,
+    599.7,
+    614.8,
+    623.3,
+    616.3,
+    616.3,
+    613.2,
+    619.7
+   ],
+   "shuffle_digests": [
+    "3c277d65a9db9a4ee0a926f0b80177f5b8e2586ef5b025485ef38280a682f61a",
+    "fcf330a04a983c9285d5fecc7433f00539be5043208d49fbd3509f606d53f684",
+    "56909de2c5de91748f073e6695eb0b519dff2388f47363487ca0883850d36819",
+    "f37b15a9048036269938064188651a5c574ec6060b1cfafe2c527709b6152750",
+    "5f893df7480e0916051f9d9894d074dc9b7b264e1435922063b808e9a4473a80",
+    "a2f408b681250050fdb6049dd71ba2a7ab5f42e07628340086ed52c13a798a2c",
+    "7e2eabfd94fa469094652083e6409cfd5b2765331870057bf8c659ccd1945f93",
+    "abe1d4392150e0d55d2dbcb4d9fec3be74bb55e427cc9343e64e45ee8e1c3a8b"
+   ],
+   "train_corpora": [
+    "es-meddocan",
+    "es-carmen",
+    "en-deid",
+    "ko-surro"
+   ],
+   "holdout_dev_used": false,
+   "train_windows": 6072,
+   "total_hours": 1.37,
+   "commit": "05104c6b388bb5aa0cf5231f6d96908b4982e9eb",
+   "tree": "dirty",
+   "weights": "experiments/loco_v24b/weights/loco-de-grascco",
+   "weights_sha256": "19cb6886e678c2756e21777463015732e25ce9d1dc19b15abe6d7a954bf55e68",
+   "weights_bytes": 1109900868,
+   "off_repo_backup": "~/agentic-deid-archive/v24b/weights/loco-de-grascco",
+   "backup_verified_by_hash": true
+  },
+  {
+   "holdout": "es-carmen",
+   "training_isolation": "per_epoch_child",
+   "dev_scored_in_subprocess": true,
+   "seed": 1,
+   "selected_epoch": 7,
+   "selected_summed_dev_L_full": 0.26348561744975263,
+   "epoch_seconds": [
+    461.9,
+    458.1,
+    460.8,
+    468.2,
+    469.2,
+    472.9,
+    473.7,
+    481.5
+   ],
+   "shuffle_digests": [
+    "bb73ad4f243c48fa9d7496149962d4af81fad9d05940e36af7d50211d0bf3b35",
+    "b36ad6e821ed9abc96793bc6050fb1eeb7d366c6216d08a759bce0481bb2204f",
+    "59970d4faf6d74cd0399c0a03264854ccf2fd456b832f11fe535ed5caa36c441",
+    "5740559dc93144aea8e45e4815abe606a3dee5f1453e0923fa89b68aa17e3fbd",
+    "467175cb90b6420a29363dcbea4e6f8ceaa2c317c6a0177c5371616fb6835588",
+    "3d95b6a1d741e256ddbc50f9cf61a5ae57a672caae8a40c598794fea083c970a",
+    "9b7e33635ec676bc3cb4172cd37b6c693be19a9f66d7fdf376bdd561cc83df95",
+    "531d3edfadf585e9c3de800b65ed9989a9e43f5823047ef5c9a0f87b627d8f53"
+   ],
+   "train_corpora": [
+    "es-meddocan",
+    "de-grascco",
+    "en-deid",
+    "ko-surro"
+   ],
+   "holdout_dev_used": false,
+   "train_windows": 4452,
+   "total_hours": 1.05,
+   "commit": "05104c6b388bb5aa0cf5231f6d96908b4982e9eb",
+   "tree": "dirty",
+   "weights": "experiments/loco_v24b/weights/loco-es-carmen",
+   "weights_sha256": "4b894ab82a7715bab9a210d072087c225e5814461dcb2ec3884cbf499c43f5cc",
+   "weights_bytes": 1109900868,
+   "off_repo_backup": "~/agentic-deid-archive/v24b/weights/loco-es-carmen",
+   "backup_verified_by_hash": true
+  },
+  {
+   "holdout": "en-deid",
+   "training_isolation": "per_epoch_child",
+   "dev_scored_in_subprocess": true,
+   "seed": 1,
+   "selected_epoch": 7,
+   "selected_summed_dev_L_full": 0.16060033817405156,
+   "epoch_seconds": [
+    472.0,
+    479.1,
+    481.4,
+    482.9,
+    482.3,
+    486.2,
+    489.1,
+    483.7
+   ],
+   "shuffle_digests": [
+    "9bd01ea915e15743acdea62ad87ca345b695f18b11e28230c1ecbc1a852d134c",
+    "ee3e68dc30f15d374a49f82439cdb0ab64f2a9eed5f28ea03d2c7af7eb742dde",
+    "496deffb3ea9bb38a6469d008bde9e785e177e74d713300abda9ca2e05079061",
+    "3d71de3a32d057ceca437542be057600e54cf82ee04268a25c7cae8d36061715",
+    "9387a8346642f7ad192bb64f398393d548bc7d5d42b87cfa5e8f4a6b1cc128bc",
+    "2f3fe3a36e00dc24965cbf26bb5968ebc5d1685ee4d33e579b382dc168abc2e6",
+    "9cd9dd4d9f44cbcdab21febe95e03e54f77ebd40bdd26212a3852bf4612cbbdf",
+    "83ce3ce055f9e824274cd822c9bee61c374d2a9c5e569b25f47cef2665eaf8aa"
+   ],
+   "train_corpora": [
+    "es-meddocan",
+    "de-grascco",
+    "es-carmen",
+    "ko-surro"
+   ],
+   "holdout_dev_used": false,
+   "train_windows": 4512,
+   "total_hours": 1.08,
+   "commit": "05104c6b388bb5aa0cf5231f6d96908b4982e9eb",
+   "tree": "dirty",
+   "weights": "experiments/loco_v24b/weights/loco-en-deid",
+   "weights_sha256": "6378f65739b4a48fe123a3470f8913ba139088b4b07ed29200ce097be6f05887",
+   "weights_bytes": 1109900868,
+   "off_repo_backup": "~/agentic-deid-archive/v24b/weights/loco-en-deid",
+   "backup_verified_by_hash": true
+  },
+  {
+   "holdout": "ko-surro",
+   "training_isolation": "per_epoch_child",
+   "dev_scored_in_subprocess": true,
+   "seed": 1,
+   "selected_epoch": 5,
+   "selected_summed_dev_L_full": 0.20887618575380368,
+   "epoch_seconds": [
+    482.4,
+    485.6,
+    485.0,
+    484.0,
+    484.9,
+    488.3,
+    486.7,
+    487.5
+   ],
+   "shuffle_digests": [
+    "9e02d03600f6159933e31fb5b1ea0e54f0d1e2a67da9bf6ba5348fb660cc3e0c",
+    "7fa4cf400a6efab9a87ee244daa15784bef145a5f6a7062a044d5934f04f89aa",
+    "3bc9d8cf10760dfa7b5dd5a055e89d7b2d40747c30c33b0466ea70d38285d00c",
+    "fca374822f34b67999e3e573a5c4c8295f149f0491728a14bf020c99451965e0",
+    "5404de9ce834d3b98a89ef922d33a345a9f5e6eff24d40fa70b40a0ed635e97c",
+    "cc2ab71a897fa5e788facb33cc85eb90df053f068fac3a9301d86923726c23f7",
+    "0def58181110237b8848816328c3aa202255897a5a2857ec08e8280336112189",
+    "2cc9cfc7c1390e8055c03594030eb6e6def73f2d98c1383e1696b4c7aefa6508"
+   ],
+   "train_corpora": [
+    "es-meddocan",
+    "de-grascco",
+    "es-carmen",
+    "en-deid"
+   ],
+   "holdout_dev_used": false,
+   "train_windows": 4511,
+   "total_hours": 1.09,
+   "commit": "05104c6b388bb5aa0cf5231f6d96908b4982e9eb",
+   "tree": "dirty",
+   "weights": "experiments/loco_v24b/weights/loco-ko-surro",
+   "weights_sha256": "c7b5489b82b51ed390f491fd5ae1636f378c7f07d20f1e5ab5cd80f0edcb26a0",
+   "weights_bytes": 1109900868,
+   "off_repo_backup": "~/agentic-deid-archive/v24b/weights/loco-ko-surro",
+   "backup_verified_by_hash": true
+  }
+ ]
+}

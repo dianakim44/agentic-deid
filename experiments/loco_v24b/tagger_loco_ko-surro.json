@@ -1,0 +1,505 @@
+{
+ "seed": 1,
+ "model": "xlm-roberta-base",
+ "device": "per-epoch child",
+ "n_labels": 21,
+ "epochs_run": 8,
+ "train_windows": 4511,
+ "selected_epoch": 5,
+ "selected_summed_L_full": 0.20887618575380368,
+ "selection_criterion": "summed_dev_L_full",
+ "test_used": false,
+ "holdout": "ko-surro",
+ "train_corpora": [
+  "es-meddocan",
+  "de-grascco",
+  "es-carmen",
+  "en-deid"
+ ],
+ "selection_corpora": [
+  "es-meddocan",
+  "de-grascco",
+  "es-carmen",
+  "en-deid"
+ ],
+ "holdout_dev_used": false,
+ "dev_scored_in_subprocess": true,
+ "training_isolation": "per_epoch_child",
+ "memory_before": {
+  "rss_gb": 0.42,
+  "swap_used_gb": 2.0
+ },
+ "memory_after": {
+  "rss_gb": 0.42,
+  "swap_used_gb": 2.0
+ },
+ "commit": "05104c6b388bb5aa0cf5231f6d96908b4982e9eb",
+ "tree": "dirty",
+ "total_seconds": 3922.3,
+ "hyperparameters": {
+  "lr": 3e-05,
+  "weight_decay": 0.01,
+  "batch_size": 16,
+  "warmup_ratio": 0.1,
+  "max_tokens": 512,
+  "stride": 128
+ },
+ "curve": [
+  {
+   "epoch": 1,
+   "train_loss": 0.47959176932481373,
+   "train_seconds": 482.4,
+   "train_windows": 4511,
+   "steps": 282,
+   "global_step": 282,
+   "lr_on_entry": 0.0,
+   "lr_on_exit": 2.9158050221565734e-05,
+   "shuffle_digest": "9e02d03600f6159933e31fb5b1ea0e54f0d1e2a67da9bf6ba5348fb660cc3e0c",
+   "scored_in_child": true,
+   "trained_in_child": true,
+   "mps_driver_gb": 23.13,
+   "memory": {
+    "rss_gb": 9.83,
+    "swap_used_gb": 2.0
+   },
+   "per_corpus": {
+    "es-meddocan": {
+     "L_full": 0.03235629996193377,
+     "L_rel": 0.015416825275980206,
+     "A": 0.8802180950758222,
+     "recall": 0.9832508564902931,
+     "f1": 0.9362936112369732,
+     "pred": 5781,
+     "gold": 5254
+    },
+    "de-grascco": {
+     "L_full": 0.07317073170731707,
+     "L_rel": 0.01951219512195122,
+     "A": 0.875,
+     "recall": 0.973170731707317,
+     "f1": 0.9333333333333332,
+     "pred": 445,
+     "gold": 410
+    },
+    "es-carmen": {
+     "L_full": 0.09517144856543037,
+     "L_rel": 0.05038488453463961,
+     "A": 0.8563291139240506,
+     "recall": 0.946815955213436,
+     "f1": 0.9226048414592567,
+     "pred": 1504,
+     "gold": 1429
+    },
+    "en-deid": {
+     "L_full": 0.2479108635097493,
+     "L_rel": 0.17827298050139276,
+     "A": 0.5450733752620545,
+     "recall": 0.724233983286908,
+     "f1": 0.7055630936227951,
+     "pred": 378,
+     "gold": 359
+    }
+   },
+   "summed_L_full": 0.4486093437444305
+  },
+  {
+   "epoch": 2,
+   "train_loss": 0.01017023548145336,
+   "train_seconds": 485.6,
+   "train_windows": 4511,
+   "steps": 282,
+   "global_step": 564,
+   "lr_on_entry": 2.9158050221565734e-05,
+   "lr_on_exit": 2.499261447562777e-05,
+   "shuffle_digest": "7fa4cf400a6efab9a87ee244daa15784bef145a5f6a7062a044d5934f04f89aa",
+   "scored_in_child": true,
+   "trained_in_child": true,
+   "mps_driver_gb": 23.99,
+   "memory": {
+    "rss_gb": 11.83,
+    "swap_used_gb": 2.0
+   },
+   "per_corpus": {
+    "es-meddocan": {
+     "L_full": 0.02188808526836696,
+     "L_rel": 0.00951655881233346,
+     "A": 0.8835430125807548,
+     "recall": 0.9891511229539398,
+     "f1": 0.9381713151006408,
+     "pred": 5825,
+     "gold": 5254
+    },
+    "de-grascco": {
+     "L_full": 0.03902439024390244,
+     "L_rel": 0.012195121951219513,
+     "A": 0.9241379310344827,
+     "recall": 0.9804878048780488,
+     "f1": 0.9605734767025089,
+     "pred": 427,
+     "gold": 410
+    },
+    "es-carmen": {
+     "L_full": 0.0363890832750175,
+     "L_rel": 0.02239328201539538,
+     "A": 0.8947368421052632,
+     "recall": 0.9755073477956613,
+     "f1": 0.9444444444444444,
+     "pred": 1523,
+     "gold": 1429
+    },
+    "en-deid": {
+     "L_full": 0.14206128133704735,
+     "L_rel": 0.09192200557103064,
+     "A": 0.6987951807228916,
+     "recall": 0.807799442896936,
+     "f1": 0.8226950354609929,
+     "pred": 346,
+     "gold": 359
+    }
+   },
+   "summed_L_full": 0.23936284012433423
+  },
+  {
+   "epoch": 3,
+   "train_loss": 0.005395075477203948,
+   "train_seconds": 485.0,
+   "train_windows": 4511,
+   "steps": 282,
+   "global_step": 846,
+   "lr_on_entry": 2.499261447562777e-05,
+   "lr_on_exit": 2.082717872968981e-05,
+   "shuffle_digest": "3bc9d8cf10760dfa7b5dd5a055e89d7b2d40747c30c33b0466ea70d38285d00c",
+   "scored_in_child": true,
+   "trained_in_child": true,
+   "mps_driver_gb": 22.77,
+   "memory": {
+    "rss_gb": 10.46,
+    "swap_used_gb": 2.0
+   },
+   "per_corpus": {
+    "es-meddocan": {
+     "L_full": 0.017510468214693566,
+     "L_rel": 0.007042253521126761,
+     "A": 0.8702035368702036,
+     "recall": 0.9927674153026266,
+     "f1": 0.9305976806422837,
+     "pred": 5956,
+     "gold": 5254
+    },
+    "de-grascco": {
+     "L_full": 0.03902439024390244,
+     "L_rel": 0.014634146341463415,
+     "A": 0.8953229398663697,
+     "recall": 0.9804878048780488,
+     "f1": 0.944770857814336,
+     "pred": 441,
+     "gold": 410
+    },
+    "es-carmen": {
+     "L_full": 0.028691392582225334,
+     "L_rel": 0.013296011196641007,
+     "A": 0.9096191091026469,
+     "recall": 0.9860041987403779,
+     "f1": 0.9526707234617986,
+     "pred": 1529,
+     "gold": 1429
+    },
+    "en-deid": {
+     "L_full": 0.14484679665738162,
+     "L_rel": 0.08356545961002786,
+     "A": 0.7481840193704601,
+     "recall": 0.8607242339832869,
+     "f1": 0.8559556786703602,
+     "pred": 363,
+     "gold": 359
+    }
+   },
+   "summed_L_full": 0.23007304769820297
+  },
+  {
+   "epoch": 4,
+   "train_loss": 0.0034909646513092444,
+   "train_seconds": 484.0,
+   "train_windows": 4511,
+   "steps": 282,
+   "global_step": 1128,
+   "lr_on_entry": 2.082717872968981e-05,
+   "lr_on_exit": 1.6661742983751846e-05,
+   "shuffle_digest": "fca374822f34b67999e3e573a5c4c8295f149f0491728a14bf020c99451965e0",
+   "scored_in_child": true,
+   "trained_in_child": true,
+   "mps_driver_gb": 23.2,
+   "memory": {
+    "rss_gb": 10.99,
+    "swap_used_gb": 2.0
+   },
+   "per_corpus": {
+    "es-meddocan": {
+     "L_full": 0.01693947468595356,
+     "L_rel": 0.007993909402360106,
+     "A": 0.8861082737487231,
+     "recall": 0.9906737723639132,
+     "f1": 0.9396154887625235,
+     "pred": 5825,
+     "gold": 5254
+    },
+    "de-grascco": {
+     "L_full": 0.03414634146341464,
+     "L_rel": 0.014634146341463415,
+     "A": 0.9218390804597701,
+     "recall": 0.9780487804878049,
+     "f1": 0.9593301435406698,
+     "pred": 426,
+     "gold": 410
+    },
+    "es-carmen": {
+     "L_full": 0.044086773967809655,
+     "L_rel": 0.01469559132260322,
+     "A": 0.942397856664434,
+     "recall": 0.9846046186144157,
+     "f1": 0.9703448275862069,
+     "pred": 1471,
+     "gold": 1429
+    },
+    "en-deid": {
+     "L_full": 0.11977715877437325,
+     "L_rel": 0.06963788300835655,
+     "A": 0.7414634146341463,
+     "recall": 0.8467966573816156,
+     "f1": 0.8515406162464986,
+     "pred": 355,
+     "gold": 359
+    }
+   },
+   "summed_L_full": 0.2149497488915511
+  },
+  {
+   "epoch": 5,
+   "train_loss": 0.002723420255343555,
+   "train_seconds": 484.9,
+   "train_windows": 4511,
+   "steps": 282,
+   "global_step": 1410,
+   "lr_on_entry": 1.6661742983751846e-05,
+   "lr_on_exit": 1.2496307237813885e-05,
+   "shuffle_digest": "5404de9ce834d3b98a89ef922d33a345a9f5e6eff24d40fa70b40a0ed635e97c",
+   "scored_in_child": true,
+   "trained_in_child": true,
+   "mps_driver_gb": 23.22,
+   "memory": {
+    "rss_gb": 11.09,
+    "swap_used_gb": 2.0
+   },
+   "per_corpus": {
+    "es-meddocan": {
+     "L_full": 0.017891130567186907,
+     "L_rel": 0.007042253521126761,
+     "A": 0.8801283133547189,
+     "recall": 0.9921964217738866,
+     "f1": 0.936242816091954,
+     "pred": 5882,
+     "gold": 5254
+    },
+    "de-grascco": {
+     "L_full": 0.04390243902439024,
+     "L_rel": 0.014634146341463415,
+     "A": 0.9095022624434389,
+     "recall": 0.9804878048780488,
+     "f1": 0.9526066350710901,
+     "pred": 434,
+     "gold": 410
+    },
+    "es-carmen": {
+     "L_full": 0.030090972708187544,
+     "L_rel": 0.012596221133659902,
+     "A": 0.9120310478654593,
+     "recall": 0.986703988803359,
+     "f1": 0.9539918809201625,
+     "pred": 1527,
+     "gold": 1429
+    },
+    "en-deid": {
+     "L_full": 0.116991643454039,
+     "L_rel": 0.06963788300835655,
+     "A": 0.774818401937046,
+     "recall": 0.8913649025069638,
+     "f1": 0.8731241473396999,
+     "pred": 374,
+     "gold": 359
+    }
+   },
+   "summed_L_full": 0.20887618575380368
+  },
+  {
+   "epoch": 6,
+   "train_loss": 0.00219425814032657,
+   "train_seconds": 488.3,
+   "train_windows": 4511,
+   "steps": 282,
+   "global_step": 1692,
+   "lr_on_entry": 1.2496307237813885e-05,
+   "lr_on_exit": 8.330871491875923e-06,
+   "shuffle_digest": "cc2ab71a897fa5e788facb33cc85eb90df053f068fac3a9301d86923726c23f7",
+   "scored_in_child": true,
+   "trained_in_child": true,
+   "mps_driver_gb": 24.33,
+   "memory": {
+    "rss_gb": 11.86,
+    "swap_used_gb": 2.0
+   },
+   "per_corpus": {
+    "es-meddocan": {
+     "L_full": 0.01598781880472021,
+     "L_rel": 0.007803578226113437,
+     "A": 0.8823230612935997,
+     "recall": 0.9918157594213932,
+     "f1": 0.9374831339390123,
+     "pred": 5863,
+     "gold": 5254
+    },
+    "de-grascco": {
+     "L_full": 0.03902439024390244,
+     "L_rel": 0.014634146341463415,
+     "A": 0.9157175398633257,
+     "recall": 0.9804878048780488,
+     "f1": 0.9560047562425683,
+     "pred": 431,
+     "gold": 410
+    },
+    "es-carmen": {
+     "L_full": 0.04198740377886634,
+     "L_rel": 0.016794961511546535,
+     "A": 0.9063912201420271,
+     "recall": 0.9825052484254724,
+     "f1": 0.9508973924822214,
+     "pred": 1524,
+     "gold": 1429
+    },
+    "en-deid": {
+     "L_full": 0.116991643454039,
+     "L_rel": 0.06685236768802229,
+     "A": 0.7783132530120482,
+     "recall": 0.8997214484679665,
+     "f1": 0.8753387533875339,
+     "pred": 379,
+     "gold": 359
+    }
+   },
+   "summed_L_full": 0.213991256281528
+  },
+  {
+   "epoch": 7,
+   "train_loss": 0.0017257602136612686,
+   "train_seconds": 486.7,
+   "train_windows": 4511,
+   "steps": 282,
+   "global_step": 1974,
+   "lr_on_entry": 8.330871491875923e-06,
+   "lr_on_exit": 4.1654357459379614e-06,
+   "shuffle_digest": "0def58181110237b8848816328c3aa202255897a5a2857ec08e8280336112189",
+   "scored_in_child": true,
+   "trained_in_child": true,
+   "mps_driver_gb": 23.07,
+   "memory": {
+    "rss_gb": 10.33,
+    "swap_used_gb": 2.0
+   },
+   "per_corpus": {
+    "es-meddocan": {
+     "L_full": 0.015797487628473543,
+     "L_rel": 0.0074229158736200986,
+     "A": 0.8853211009174312,
+     "recall": 0.9918157594213932,
+     "f1": 0.9391727493917275,
+     "pred": 5843,
+     "gold": 5254
+    },
+    "de-grascco": {
+     "L_full": 0.041463414634146344,
+     "L_rel": 0.01951219512195122,
+     "A": 0.9237875288683602,
+     "recall": 0.975609756097561,
+     "f1": 0.9603841536614646,
+     "pred": 423,
+     "gold": 410
+    },
+    "es-carmen": {
+     "L_full": 0.03498950314905528,
+     "L_rel": 0.01819454163750875,
+     "A": 0.9352469959946595,
+     "recall": 0.980405878236529,
+     "f1": 0.9665401862711279,
+     "pred": 1470,
+     "gold": 1429
+    },
+    "en-deid": {
+     "L_full": 0.12256267409470752,
+     "L_rel": 0.07520891364902507,
+     "A": 0.7841191066997518,
+     "recall": 0.8802228412256268,
+     "f1": 0.878998609179416,
+     "pred": 360,
+     "gold": 359
+    }
+   },
+   "summed_L_full": 0.21481307950638268
+  },
+  {
+   "epoch": 8,
+   "train_loss": 0.0014266771838091254,
+   "train_seconds": 487.5,
+   "train_windows": 4511,
+   "steps": 282,
+   "global_step": 2256,
+   "lr_on_entry": 4.1654357459379614e-06,
+   "lr_on_exit": 0.0,
+   "shuffle_digest": "2cc9cfc7c1390e8055c03594030eb6e6def73f2d98c1383e1696b4c7aefa6508",
+   "scored_in_child": true,
+   "trained_in_child": true,
+   "mps_driver_gb": 22.07,
+   "memory": {
+    "rss_gb": 10.32,
+    "swap_used_gb": 2.0
+   },
+   "per_corpus": {
+    "es-meddocan": {
+     "L_full": 0.015797487628473543,
+     "L_rel": 0.00723258469737343,
+     "A": 0.8847589952477937,
+     "recall": 0.9921964217738866,
+     "f1": 0.9388563710040522,
+     "pred": 5851,
+     "gold": 5254
+    },
+    "de-grascco": {
+     "L_full": 0.03902439024390244,
+     "L_rel": 0.01707317073170732,
+     "A": 0.9218390804597701,
+     "recall": 0.9780487804878049,
+     "f1": 0.9593301435406698,
+     "pred": 426,
+     "gold": 410
+    },
+    "es-carmen": {
+     "L_full": 0.034289713086074175,
+     "L_rel": 0.018894331700489854,
+     "A": 0.9247027741083224,
+     "recall": 0.979706088173548,
+     "f1": 0.9608785175017159,
+     "pred": 1485,
+     "gold": 1429
+    },
+    "en-deid": {
+     "L_full": 0.11977715877437325,
+     "L_rel": 0.07520891364902507,
+     "A": 0.7832512315270936,
+     "recall": 0.8857938718662952,
+     "f1": 0.8784530386740331,
+     "pred": 365,
+     "gold": 359
+    }
+   },
+   "summed_L_full": 0.2088887497328234
+  }
+ ]
+}
