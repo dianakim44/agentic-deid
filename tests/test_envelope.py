@@ -416,8 +416,8 @@ def test_the_five_roles_all_reach_the_unwrapper():
     """Named one by one, against `naming.yaml`'s vocabulary, so the count is the vocabulary's.
 
     The structural tests above are per-module; this is the per-*role* statement, which is how
-    §6.8's clause is phrased. `rule_author` is reached twice (round 1 and round N) and that is
-    counted as one role.
+    §6.8's clause is phrased. `rule_author` is reached by every round through one site and that
+    is counted as one role.
     """
     from src.corpora.base import agent_roles
 
@@ -425,12 +425,16 @@ def test_the_five_roles_all_reach_the_unwrapper():
     for role in agent_roles():
         assert role in source, f"{role} is not driven from any module that unwraps a response"
     # Five roles, three modules, and the number of unwrap calls is what says none of them shares
-    # a code path that skips it: rule_author twice in `loop`, auditor once, `multi._call` once for
-    # the three authoring roles, and `orchestrate.run_arm` once.
+    # a code path that skips it: rule_author once in `loop` (`_author`, which round 1 and round N
+    # both call — two sites until 2026-10-19, when DESIGN §5.6 reached the loop and they became
+    # one), auditor once, `multi._call` once for the three authoring roles, and
+    # `orchestrate.run_arm` once. A count that went *down* by merging is the safe direction: a
+    # role path that stopped unwrapping would also move it, so the per-role assertion above is
+    # what tells the two apart.
     counts = {path: len(calls_named(ast.parse((ROOT / path).read_text(encoding="utf-8")),
                                     "unwrap"))
               for path in RESPONSE_PATHS}
-    assert counts == {"src/orchestrate.py": 1, "src/porting/loop.py": 3,
+    assert counts == {"src/orchestrate.py": 1, "src/porting/loop.py": 2,
                       "src/porting/multi.py": 1}, counts
 
 

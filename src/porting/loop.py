@@ -386,7 +386,12 @@ def _author(*, corpus: str, langs: list[str], iteration: int, assemble, model_id
         try:
             load_rules(lang, path=rules_file, lexicons=lexicons)
         except RuleError as exc:
-            out["failure"] = {"lang": lang, "response": response.text,
+            # The response object and not its `.text`: DESIGN §6.8 lets the received bytes
+            # reach exactly two places, `unwrap()` and a failure record's `response=`, and
+            # `tests/test_envelope.py` holds every module to that by AST. Carrying the bytes
+            # in this dict would be a third place, so the caller reads `.text` at the one
+            # call that writes the failure record.
+            out["failure"] = {"lang": lang, "response": response,
                               "envelope": wrapper.record(), "error": str(exc),
                               "rules_path": rules_file, "prompt_reference": reference}
             break
@@ -564,9 +569,10 @@ def run_iteration_1(*, corpus: str, lang: str, model_id: str,
     rules_file = rules_files[langs[0]] if len(langs) == 1 else None
     if authored["failure"] is not None:
         failed = authored["failure"]
+        response = failed["response"]
         failure = _write_failure(
             corpus=corpus, detector=detector, supervision=supervision, porting=porting,
-            split=split, model=model, response=failed["response"],
+            split=split, model=model, response=response.text,
             envelope=failed["envelope"], error=failed["error"],
             rules_path=failed["rules_path"], cost=cost,
             prompt_reference=failed["prompt_reference"], model_lifecycle=lifecycle,
@@ -1192,9 +1198,10 @@ def run_iteration(iteration: int, *, corpus: str, lang: str, model_id: str,
     rules_file = rules_files[langs[0]] if len(langs) == 1 else None
     if authored["failure"] is not None:
         failed = authored["failure"]
+        response = failed["response"]
         failure = _write_failure(
             corpus=corpus, detector=detector, supervision=supervision, porting=porting,
-            split=split, model=model, response=failed["response"],
+            split=split, model=model, response=response.text,
             envelope=failed["envelope"], error=failed["error"],
             rules_path=failed["rules_path"], cost=cost,
             prompt_reference=failed["prompt_reference"],

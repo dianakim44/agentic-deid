@@ -6595,18 +6595,20 @@ MUTATIONS = [
     Mutation(
         name="the_rule_authors_prompt_is_cached_too",
         path=LOOP,
-        # `run_iteration`'s RuleAuthor call and not `run_iteration_1`'s. The two lines are
-        # identical, so the anchor takes the following line to pick the round-2+ one — which is
-        # also the only one the `also` edit reaches, since round 1 delegates to
+        # The RuleAuthor's call for rounds 2 and up. Re-anchored 2026-10-19: DESIGN §5.6
+        # reached the loop and both rounds' RuleAuthor calls became one site in `loop._author`,
+        # so the edit now carries its own round condition — `cache=iteration > ITERATION` —
+        # which is exactly what the two-site version expressed by choosing the round-2+ line.
+        # The `also` edit still reaches only the iteration prompt, since round 1 delegates to
         # `assemble_task_prompt` and gets no boundary. That asymmetry is the mutation's point.
         anchor=(
-            "    response = invoke(prompt, model_id=model_id, client=client, **kwargs)\n"
-            "    model = response.model_record()"
+            "        response = invoke(prompt, model_id=model_id, client=client, **kwargs)\n"
+            "        record = response.model_record()"
         ),
         replacement=(
-            "    response = invoke(prompt, model_id=model_id, client=client, cache=True, "
-            "**kwargs)\n"
-            "    model = response.model_record()"
+            "        response = invoke(prompt, model_id=model_id, client=client, "
+            "cache=iteration > ITERATION, **kwargs)\n"
+            "        record = response.model_record()"
         ),
         also=((
             PROMPT,
@@ -8058,8 +8060,10 @@ MUTATIONS = [
         path=LOOP,
         # The kwarg dropped at the call site, which is the edit a person adding this branch
         # makes by forgetting rather than by deciding.
-        anchor="        audit_report=report,\n        porting=porting,\n    )\n",
-        replacement="        audit_report=report,\n    )\n",
+        # Re-anchored 2026-10-19: the call moved inside `run_iteration`'s per-language
+        # `assemble` closure (DESIGN §5.6), four columns deeper. Same kwarg, same call.
+        anchor="            audit_report=report,\n            porting=porting,\n        )\n",
+        replacement="            audit_report=report,\n        )\n",
         breaks=(
             "**`None` stops being two different facts.** `assemble_iteration_prompt` reads the "
             "arm to decide which kind of `None` a missing report is: an arm that declares the "
@@ -8086,8 +8090,11 @@ MUTATIONS = [
         # The same dropped kwarg as the mutation above, at the sibling call site. This is not a
         # hypothetical edit: it is the state the file shipped in until 2026-10-11, and the state
         # that voided `port-loop-noaudit`'s round 1.
-        anchor="    prompt = assemble_task_prompt(lang=lang, corpus=corpus, porting=porting)\n",
-        replacement="    prompt = assemble_task_prompt(lang=lang, corpus=corpus)\n",
+        # Re-anchored 2026-10-19: round 1's assembler is now the `assemble` argument
+        # `_author` calls once per declared language (DESIGN §5.6). Same kwarg, same call.
+        anchor=("        assemble=lambda one: assemble_task_prompt(lang=one, corpus=corpus, "
+                "porting=porting),\n"),
+        replacement="        assemble=lambda one: assemble_task_prompt(lang=one, corpus=corpus),\n",
         breaks=(
             "**The record stops being about its own prompt, and nothing raises.** At round 1 "
             "there is no report to refuse over, so dropping `porting` here is silent in a way "
