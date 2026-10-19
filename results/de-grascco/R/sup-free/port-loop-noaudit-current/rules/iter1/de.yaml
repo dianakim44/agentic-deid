@@ -1,0 +1,132 @@
+version: 1
+lang: de
+rules:
+  - rule_id: dr_prefix
+    layer: context_cue
+    phi_type: NAME
+    cue: ["Dr.", "Dr "]
+    then: capitalised_words
+
+  - rule_id: prof_prefix
+    layer: context_cue
+    phi_type: NAME
+    cue: ["Prof.", "Prof "]
+    then: capitalised_words
+
+  - rule_id: herr_prefix
+    layer: context_cue
+    phi_type: NAME
+    cue: ["Herr ", "Herrn "]
+    then: capitalised_words
+
+  - rule_id: frau_prefix
+    layer: context_cue
+    phi_type: NAME
+    cue: ["Frau "]
+    then: capitalised_words
+
+  - rule_id: patient_cue
+    layer: context_cue
+    phi_type: NAME
+    cue: ["Patient:", "Patientin:", "Patient ", "Patientin "]
+    then: capitalised_words
+
+  - rule_id: geboren_date
+    layer: context_cue
+    phi_type: DATE
+    cue: ["geboren am", "geb.", "geb ", "*", "Geburtsdatum:", "Geburtsdatum "]
+    then: digits
+
+  - rule_id: date_iso
+    layer: regex_checksum
+    phi_type: DATE
+    pattern: '\b\d{4}-\d{2}-\d{2}\b'
+
+  - rule_id: date_dot_dmy
+    layer: regex_checksum
+    phi_type: DATE
+    pattern: '\b\d{1,2}\.\d{1,2}\.\d{2,4}\b'
+
+  - rule_id: date_slash_dmy
+    layer: regex_checksum
+    phi_type: DATE
+    pattern: '\b\d{1,2}/\d{1,2}/\d{2,4}\b'
+
+  - rule_id: phone_number
+    layer: regex_checksum
+    phi_type: CONTACT
+    pattern: '\b(?:\+49|0049|0)\s*\d{2,5}[\s\-/]?\d{3,8}\b'
+
+  - rule_id: email_address
+    layer: regex_checksum
+    phi_type: CONTACT
+    pattern: '\b[\w.+-]+@[\w.-]+\.[a-zA-Z]{2,}\b'
+    flags: [ignorecase]
+
+  - rule_id: street_address
+    layer: context_cue
+    phi_type: LOCATION_STREET
+    cue: ["Straße", "Str.", "Strasse", "Weg ", "Platz ", "Allee ", "Gasse "]
+    then: capitalised_words
+
+  - rule_id: street_pattern
+    layer: regex_checksum
+    phi_type: LOCATION_STREET
+    pattern: '\b[A-ZÄÖÜ][a-zäöüß]+(?:straße|str\.|strasse|weg|platz|allee|gasse)\s+\d+[a-zA-Z]?\b'
+    flags: [ignorecase]
+
+  - rule_id: postcode_city
+    layer: regex_checksum
+    phi_type: LOCATION_AREA
+    pattern: '\b\d{5}\s+[A-ZÄÖÜ][a-zäöüß]+\b'
+
+  - rule_id: postcode_only
+    layer: regex_checksum
+    phi_type: LOCATION_AREA
+    pattern: '\b\d{5}\b'
+
+  - rule_id: krankenhaus_cue
+    layer: context_cue
+    phi_type: ORGANISATION
+    cue: ["Krankenhaus ", "Klinik ", "Klinikum ", "Hospital "]
+    then: capitalised_words
+
+  - rule_id: organisation_suffix
+    layer: regex_checksum
+    phi_type: ORGANISATION
+    pattern: '\b[A-ZÄÖÜ][a-zäöüß]+(?:\s+[A-ZÄÖÜ][a-zäöüß]+)*\s+(?:Krankenhaus|Klinik|Klinikum|Hospital|GmbH|AG)\b'
+
+  - rule_id: versichertennummer
+    layer: regex_checksum
+    phi_type: ID
+    pattern: '\b[A-Z]\d{9}\b'
+
+  - rule_id: fallnummer_cue
+    layer: context_cue
+    phi_type: ID
+    cue: ["Fallnummer:", "Fall-Nr.:", "Fall-Nr.", "Fallnr.:", "Fallnr.", "Aktenzeichen:"]
+    then: number
+
+  - rule_id: patientennummer_cue
+    layer: context_cue
+    phi_type: ID
+    cue: ["Patientennummer:", "Pat.-Nr.:", "Pat.-Nr.", "Pat.Nr.:", "Pat.Nr."]
+    then: number
+
+  - rule_id: age_years
+    layer: regex_checksum
+    phi_type: AGE
+    pattern: '\b\d{1,3}\s*(?:Jahre|J\.|jährig|jähriger|jährige|jähriges|-jährig|-jähriger|-jährige|-jähriges)\b'
+    flags: [ignorecase]
+
+  - rule_id: age_cue
+    layer: context_cue
+    phi_type: AGE
+    cue: ["Alter:", "Alter ", "im Alter von"]
+    then: number
+
+  - rule_id: beruf_cue
+    layer: context_cue
+    phi_type: PROFESSION
+    cue: ["Beruf:", "beruflich:", "von Beruf", "arbeitet als"]
+    then: capitalised_words
