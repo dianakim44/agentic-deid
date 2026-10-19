@@ -508,3 +508,42 @@ def test_the_weights_reach_the_device_before_the_optimiser_is_built():
         "the model must reach the device before the optimiser is built and before its "
         "state is restored"
     )
+
+
+# ─── v24d: RT-loco recomposed with the loop's rules (DESIGN §14.2) ─────────
+
+
+def test_the_looprules_value_is_on_the_hybrid_rung():
+    """So the sealed read takes §12.7's hybrid branch and not the rules-only path."""
+    from src.eval import run_sealed_eval as sealed
+
+    reg = run_loco.loop_registration()
+    porting = reg["rt_loco_loop"]["arm"]["porting"]
+    assert porting in base.axis("porting")
+    assert base.porting_rung(porting) == sealed.HYBRID_RUNG
+    assert not base.porting_iterates(porting)
+
+
+def test_the_loop_registration_reuses_the_loco_weights_and_names_a_loop_arm():
+    reg = run_loco.loop_registration()
+    assert reg["rt_loco_loop"]["tagger"]["retrained"] is False
+    for corpus, arm in reg["rt_loco_loop"]["rules_arm"].items():
+        assert base.porting_rung(arm) == "loop", (corpus, arm)
+    assert reg["rt_loco_loop"]["arm"]["supervision"] == run_loco.SUPERVISION
+
+
+def test_a_loop_arm_that_has_not_stopped_is_refused(tmp_path, monkeypatch):
+    """RT-loco(loop) composes the *final* round; an unfinished loop has none."""
+    from src.eval import scorer
+
+    monkeypatch.setattr(run_loco, "ROOT", tmp_path)
+    path = tmp_path / scorer.path_template("metrics").format(
+        corpus="de-grascco", detector="R", supervision="sup-free",
+        porting="port-loop-noaudit-current")
+    path.parent.mkdir(parents=True)
+    path.write_text(json.dumps({"run": {"rules_source": {}, "rules_version": {},
+                                        "rules": []},
+                                "termination": {"reason": None}}), encoding="utf-8")
+    with pytest.raises(SystemExit) as raised:
+        run_loco._loop_rules_fields("de-grascco", "port-loop-noaudit-current")
+    assert "final" in str(raised.value)

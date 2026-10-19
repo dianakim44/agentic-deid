@@ -236,12 +236,12 @@ def load_halves(corpus: str, split: str = "dev"):
 
 # ─── score-dev: T-loco and RT-loco ──────────────────────────────────────────
 
-def _run_block(corpus: str, detector: str) -> dict:
+def _run_block(corpus: str, detector: str, porting: str = PORTING) -> dict:
     from src.eval import sealed_log
     commit, tree = sealed_log.tree_state()
     return {
         "corpus": corpus, "detector": detector, "supervision": SUPERVISION,
-        "porting": PORTING, "split": "dev", "model_id": base.model_id_absent(),
+        "porting": porting, "split": "dev", "model_id": base.model_id_absent(),
         "generated": hybrid.now(), "commit": commit, "tree": tree,
     }
 
@@ -321,6 +321,85 @@ def cmd_score_dev(args) -> int:
     return 0
 
 
+# ─── v24d: RT-loco recomposed with the loop's rules (DESIGN §14.2) ───────────
+
+#: The v24d registration, which names the loop arm whose final-round files are read.
+LOOP_REGISTRATION = ROOT / "experiments" / "loop4_v24d" / "registration.yaml"
+
+
+def loop_registration() -> dict:
+    return yaml.safe_load(LOOP_REGISTRATION.read_text(encoding="utf-8"))
+
+
+def _loop_rules_fields(corpus: str, rules_porting: str) -> dict:
+    """The loop arm's three rules fields, **copied** from its own arm-scoped record.
+
+    `run_hybrid.rules_fields`' argument, applied to a different R arm: the rules half is the
+    loop arm's final round read byte for byte, so the honest values are that arm's. The
+    arm-scoped `metrics.json` is the final round's (DESIGN §5.5's duplication rule, which
+    `plan_arm` checks against `iter{final}/`), and a record whose termination is not a stop
+    is refused — a hybrid composed with a loop that has not finished would publish a number
+    for rules that are still changing.
+    """
+    record = json.loads((ROOT / scorer.path_template("metrics").format(
+        corpus=corpus, detector="R", supervision="sup-free", porting=rules_porting)
+    ).read_text(encoding="utf-8"))
+    termination = record.get("termination") or {}
+    if termination.get("reason") is None:
+        raise SystemExit(
+            f"{corpus}'s {rules_porting} record has not stopped (termination.reason is "
+            f"{termination.get('reason')!r}). RT-loco(loop) composes the loop's *final* "
+            "round, and there is no final round yet (DESIGN §14.2)."
+        )
+    missing = [f for f in hybrid.RULES_FIELDS if f not in record["run"]]
+    if missing:
+        raise SystemExit(f"{corpus}'s {rules_porting} record names no {missing}.")
+    return {field: record["run"][field] for field in hybrid.RULES_FIELDS}
+
+
+def cmd_score_dev_looprules(args) -> int:
+    """`RT-loco(loop)` on dev: v24b's T-loco predictions, the loop's final rules, UNION@0.5.
+
+    The tagger half is read from the same cache `score-dev` reads, which `predict` wrote
+    from weights verified by hash; no inference runs here. Only RT is written — T-loco is
+    unchanged by which rules exist, so its v24b record is the T-loco of this table too.
+    """
+    from src.termination import not_applicable
+
+    reg = loop_registration()
+    porting = reg["rt_loco_loop"]["arm"]["porting"]
+    summary = {}
+    for corpus in reg["corpora"]:
+        rules_porting = reg["rt_loco_loop"]["rules_arm"][corpus]
+        docs = [d for d in base.load(corpus) if d.split == "dev"]
+        rules_by_doc: dict[str, list] = {}
+        for span in read_arm_spans(corpus=corpus, detector="R", supervision="sup-free",
+                                   porting=rules_porting):
+            rules_by_doc.setdefault(span.doc_id, []).append(span)
+        tagger_by_doc = hybrid.read_preds(pred_path(corpus, "dev"))
+        policies = pol.baseline_map()
+        started = time.time()
+        scored, _ = hybrid.score_policy(docs, rules_by_doc, tagger_by_doc, policies)
+        summary[corpus] = {"RT": {**hybrid.headline(scored),
+                                  "by_type": per_type_rows(scored)},
+                           "rules_arm": rules_porting}
+        if args.write:
+            extra = {**loco_fields(corpus, policies),
+                     **_loop_rules_fields(corpus, rules_porting)}
+            scorer.write_metrics(
+                scored, run={**_run_block(corpus, "RT", porting), **extra},
+                cost=hybrid.zero_cost(time.time() - started),
+                termination=not_applicable(corpus).record(),
+            )
+        row = summary[corpus]["RT"]
+        print(f"{corpus:12s} RT-loco(loop) L_full {row['L_full']:.4f} L_rel {row['L_rel']:.4f} "
+              f"A {row['A']:.4f} R {row['recall']:.4f} F1 {row['f1']:.4f}", flush=True)
+    path = ROOT / "experiments" / "loop4_v24d" / "dev_rt_loco_loop.json"
+    path.write_text(json.dumps(summary, indent=1) + "\n", encoding="utf-8")
+    print(f"-> {_shown(path)}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     sub = parser.add_subparsers(dest="cmd", required=True)
@@ -332,6 +411,10 @@ def main(argv: list[str] | None = None) -> int:
     two = sub.add_parser("score-dev")
     two.add_argument("--write", action="store_true")
     two.set_defaults(fn=cmd_score_dev)
+
+    three = sub.add_parser("score-dev-looprules")
+    three.add_argument("--write", action="store_true")
+    three.set_defaults(fn=cmd_score_dev_looprules)
 
     args = parser.parse_args(argv)
     return args.fn(args)
