@@ -765,16 +765,25 @@ def test_a_comparison_arm_without_a_record_is_skipped_with_a_note(
     nobody keeps, and the second of this family (CLAUDE.md names the first,
     `test_the_repetitions_base_is_not_caught_by_that_refusal`). Pinning both
     sides makes the skip observable whatever has run.
+
+    **And the planted arm cannot be the planted primary.** The first version picked the
+    first unrun axis value, which was `port-loop-noaudit-current` until v24d ran it on four
+    corpora (2026-10-19, DESIGN §14); the next unrun value is `port-multi`, the primary
+    planted below, and the declaration was then refused for listing its own primary — the
+    same family a third time, red because an experiment progressed. Excluded by name, since
+    the primary is this test's own constant.
     """
+    primary = "port-multi"
     paths = mf.naming()["paths"]
     arms = mf.dev_arms(paths)
     present = next(a for a in arms if a.porting == "port-loop")
     absent = next(p for p in mf.base.axis("porting")
                   if p not in {a.porting for a in arms}
+                  and p != primary
                   and mf.base.porting_repetition_of(p) is None)
     monkeypatch.setattr(mf, "dev_arms", lambda _paths: [present])
     declared(monkeypatch, {"fig2": {
-        "primary": "port-multi",
+        "primary": primary,
         "comparison": [absent, "port-loop"],
     }})
 
