@@ -481,6 +481,26 @@ README 는 28칸을 고쳤고 **마커는 하나도 떼지 않았다** — 아�
 비용 기준값도 재측정하지 않았다: 스위트 2478 에서 트리 직렬 416.40초 · 건당 60.4초 ·
 316건 **5.30시간**이 가장 최근 값이고, 이것은 거절 5건이 들어오기 **전**의 트리에서
 난 값이므로 다음 전량의 계획값으로 쓰기 전에 다시 잰다.
+**열여섯째 이동 — 2026-10-19, v24d 와 DESIGN §5.6 의 루프 쪽 구현.** 뮤테이션은 **316건
+그대로**이고 `TEST_FILES` 도 **35개 그대로**다. 움직인 것은 셋이다: `src/porting/loop.py` 의
+RuleAuthor 호출 두 자리(라운드 1 · 라운드 N)가 `loop._author` 한 자리로 합쳐졌고(언어별 호출,
+§5.6), 그 때문에 **앵커 3건을 재조정했다**(`the_rule_authors_prompt_is_cached_too` ·
+`the_assembler_is_not_told_which_arm_the_round_is` · `round_one_is_not_told_which_arm_it_is`).
+재조정은 뮤테이션 자체의 변경이므로 셋 다 `--probe` 로 재측정했고 **3 · 7 · 2 로 사이드카와 같은
+값**이다 — `‡` 를 붙일 자리가 없다. `TEST_FILES` 멤버 세 파일이 바뀌었다(`tests/test_pinned_prompts.py`
+의 `call_line()` 지점 하한 5 → 4, `tests/test_envelope.py` 의 unwrap 지점 수 loop.py 3 → 2,
+`tests/test_release_screen.py` 에 DESIGN §14.3 차단 패턴의 표본과 테스트 1건). 사유는 `src/` 한
+모듈 + `tools/` 두 파일 + 앵커 재조정이고 전량은 **제출 뒤로 연기 그대로**다. 연기분은 재조정 3건이
+현재 스위트에서 측정됐으므로 **316 − 3 = 313** 이다(열다섯째 이동의 신규 2건은 스위트가 움직여
+비교 가능성을 잃었다).
+**그 probe 가 베이스라인 결함 하나를 드러냈다 — 그리고 이것이 이 이동의 요점이다.** 세 probe 모두에서
+`tests/test_release_screen.py::test_the_real_allowlist_has_no_stale_entries` 가 주입과 무관하게
+실패한다. 원인은 `make_tree` 의 `COPIED` 에 `experiments/` 가 없는데 v24(2026-10-14)부터 스크리너
+allowlist 가 `experiments/…/registration.yaml` 항목을 갖는다는 것이다 — 트리 안에서 그 항목이
+stale 로 읽힌다. 세 카운트는 그 id 를 **이름으로 제외해** 냈고(열두째 이동과 같은 조정이며 기록해야
+하는 종류다), **`main()` 과 `parallel.py` 는 녹색이 아닌 베이스라인에서 중단하므로 연기된 전량은 이
+결함이 고쳐지기 전에는 띄울 수 없다.** 고침은 `COPIED` 에 `experiments` 를 넣는 한 줄이지만
+`make_tree` 는 측정 장치이므로 그 자체가 전량 사유이고, 사용자 결정으로 남겨 두었다.
 
 **같은 입력(194건 · 스위트 2068)에서 2.43 과 2.51 두 값이 나왔다.** 둘을 평균하지
 않는다 — 3.3% 차이가 이 실측의 오차이고, 평균은 그 사실을 지운다. 계획에는 큰 쪽을 쓴다.
