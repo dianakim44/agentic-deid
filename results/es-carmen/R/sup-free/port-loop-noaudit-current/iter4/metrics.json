@@ -1,0 +1,1725 @@
+{
+  "schema_version": 10,
+  "run": {
+    "corpus": "es-carmen",
+    "detector": "R",
+    "supervision": "sup-free",
+    "porting": "port-loop-noaudit-current",
+    "split": "dev",
+    "model_id": "us.anthropic.claude-opus-4-5-20251101-v1:0",
+    "model_id_reported": "claude-opus-4-5-20251101",
+    "model_id_resolution": "dated",
+    "rules_version": {
+      "cat": 4,
+      "es": 4
+    },
+    "rules_source": {
+      "cat": "results/es-carmen/R/sup-free/port-loop-noaudit-current/rules/iter4/cat.yaml",
+      "es": "results/es-carmen/R/sup-free/port-loop-noaudit-current/rules/iter4/es.yaml"
+    },
+    "lexicons_source": {},
+    "rules": [
+      "cat:age_cue",
+      "cat:age_years_cat",
+      "cat:born_date_cue",
+      "cat:centro_medico_cue",
+      "cat:centro_salud_mental_cue",
+      "cat:cip_pattern",
+      "cat:city_cue",
+      "cat:date_dash_format",
+      "cat:date_day_month_short",
+      "cat:date_dot_format",
+      "cat:date_inline_range",
+      "cat:date_month_year_only",
+      "cat:date_parenthetical",
+      "cat:date_slash_format",
+      "cat:date_text_month_cat",
+      "cat:date_text_month_es",
+      "cat:date_treatment_format",
+      "cat:dni_pattern",
+      "cat:dr_prefix",
+      "cat:email_pattern",
+      "cat:hospital_cue",
+      "cat:hospital_maritimo_cue",
+      "cat:hospital_named",
+      "cat:llegada_hospital_cue",
+      "cat:natural_de_cue",
+      "cat:nhc_cue",
+      "cat:nie_pattern",
+      "cat:patient_cue",
+      "cat:phone_cue",
+      "cat:phone_pattern",
+      "cat:profession_cue",
+      "cat:radiologia_name_cue",
+      "cat:realizada_en_cue",
+      "cat:sala_uci_id_pattern",
+      "cat:sample_id_pattern",
+      "cat:sra_prefix",
+      "cat:street_via",
+      "cat:street_with_number",
+      "cat:trabaja_de_cue",
+      "cat:vive_en_cue",
+      "cat:vk_id_pattern",
+      "es:addendum_name_cue",
+      "es:age_months",
+      "es:age_years",
+      "es:avenida_street",
+      "es:calle_street",
+      "es:centro_medico_cue",
+      "es:centro_salud_cue",
+      "es:clinica_name_cue",
+      "es:cp_cue",
+      "es:date_day_month_short",
+      "es:date_dmy_dash",
+      "es:date_dmy_dot",
+      "es:date_dmy_slash",
+      "es:date_en_cue",
+      "es:date_exitus",
+      "es:date_month_abbrev",
+      "es:date_month_text",
+      "es:date_month_year_hyphen",
+      "es:date_month_year_only",
+      "es:date_year_month_paren",
+      "es:dia_cue",
+      "es:dni_checksum",
+      "es:doctor_prefix",
+      "es:doctora_prefix",
+      "es:domicilio_cue",
+      "es:email_pattern",
+      "es:escala_en_cue",
+      "es:firmado_cue",
+      "es:hospital_name_cue",
+      "es:ingreso_en_org",
+      "es:localidad_cue",
+      "es:nacido_cue",
+      "es:nass_cue",
+      "es:natural_de_cue",
+      "es:nhc_cue",
+      "es:nie_checksum",
+      "es:nuss_pattern",
+      "es:phone_landline",
+      "es:phone_pattern",
+      "es:profesion_cue",
+      "es:sala_code_pattern",
+      "es:sample_id_pattern",
+      "es:telefono_cue",
+      "es:trabaja_de_cue",
+      "es:unidad_org_cue"
+    ],
+    "document_type_cues": null,
+    "generated": "2026-10-19T06:41:10Z",
+    "commit": "6356b6a455563755f5c1b09e832a98a1e461706f",
+    "tree": "dirty",
+    "scorer_version": 1
+  },
+  "cost": {
+    "llm_calls": 2,
+    "prompt_tokens": 55223,
+    "completion_tokens": 6594,
+    "wall_seconds": 83.178
+  },
+  "cost_to_date": {
+    "llm_calls": 8,
+    "prompt_tokens": 190636,
+    "completion_tokens": 21278,
+    "wall_seconds": 271.491
+  },
+  "termination": {
+    "reason": null,
+    "converged": false,
+    "iterations": 4,
+    "delta": 0.01819454163750875,
+    "delta_spans": 26,
+    "delta_floor": 0.005,
+    "k": 2,
+    "ceiling": 8,
+    "n_dev": 1429,
+    "improvements": [
+      0.37228831350594827,
+      -0.2743177046885934,
+      0.3121063680895731
+    ]
+  },
+  "model_lifecycle": {
+    "model_arn": "arn:aws:bedrock:us-east-1::foundation-model/anthropic.claude-opus-4-5-20251101-v1:0",
+    "model_name": "Claude Opus 4.5",
+    "status": "ACTIVE",
+    "start_of_life_time": "2025-11-24T00:00:00+00:00"
+  },
+  "headline_mode": {
+    "leak_rate": "fully_covered",
+    "leak_rate_lower_bound": "relaxed",
+    "precision": "relaxed",
+    "recall": "relaxed",
+    "f1": "relaxed"
+  },
+  "counts": {
+    "documents": {
+      "total": 400,
+      "with_gold_phi": 297,
+      "without_gold_phi": 103
+    },
+    "gold": {
+      "in_scope": 1429,
+      "excluded": 132,
+      "excluded_share": 0.08456117873158232
+    },
+    "pred": 2767
+  },
+  "headline": {
+    "leak_rate": {
+      "value": 0.2092372288313506,
+      "mode": "fully_covered"
+    },
+    "leak_rate_lower_bound": {
+      "value": 0.17144856543037088,
+      "mode": "relaxed"
+    },
+    "precision": {
+      "value": 0.6662915025323579,
+      "mode": "relaxed"
+    },
+    "recall": {
+      "value": 0.8285514345696291,
+      "mode": "relaxed"
+    },
+    "f1": {
+      "value": 0.7386150966936994,
+      "mode": "relaxed"
+    }
+  },
+  "modes": {
+    "fully_covered": {
+      "leak": {
+        "leaked": 299,
+        "denominator": 1429,
+        "rate": 0.2092372288313506
+      },
+      "overall": {
+        "tp": 1129,
+        "fp": 648,
+        "fn": 300,
+        "precision": 0.6353404614518852,
+        "recall": 0.7900629811056683,
+        "f1": 0.7043044291952589
+      },
+      "macro": {
+        "precision": 0.5874453520062266,
+        "recall": 0.5928849807771048,
+        "f1": 0.5277952828177922,
+        "leak_rate": 0.4070163025397758,
+        "n_types": 10
+      },
+      "by_type": {
+        "AGE": {
+          "gold": 159,
+          "tp": 144,
+          "fp": 23,
+          "fn": 15,
+          "precision": 0.8622754491017964,
+          "recall": 0.9056603773584906,
+          "f1": 0.883435582822086,
+          "leaked": 15,
+          "leak_rate": 0.09433962264150944,
+          "sparse": false
+        },
+        "CONTACT": {
+          "gold": 1,
+          "tp": 1,
+          "fp": 1,
+          "fn": 0,
+          "precision": 0.5,
+          "recall": 1.0,
+          "f1": 0.6666666666666666,
+          "leaked": 0,
+          "leak_rate": 0.0,
+          "sparse": true
+        },
+        "DATE": {
+          "gold": 1013,
+          "tp": 873,
+          "fp": 511,
+          "fn": 140,
+          "precision": 0.6307803468208093,
+          "recall": 0.861796643632774,
+          "f1": 0.7284105131414269,
+          "leaked": 139,
+          "leak_rate": 0.1372161895360316,
+          "sparse": false
+        },
+        "ID": {
+          "gold": 57,
+          "tp": 21,
+          "fp": 1,
+          "fn": 36,
+          "precision": 0.9545454545454546,
+          "recall": 0.3684210526315789,
+          "f1": 0.5316455696202531,
+          "leaked": 36,
+          "leak_rate": 0.631578947368421,
+          "sparse": false
+        },
+        "LOCATION_AREA": {
+          "gold": 51,
+          "tp": 23,
+          "fp": 3,
+          "fn": 28,
+          "precision": 0.8846153846153846,
+          "recall": 0.45098039215686275,
+          "f1": 0.5974025974025974,
+          "leaked": 28,
+          "leak_rate": 0.5490196078431373,
+          "sparse": false
+        },
+        "LOCATION_STREET": {
+          "gold": 6,
+          "tp": 5,
+          "fp": 35,
+          "fn": 1,
+          "precision": 0.125,
+          "recall": 0.8333333333333334,
+          "f1": 0.21739130434782608,
+          "leaked": 1,
+          "leak_rate": 0.16666666666666666,
+          "sparse": true
+        },
+        "NAME": {
+          "gold": 35,
+          "tp": 30,
+          "fp": 1,
+          "fn": 5,
+          "precision": 0.967741935483871,
+          "recall": 0.8571428571428571,
+          "f1": 0.909090909090909,
+          "leaked": 5,
+          "leak_rate": 0.14285714285714285,
+          "sparse": false
+        },
+        "ORGANISATION": {
+          "gold": 88,
+          "tp": 28,
+          "fp": 71,
+          "fn": 60,
+          "precision": 0.2828282828282828,
+          "recall": 0.3181818181818182,
+          "f1": 0.2994652406417112,
+          "leaked": 60,
+          "leak_rate": 0.6818181818181818,
+          "sparse": false
+        },
+        "OTHER": {
+          "gold": 7,
+          "tp": 0,
+          "fp": 0,
+          "fn": 7,
+          "precision": 0.0,
+          "recall": 0.0,
+          "f1": 0.0,
+          "leaked": 7,
+          "leak_rate": 1.0,
+          "sparse": true
+        },
+        "PROFESSION": {
+          "gold": 12,
+          "tp": 4,
+          "fp": 2,
+          "fn": 8,
+          "precision": 0.6666666666666666,
+          "recall": 0.3333333333333333,
+          "f1": 0.4444444444444444,
+          "leaked": 8,
+          "leak_rate": 0.6666666666666666,
+          "sparse": false
+        }
+      },
+      "by_document": {
+        "with_leak": 116,
+        "denominator": 297,
+        "rate": 0.39057239057239057
+      },
+      "assignment_slack": 1,
+      "complementarity": {
+        "families": {
+          "rules_only": 1130,
+          "tagger_only": 0,
+          "both": 0,
+          "joint_only": 0,
+          "neither": 299,
+          "denominator": 1429
+        },
+        "layers": {
+          "covered": {
+            "context_cue": 154,
+            "gazetteer": 27,
+            "regex_checksum": 995,
+            "tagger": 0
+          },
+          "sets": {
+            "": 299,
+            "context_cue": 108,
+            "context_cue|gazetteer": 3,
+            "context_cue|regex_checksum": 43,
+            "gazetteer": 24,
+            "regex_checksum": 952
+          },
+          "covered_by_union_only": 0
+        },
+        "by_type": {
+          "AGE": {
+            "families": {
+              "rules_only": 144,
+              "tagger_only": 0,
+              "both": 0,
+              "joint_only": 0,
+              "neither": 15,
+              "denominator": 159
+            },
+            "layers": {
+              "covered": {
+                "context_cue": 0,
+                "gazetteer": 0,
+                "regex_checksum": 144,
+                "tagger": 0
+              },
+              "sets": {
+                "": 15,
+                "regex_checksum": 144
+              },
+              "covered_by_union_only": 0
+            }
+          },
+          "CONTACT": {
+            "families": {
+              "rules_only": 1,
+              "tagger_only": 0,
+              "both": 0,
+              "joint_only": 0,
+              "neither": 0,
+              "denominator": 1
+            },
+            "layers": {
+              "covered": {
+                "context_cue": 0,
+                "gazetteer": 0,
+                "regex_checksum": 1,
+                "tagger": 0
+              },
+              "sets": {
+                "regex_checksum": 1
+              },
+              "covered_by_union_only": 0
+            }
+          },
+          "DATE": {
+            "families": {
+              "rules_only": 874,
+              "tagger_only": 0,
+              "both": 0,
+              "joint_only": 0,
+              "neither": 139,
+              "denominator": 1013
+            },
+            "layers": {
+              "covered": {
+                "context_cue": 93,
+                "gazetteer": 0,
+                "regex_checksum": 824,
+                "tagger": 0
+              },
+              "sets": {
+                "": 139,
+                "context_cue": 50,
+                "context_cue|regex_checksum": 43,
+                "regex_checksum": 781
+              },
+              "covered_by_union_only": 0
+            }
+          },
+          "ID": {
+            "families": {
+              "rules_only": 21,
+              "tagger_only": 0,
+              "both": 0,
+              "joint_only": 0,
+              "neither": 36,
+              "denominator": 57
+            },
+            "layers": {
+              "covered": {
+                "context_cue": 0,
+                "gazetteer": 0,
+                "regex_checksum": 21,
+                "tagger": 0
+              },
+              "sets": {
+                "": 36,
+                "regex_checksum": 21
+              },
+              "covered_by_union_only": 0
+            }
+          },
+          "LOCATION_AREA": {
+            "families": {
+              "rules_only": 23,
+              "tagger_only": 0,
+              "both": 0,
+              "joint_only": 0,
+              "neither": 28,
+              "denominator": 51
+            },
+            "layers": {
+              "covered": {
+                "context_cue": 23,
+                "gazetteer": 0,
+                "regex_checksum": 0,
+                "tagger": 0
+              },
+              "sets": {
+                "": 28,
+                "context_cue": 23
+              },
+              "covered_by_union_only": 0
+            }
+          },
+          "LOCATION_STREET": {
+            "families": {
+              "rules_only": 5,
+              "tagger_only": 0,
+              "both": 0,
+              "joint_only": 0,
+              "neither": 1,
+              "denominator": 6
+            },
+            "layers": {
+              "covered": {
+                "context_cue": 0,
+                "gazetteer": 0,
+                "regex_checksum": 5,
+                "tagger": 0
+              },
+              "sets": {
+                "": 1,
+                "regex_checksum": 5
+              },
+              "covered_by_union_only": 0
+            }
+          },
+          "NAME": {
+            "families": {
+              "rules_only": 30,
+              "tagger_only": 0,
+              "both": 0,
+              "joint_only": 0,
+              "neither": 5,
+              "denominator": 35
+            },
+            "layers": {
+              "covered": {
+                "context_cue": 30,
+                "gazetteer": 0,
+                "regex_checksum": 0,
+                "tagger": 0
+              },
+              "sets": {
+                "": 5,
+                "context_cue": 30
+              },
+              "covered_by_union_only": 0
+            }
+          },
+          "ORGANISATION": {
+            "families": {
+              "rules_only": 28,
+              "tagger_only": 0,
+              "both": 0,
+              "joint_only": 0,
+              "neither": 60,
+              "denominator": 88
+            },
+            "layers": {
+              "covered": {
+                "context_cue": 4,
+                "gazetteer": 27,
+                "regex_checksum": 0,
+                "tagger": 0
+              },
+              "sets": {
+                "": 60,
+                "context_cue": 1,
+                "context_cue|gazetteer": 3,
+                "gazetteer": 24
+              },
+              "covered_by_union_only": 0
+            }
+          },
+          "OTHER": {
+            "families": {
+              "rules_only": 0,
+              "tagger_only": 0,
+              "both": 0,
+              "joint_only": 0,
+              "neither": 7,
+              "denominator": 7
+            },
+            "layers": {
+              "covered": {
+                "context_cue": 0,
+                "gazetteer": 0,
+                "regex_checksum": 0,
+                "tagger": 0
+              },
+              "sets": {
+                "": 7
+              },
+              "covered_by_union_only": 0
+            }
+          },
+          "PROFESSION": {
+            "families": {
+              "rules_only": 4,
+              "tagger_only": 0,
+              "both": 0,
+              "joint_only": 0,
+              "neither": 8,
+              "denominator": 12
+            },
+            "layers": {
+              "covered": {
+                "context_cue": 4,
+                "gazetteer": 0,
+                "regex_checksum": 0,
+                "tagger": 0
+              },
+              "sets": {
+                "": 8,
+                "context_cue": 4
+              },
+              "covered_by_union_only": 0
+            }
+          }
+        }
+      },
+      "sparse": {
+        "types": [
+          "CONTACT",
+          "LOCATION_STREET",
+          "OTHER"
+        ],
+        "gold": 14
+      },
+      "by_rule": {
+        "cat:age_years_cat": {
+          "layer": "regex_checksum",
+          "fires": 10,
+          "tp": 10,
+          "fp": 0
+        },
+        "cat:centro_medico_cue": {
+          "layer": "context_cue",
+          "fires": 3,
+          "tp": 0,
+          "fp": 3
+        },
+        "cat:centro_salud_mental_cue": {
+          "layer": "context_cue",
+          "fires": 3,
+          "tp": 0,
+          "fp": 3
+        },
+        "cat:date_dash_format": {
+          "layer": "regex_checksum",
+          "fires": 11,
+          "tp": 6,
+          "fp": 5
+        },
+        "cat:date_day_month_short": {
+          "layer": "regex_checksum",
+          "fires": 778,
+          "tp": 384,
+          "fp": 394
+        },
+        "cat:date_dot_format": {
+          "layer": "regex_checksum",
+          "fires": 36,
+          "tp": 35,
+          "fp": 1
+        },
+        "cat:date_month_year_only": {
+          "layer": "regex_checksum",
+          "fires": 65,
+          "tp": 60,
+          "fp": 5
+        },
+        "cat:date_parenthetical": {
+          "layer": "regex_checksum",
+          "fires": 54,
+          "tp": 54,
+          "fp": 0
+        },
+        "cat:date_slash_format": {
+          "layer": "regex_checksum",
+          "fires": 334,
+          "tp": 270,
+          "fp": 64
+        },
+        "cat:date_text_month_cat": {
+          "layer": "regex_checksum",
+          "fires": 2,
+          "tp": 2,
+          "fp": 0
+        },
+        "cat:date_text_month_es": {
+          "layer": "regex_checksum",
+          "fires": 4,
+          "tp": 4,
+          "fp": 0
+        },
+        "cat:date_treatment_format": {
+          "layer": "regex_checksum",
+          "fires": 7,
+          "tp": 7,
+          "fp": 0
+        },
+        "cat:dr_prefix": {
+          "layer": "context_cue",
+          "fires": 29,
+          "tp": 28,
+          "fp": 1
+        },
+        "cat:hospital_cue": {
+          "layer": "context_cue",
+          "fires": 23,
+          "tp": 0,
+          "fp": 23
+        },
+        "cat:hospital_named": {
+          "layer": "gazetteer",
+          "fires": 33,
+          "tp": 27,
+          "fp": 6
+        },
+        "cat:llegada_hospital_cue": {
+          "layer": "context_cue",
+          "fires": 1,
+          "tp": 0,
+          "fp": 1
+        },
+        "cat:natural_de_cue": {
+          "layer": "context_cue",
+          "fires": 16,
+          "tp": 15,
+          "fp": 1
+        },
+        "cat:phone_pattern": {
+          "layer": "regex_checksum",
+          "fires": 2,
+          "tp": 1,
+          "fp": 1
+        },
+        "cat:radiologia_name_cue": {
+          "layer": "context_cue",
+          "fires": 2,
+          "tp": 2,
+          "fp": 0
+        },
+        "cat:realizada_en_cue": {
+          "layer": "context_cue",
+          "fires": 1,
+          "tp": 0,
+          "fp": 1
+        },
+        "cat:sala_uci_id_pattern": {
+          "layer": "regex_checksum",
+          "fires": 18,
+          "tp": 18,
+          "fp": 0
+        },
+        "cat:sample_id_pattern": {
+          "layer": "regex_checksum",
+          "fires": 3,
+          "tp": 3,
+          "fp": 0
+        },
+        "cat:street_via": {
+          "layer": "context_cue",
+          "fires": 7,
+          "tp": 0,
+          "fp": 7
+        },
+        "cat:street_with_number": {
+          "layer": "regex_checksum",
+          "fires": 6,
+          "tp": 5,
+          "fp": 1
+        },
+        "cat:trabaja_de_cue": {
+          "layer": "context_cue",
+          "fires": 1,
+          "tp": 0,
+          "fp": 1
+        },
+        "cat:vive_en_cue": {
+          "layer": "context_cue",
+          "fires": 8,
+          "tp": 8,
+          "fp": 0
+        },
+        "cat:vk_id_pattern": {
+          "layer": "regex_checksum",
+          "fires": 1,
+          "tp": 0,
+          "fp": 1
+        },
+        "es:addendum_name_cue": {
+          "layer": "context_cue",
+          "fires": 2,
+          "tp": 2,
+          "fp": 0
+        },
+        "es:age_years": {
+          "layer": "regex_checksum",
+          "fires": 157,
+          "tp": 134,
+          "fp": 23
+        },
+        "es:avenida_street": {
+          "layer": "context_cue",
+          "fires": 1,
+          "tp": 0,
+          "fp": 1
+        },
+        "es:calle_street": {
+          "layer": "context_cue",
+          "fires": 26,
+          "tp": 0,
+          "fp": 26
+        },
+        "es:centro_medico_cue": {
+          "layer": "context_cue",
+          "fires": 3,
+          "tp": 0,
+          "fp": 3
+        },
+        "es:centro_salud_cue": {
+          "layer": "context_cue",
+          "fires": 1,
+          "tp": 0,
+          "fp": 1
+        },
+        "es:clinica_name_cue": {
+          "layer": "context_cue",
+          "fires": 15,
+          "tp": 0,
+          "fp": 15
+        },
+        "es:date_day_month_short": {
+          "layer": "regex_checksum",
+          "fires": 430,
+          "tp": 379,
+          "fp": 51
+        },
+        "es:date_dmy_dash": {
+          "layer": "regex_checksum",
+          "fires": 7,
+          "tp": 5,
+          "fp": 2
+        },
+        "es:date_dmy_dot": {
+          "layer": "regex_checksum",
+          "fires": 34,
+          "tp": 33,
+          "fp": 1
+        },
+        "es:date_dmy_slash": {
+          "layer": "regex_checksum",
+          "fires": 332,
+          "tp": 269,
+          "fp": 63
+        },
+        "es:date_en_cue": {
+          "layer": "context_cue",
+          "fires": 73,
+          "tp": 58,
+          "fp": 15
+        },
+        "es:date_exitus": {
+          "layer": "context_cue",
+          "fires": 3,
+          "tp": 2,
+          "fp": 1
+        },
+        "es:date_month_abbrev": {
+          "layer": "regex_checksum",
+          "fires": 1,
+          "tp": 1,
+          "fp": 0
+        },
+        "es:date_month_text": {
+          "layer": "regex_checksum",
+          "fires": 4,
+          "tp": 4,
+          "fp": 0
+        },
+        "es:date_month_year_hyphen": {
+          "layer": "regex_checksum",
+          "fires": 1,
+          "tp": 1,
+          "fp": 0
+        },
+        "es:date_month_year_only": {
+          "layer": "regex_checksum",
+          "fires": 40,
+          "tp": 38,
+          "fp": 2
+        },
+        "es:date_year_month_paren": {
+          "layer": "regex_checksum",
+          "fires": 7,
+          "tp": 7,
+          "fp": 0
+        },
+        "es:dia_cue": {
+          "layer": "context_cue",
+          "fires": 54,
+          "tp": 27,
+          "fp": 27
+        },
+        "es:doctor_prefix": {
+          "layer": "context_cue",
+          "fires": 25,
+          "tp": 24,
+          "fp": 1
+        },
+        "es:escala_en_cue": {
+          "layer": "context_cue",
+          "fires": 1,
+          "tp": 0,
+          "fp": 1
+        },
+        "es:hospital_name_cue": {
+          "layer": "context_cue",
+          "fires": 16,
+          "tp": 0,
+          "fp": 16
+        },
+        "es:ingreso_en_org": {
+          "layer": "context_cue",
+          "fires": 24,
+          "tp": 4,
+          "fp": 20
+        },
+        "es:natural_de_cue": {
+          "layer": "context_cue",
+          "fires": 20,
+          "tp": 19,
+          "fp": 1
+        },
+        "es:phone_pattern": {
+          "layer": "regex_checksum",
+          "fires": 2,
+          "tp": 1,
+          "fp": 1
+        },
+        "es:profesion_cue": {
+          "layer": "context_cue",
+          "fires": 4,
+          "tp": 3,
+          "fp": 1
+        },
+        "es:sala_code_pattern": {
+          "layer": "regex_checksum",
+          "fires": 18,
+          "tp": 18,
+          "fp": 0
+        },
+        "es:sample_id_pattern": {
+          "layer": "regex_checksum",
+          "fires": 3,
+          "tp": 3,
+          "fp": 0
+        },
+        "es:trabaja_de_cue": {
+          "layer": "context_cue",
+          "fires": 1,
+          "tp": 1,
+          "fp": 0
+        },
+        "es:unidad_org_cue": {
+          "layer": "context_cue",
+          "fires": 4,
+          "tp": 0,
+          "fp": 4
+        }
+      },
+      "duplicate_predictions": 990
+    },
+    "relaxed": {
+      "leak": {
+        "leaked": 245,
+        "denominator": 1429,
+        "rate": 0.17144856543037088
+      },
+      "overall": {
+        "tp": 1184,
+        "fp": 593,
+        "fn": 245,
+        "precision": 0.6662915025323579,
+        "recall": 0.8285514345696291,
+        "f1": 0.7386150966936994
+      },
+      "macro": {
+        "precision": 0.6186619196389792,
+        "recall": 0.6238291196280144,
+        "f1": 0.5581199852326072,
+        "leak_rate": 0.37617088037198554,
+        "n_types": 10
+      },
+      "by_type": {
+        "AGE": {
+          "gold": 159,
+          "tp": 144,
+          "fp": 23,
+          "fn": 15,
+          "precision": 0.8622754491017964,
+          "recall": 0.9056603773584906,
+          "f1": 0.883435582822086,
+          "leaked": 15,
+          "leak_rate": 0.09433962264150944,
+          "sparse": false
+        },
+        "CONTACT": {
+          "gold": 1,
+          "tp": 1,
+          "fp": 1,
+          "fn": 0,
+          "precision": 0.5,
+          "recall": 1.0,
+          "f1": 0.6666666666666666,
+          "leaked": 0,
+          "leak_rate": 0.0,
+          "sparse": true
+        },
+        "DATE": {
+          "gold": 1013,
+          "tp": 905,
+          "fp": 479,
+          "fn": 108,
+          "precision": 0.6539017341040463,
+          "recall": 0.8933859822309971,
+          "f1": 0.755110554860242,
+          "leaked": 108,
+          "leak_rate": 0.10661401776900296,
+          "sparse": false
+        },
+        "ID": {
+          "gold": 57,
+          "tp": 21,
+          "fp": 1,
+          "fn": 36,
+          "precision": 0.9545454545454546,
+          "recall": 0.3684210526315789,
+          "f1": 0.5316455696202531,
+          "leaked": 36,
+          "leak_rate": 0.631578947368421,
+          "sparse": false
+        },
+        "LOCATION_AREA": {
+          "gold": 51,
+          "tp": 25,
+          "fp": 1,
+          "fn": 26,
+          "precision": 0.9615384615384616,
+          "recall": 0.49019607843137253,
+          "f1": 0.6493506493506493,
+          "leaked": 26,
+          "leak_rate": 0.5098039215686274,
+          "sparse": false
+        },
+        "LOCATION_STREET": {
+          "gold": 6,
+          "tp": 5,
+          "fp": 35,
+          "fn": 1,
+          "precision": 0.125,
+          "recall": 0.8333333333333334,
+          "f1": 0.21739130434782608,
+          "leaked": 1,
+          "leak_rate": 0.16666666666666666,
+          "sparse": true
+        },
+        "NAME": {
+          "gold": 35,
+          "tp": 30,
+          "fp": 1,
+          "fn": 5,
+          "precision": 0.967741935483871,
+          "recall": 0.8571428571428571,
+          "f1": 0.909090909090909,
+          "leaked": 5,
+          "leak_rate": 0.14285714285714285,
+          "sparse": false
+        },
+        "ORGANISATION": {
+          "gold": 88,
+          "tp": 49,
+          "fp": 50,
+          "fn": 39,
+          "precision": 0.494949494949495,
+          "recall": 0.5568181818181818,
+          "f1": 0.5240641711229946,
+          "leaked": 39,
+          "leak_rate": 0.4431818181818182,
+          "sparse": false
+        },
+        "OTHER": {
+          "gold": 7,
+          "tp": 0,
+          "fp": 0,
+          "fn": 7,
+          "precision": 0.0,
+          "recall": 0.0,
+          "f1": 0.0,
+          "leaked": 7,
+          "leak_rate": 1.0,
+          "sparse": true
+        },
+        "PROFESSION": {
+          "gold": 12,
+          "tp": 4,
+          "fp": 2,
+          "fn": 8,
+          "precision": 0.6666666666666666,
+          "recall": 0.3333333333333333,
+          "f1": 0.4444444444444444,
+          "leaked": 8,
+          "leak_rate": 0.6666666666666666,
+          "sparse": false
+        }
+      },
+      "by_document": {
+        "with_leak": 104,
+        "denominator": 297,
+        "rate": 0.3501683501683502
+      },
+      "assignment_slack": 0,
+      "complementarity": {
+        "families": {
+          "rules_only": 1184,
+          "tagger_only": 0,
+          "both": 0,
+          "joint_only": 0,
+          "neither": 245,
+          "denominator": 1429
+        },
+        "layers": {
+          "covered": {
+            "context_cue": 216,
+            "gazetteer": 31,
+            "regex_checksum": 1024,
+            "tagger": 0
+          },
+          "sets": {
+            "": 245,
+            "context_cue": 129,
+            "context_cue|gazetteer": 21,
+            "context_cue|regex_checksum": 66,
+            "gazetteer": 10,
+            "regex_checksum": 958
+          },
+          "covered_by_union_only": 0
+        },
+        "by_type": {
+          "AGE": {
+            "families": {
+              "rules_only": 144,
+              "tagger_only": 0,
+              "both": 0,
+              "joint_only": 0,
+              "neither": 15,
+              "denominator": 159
+            },
+            "layers": {
+              "covered": {
+                "context_cue": 0,
+                "gazetteer": 0,
+                "regex_checksum": 144,
+                "tagger": 0
+              },
+              "sets": {
+                "": 15,
+                "regex_checksum": 144
+              },
+              "covered_by_union_only": 0
+            }
+          },
+          "CONTACT": {
+            "families": {
+              "rules_only": 1,
+              "tagger_only": 0,
+              "both": 0,
+              "joint_only": 0,
+              "neither": 0,
+              "denominator": 1
+            },
+            "layers": {
+              "covered": {
+                "context_cue": 0,
+                "gazetteer": 0,
+                "regex_checksum": 1,
+                "tagger": 0
+              },
+              "sets": {
+                "regex_checksum": 1
+              },
+              "covered_by_union_only": 0
+            }
+          },
+          "DATE": {
+            "families": {
+              "rules_only": 905,
+              "tagger_only": 0,
+              "both": 0,
+              "joint_only": 0,
+              "neither": 108,
+              "denominator": 1013
+            },
+            "layers": {
+              "covered": {
+                "context_cue": 113,
+                "gazetteer": 0,
+                "regex_checksum": 853,
+                "tagger": 0
+              },
+              "sets": {
+                "": 108,
+                "context_cue": 52,
+                "context_cue|regex_checksum": 61,
+                "regex_checksum": 792
+              },
+              "covered_by_union_only": 0
+            }
+          },
+          "ID": {
+            "families": {
+              "rules_only": 21,
+              "tagger_only": 0,
+              "both": 0,
+              "joint_only": 0,
+              "neither": 36,
+              "denominator": 57
+            },
+            "layers": {
+              "covered": {
+                "context_cue": 0,
+                "gazetteer": 0,
+                "regex_checksum": 21,
+                "tagger": 0
+              },
+              "sets": {
+                "": 36,
+                "regex_checksum": 21
+              },
+              "covered_by_union_only": 0
+            }
+          },
+          "LOCATION_AREA": {
+            "families": {
+              "rules_only": 25,
+              "tagger_only": 0,
+              "both": 0,
+              "joint_only": 0,
+              "neither": 26,
+              "denominator": 51
+            },
+            "layers": {
+              "covered": {
+                "context_cue": 25,
+                "gazetteer": 0,
+                "regex_checksum": 0,
+                "tagger": 0
+              },
+              "sets": {
+                "": 26,
+                "context_cue": 25
+              },
+              "covered_by_union_only": 0
+            }
+          },
+          "LOCATION_STREET": {
+            "families": {
+              "rules_only": 5,
+              "tagger_only": 0,
+              "both": 0,
+              "joint_only": 0,
+              "neither": 1,
+              "denominator": 6
+            },
+            "layers": {
+              "covered": {
+                "context_cue": 5,
+                "gazetteer": 0,
+                "regex_checksum": 5,
+                "tagger": 0
+              },
+              "sets": {
+                "": 1,
+                "context_cue|regex_checksum": 5
+              },
+              "covered_by_union_only": 0
+            }
+          },
+          "NAME": {
+            "families": {
+              "rules_only": 30,
+              "tagger_only": 0,
+              "both": 0,
+              "joint_only": 0,
+              "neither": 5,
+              "denominator": 35
+            },
+            "layers": {
+              "covered": {
+                "context_cue": 30,
+                "gazetteer": 0,
+                "regex_checksum": 0,
+                "tagger": 0
+              },
+              "sets": {
+                "": 5,
+                "context_cue": 30
+              },
+              "covered_by_union_only": 0
+            }
+          },
+          "ORGANISATION": {
+            "families": {
+              "rules_only": 49,
+              "tagger_only": 0,
+              "both": 0,
+              "joint_only": 0,
+              "neither": 39,
+              "denominator": 88
+            },
+            "layers": {
+              "covered": {
+                "context_cue": 39,
+                "gazetteer": 31,
+                "regex_checksum": 0,
+                "tagger": 0
+              },
+              "sets": {
+                "": 39,
+                "context_cue": 18,
+                "context_cue|gazetteer": 21,
+                "gazetteer": 10
+              },
+              "covered_by_union_only": 0
+            }
+          },
+          "OTHER": {
+            "families": {
+              "rules_only": 0,
+              "tagger_only": 0,
+              "both": 0,
+              "joint_only": 0,
+              "neither": 7,
+              "denominator": 7
+            },
+            "layers": {
+              "covered": {
+                "context_cue": 0,
+                "gazetteer": 0,
+                "regex_checksum": 0,
+                "tagger": 0
+              },
+              "sets": {
+                "": 7
+              },
+              "covered_by_union_only": 0
+            }
+          },
+          "PROFESSION": {
+            "families": {
+              "rules_only": 4,
+              "tagger_only": 0,
+              "both": 0,
+              "joint_only": 0,
+              "neither": 8,
+              "denominator": 12
+            },
+            "layers": {
+              "covered": {
+                "context_cue": 4,
+                "gazetteer": 0,
+                "regex_checksum": 0,
+                "tagger": 0
+              },
+              "sets": {
+                "": 8,
+                "context_cue": 4
+              },
+              "covered_by_union_only": 0
+            }
+          }
+        }
+      },
+      "sparse": {
+        "types": [
+          "CONTACT",
+          "LOCATION_STREET",
+          "OTHER"
+        ],
+        "gold": 14
+      },
+      "by_rule": {
+        "cat:age_years_cat": {
+          "layer": "regex_checksum",
+          "fires": 10,
+          "tp": 10,
+          "fp": 0
+        },
+        "cat:centro_medico_cue": {
+          "layer": "context_cue",
+          "fires": 3,
+          "tp": 3,
+          "fp": 0
+        },
+        "cat:centro_salud_mental_cue": {
+          "layer": "context_cue",
+          "fires": 3,
+          "tp": 0,
+          "fp": 3
+        },
+        "cat:date_dash_format": {
+          "layer": "regex_checksum",
+          "fires": 11,
+          "tp": 6,
+          "fp": 5
+        },
+        "cat:date_day_month_short": {
+          "layer": "regex_checksum",
+          "fires": 778,
+          "tp": 403,
+          "fp": 375
+        },
+        "cat:date_dot_format": {
+          "layer": "regex_checksum",
+          "fires": 36,
+          "tp": 36,
+          "fp": 0
+        },
+        "cat:date_month_year_only": {
+          "layer": "regex_checksum",
+          "fires": 65,
+          "tp": 60,
+          "fp": 5
+        },
+        "cat:date_parenthetical": {
+          "layer": "regex_checksum",
+          "fires": 54,
+          "tp": 54,
+          "fp": 0
+        },
+        "cat:date_slash_format": {
+          "layer": "regex_checksum",
+          "fires": 334,
+          "tp": 280,
+          "fp": 54
+        },
+        "cat:date_text_month_cat": {
+          "layer": "regex_checksum",
+          "fires": 2,
+          "tp": 2,
+          "fp": 0
+        },
+        "cat:date_text_month_es": {
+          "layer": "regex_checksum",
+          "fires": 4,
+          "tp": 4,
+          "fp": 0
+        },
+        "cat:date_treatment_format": {
+          "layer": "regex_checksum",
+          "fires": 7,
+          "tp": 7,
+          "fp": 0
+        },
+        "cat:dr_prefix": {
+          "layer": "context_cue",
+          "fires": 29,
+          "tp": 28,
+          "fp": 1
+        },
+        "cat:hospital_cue": {
+          "layer": "context_cue",
+          "fires": 23,
+          "tp": 11,
+          "fp": 12
+        },
+        "cat:hospital_named": {
+          "layer": "gazetteer",
+          "fires": 33,
+          "tp": 31,
+          "fp": 2
+        },
+        "cat:llegada_hospital_cue": {
+          "layer": "context_cue",
+          "fires": 1,
+          "tp": 1,
+          "fp": 0
+        },
+        "cat:natural_de_cue": {
+          "layer": "context_cue",
+          "fires": 16,
+          "tp": 16,
+          "fp": 0
+        },
+        "cat:phone_pattern": {
+          "layer": "regex_checksum",
+          "fires": 2,
+          "tp": 1,
+          "fp": 1
+        },
+        "cat:radiologia_name_cue": {
+          "layer": "context_cue",
+          "fires": 2,
+          "tp": 2,
+          "fp": 0
+        },
+        "cat:realizada_en_cue": {
+          "layer": "context_cue",
+          "fires": 1,
+          "tp": 0,
+          "fp": 1
+        },
+        "cat:sala_uci_id_pattern": {
+          "layer": "regex_checksum",
+          "fires": 18,
+          "tp": 18,
+          "fp": 0
+        },
+        "cat:sample_id_pattern": {
+          "layer": "regex_checksum",
+          "fires": 3,
+          "tp": 3,
+          "fp": 0
+        },
+        "cat:street_via": {
+          "layer": "context_cue",
+          "fires": 7,
+          "tp": 0,
+          "fp": 7
+        },
+        "cat:street_with_number": {
+          "layer": "regex_checksum",
+          "fires": 6,
+          "tp": 5,
+          "fp": 1
+        },
+        "cat:trabaja_de_cue": {
+          "layer": "context_cue",
+          "fires": 1,
+          "tp": 0,
+          "fp": 1
+        },
+        "cat:vive_en_cue": {
+          "layer": "context_cue",
+          "fires": 8,
+          "tp": 8,
+          "fp": 0
+        },
+        "cat:vk_id_pattern": {
+          "layer": "regex_checksum",
+          "fires": 1,
+          "tp": 0,
+          "fp": 1
+        },
+        "es:addendum_name_cue": {
+          "layer": "context_cue",
+          "fires": 2,
+          "tp": 2,
+          "fp": 0
+        },
+        "es:age_years": {
+          "layer": "regex_checksum",
+          "fires": 157,
+          "tp": 134,
+          "fp": 23
+        },
+        "es:avenida_street": {
+          "layer": "context_cue",
+          "fires": 1,
+          "tp": 0,
+          "fp": 1
+        },
+        "es:calle_street": {
+          "layer": "context_cue",
+          "fires": 26,
+          "tp": 0,
+          "fp": 26
+        },
+        "es:centro_medico_cue": {
+          "layer": "context_cue",
+          "fires": 3,
+          "tp": 3,
+          "fp": 0
+        },
+        "es:centro_salud_cue": {
+          "layer": "context_cue",
+          "fires": 1,
+          "tp": 1,
+          "fp": 0
+        },
+        "es:clinica_name_cue": {
+          "layer": "context_cue",
+          "fires": 15,
+          "tp": 3,
+          "fp": 12
+        },
+        "es:date_day_month_short": {
+          "layer": "regex_checksum",
+          "fires": 430,
+          "tp": 397,
+          "fp": 33
+        },
+        "es:date_dmy_dash": {
+          "layer": "regex_checksum",
+          "fires": 7,
+          "tp": 5,
+          "fp": 2
+        },
+        "es:date_dmy_dot": {
+          "layer": "regex_checksum",
+          "fires": 34,
+          "tp": 34,
+          "fp": 0
+        },
+        "es:date_dmy_slash": {
+          "layer": "regex_checksum",
+          "fires": 332,
+          "tp": 278,
+          "fp": 54
+        },
+        "es:date_en_cue": {
+          "layer": "context_cue",
+          "fires": 73,
+          "tp": 59,
+          "fp": 14
+        },
+        "es:date_exitus": {
+          "layer": "context_cue",
+          "fires": 3,
+          "tp": 3,
+          "fp": 0
+        },
+        "es:date_month_abbrev": {
+          "layer": "regex_checksum",
+          "fires": 1,
+          "tp": 1,
+          "fp": 0
+        },
+        "es:date_month_text": {
+          "layer": "regex_checksum",
+          "fires": 4,
+          "tp": 4,
+          "fp": 0
+        },
+        "es:date_month_year_hyphen": {
+          "layer": "regex_checksum",
+          "fires": 1,
+          "tp": 1,
+          "fp": 0
+        },
+        "es:date_month_year_only": {
+          "layer": "regex_checksum",
+          "fires": 40,
+          "tp": 38,
+          "fp": 2
+        },
+        "es:date_year_month_paren": {
+          "layer": "regex_checksum",
+          "fires": 7,
+          "tp": 7,
+          "fp": 0
+        },
+        "es:dia_cue": {
+          "layer": "context_cue",
+          "fires": 54,
+          "tp": 43,
+          "fp": 11
+        },
+        "es:doctor_prefix": {
+          "layer": "context_cue",
+          "fires": 25,
+          "tp": 24,
+          "fp": 1
+        },
+        "es:escala_en_cue": {
+          "layer": "context_cue",
+          "fires": 1,
+          "tp": 1,
+          "fp": 0
+        },
+        "es:hospital_name_cue": {
+          "layer": "context_cue",
+          "fires": 16,
+          "tp": 6,
+          "fp": 10
+        },
+        "es:ingreso_en_org": {
+          "layer": "context_cue",
+          "fires": 24,
+          "tp": 6,
+          "fp": 18
+        },
+        "es:natural_de_cue": {
+          "layer": "context_cue",
+          "fires": 20,
+          "tp": 20,
+          "fp": 0
+        },
+        "es:phone_pattern": {
+          "layer": "regex_checksum",
+          "fires": 2,
+          "tp": 1,
+          "fp": 1
+        },
+        "es:profesion_cue": {
+          "layer": "context_cue",
+          "fires": 4,
+          "tp": 3,
+          "fp": 1
+        },
+        "es:sala_code_pattern": {
+          "layer": "regex_checksum",
+          "fires": 18,
+          "tp": 18,
+          "fp": 0
+        },
+        "es:sample_id_pattern": {
+          "layer": "regex_checksum",
+          "fires": 3,
+          "tp": 3,
+          "fp": 0
+        },
+        "es:trabaja_de_cue": {
+          "layer": "context_cue",
+          "fires": 1,
+          "tp": 1,
+          "fp": 0
+        },
+        "es:unidad_org_cue": {
+          "layer": "context_cue",
+          "fires": 4,
+          "tp": 0,
+          "fp": 4
+        }
+      },
+      "duplicate_predictions": 990
+    }
+  },
+  "false_positive_opportunity": {
+    "documents_without_gold_phi": 103,
+    "predictions_in_those_documents": 4
+  }
+}
