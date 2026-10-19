@@ -1330,7 +1330,37 @@ DENY_SAMPLES = {
     r"^results/[^/]+/[^/]+/[^/]+/[^/]+/lexicons/": [
         "results/a/b/c/d/lexicons/e/terms.txt",
     ],
+    # DESIGN §14: an iterating arm on a credentialed corpus. One sample per corpus and
+    # per rung so that a .gitignore line dropped for any one of them fails here.
+    r"^results/(en-deid|ko-surro|es-carmen)/[^/]+/[^/]+/"
+    r"port-(loop|multi|selfdesign|human)[^/]*/(rules/|format_failure\.json$)": [
+        "results/en-deid/R/sup-free/port-loop-noaudit-current/rules/iter2/en.yaml",
+        "results/ko-surro/R/sup-free/port-loop-noaudit-current/rules/iter8/ko.yaml",
+        "results/es-carmen/R/sup-free/port-loop-noaudit-current/rules/iter3/cat.yaml",
+        "results/es-carmen/R/sup-free/port-loop-noaudit-current/format_failure.json",
+        "results/en-deid/R/sup-free/port-multi/format_failure.json",
+        "results/ko-surro/R/sup-free/port-selfdesign/rules/iter1/ko.yaml",
+        "results/es-carmen/R/sup-free/port-human/rules/iter1/es.yaml",
+    ],
 }
+
+
+def test_a_public_corpus_s_loop_rules_and_any_single_call_rules_stay_visible(
+        gitignore_probe):
+    """The other edge of the DESIGN §14 block: it must not swallow what is publishable.
+
+    A single-call arm's rules were written by a call that saw no dev text, and a public
+    corpus's dev text is synthetic, so both have been published since their arms ran. A
+    pattern one wildcard too wide would quietly un-publish them — and from the outside a
+    rule file that stopped being tracked looks the same as one that was never written.
+    """
+    for path in ("results/de-grascco/R/sup-free/port-loop-noaudit-current/rules/iter2/de.yaml",
+                 "results/es-meddocan/R/sup-free/port-loop/rules/iter8/es.yaml",
+                 "results/en-deid/R/sup-free/port-oneshot/rules/iter1/en.yaml",
+                 "results/es-carmen/R/sup-free/port-oneshot/rules/iter1/cat.yaml",
+                 "results/ko-surro/R/sup-free/port-loop-noaudit-current/iter2/metrics.json"):
+        assert not rs.deny(path), path
+        assert not gitignore_probe(path), path
 
 #: The deny patterns that must NOT be gitignored, and the test that says why is
 #: `test_the_filled_prompt_patterns_are_not_gitignored`. Listed here so the sync test

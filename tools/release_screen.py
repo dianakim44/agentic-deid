@@ -103,6 +103,23 @@ DENY_PATTERNS = [
     # 정확히 겹쳐야 한다.
     r"^results/[^/]+/[^/]+/[^/]+/[^/]+/lexicons/",
 
+    # ─── credentialed 코퍼스의 반복형 arm 규칙·실패 원문 — 2026-10-19, DESIGN §14 ──
+    # 단일 호출 arm 의 규칙은 dev 원문을 본 적 없는 호출이 쓴다 (§§1.3–1.4 가 비어
+    # 있다, window_freeze.json 의 sections_empty). 반복 arm 은 라운드 2 부터 dev
+    # 오류의 ±120자 문맥을 받으므로(rule_author.md §1.4) 규칙 파일에 dev 표면형이
+    # 들어갈 수 있고, format_failure.json 은 그 응답의 원문 바이트다. 공개 코퍼스
+    # (MEDDOCAN · GraSCCo)에서는 그것이 합성 텍스트라 허용되어 왔고, credentialed
+    # 코퍼스에서는 DUA 가 금지하는 공개가 된다.
+    #
+    # **코퍼스 이름을 명시한 패턴이고, 위 주석들이 경계한 바로 그 형태다.** 그래도
+    # 이렇게 쓰는 이유는 기준이 기제가 아니라 코퍼스의 **면허**이고, 면허를 기계가
+    # 읽을 수 있게 선언한 곳이 저장소에 없기 때문이다(config/data_paths.example.yaml
+    # 의 주석이 유일하다). 다음 credentialed 코퍼스는 이 줄과 .gitignore 에 직접
+    # 추가해야 하며, 그 의무는 DESIGN §14.3 에 적혀 있다. rung 은 반복하는 넷 전부를
+    # 건다 — 오늘 도는 것은 loop 하나지만 multi · selfdesign · human 도 dev 를 본다.
+    r"^results/(en-deid|ko-surro|es-carmen)/[^/]+/[^/]+/"
+    r"port-(loop|multi|selfdesign|human)[^/]*/(rules/|format_failure\.json$)",
+
     # ─── 채워진 프롬프트 인스턴스 ───────────────────────────────
     # 템플릿(docs/prompts/*.md)은 공개된다. 값이 채워진 인스턴스는 dev 원문을
     # 담는다 — RuleAuthor 프롬프트의 오류 스팬 블록은 ±120자 문맥을 포함하고,

@@ -319,6 +319,31 @@ axes:
       path. Which composition is in force is named by `detector`, degenerately for T.
       Does not iterate. Not a point on the autonomy ladder — the ladder measures how
       autonomously the porting is done, and this rung does no porting.
+    # ─── 같은 rung, 다른 규칙 출처 — port-hybrid-looprules, 2026-10-19 ─────
+    #
+    # DESIGN §14. v24d 가 RT-loco 를 **두 번째 규칙 출처**로 다시 합성한다:
+    # 단일 호출 규칙(port-oneshot) 대신 각 코퍼스의 port-loop-noaudit-current 최종
+    # 라운드 규칙. 태거 가중치는 v24b 의 T-loco 를 바이트 그대로 쓴다.
+    #
+    # **새 값이 필요한 이유는 경로가 이미 차 있기 때문이다.** RT/sup-transfer/
+    # port-hybrid 는 v24b 의 RT-loco(단일 호출 규칙)이고 test 가 이미 열렸다.
+    # 같은 경로에 다른 규칙으로 합성한 arm 을 쓰면 봉인된 기록 위에 덮어쓰거나,
+    # 두 실행이 한 이름을 나눠 갖는다. 어느 쪽이든 이 파일 머리의 원칙("기존 ID 의
+    # 의미를 바꾸지 않는다")을 어긴다.
+    #
+    # **이름이 가리키는 것은 바뀐 것 하나다.** port-oneshot-nofence · -noexample ·
+    # -stripfence 의 규약 그대로 — 앞선 값에 대해 새 값을 필요하게 만든 변경 하나를
+    # 이름한다. 여기서는 합성이 읽는 R arm 이 루프 rung 이라는 것. 어느 루프 arm
+    # 인지는 경로가 아니라 experiments/loop4_v24d/registration.yaml 이 코퍼스마다
+    # 적는다 (port-hybrid 의 규칙 출처가 hybrid_v24 등록에 있는 것과 같은 이유).
+    # rung 은 그대로 hybrid 이고 반복하지 않는다.
+    port-hybrid-looprules: |
+      the port-hybrid composition with its rules half read from the corpus's iterated
+      rules arm instead of its single-call one — byte for byte, the final round's rule
+      files of the R arm experiments/loop4_v24d/registration.yaml names. Nothing is
+      authored and nothing iterates; the tagger half is whatever weights the arm's
+      record names by SHA-256. Exists because the single-call composition already holds
+      RT/sup-transfer/port-hybrid and its test fold is open (DESIGN §14).
 
   # ─── port-human 회차에서 언어모델을 어디에 썼는가 ──────────
   # rule_author.md §8 의 자기보고. human_log.jsonl 의 모든 행에 들어간다.
@@ -1097,7 +1122,7 @@ porting_rungs:
   # 위 네 rung 의 순서가 자율성이고, 이 rung 은 그 축에 올라가지 않는다. 드라이버도
   # tools/run_loop.py 가 아니다: 이 rung 을 도는 것은 tools/run_hybrid.py 이고,
   # 그래서 "어느 드라이버가 도는가" 라는 이 블록의 질문에 자기 답을 갖는다.
-  hybrid:     [port-hybrid]
+  hybrid:     [port-hybrid, port-hybrid-looprules]
 
 # ─── 종료 규칙이 적용되지 않는 rung ─────────────────────────
 # 위 termination_reason 의 not_applicable 은 "이 arm 은 반복하지 않으므로 종료

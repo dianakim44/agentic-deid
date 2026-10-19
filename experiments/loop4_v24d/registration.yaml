@@ -1,0 +1,131 @@
+# v24d pre-registration — the Auditor-free loop on four corpora, and RT-loco recomposed
+#
+# 2026-10-19. Committed before any call of this experiment. The argument is in
+# docs/DESIGN.md §14 and this file is its machine-readable form; where the two disagree,
+# DESIGN.md is right and this file is wrong.
+#
+# Vocabulary comes from config/naming.yaml. One value was added for this experiment, in the
+# same commit: porting `port-hybrid-looprules` on the hybrid rung. The loop arm itself is the
+# existing, never-run `port-loop-noaudit-current` (DESIGN §14.0 says why not
+# `port-loop-noaudit`).
+
+version: 1
+registered: 2026-10-19
+design_section: "docs/DESIGN.md §14"
+builds_on:
+  - "experiments/loco_v24b/registration.yaml"
+  - "experiments/hybrid_v24/registration.yaml"
+
+corpora: [de-grascco, es-carmen, en-deid, ko-surro]
+
+# ─── the loop arm ────────────────────────────────────────────
+loop:
+  arm: {detector: R, supervision: sup-free, porting: port-loop-noaudit-current}
+  agents: [rule_author]
+  agents_absent: [auditor]          # declared in naming.yaml porting_arms, not here
+  template:
+    file: docs/prompts/rule_author.md
+    sha256: "sha256:bcef6f397aa957d4cc5eb4497b940b7cb29f84cf155adea53c6e5afb50473108"
+    # The four single-call arms froze this hash. Enforced by each arm's own freeze record at
+    # its first call (DESIGN §6.3) and by check_prompt_window before every later call.
+    same_as_single_call_arms: true
+  termination:
+    source: "config/naming.yaml termination"
+    ceiling: 8
+    k: 2
+    delta: "max(0.005, 26 / n_dev)"
+    delta_by_corpus:
+      de-grascco: 0.06341463414634146     # 26/410
+      es-carmen:  0.018194541637508748    # 26/1429
+      en-deid:    0.07242339832869081     # 26/359
+      ko-surro:   0.08150470219435736     # 26/319
+  runs_per_corpus: 1
+  calls_per_round:
+    de-grascco: 1
+    es-carmen: 2                          # es then cat, DESIGN §5.6
+    en-deid: 1
+    ko-surro: 1
+  model:
+    provider: bedrock
+    model_id: us.anthropic.claude-opus-4-5-20251101-v1:0   # the ladder's pinned model
+    max_tokens: 32768
+    other_params: defaults
+  format_failure:
+    retries: 0                            # DESIGN §10 A2
+    final_round: last_round_that_scored
+    recorded_in: format_failure.json
+    reported: true
+  # Round 1 is a new draw of the single call's prompt, not a reuse of its response.
+  round1_is_new_draw: true
+
+# ─── the single-call arms it is compared against ──────────────
+single_call:
+  arm: {detector: R, supervision: sup-free, porting: port-oneshot}
+  dev_L_full:
+    de-grascco: 0.4146341463414634
+    es-carmen:  0.6298110566829951
+    en-deid:    0.7938718662952646
+    ko-surro:   0.8808777429467085
+
+# ─── RT-loco recomposed with the loop's rules ────────────────
+rt_loco_loop:
+  arm: {detector: RT, supervision: sup-transfer, porting: port-hybrid-looprules}
+  rules_arm:                              # the R arm whose final-round files are read
+    de-grascco: port-loop-noaudit-current
+    es-carmen:  port-loop-noaudit-current
+    en-deid:    port-loop-noaudit-current
+    ko-surro:   port-loop-noaudit-current
+  tagger:
+    # v24b's T-loco weights, unchanged. Identified by SHA-256; the record refuses a mismatch.
+    weights_from: "experiments/loco_v24b/training_methods.json"
+    retrained: false
+  merge: {policy: UNION, theta: 0.5, every_type: true}
+  selector_run: false
+  arbiter_run: false
+  compared_against:
+    arm: {detector: RT, supervision: sup-transfer, porting: port-hybrid}
+    test_L_full:
+      de-grascco: 0.1773
+      es-carmen:  0.1930
+      en-deid:    0.3667
+      ko-surro:   0.3494
+
+# ─── what is published ──────────────────────────────────────
+publication:
+  # DESIGN §14.3. A loop round >= 2 sees dev errors in context, so its rule file and any
+  # raw failure response can carry a dev surface.
+  credentialed: [es-carmen, en-deid, ko-surro]
+  gitignored_and_denied:
+    - "results/{credentialed}/*/*/port-{loop,multi,selfdesign,human}*/rules/"
+    - "results/{credentialed}/*/*/port-{loop,multi,selfdesign,human}*/format_failure.json"
+  committed: [metrics.json, spans.jsonl, window_freeze.json]   # offsets and aggregates only
+  de-grascco_rules_committed: true       # public corpus, as es-meddocan's loop rules are
+  off_repo_archive: "~/agentic-deid-archive/llm-final/"
+  push: after_user_review
+
+# ─── predictions ────────────────────────────────────────────
+predictions:
+  P12:
+    claim: "On each of the four corpora, final-round dev L_full < the single-call arm's dev L_full"
+    direction: stated
+    split: dev
+    scope: each_of_four
+  P13:
+    claim: "On at least 3 of 4, test L_full(RT-loco(loop)) < test L_full(RT-loco(single))"
+    direction: stated
+    split: test
+    threshold: 3
+
+# ─── openings ───────────────────────────────────────────────
+sealed:
+  openings: 8                             # per corpus: loop R final round, RT-loco(loop)
+  loop_iteration: final_round_from_termination_block
+  hybrid_iteration: 1
+  verify_dev_required: true
+  on_refusal: report_as_finding
+  log_rows_after: 44                      # 36 + 8
+
+mutation_gate:
+  full_run: deferred_until_after_submission
+  new_mutations_added: 0
+  test_files_membership_changed: false

@@ -9752,3 +9752,135 @@ correspond to the *other* corpus's dev and test documents and never to its train
 the pair is instead is a transfer setting with the same underlying notes on both sides,
 which flatters those two cells for a reason that has nothing to do with multilingual
 transfer.
+
+## 14. v24d: the Auditor-free loop on four more corpora — pre-registered 2026-10-19, before any call
+
+Until now exactly one corpus has an iterated rule set. `es-meddocan` ran `port-loop` (with the
+Auditor) and the `port-loop-noaudit` repetition set (without it); every other corpus has a
+single call and nothing else. So the question "does iterating against dev help?" has one
+synthetic-Spanish answer. §13 then showed that the single-call rules lose to a tagger that
+never saw the corpus on four of five corpora — and the one where the rules won was the corpus
+whose rules had iterated. This section registers the experiment that separates *iteration*
+from *corpus*: the same Auditor-free loop on `de-grascco`, `es-carmen`, `en-deid` and
+`ko-surro`.
+
+### 14.0 The arm, and why it is `port-loop-noaudit-current` and not `port-loop-noaudit`
+
+The instruction names the rung as "the Auditor-free loop, template fixed to each corpus's
+single-call template (`bcef6f39`)". `bcef6f39…` is the SHA-256 of `docs/prompts/rule_author.md`
+as frozen in all four single-call arms' `window_freeze.json`, and it is the revision on disk
+today. `port-loop-noaudit` cannot carry that: its `porting_arms` entry pins
+`docs/prompts/pinned/rule_author.ddc48bdb.md`, the revision with worked examples, so running
+it would send a different prompt from the one the instruction fixes — and changing its pin
+would change the meaning of an ID whose three runs are published.
+
+`port-loop-noaudit-current` already means exactly this: *the same ablation under the
+rule_author.md revision on disk, which is the example-free one*, with the Auditor declared
+absent. It has never run. It declares no template, so round 1 is **not** byte-identical to
+`port-loop`'s — and it does not need to be, because the comparison here is with each corpus's
+single call, whose window is the same `bcef6f39`. The window is frozen at the arm's first call
+(§6.3) and checked before every later call, so "fixed to bcef6f39" is enforced by the freeze
+and not by a declaration. If `rule_author.md` were to change before a corpus's round 1, that
+corpus's freeze record would name the new hash and the deviation would be visible; it is not
+planned.
+
+**Round 1 is a new draw of the single call's prompt, not a reuse of its response.** With
+§§1.3–1.4 empty, round 1's prompt is the single call's prompt (same template, same §1.1, same
+corpus), and its response is a second sample from the same distribution. `docs/notes/call-
+variance.md` measured that distribution as wide (rule_id Jaccard 0.098–0.429 over five draws).
+P12 below is therefore stated against the **published single-call arm**, and round 1's own
+score is reported beside it so that "the loop improved on its own start" and "the loop beat
+the single call" are not conflated.
+
+### 14.1 The protocol
+
+| | |
+|---|---|
+| corpora | `de-grascco`, `es-carmen`, `en-deid`, `ko-surro` |
+| arm | `R` / `sup-free` / `port-loop-noaudit-current` |
+| agents | RuleAuthor only; Auditor declared absent (`porting_arms`) |
+| template | `rule_author.md` at `sha256:bcef6f39…`, frozen per arm at first call |
+| stopping rule | §3, unchanged: ceiling K = 8, k = 2, δ = max(0.005, 26/n_dev) from naming.yaml `termination` |
+| runs | **one per corpus** — no repetition set |
+| calls per round | 1, and **2 on `es-carmen`** (es then cat, §5.6) |
+| model | `us.anthropic.claude-opus-4-5-20251101-v1:0` on Bedrock, the ladder's pinned model (§4); `max_tokens` 32768 |
+| format failure | §10 A2: zero retries. The round has no scorable state; the arm's final round is the last round that scored, and the failure is recorded in `format_failure.json` and reported |
+
+δ per corpus: `de-grascco` 26/410 = 0.0634, `es-carmen` 26/1429 = 0.0182, `en-deid` 26/359 =
+0.0724, `ko-surro` 26/319 = 0.0815.
+
+**`es-carmen` follows §5.6, which already decided the multilingual loop.** One window per
+arm; two calls per round in naming.yaml's declared order; the same dev-error sample shown to
+both; one scoring run over both files; a round in which either call fails is atomic and
+unscorable. `tools/run_loop.py` today takes one `--lang` and makes one call, so the driver
+gains §5.6's structure before `es-carmen`'s round 1. That is an implementation of a decided
+clause and changes nothing about the three single-language corpora, for which every clause of
+§5.6 reduces to what runs today.
+
+### 14.2 The hybrid composed with the loop's rules
+
+`RT-loco(loop)` = the v24b T-loco weights of that corpus, **byte for byte** (by SHA-256), merged
+with the loop arm's final-round rule files at `UNION@0.5` on every type. No selector, no
+Arbiter, for §13.2's reason. The tagger is not retrained.
+
+It needs its own coordinate because `RT/sup-transfer/port-hybrid` is v24b's single-call
+composition and its test fold is open. The new value is `port-hybrid-looprules` on the hybrid
+rung (naming.yaml); which loop arm supplies the rules is registered per corpus in
+`experiments/loop4_v24d/registration.yaml`, for §12.0's reason.
+
+### 14.3 What is published, and what is not
+
+The four single-call rule files were written by a call that saw no dev text (`sections_empty:
+[1.3, 1.4]` in each freeze record) and are published. **A loop round ≥ 2 sees dev errors in
+±120 characters of context** (`rule_author.md` §1.4), so its rule file can carry a dev surface,
+and `format_failure.json` is the response's raw bytes. On a public corpus that text is
+synthetic and has been published since `port-loop` ran. On a credentialed corpus it is not
+publishable.
+
+So on `es-carmen`, `en-deid` and `ko-surro`, every iterating rung's `rules/` directory and
+`format_failure.json` are gitignored **and** deny-listed (`tools/release_screen.py`, one block,
+with a `.gitignore` counterpart per corpus and rung, and samples in
+`tests/test_release_screen.py`). The repository receives the metrics, the offsets-only spans,
+the freeze record and nothing else. `de-grascco` (public GraSCCo) publishes its rule files like
+`es-meddocan` does. The pattern names the three corpora because the criterion is the corpus's
+licence, and the repository has no machine-readable declaration of licence; **the next
+credentialed corpus must be added to that block and to `.gitignore` by hand**, and this
+sentence is where that obligation is written.
+
+The sealed run needs only that the files exist on disk (refusal 9), so gitignoring them does
+not block an opening. They are archived off-repo with the rest of the arm's LLM record.
+
+The sending side is unchanged: credentialed text reaches Bedrock only, which PhysioNet names
+as an acceptable path, and `src/llm/bedrock.py` refuses any call on a day whose invocation-
+logging check is not on record (`docs/notes/compliance.md` §3).
+
+### 14.4 Pre-registered predictions
+
+| | claim | direction |
+|---|---|---|
+| P12 | On **each** of the four corpora, the loop's final-round dev `L_full` is lower than the published single-call arm's dev `L_full` (`de-grascco` 0.4146, `es-carmen` 0.6298, `en-deid` 0.7939, `ko-surro` 0.8809). | stated |
+| P13 | On **at least 3 of 4**, test `L_full(RT-loco(loop)) < L_full(RT-loco(single))` (v24b: `de-grascco` 0.1773, `es-carmen` 0.1930, `en-deid` 0.3667, `ko-surro` 0.3494). | stated |
+
+P12 is a dev claim and so it is weak: dev is what the loop is fitted on, and a loop that did not
+lower its own dev leak rate would be a loop that ignored its feedback. It is registered because
+`es-meddocan`'s noaudit repetitions showed it can fail — one of three ended in a format failure
+— and because the comparison is with a *different draw* (§14.0), not with round 1.
+
+P13 is the test claim and it is the one with content. The union can only add coverage, so
+`RT-loco(loop)` loses only if the loop's rules cover fewer of the gold spans the tagger misses
+than the single call's did. The `rules only` cell is what decides it, and §13 measured it
+under LOCO at 6, 5, 4 and 33 dev spans for these four corpora.
+
+### 14.5 Openings
+
+Eight: per corpus, the loop R arm's final round once and `RT-loco(loop)` once, each through
+`src/eval/run_sealed_eval.py` after `--verify-dev` agrees. A refusal is reported as the finding
+and not worked around (§12.6). `results/sealed_eval_log.md` then holds 44 rows.
+
+### 14.6 Gate
+
+No mutation is added for v24d and `TEST_FILES` membership does not change. The source changes
+it brings — the §5.6 driver for `es-carmen` in `src/porting/loop.py` and `tools/run_loop.py`,
+one deny pattern in `tools/release_screen.py`, one axis value — are impact-scope reasons, and the
+full gate stays **deferred until after submission**, as for v24 and v24b: a deferral and not an
+exemption.

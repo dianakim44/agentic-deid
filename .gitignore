@@ -121,3 +121,31 @@ experiments/loco_v24b/checkpoints/
 # LOCO 태거의 dev 예측 캐시. v24 의 preds/ 와 같은 규율 — 오프셋·유형만 담고
 # 재생성 가능하므로 커밋하지 않는다.
 experiments/loco_v24b/preds/
+
+# ─── credentialed 코퍼스의 반복형 arm 규칙·실패 원문 (DESIGN §14, 2026-10-19) ───
+# tools/release_screen.py 의 같은 이름 블록과 1:1. 반복 arm 은 라운드 2 부터 dev 오류
+# 문맥을 받으므로 규칙 파일·형식 실패 원문에 dev 표면형이 들어갈 수 있다.
+results/en-deid/*/*/port-loop*/rules/
+results/en-deid/*/*/port-loop*/format_failure.json
+results/en-deid/*/*/port-multi*/rules/
+results/en-deid/*/*/port-multi*/format_failure.json
+results/en-deid/*/*/port-selfdesign*/rules/
+results/en-deid/*/*/port-selfdesign*/format_failure.json
+results/en-deid/*/*/port-human*/rules/
+results/en-deid/*/*/port-human*/format_failure.json
+results/ko-surro/*/*/port-loop*/rules/
+results/ko-surro/*/*/port-loop*/format_failure.json
+results/ko-surro/*/*/port-multi*/rules/
+results/ko-surro/*/*/port-multi*/format_failure.json
+results/ko-surro/*/*/port-selfdesign*/rules/
+results/ko-surro/*/*/port-selfdesign*/format_failure.json
+results/ko-surro/*/*/port-human*/rules/
+results/ko-surro/*/*/port-human*/format_failure.json
+results/es-carmen/*/*/port-loop*/rules/
+results/es-carmen/*/*/port-loop*/format_failure.json
+results/es-carmen/*/*/port-multi*/rules/
+results/es-carmen/*/*/port-multi*/format_failure.json
+results/es-carmen/*/*/port-selfdesign*/rules/
+results/es-carmen/*/*/port-selfdesign*/format_failure.json
+results/es-carmen/*/*/port-human*/rules/
+results/es-carmen/*/*/port-human*/format_failure.json
