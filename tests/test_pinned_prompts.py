@@ -527,14 +527,20 @@ def test_every_call_line_site_forwards_the_arm():
 def test_the_source_scan_finds_the_sites_there_are():
     """The positive control. A parser that found nothing would pass the test above.
 
-    Four production sites: the oneshot driver, the loop's round-1 and round-N RuleAuthor
-    calls, and its Auditor call, plus `port-multi`'s authoring call. Asserted as a floor
-    rather than an exact count — a sixth driver should not have to edit this number — and
-    the floor is what makes "no sites found" fail.
+    The production sites: the oneshot driver, the loop's RuleAuthor call, its Auditor call,
+    and `port-multi`'s authoring call. Asserted as a floor rather than an exact count — a
+    new driver should not have to edit this number — and the floor is what makes "no sites
+    found" fail.
+
+    **The floor was 5 until 2026-10-19 and is 4 since**, and the reason is a merge, not a
+    loss: DESIGN §5.6 reached the loop driver (§14.1), and its round-1 and round-N RuleAuthor
+    calls became one site inside `loop._author`, which both rounds call once per declared
+    language. One site that every round goes through is the stronger form of what this scan
+    protects — there is one `porting=` to get right instead of two.
     """
     found = sum(len(_call_line_sites(path))
                 for path in sorted((ROOT / "src").rglob("*.py")))
-    assert found >= 5, found
+    assert found >= 4, found
 
 
 # ─── 7. the repetitions declare what the base declares ──────────────────────

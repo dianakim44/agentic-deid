@@ -267,7 +267,32 @@ def _abandoned_spend(corpus: str, detector: str, supervision: str, porting: str,
     }
 
 
-def _check_inputs(corpus: str, lang: str, model_id: str) -> None:
+def _langs(corpus: str, lang) -> list[str]:
+    """The languages a round authors: `lang` as a list, refused unless it is the corpus's.
+
+    DESIGN §5.6. A multilingual corpus's round makes one call per declared language, in the
+    order `corpus_rule_langs` declares, and is scored once over all of them. A single `str`
+    is the one-language case and reduces to what ran before this function existed.
+
+    **A partial list is refused here, before the freeze**, not left to `load_for_corpus`.
+    That refusal exists and would fire at scoring — after the window was frozen and the calls
+    were paid for — so a round given `es` alone on `es-carmen` would spend its call and then
+    have no scorable state. A different order is refused for the same reason the order is
+    declared at all: it is the record of what was asked for (§5.6, point 2).
+    """
+    langs = [lang] if isinstance(lang, str) else list(lang)
+    declared = list(rule_langs(corpus))
+    if langs != declared:
+        raise OrchestrateError(
+            f"{corpus} declares rule languages {declared} (config/naming.yaml "
+            f"corpus_rule_langs) and this round was given {langs}. A round authors every "
+            "declared language, in the declared order, and is scored once over all of them "
+            "(DESIGN §5.6); a subset would spend its calls and then be refused at scoring."
+        )
+    return langs
+
+
+def _check_inputs(corpus: str, lang, model_id: str) -> None:
     """Refuse a call that cannot produce a scored file, before the window is frozen.
 
     The same two conditions `orchestrate.run_arm()` checks inline, and this is a **second
@@ -288,12 +313,94 @@ def _check_inputs(corpus: str, lang: str, model_id: str) -> None:
             "top down; a default here would be the place it stopped being one, and the "
             "recorded value would then describe this file rather than the call."
         )
-    if lang not in rule_langs(corpus):
-        raise OrchestrateError(
-            f"{corpus} does not load a {lang!r} rule file (config/naming.yaml "
-            f"corpus_rule_langs: {rule_langs(corpus)}). One call authors one file, and a "
-            "file no corpus loads would be scored by nothing (DESIGN §5.2)."
+    for one in ([lang] if isinstance(lang, str) else list(lang)):
+        if one not in rule_langs(corpus):
+            raise OrchestrateError(
+                f"{corpus} does not load a {one!r} rule file (config/naming.yaml "
+                f"corpus_rule_langs: {rule_langs(corpus)}). One call authors one file, and "
+                "a file no corpus loads would be scored by nothing (DESIGN §5.2)."
+            )
+    _langs(corpus, lang)
+
+
+def _author(*, corpus: str, langs: list[str], iteration: int, assemble, model_id: str,
+            lifecycle: dict, client, max_tokens: int | None, detector: str,
+            supervision: str, porting: str, split: str, lexicons: Path | None,
+            sample_reference) -> dict:
+    """The RuleAuthor's calls for one round: one per language, in declared order (§5.6).
+
+    Both round functions call this, so the call, the log line, the write and the validation
+    happen in one place for every round and every corpus — the single-language corpora go
+    through it with a one-element list and do exactly what they did before it existed.
+
+    Per language, in this order and for the reasons round 1's docstring gives: assemble, call,
+    unwrap, **log before judging**, write the payload, validate. The run block is built once,
+    after the first call and before the first write, because it records the working tree's
+    state and the writes are in that tree (`orchestrate.run_arm`'s reason). Two calls of one
+    round reporting different model records is a refusal for `run_arm`'s reason: one round
+    has one run block and it names one model.
+
+    **A failure stops the round.** §5.6: "a round is atomic — if one language's call fails, the
+    round has no scorable state". So the first file that does not validate ends the loop, the
+    languages after it are not called (their calls could only be paid for and never scored),
+    and `failure` names the language, the response that failed and its error. The costs of
+    every call made are returned, for `_write_failure`'s reason.
+
+    `sample_reference` maps a prompt reference to the call line's `sample_reference` — `None`
+    in round 1, the error-window reference after it.
+    """
+    kwargs = {} if max_tokens is None else {"max_tokens": max_tokens}
+    out = {"costs": [], "caching": [], "model": None, "run": None, "rules": {},
+           "references": {}, "failure": None}
+    for lang in langs:
+        prompt = assemble(lang)
+        reference = prompt.reference()
+        response = invoke(prompt, model_id=model_id, client=client, **kwargs)
+        record = response.model_record()
+        wrapper = unwrap(response.text, parses=parses_yaml)
+        append_call(
+            call_line(iteration, prompt_reference=reference, model=record,
+                      envelope=wrapper.record(),
+                      outcome=CALLED, cost=response.cost(), model_lifecycle=lifecycle,
+                      role=RULE_AUTHOR, sample_reference=sample_reference(reference),
+                      porting=porting),
+            corpus, detector, supervision, porting,
         )
+        out["costs"].append(response.cost())
+        out["caching"].append(response.caching())
+        if out["model"] and record != out["model"]:
+            raise OrchestrateError(
+                f"the {langs[0]!r} call and the {lang!r} call of round {iteration} report "
+                f"different model records ({out['model']} vs {record}). One round has one "
+                "run block and it cannot name two models; both calls are in "
+                "agent_calls.jsonl, and this round has no scorable state (DESIGN §5.6)."
+            )
+        out["model"] = record
+        if out["run"] is None:
+            out["run"] = _run_block(corpus, detector, supervision, porting, split, record)
+        rules_file = _write_rules(wrapper.payload, corpus=corpus, detector=detector,
+                                  supervision=supervision, porting=porting, lang=lang,
+                                  iteration=iteration)
+        out["rules"][lang] = rules_file
+        out["references"][lang] = reference
+        try:
+            load_rules(lang, path=rules_file, lexicons=lexicons)
+        except RuleError as exc:
+            out["failure"] = {"lang": lang, "response": response.text,
+                              "envelope": wrapper.record(), "error": str(exc),
+                              "rules_path": rules_file, "prompt_reference": reference}
+            break
+    return out
+
+
+def _one_cost(costs: list[dict]) -> dict:
+    """A round's RuleAuthor cost: the block itself for one call, the scorer's sum for more.
+
+    The one-call case returns the call's own block rather than `sum_costs([block])`, so the
+    single-language corpora's records are byte-for-byte what they were before §5.6 reached
+    this driver.
+    """
+    return costs[0] if len(costs) == 1 else sum_costs(costs)
 
 
 def run_iteration_1(*, corpus: str, lang: str, model_id: str,
@@ -437,48 +544,32 @@ def run_iteration_1(*, corpus: str, lang: str, model_id: str,
     # field was `prompt_reference.window_files`, three levels in. The 2026-10-11 round 1 of
     # `port-loop-noaudit` ran that way and is void for it. Tested through the driver rather
     # than through the assembler, because the assembler was already right.
-    prompt = assemble_task_prompt(lang=lang, corpus=corpus, porting=porting)
-    reference = prompt.reference()
-
+    # `porting` reaches the assembler for every language (DESIGN §6.3, the 2026-10-11 defect
+    # this comment used to describe in full); `_author` makes one call per declared language
+    # and logs each before it is judged (§5.6). `role` and `sample_reference` are passed rather
+    # than defaulted — see the docstring.
+    langs = _langs(corpus, lang)
     lifecycle = model_lifecycle(model_id, client=control_client)
-
-    kwargs = {} if max_tokens is None else {"max_tokens": max_tokens}
-    response = invoke(prompt, model_id=model_id, client=client, **kwargs)
-    cost = response.cost()
-    model = response.model_record()
-
-    # One outer fence off if there is exactly one and a YAML mapping is inside; otherwise the
-    # received bytes unchanged, on their way to a loader that will refuse them (DESIGN §6.8).
-    # Before the log line, because the line records what was read as well as what arrived, and
-    # it cannot raise — `orchestrate`'s module docstring argues the ordering.
-    wrapper = unwrap(response.text, parses=parses_yaml)
-
-    # Before the response is judged (the module docstring's step 4). `iteration`, `role` and
-    # `sample_reference` are all passed rather than defaulted — see the docstring; the values
-    # coincide with `call_line()`'s defaults in round 1 and stop coinciding in round 2, which
-    # is why the coincidence is not relied on.
-    append_call(
-        call_line(ITERATION, prompt_reference=reference, model=model,
-                  envelope=wrapper.record(),
-                  outcome=CALLED, cost=cost, model_lifecycle=lifecycle,
-                  role=RULE_AUTHOR, sample_reference=None, porting=porting),
-        corpus, detector, supervision, porting,
+    authored = _author(
+        corpus=corpus, langs=langs, iteration=ITERATION,
+        assemble=lambda one: assemble_task_prompt(lang=one, corpus=corpus, porting=porting),
+        model_id=model_id, lifecycle=lifecycle, client=client, max_tokens=max_tokens,
+        detector=detector, supervision=supervision, porting=porting, split=split,
+        lexicons=lexicons, sample_reference=lambda _reference: None,
     )
-
-    run = _run_block(corpus, detector, supervision, porting, split, model)
-    # The payload, which is the received bytes on every kind but `fenced_once` — the strip
-    # happens once, here, at the write (§6.8). The failure record below carries what arrived.
-    rules_file = _write_rules(wrapper.payload, corpus=corpus, detector=detector,
-                              supervision=supervision, porting=porting, lang=lang,
-                              iteration=ITERATION)
-    try:
-        load_rules(lang, path=rules_file, lexicons=lexicons)
-    except RuleError as exc:
+    cost = _one_cost(authored["costs"])
+    model = authored["model"]
+    run = authored["run"]
+    rules_files = authored["rules"]
+    rules_file = rules_files[langs[0]] if len(langs) == 1 else None
+    if authored["failure"] is not None:
+        failed = authored["failure"]
         failure = _write_failure(
             corpus=corpus, detector=detector, supervision=supervision, porting=porting,
-            split=split, model=model, response=response.text, envelope=wrapper.record(),
-            error=str(exc), rules_path=rules_file, cost=cost, prompt_reference=reference,
-            model_lifecycle=lifecycle,
+            split=split, model=model, response=failed["response"],
+            envelope=failed["envelope"], error=failed["error"],
+            rules_path=failed["rules_path"], cost=cost,
+            prompt_reference=failed["prompt_reference"], model_lifecycle=lifecycle,
         )
         return {
             "iteration": ITERATION,
@@ -486,6 +577,8 @@ def run_iteration_1(*, corpus: str, lang: str, model_id: str,
             "run": run,
             "cost": cost,
             "rules_path": rules_file,
+            "rules_paths": rules_files,
+            "failed_lang": authored["failure"]["lang"],
             "failure_path": failure,
             # See `already_frozen`: `[]` when this round took the freeze, which is a
             # measurement rather than a placeholder.
@@ -508,7 +601,7 @@ def run_iteration_1(*, corpus: str, lang: str, model_id: str,
     # patching that file is a second answer to what the run block contains.
     spans_file, metrics_file, scored = run_fold(
         corpus=corpus, detector=detector, supervision=supervision, porting=porting,
-        split=split, rules={lang: rules_file}, lexicons=lexicons,
+        split=split, rules=rules_files, lexicons=lexicons,
         model_record=model, cost=cost,
         model_lifecycle=lifecycle, iteration=ITERATION, root=orchestrate.ROOT,
     )
@@ -518,6 +611,7 @@ def run_iteration_1(*, corpus: str, lang: str, model_id: str,
         "run": run,
         "cost": cost,
         "rules_path": rules_file,
+        "rules_paths": rules_files,
         "failure_path": None,
         "metrics_path": metrics_file,
         "spans_path": spans_file,
@@ -1031,34 +1125,46 @@ def run_iteration(iteration: int, *, corpus: str, lang: str, model_id: str,
     # §1.2 is *this arm's* round-1 output and never `rules/{lang}.yaml` (DESIGN §5.3). Built
     # through `arm_rules_path` rather than kept from round 1's return value, because a round is
     # runnable on its own and a path passed between processes is a path neither of them checked.
-    previous_rules = arm_rules_path(corpus=corpus, detector=detector,
-                                    supervision=supervision, porting=porting,
-                                    iteration=previous, lang=lang, root=orchestrate.ROOT)
+    #
+    # Per language on a multilingual corpus, and **the same `sample` for every language**:
+    # §5.6 point 1 — one window per arm, and a Catalan passage's misses are Catalan evidence
+    # inside the same sampled window, so each language's call sees the whole round's errors
+    # and its own previous file as §1.2.
+    langs = _langs(corpus, lang)
+    docs_by_id = {d.doc_id: d for d in documents}
 
-    prompt = assemble_iteration_prompt(
-        lang=lang, corpus=corpus, iteration=iteration, rules_path=previous_rules,
-        metrics=previous_metrics, errors=sample,
-        docs_by_id={d.doc_id: d for d in documents},
-        context_chars=sampling_config()["context_chars"],
-        # The report as `audit.report()` assembled it, passed through unmodified: both of its
-        # numbers are taken as given and `prompt._audit_block` checks both against this round.
-        # `None` on an ablated arm, where the assembler renders §1.3's Auditor half empty in
-        # place rather than omitting it — and `porting` is what tells it which of those two a
-        # `None` here means. Without the arm, a missing report at a round ≥ 2 is a driver that
-        # dropped a block, which `assemble_iteration_prompt` refuses and should (DESIGN §6.3).
-        audit_report=report,
-        porting=porting,
-    )
-    reference = prompt.reference()
+    def assemble(one: str):
+        previous_rules = arm_rules_path(corpus=corpus, detector=detector,
+                                        supervision=supervision, porting=porting,
+                                        iteration=previous, lang=one,
+                                        root=orchestrate.ROOT)
+        return assemble_iteration_prompt(
+            lang=one, corpus=corpus, iteration=iteration, rules_path=previous_rules,
+            metrics=previous_metrics, errors=sample,
+            docs_by_id=docs_by_id,
+            context_chars=sampling_config()["context_chars"],
+            # The report as `audit.report()` assembled it, passed through unmodified: both of its
+            # numbers are taken as given and `prompt._audit_block` checks both against this round.
+            # `None` on an ablated arm, where the assembler renders §1.3's Auditor half empty in
+            # place rather than omitting it — and `porting` is what tells it which of those two a
+            # `None` here means. Without the arm, a missing report at a round ≥ 2 is a driver that
+            # dropped a block, which `assemble_iteration_prompt` refuses and should (DESIGN §6.3).
+            audit_report=report,
+            porting=porting,
+        )
 
     lifecycle = model_lifecycle(model_id, client=control_client)
-    kwargs = {} if max_tokens is None else {"max_tokens": max_tokens}
-    response = invoke(prompt, model_id=model_id, client=client, **kwargs)
-    model = response.model_record()
+    authored = _author(
+        corpus=corpus, langs=langs, iteration=iteration, assemble=assemble,
+        model_id=model_id, lifecycle=lifecycle, client=client, max_tokens=max_tokens,
+        detector=detector, supervision=supervision, porting=porting, split=split,
+        lexicons=lexicons, sample_reference=lambda reference: reference["error_spans"],
+    )
+    model = authored["model"]
 
     # The round's spend: the RuleAuthor's one call and the Auditor's N, added by the scorer.
     # `llm_calls` therefore reads 1 + N, which is what the round cost (DESIGN §5.5).
-    cost = sum_costs([response.cost(), *audit_costs])
+    cost = sum_costs([*authored["costs"], *audit_costs])
     # And the arm's, from the previous round's published total plus this round's. The
     # accumulator is the driver's and the addition is still the scorer's; `run_fold` writes
     # both blocks and `check_cost_to_date` refuses a total below the round it contains.
@@ -1076,36 +1182,22 @@ def run_iteration(iteration: int, *, corpus: str, lang: str, model_id: str,
     # round 1 has no block at all: the RuleAuthor's call is not cached, it is the round's only
     # call, and absence is how "this round was not cached" is written (schema 8, DESIGN §6.3).
     # The propagation rule above is what produces that without a branch here.
-    caching = sum_caching([response.caching(), *audit_caching])
+    caching = sum_caching([*authored["caching"], *audit_caching])
 
-    # Before the response is judged (round 1's step 4). `role` and `sample_reference` are the
-    # two values that stop coinciding with `call_line()`'s defaults at this round — the second
-    # is `render_window()`'s reference, nested inside the prompt's, which is what says which
-    # spans this call was shown. The cost on the line is the RuleAuthor's own call and not the
-    # round's total: a log line prices the call it records.
-    # As in round 1, and the same function: one outer fence, only if the payload parses (§6.8).
-    wrapper = unwrap(response.text, parses=parses_yaml)
-
-    append_call(
-        call_line(iteration, prompt_reference=reference, model=model,
-                  envelope=wrapper.record(),
-                  outcome=CALLED, cost=response.cost(), model_lifecycle=lifecycle,
-                  role=RULE_AUTHOR, sample_reference=reference["error_spans"],
-                  porting=porting),
-        corpus, detector, supervision, porting,
-    )
-
-    run = _run_block(corpus, detector, supervision, porting, split, model)
-    rules_file = _write_rules(wrapper.payload, corpus=corpus, detector=detector,
-                              supervision=supervision, porting=porting, lang=lang,
-                              iteration=iteration)
-    try:
-        load_rules(lang, path=rules_file, lexicons=lexicons)
-    except RuleError as exc:
+    # The call lines were written inside `_author`, each before its response was judged
+    # (round 1's step 4); `sample_reference` is `render_window()`'s reference, which is what
+    # says which spans the call was shown, and a line's cost is its own call's.
+    run = authored["run"]
+    rules_files = authored["rules"]
+    rules_file = rules_files[langs[0]] if len(langs) == 1 else None
+    if authored["failure"] is not None:
+        failed = authored["failure"]
         failure = _write_failure(
             corpus=corpus, detector=detector, supervision=supervision, porting=porting,
-            split=split, model=model, response=response.text, envelope=wrapper.record(),
-            error=str(exc), rules_path=rules_file, cost=cost, prompt_reference=reference,
+            split=split, model=model, response=failed["response"],
+            envelope=failed["envelope"], error=failed["error"],
+            rules_path=failed["rules_path"], cost=cost,
+            prompt_reference=failed["prompt_reference"],
             model_lifecycle=lifecycle, caching=caching, abandoned_spend=abandoned,
         )
         return {
@@ -1120,6 +1212,8 @@ def run_iteration(iteration: int, *, corpus: str, lang: str, model_id: str,
             # number without the second (DESIGN §11.3).
             "caching": caching,
             "rules_path": rules_file,
+            "rules_paths": rules_files,
+            "failed_lang": authored["failure"]["lang"],
             "failure_path": failure,
             "metrics_path": None,
             "spans_path": None,
@@ -1149,7 +1243,7 @@ def run_iteration(iteration: int, *, corpus: str, lang: str, model_id: str,
     # why this round ran at all.
     spans_file, metrics_file, scored = run_fold(
         corpus=corpus, detector=detector, supervision=supervision, porting=porting,
-        split=split, rules={lang: rules_file}, lexicons=lexicons,
+        split=split, rules=rules_files, lexicons=lexicons,
         model_record=model, cost=cost,
         cost_to_date=cost_to_date, caching=caching, abandoned_spend=abandoned,
         model_lifecycle=lifecycle,
@@ -1171,6 +1265,7 @@ def run_iteration(iteration: int, *, corpus: str, lang: str, model_id: str,
         "cost_to_date": cost_to_date,
         "caching": caching,
         "rules_path": rules_file,
+        "rules_paths": rules_files,
         "failure_path": None,
         "metrics_path": metrics_file,
         "spans_path": spans_file,

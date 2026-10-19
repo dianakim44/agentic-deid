@@ -150,25 +150,42 @@ def _fold_size(corpus: str, fold: str) -> int:
     return value
 
 
+def _langs_of(args) -> list[str]:
+    """`--lang` as a list. argparse gives one (`nargs="+"`); a hand-built namespace may hold
+    a `str`, and indexing that would read its first character as a language."""
+    return [args.lang] if isinstance(args.lang, str) else list(args.lang)
+
+
 def _check_lang(args) -> str | None:
     """`--lang` must be one the corpus loads. Returns a message or `None`.
 
     **This check moved here from `run_arm.py`'s `_check_axes` on 2026-09-28**, when DESIGN §5.6
     took the language off the arm entirely: `port-oneshot` now authors one file per language in
     `corpus_rule_langs` and refuses the flag, so the shared axis validator has no language to
-    validate. This rung still takes one language per round — §5.6's per-round inheritance is
-    not implemented in `src/porting/loop.py` yet — so the check is still needed, and it is
-    needed *here*, which is the only caller that has a language to check.
+    validate. This rung kept the flag, and on 2026-10-19 (DESIGN §14.1) §5.6's per-round
+    inheritance reached `src/porting/loop.py`: a round authors every declared language, one
+    call each, in the declared order, and is scored once over all of them. So the flag now
+    takes the corpus's whole list (`es cat` on `es-carmen`) and this check refuses a subset or
+    a reordering before anything is spent — `loop._langs` refuses the same thing one layer
+    down, for a caller that is not this tool.
 
-    Unchanged in what it does. One call authors one file, and a file no corpus loads would be
-    scored by nothing (DESIGN §5.2), so the refusal quotes `corpus_rule_langs` rather than the
-    corpus's name: the mapping is the authority.
+    One call authors one file, and a file no corpus loads would be scored by nothing (DESIGN
+    §5.2), so the refusal quotes `corpus_rule_langs` rather than the corpus's name: the
+    mapping is the authority.
     """
-    if args.lang not in rule_langs(args.corpus):
-        return (f"--lang {args.lang!r} is not a rule-file language of {args.corpus}. Its "
-                f"corpus_rule_langs is {rule_langs(args.corpus)} (config/naming.yaml, DESIGN "
-                "§5.2), and a file no corpus loads would be authored, paid for and scored by "
-                "nothing.")
+    for one in _langs_of(args):
+        if one not in rule_langs(args.corpus):
+            return (f"--lang {one!r} is not a rule-file language of {args.corpus}. Its "
+                    f"corpus_rule_langs is {rule_langs(args.corpus)} (config/naming.yaml, "
+                    "DESIGN §5.2), and a file no corpus loads would be authored, paid for and "
+                    "scored by nothing.")
+    # DESIGN §5.6: a round authors every declared language, in the declared order. A subset
+    # would be paid for and then refused at scoring, so it is refused here, before the spend.
+    if _langs_of(args) != list(rule_langs(args.corpus)):
+        return (f"--lang {' '.join(_langs_of(args))} is not {args.corpus}'s declared rule languages "
+                f"in order ({' '.join(rule_langs(args.corpus))}, config/naming.yaml "
+                "corpus_rule_langs). A round makes one call per declared language and is "
+                "scored once over all of them (DESIGN §5.6).")
     return None
 
 
@@ -226,7 +243,7 @@ def _plan(args, history, n_docs: int) -> list[str]:
 
     components = {"corpus": args.corpus, "detector": args.detector,
                   "supervision": args.supervision, "porting": args.porting,
-                  "lang": args.lang, "iteration": args.iteration}
+                  "lang": _langs_of(args)[0], "iteration": args.iteration}
     commit, tree = sealed_log.tree_state()
     resolution = _resolution(args.model_id, args.model_id)
     ceiling = termination_params()["ceiling"]
@@ -245,17 +262,20 @@ def _plan(args, history, n_docs: int) -> list[str]:
         + ("(no feedback: §§1.3-1.4 are stated empty, which is `port-oneshot`'s one call)"
            if first else f"(§§1.2-1.4 come from round {args.iteration - 1})"),
         f"split        {args.split}   (scored fold)",
-        f"lang         {args.lang}",
+        f"lang         {' '.join(_langs_of(args))}",
         f"model_id     {args.model_id}",
         f"resolution   {resolution}   (what the run block will record if the response "
         "agrees)",
         f"commit       {commit or '(unknown)'}  tree {tree}",
         "",
-        f"calls        1 {orchestrate.RULE_AUTHOR}"
+        f"calls        {len(_langs_of(args))} {orchestrate.RULE_AUTHOR}"
+        + (f" (one per language, DESIGN §5.6)" if len(_langs_of(args)) > 1 else "")
         + ("   (round 1 calls no Auditor)" if first else
-           f"   (this arm declares {loop.AUDITOR} absent, so every round is 1 call — "
-           "DESIGN §6.3)" if not audits else
-           f" + {n_docs} {loop.AUDITOR} (one per {args.split} document) = {1 + n_docs}"),
+           f"   (this arm declares {loop.AUDITOR} absent, so every round is "
+           f"{len(_langs_of(args))} call{'s' if len(_langs_of(args)) > 1 else ''} — DESIGN §6.3)"
+           if not audits else
+           f" + {n_docs} {loop.AUDITOR} (one per {args.split} document) = "
+           f"{len(_langs_of(args)) + n_docs}"),
     ]
 
     # The window, field by field, from the window's own definition — six files since
@@ -369,8 +389,9 @@ def _plan(args, history, n_docs: int) -> list[str]:
     keys = (*ARM_KEYS, *ROUND_KEYS) if history is None or not audits else \
         (*ARM_KEYS, *ROUND_KEYS, AUDIT_KEY)
     lines.append("")
-    lines.append(f"{'armrules':14}->  "
-                 f"{arm_rules_path(**components, root=ROOT).relative_to(ROOT)}")
+    for one in _langs_of(args):
+        lines.append(f"{'armrules':14}->  "
+                     f"{arm_rules_path(**{**components, 'lang': one}, root=ROOT).relative_to(ROOT)}")
     for key in keys:
         lines.append(f"{key:14}->  {path_template(key).format(**components)}")
     if history is not None and audits:
@@ -385,9 +406,10 @@ def main(argv: list[str] | None = None) -> int:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     ap.add_argument("--corpus", required=True, help="corpus id from naming.yaml")
-    ap.add_argument("--lang", required=True,
-                    help="the rule-file language this round authors; must be one the "
-                         "corpus loads (corpus_rule_langs, DESIGN §5.2)")
+    ap.add_argument("--lang", required=True, nargs="+",
+                    help="the rule-file language(s) this round authors: the corpus's "
+                         "declared corpus_rule_langs, in order (DESIGN §5.2, §5.6). One for "
+                         "every corpus but es-carmen, which takes `es cat`")
     ap.add_argument("--iteration", required=True, type=int,
                     help="which round to run. Required and with no default, for "
                          "`loop.run_iteration()`'s reason: a default round number is a "
@@ -545,7 +567,12 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     print()
-    common = dict(corpus=args.corpus, lang=args.lang, model_id=args.model_id,
+    # One language passes a `str`, as every caller did before DESIGN §5.6 reached this
+    # driver; more pass the list (`loop._langs`).
+    common = dict(corpus=args.corpus,
+                  lang=(_langs_of(args)[0] if len(_langs_of(args)) == 1
+                        else _langs_of(args)),
+                  model_id=args.model_id,
                   detector=args.detector, supervision=args.supervision,
                   porting=args.porting, split=args.split, max_tokens=args.max_tokens)
     if on_multi:
@@ -579,7 +606,11 @@ def main(argv: list[str] | None = None) -> int:
         print(f"cost_to_date {total['llm_calls']} calls, {total['prompt_tokens']} prompt + "
               f"{total['completion_tokens']} completion tokens, "
               f"{total['wall_seconds']}s wall   (the arm)")
-    print(f"rules        {Path(out['rules_path']).relative_to(ROOT)}")
+    for one, path in (out.get("rules_paths") or {}).items():
+        print(f"rules        {Path(path).relative_to(ROOT)}   ({one})")
+    if out.get("failed_lang"):
+        print(f"failed_lang  {out['failed_lang']}   (DESIGN §5.6: the round is atomic, and the "
+              "languages after it were not called)")
     if out.get("audit_report_path"):
         print(f"audit        {Path(out['audit_report_path']).relative_to(ROOT)}")
 
